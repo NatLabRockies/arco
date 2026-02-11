@@ -1,0 +1,27 @@
+name: Setup Build Environment
+description: Install Python tooling, Rust toolchain, cache, and sync packaging licenses.
+
+inputs:
+  python-version:
+    description: Python version for uv-managed commands.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+      with:
+        toolchain: "1.85"
+
+    - name: Cache Rust build artifacts
+      uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+
+    - name: Sync Python license files
+      shell: bash
+      run: python scripts/sync_python_licenses.py

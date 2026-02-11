@@ -2,7 +2,7 @@ version: 2
 
 updates:
   - package-ecosystem: "uv"
-    directory: "/"
+    directory: "/bindings/python"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 2

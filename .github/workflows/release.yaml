@@ -24,6 +24,7 @@ jobs:
       release_created: ${{ steps.release.outputs.release_created }}
       release_tag: ${{ steps.release.outputs.tag_name }}
       release_version: ${{ steps.release.outputs.version }}
+      release_sha: ${{ steps.release.outputs.sha }}
     steps:
       - name: Run release-please
         id: release
@@ -46,25 +47,14 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ needs.release-please.outputs.release_tag }}
+          ref: ${{ needs.release-please.outputs.release_sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
-        with:
-          toolchain: "1.85"
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
-
-      - name: Sync Python license files
-        run: python scripts/sync_python_licenses.py
 
       - name: Build wheel
         run:
@@ -90,25 +80,14 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ needs.release-please.outputs.release_tag }}
+          ref: ${{ needs.release-please.outputs.release_sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
         with:
           python-version: "3.12"
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
-        with:
-          toolchain: "1.85"
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
-
-      - name: Sync Python license files
-        run: python scripts/sync_python_licenses.py
 
       - name: Build source distribution
         run:
