@@ -127,7 +127,7 @@ jobs:
           path: dist/*.tar.gz
 
   attach-release-artifacts:
-    name: Attach Artifacts to GitHub Release
+    name: Attach Artifacts to Draft GitHub Release
     needs:
       - release-please
       - build-wheels
@@ -175,3 +175,19 @@ jobs:
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
         with:
           packages-dir: dist
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs:
+      - release-please
+      - publish-pypi
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Mark release as published after PyPI succeeds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.release_tag }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest

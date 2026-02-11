@@ -38,11 +38,12 @@ The repository ships GitHub Actions for package validation and release:
 - `CI` runs install/import smoke tests for built wheels across Python 3.10-3.14,
   validates source-distribution installation, and runs docs doctests.
 - `Release and Publish` runs `release-please` automatically on `main`; when a
-  release is created it builds wheels/sdist, uploads those artifacts to the
-  GitHub Release, and publishes to PyPI.
+  release is created it first creates a draft GitHub release, then builds
+  wheels/sdist, uploads those artifacts, publishes to PyPI, and finally marks
+  the GitHub release as published.
 - Releases follow one platform version stream (`arco`) that updates workspace
   and Python package versions together.
-- `arco-python` publishes artifacts and releases; Rust crates are internal and
+- `arco` publishes artifacts and releases; Rust crates are internal and
   versioned as part of the same platform release.
 - Shared package smoke logic lives in `scripts/python_package_smoke.py`.
 - For policy and operator guidance, use [`RELEASE_POLICY.md`](RELEASE_POLICY.md)

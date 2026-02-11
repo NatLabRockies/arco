@@ -27,9 +27,14 @@ version.
 
 ## Publishing Behavior
 
-- `arco-python` is the published package (PyPI + GitHub release artifacts).
+- `arco` is the published package (PyPI + GitHub release artifacts).
 - Rust crates are internal implementation units and are not independently
   published from this repository.
+- Release order is:
+  1. `release-please` creates a draft GitHub release and tag.
+  2. CI builds wheels/sdist and attaches artifacts to that draft release.
+  3. CI publishes the same artifacts to PyPI.
+  4. CI marks the GitHub release as published (non-draft).
 
 ## How To Read Release PRs
 
