@@ -1,0 +1,19 @@
+[package]
+name = "arco-blocks"
+version = { workspace = true }
+description = "Block orchestration primitives for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-tools = { workspace = true }
+pyo3 = { workspace = true }
+tracing = { workspace = true }

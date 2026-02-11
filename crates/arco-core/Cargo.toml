@@ -1,0 +1,24 @@
+[package]
+name = "arco-core"
+version = { workspace = true }
+description = "Core model builder for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-expr = { workspace = true }
+arco-tools = { workspace = true }
+tracing = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+default = []
+arrow = []

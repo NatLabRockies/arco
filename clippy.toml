@@ -1,0 +1,5 @@
+cognitive-complexity-threshold = 30
+too-many-lines-threshold = 150
+too-many-arguments-threshold = 8
+enum-variant-size-threshold = 256
+msrv = "1.85"

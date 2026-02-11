@@ -1,0 +1,18 @@
+[package]
+name = "arco-tools"
+version = { workspace = true }
+description = "Development tools and memory instrumentation for Arco"
+license-file = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing = { workspace = true }
+sysinfo = { workspace = true }

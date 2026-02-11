@@ -1,0 +1,23 @@
+[package]
+name = "arco-bench"
+version = { workspace = true }
+description = "Benchmark runner and reporting interface for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+readme = "README.md"
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-core = { workspace = true }
+arco-expr = { workspace = true }
+arco-tools = { workspace = true }
+clap = { version = "4.5.23", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { workspace = true }

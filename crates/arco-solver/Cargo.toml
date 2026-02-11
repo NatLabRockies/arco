@@ -1,0 +1,18 @@
+[package]
+name = "arco-solver"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+authors = { workspace = true }
+description = "Shared solver abstractions for Arco optimization"
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]

@@ -1,0 +1,33 @@
+[package]
+name = "arco-python"
+version = { workspace = true }
+description = "Bindings of arco for Python"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = "licenses/BSD-3-Clause.txt"
+publish = false
+
+[lib]
+name = "arco"
+crate-type = ["cdylib"]
+test = false
+
+[dependencies]
+pyo3 = { workspace = true, features = ["extension-module"] }
+arco-core = { workspace = true }
+arco-expr = { workspace = true }
+arco-highs = { workspace = true }
+arco-blocks = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+
+[features]
+default = []
+arrow = []
+
+[lints]
+workspace = true

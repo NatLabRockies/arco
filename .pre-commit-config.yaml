@@ -1,0 +1,43 @@
+default_stages:
+  - pre-commit
+
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+  - pre-push
+
+repos:
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+      - id: check-added-large-files
+      - id: end-of-file-fixer
+      - id: check-case-conflict
+      - id: fix-byte-order-marker
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: check-xml
+      - id: mixed-line-ending
+      - id: check-symlinks
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: no-commit-to-branch
+      - id: check-executables-have-shebangs
+
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.10.0
+    hooks:
+      - id: commitizen
+        stages:
+          - commit-msg
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest (quick)
+        entry: just py-test
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
