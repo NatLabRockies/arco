@@ -10,7 +10,7 @@
       "extra-files": [
         {
           "type": "toml",
-          "path": "/Cargo.toml",
+          "path": "Cargo.toml",
           "jsonpath": "$.workspace.package.version"
         },
         {
@@ -20,7 +20,7 @@
         },
         {
           "type": "toml",
-          "path": "uv.lock",
+          "path": "bindings/python/uv.lock",
           "jsonpath": "$.package[?(@.name=='arco')].version"
         }
       ]
