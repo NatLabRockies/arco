@@ -146,6 +146,7 @@ jobs:
       - name: Upload artifacts to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.release-please.outputs.release_tag }}
         run: gh release upload "$RELEASE_TAG" dist/* --clobber
 
@@ -189,5 +190,6 @@ jobs:
       - name: Mark release as published after PyPI succeeds
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.release-please.outputs.release_tag }}
         run: gh release edit "$RELEASE_TAG" --draft=false --latest
