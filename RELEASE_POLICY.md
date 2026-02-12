@@ -31,10 +31,9 @@ version.
 - Rust crates are internal implementation units and are not independently
   published from this repository.
 - Release order is:
-  1. `release-please` creates a draft GitHub release and tag.
-  2. CI builds wheels/sdist and attaches artifacts to that draft release.
-  3. CI publishes the same artifacts to PyPI.
-  4. CI marks the GitHub release as published (non-draft).
+  1. `release-please` creates a published GitHub release and tag.
+  2. CI builds wheels and attaches artifacts to that release.
+  3. CI publishes the same wheel artifacts to PyPI.
 
 ## How To Read Release PRs
 
@@ -77,3 +76,7 @@ Release-As: 0.2.1
 
 Forced versions apply to the single platform release and propagate to all
 tracked version files.
+
+Use `Release-As` only for one-off overrides. If a stale release PR resurfaces
+an old forced version, close the stale PR and remove any stale draft release for
+that tag before rerunning release automation.
