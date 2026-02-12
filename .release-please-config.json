@@ -6,7 +6,9 @@
   "packages": {
     ".": {
       "release-type": "simple",
+      "bump-minor-pre-major": true,
       "component": "arco",
+      "prerelease": false,
       "include-component-in-tag": true,
       "extra-files": [
         {

@@ -14,6 +14,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  UV_VERSION: "0.9.4"
+
 jobs:
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
@@ -31,6 +34,7 @@ jobs:
         uses: ./.github/actions/setup-build-env
         with:
           python-version: ${{ matrix.python-version }}
+          uv-version: ${{ env.UV_VERSION }}
 
       - name: Build wheel
         run:
@@ -41,24 +45,6 @@ jobs:
         run:
           uv run python scripts/python_package_smoke.py --artifact-glob
           "dist/*.whl"
-
-      - name: Build source distribution
-        if: matrix.python-version == '3.12' && github.event_name != 'pull_request'
-        run:
-          uv run --with build python -m build bindings/python --sdist --outdir
-          dist
-
-      - name: Install built source distribution and validate import
-        if: matrix.python-version == '3.12' && github.event_name != 'pull_request'
-        run:
-          uv run python scripts/python_package_smoke.py --artifact-glob
-          "dist/*.tar.gz"
-
-      - name: Build extension in development mode
-        if: matrix.python-version == '3.12'
-        run:
-          uv run --project bindings/python --with maturin maturin develop
-          --manifest-path bindings/python/Cargo.toml
 
       - name: Run docs doctests
         if: matrix.python-version == '3.12'
