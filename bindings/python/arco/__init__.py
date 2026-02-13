@@ -5,11 +5,11 @@ from dataclasses import is_dataclass
 import inspect
 from typing import Any, Callable, TypeVar, overload
 
-from .arco import *  # noqa: F401,F403
+from .arco import *  # noqa: F403
 from . import arco as _arco
 
 __doc__ = _arco.__doc__
-__all__ = list(getattr(_arco, "__all__", []))
+__all__ = list(getattr(_arco, "__all__", dir(_arco)))
 
 _BlockFnT = TypeVar("_BlockFnT", bound=Callable[..., Any])
 
@@ -20,8 +20,11 @@ _ARCO_BLOCK_INPUT_FIELDS_ATTR = "__arco_block_input_fields__"
 _ARCO_BLOCK_EXPECTS_CTX_ATTR = "__arco_block_expects_ctx__"
 
 
+_PydanticBaseModel: type | None
 try:
-    from pydantic import BaseModel as _PydanticBaseModel
+    from pydantic import BaseModel
+
+    _PydanticBaseModel = BaseModel
 except Exception:  # pragma: no cover - optional dependency
     _PydanticBaseModel = None
 
@@ -44,7 +47,9 @@ def _schema_fields(schema: Any) -> dict[str, Any]:
             name: getattr(field, "annotation", Any)
             for name, field in schema.model_fields.items()
         }
-    raise TypeError("block: input schema must be a dataclass or pydantic BaseModel type")
+    raise TypeError(
+        "block: input schema must be a dataclass or pydantic BaseModel type"
+    )
 
 
 def _decorate_block(*, func: _BlockFnT, name: str | None) -> _BlockFnT:
@@ -57,7 +62,10 @@ def _decorate_block(*, func: _BlockFnT, name: str | None) -> _BlockFnT:
         raise TypeError("block: expected signature (model, data) or (model, data, ctx)")
 
     for param in params:
-        if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
             raise TypeError("block: variadic *args/**kwargs are not supported")
         if param.kind is inspect.Parameter.KEYWORD_ONLY:
             raise TypeError("block: keyword-only parameters are not supported")
@@ -66,7 +74,9 @@ def _decorate_block(*, func: _BlockFnT, name: str | None) -> _BlockFnT:
     if data_annotation is inspect.Signature.empty:
         raise TypeError("block: data parameter must include a schema annotation")
     if not _is_supported_schema_type(data_annotation):
-        raise TypeError("block: input schema must be a dataclass or pydantic BaseModel type")
+        raise TypeError(
+            "block: input schema must be a dataclass or pydantic BaseModel type"
+        )
 
     setattr(func, _ARCO_BLOCK_MARKER_ATTR, True)
     setattr(func, _ARCO_BLOCK_NAME_ATTR, name or func.__name__)
@@ -90,6 +100,7 @@ def block(
     name: str | None = None,
 ) -> _BlockFnT | Callable[[_BlockFnT], _BlockFnT]:
     if func is None:
+
         def decorator(inner: _BlockFnT) -> _BlockFnT:
             return _decorate_block(func=inner, name=name)
 
