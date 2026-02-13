@@ -44,7 +44,7 @@ Changelog = "https://github.com/pesap/arco/releases"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-include = ["arco.pyi"]
+include = ["arco/py.typed", "arco/arco.pyi", "arco/blocks.pyi"]
 python-source = "."
 
 [dependency-groups]
