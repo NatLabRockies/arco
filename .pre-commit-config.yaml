@@ -41,3 +41,12 @@ repos:
         types: [python]
         pass_filenames: false
         stages: [pre-push]
+
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: prettier --write --ignore-unknown
+        language: node
+        additional_dependencies: ["prettier@3"]
+        types_or: [yaml, json5]
