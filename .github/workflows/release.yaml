@@ -62,13 +62,11 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
 
       - name: Build wheel
-        run:
-          uv run --with maturin maturin build --release --manifest-path
+        run: uv run --with maturin maturin build --release --manifest-path
           bindings/python/Cargo.toml --out dist --interpreter python
 
       - name: Smoke test wheel install and import
-        run:
-          uv run python scripts/python_package_smoke.py --artifact-glob
+        run: uv run python scripts/python_package_smoke.py --artifact-glob
           "dist/*.whl"
 
       - name: Upload wheel artifact
