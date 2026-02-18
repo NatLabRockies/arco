@@ -27,7 +27,7 @@ class CapacityOut:
 @block
 def build_capacity(model: arco.Model, data: CapacityIn) -> None:
     x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=data.capacity), name="x")
-    model.minimize(expr=x)
+    model.minimize(x)
 
 def extract_capacity(result, data: CapacityIn) -> CapacityOut:
     return CapacityOut(level=result.get_primal(index=0))
@@ -49,7 +49,7 @@ class DemandOut(BaseModel):
 @block
 def build_demand(model: arco.Model, data: DemandIn) -> None:
     y = model.add_variable(bounds=arco.Bounds(lower=data.floor, upper=100.0), name="y")
-    model.minimize(expr=y)
+    model.minimize(y)
 
 def extract_demand(result, data: DemandIn) -> DemandOut:
     return DemandOut(value=result.get_primal(index=0))

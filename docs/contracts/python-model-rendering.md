@@ -10,9 +10,9 @@ This file encodes rendering guarantees for the Python API as executable doctests
 >>> x3 = model.add_variable(bounds=arco.Binary, name="x[3]")
 >>> x4 = model.add_variable(bounds=arco.Binary, name="x[4]")
 >>> x5 = model.add_variable(bounds=arco.Binary, name="x[5]")
->>> _ = model.add_constraint(expr=2.0 * x1 + 8.0 * x2 + 4.0 * x3 + 2.0 * x4 + 5.0 * x5 <= 10.0)
->>> _ = model.add_constraint(expr=x1 + x3 - x5 == 0.0)
->>> model.maximize(expr=5.0 * x1 + 3.0 * x2 + 2.0 * x3 + 7.0 * x4 + 4.0 * x5)
+>>> _ = model.add_constraint(2.0 * x1 + 8.0 * x2 + 4.0 * x3 + 2.0 * x4 + 5.0 * x5 <= 10.0)
+>>> _ = model.add_constraint(x1 + x3 - x5 == 0.0)
+>>> model.maximize(5.0 * x1 + 3.0 * x2 + 2.0 * x3 + 7.0 * x4 + 4.0 * x5)
 >>> rendered = str(model)
 >>> rendered.startswith("Max 5 x[1] + 3 x[2] + 2 x[3] + 7 x[4] + 4 x[5]")
 True
@@ -45,9 +45,9 @@ True
 >>> import arco
 >>> model = arco.Model()
 >>> vars_ = [model.add_variable(bounds=arco.Binary, name=f"x[{i + 1}]") for i in range(35)]
->>> model.minimize(expr=sum(vars_))
+>>> model.minimize(sum(vars_))
 >>> for idx in range(22):
-...     _ = model.add_constraint(expr=sum(vars_) <= float(idx), name=f"c[{idx + 1}]")
+...     _ = model.add_constraint(sum(vars_) <= float(idx), name=f"c[{idx + 1}]")
 >>> preview = str(model)
 >>> "... (5 more terms)" in preview
 True
@@ -75,8 +75,8 @@ True
 ... )
 >>> capacity = {"solar": 50.0, "wind": 80.0, "gas": 100.0}
 >>> caps = [capacity[name] for name in g.members] * t.size
->>> _ = model.add_constraints(expr=gen <= caps)
->>> _ = model.add_constraints(expr=gen.sum(over=g) >= [120.0, 90.0])
+>>> _ = model.add_constraints(gen <= caps)
+>>> _ = model.add_constraints(gen.sum(over=g) >= [120.0, 90.0])
 >>> rendered = str(model)
 >>> "Index sets:" in rendered
 True

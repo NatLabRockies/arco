@@ -48,8 +48,8 @@ status to decide what to do next.
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=1.0))
->>> _ = model.add_constraint(expr=x >= 5.0)
->>> model.minimize(expr=x)
+>>> _ = model.add_constraint(x >= 5.0)
+>>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_infeasible()
 True
@@ -85,16 +85,16 @@ error and continue rather than crash.
 The table below lists the most common error classes. All inherit from
 `arco.ArcoError`.
 
-| Error | Description |
-|-------|-------------|
-| `ModelEmptyError` | Model has no variables |
-| `ObjectiveMissingError` | No objective set before solving |
-| `ObjectiveAlreadySetError` | Objective already defined |
-| `BoundsInvalidError` | Lower bound exceeds upper bound |
-| `VariableInvalidBoundsError` | Variable bounds are invalid |
-| `ConstraintInvalidBoundsError` | Constraint bounds are invalid |
-| `SlackInvalidPenaltyError` | Slack penalty must be finite and non-negative |
-| `ArrayShapeMismatchError` | Array dimensions don't match |
+| Error                          | Description                                   |
+| ------------------------------ | --------------------------------------------- |
+| `ModelEmptyError`              | Model has no variables                        |
+| `ObjectiveMissingError`        | No objective set before solving               |
+| `ObjectiveAlreadySetError`     | Objective already defined                     |
+| `BoundsInvalidError`           | Lower bound exceeds upper bound               |
+| `VariableInvalidBoundsError`   | Variable bounds are invalid                   |
+| `ConstraintInvalidBoundsError` | Constraint bounds are invalid                 |
+| `SlackInvalidPenaltyError`     | Slack penalty must be finite and non-negative |
+| `ArrayShapeMismatchError`      | Array dimensions don't match                  |
 
 > [!NOTE]
 > Solver outcomes such as infeasible, unbounded, and time limit are not

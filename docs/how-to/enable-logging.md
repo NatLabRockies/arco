@@ -11,7 +11,7 @@ solver.
 >>> _ = arco.enable_logging(level="arco=debug,highs=info")
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0))
->>> model.minimize(expr=x)
+>>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL

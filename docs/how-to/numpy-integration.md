@@ -27,8 +27,8 @@ can hand to the solver as an objective.
 >>> objective = np.sum(costs * gen)
 >>> type(objective).__name__
 'Expr'
->>> _ = model.add_constraints(expr=gen >= [50.0, 30.0, 0.0])
->>> model.minimize(expr=objective)
+>>> _ = model.add_constraints(gen >= [50.0, 30.0, 0.0])
+>>> model.minimize(objective)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -46,8 +46,8 @@ to the mathematical notation.
 >>> units = arco.IndexSet("unit", members=["solar", "wind", "gas"])
 >>> costs = np.array([5.0, 3.0, 30.0])
 >>> gen = model.add_variables(index_sets=[units], bounds=arco.Bounds(lower=0.0, upper=100.0))
->>> _ = model.add_constraints(expr=gen >= [40.0, 40.0, 0.0])
->>> model.minimize(expr=np.dot(costs, gen))
+>>> _ = model.add_constraints(gen >= [40.0, 40.0, 0.0])
+>>> model.minimize(np.dot(costs, gen))
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.objective_value, 6)
 320.0
@@ -199,7 +199,7 @@ dimensions at once. Passing no argument sums everything to a scalar.
 >>> total = x.sum()
 >>> type(total).__name__
 'Expr'
->>> model.minimize(expr=total)
+>>> model.minimize(total)
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.objective_value, 6)
 0.0
@@ -223,8 +223,8 @@ each element is the sum of the corresponding variables. This works with both
 'ExprArray'
 >>> combined.shape
 (3,)
->>> _ = model.add_constraints(expr=combined >= [40.0, 30.0, 25.0])
->>> model.minimize(expr=np.sum(combined))
+>>> _ = model.add_constraints(combined >= [40.0, 30.0, 25.0])
+>>> model.minimize(np.sum(combined))
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.objective_value, 6)
 95.0

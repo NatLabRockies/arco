@@ -58,7 +58,7 @@ is handy for quick objectives or aggregate constraints.
 ... )
 >>> gen.shape
 (2, 3)
->>> model.minimize(expr=gen.sum())
+>>> model.minimize(gen.sum())
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -120,13 +120,13 @@ zips per-unit costs with the flattened variables and sums the products.
 ... )
 >>>
 >>> caps = [capacity[g] for g in G.members] * T.size
->>> _ = model.add_constraints(expr=gen <= caps)
+>>> _ = model.add_constraints(gen <= caps)
 >>>
->>> _ = model.add_constraints(expr=gen.sum(over=G) >= demand)
+>>> _ = model.add_constraints(gen.sum(over=G) >= demand)
 >>>
 >>> costs = [cost[g] for g in G.members] * T.size
 >>> obj = sum(c * v for c, v in zip(costs, gen.flatten()))
->>> model.minimize(expr=obj)
+>>> model.minimize(obj)
 >>>
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status

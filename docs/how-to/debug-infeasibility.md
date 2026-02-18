@@ -16,8 +16,8 @@ requirements are contradictory, and the solver will tell you so.
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=1.0))
->>> _ = model.add_constraint(expr=x >= 5.0)
->>> model.minimize(expr=x)
+>>> _ = model.add_constraint(x >= 5.0)
+>>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_infeasible()
 True
@@ -44,8 +44,8 @@ want to relax, and the penalty cost to `model.add_slack()`.
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=2.0))
->>> con = model.add_constraint(expr=x >= 5.0, name="difficult")
->>> model.minimize(expr=x)
+>>> con = model.add_constraint(x >= 5.0, name="difficult")
+>>> model.minimize(x)
 >>> slack = model.add_slack(
 ...     constraint=con,
 ...     bound="lower",
@@ -78,9 +78,9 @@ returns a list of `SlackVariable` objects.
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> c1 = model.add_constraint(expr=x >= 20.0, name="target_a")
->>> c2 = model.add_constraint(expr=x >= 15.0, name="target_b")
->>> model.minimize(expr=x)
+>>> c1 = model.add_constraint(x >= 20.0, name="target_a")
+>>> c2 = model.add_constraint(x >= 15.0, name="target_b")
+>>> model.minimize(x)
 >>> slacks = model.add_slacks([c1, c2], bound="lower", penalty=1000.0)
 >>> len(slacks)
 2
@@ -108,8 +108,8 @@ As with slacks, set the objective before making a constraint elastic.
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> con = model.add_constraint(expr=x == 5.0, name="target")
->>> model.minimize(expr=x)
+>>> con = model.add_constraint(x == 5.0, name="target")
+>>> model.minimize(x)
 >>> elastic = model.make_elastic(
 ...     constraint=con,
 ...     upper_penalty=100.0,
