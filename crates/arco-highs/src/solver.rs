@@ -168,7 +168,12 @@ impl Solver {
 
     /// Solve the model and return the solution
     pub fn solve(&mut self) -> Result<Solution, SolverError> {
-        self.solve_with_config(&self.config.clone())
+        solve_model(
+            &self.model,
+            &self.config,
+            self.primal_start.as_deref(),
+            self.use_async_crs,
+        )
     }
 
     /// Solve the model with a specific configuration
@@ -668,10 +673,7 @@ fn solve_model(
     let objective_value = highs_model
         .objective_value()
         .map_err(highs_model_error_to_solver_error)?;
-    let primal_values = snapshot.col_values().to_vec();
-    let variable_duals = snapshot.col_duals().to_vec();
-    let constraint_duals = snapshot.row_duals().to_vec();
-    let row_values = snapshot.row_values().to_vec();
+    let (primal_values, variable_duals, row_values, constraint_duals) = snapshot.into_vecs();
 
     // Extract additional solution metadata
     let mip_gap = highs_model.mip_gap();

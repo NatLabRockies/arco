@@ -118,6 +118,31 @@ impl SolutionSnapshot {
     pub fn row_duals(&self) -> &[f64] {
         &self.row_duals
     }
+
+    /// Consume the snapshot and return `(col_values, col_duals, row_values, row_duals)`.
+    pub fn into_vecs(self) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+        (
+            self.col_values,
+            self.col_duals,
+            self.row_values,
+            self.row_duals,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new(
+        col_values: Vec<f64>,
+        col_duals: Vec<f64>,
+        row_values: Vec<f64>,
+        row_duals: Vec<f64>,
+    ) -> Self {
+        Self {
+            col_values,
+            col_duals,
+            row_values,
+            row_duals,
+        }
+    }
 }
 
 /// Safe wrapper around HiGHS model
@@ -543,16 +568,33 @@ impl HighsModel {
     ///
     /// Returns an error if the model has not been solved yet.
     pub fn solution_snapshot(&self) -> Result<SolutionSnapshot, HighsModelError> {
-        let solution = self.solved.as_ref().ok_or(HighsModelError::SolveRequired {
+        let solved = self.solved.as_ref().ok_or(HighsModelError::SolveRequired {
             operation: "solution_snapshot",
         })?;
-        let solution = solution.get_solution();
 
+        // Call highs-sys directly: highs::Solution only exposes borrowed slices,
+        // forcing an extra copy. Reading into owned vectors avoids that.
+        let ptr = solved.as_ptr();
+        let num_cols = usize::try_from(unsafe { highs_sys::Highs_getNumCol(ptr) }).unwrap_or(0);
+        let num_rows = usize::try_from(unsafe { highs_sys::Highs_getNumRow(ptr) }).unwrap_or(0);
+        let mut col_values = vec![0.0; num_cols];
+        let mut col_duals = vec![0.0; num_cols];
+        let mut row_values = vec![0.0; num_rows];
+        let mut row_duals = vec![0.0; num_rows];
+        unsafe {
+            highs_sys::Highs_getSolution(
+                ptr,
+                col_values.as_mut_ptr(),
+                col_duals.as_mut_ptr(),
+                row_values.as_mut_ptr(),
+                row_duals.as_mut_ptr(),
+            );
+        }
         Ok(SolutionSnapshot {
-            col_values: solution.columns().to_vec(),
-            col_duals: solution.dual_columns().to_vec(),
-            row_values: solution.rows().to_vec(),
-            row_duals: solution.dual_rows().to_vec(),
+            col_values,
+            col_duals,
+            row_values,
+            row_duals,
         })
     }
 }
@@ -610,7 +652,7 @@ fn map_status(status: HighsModelStatus) -> HighsStatus {
 
 #[cfg(test)]
 mod tests {
-    use crate::ffi::{HighsModel, ObjectiveSense};
+    use crate::ffi::{HighsModel, ObjectiveSense, SolutionSnapshot};
 
     #[test]
     fn test_create_model() {
@@ -625,5 +667,15 @@ mod tests {
 
         model.set_objective_sense(ObjectiveSense::Maximize);
         assert_eq!(model.objective_sense, ObjectiveSense::Maximize);
+    }
+
+    #[test]
+    fn test_solution_snapshot_into_vecs() {
+        let snapshot = SolutionSnapshot::new(vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0], vec![6.0]);
+        let (cv, cd, rv, rd) = snapshot.into_vecs();
+        assert_eq!(
+            (cv, cd, rv, rd),
+            (vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0], vec![6.0])
+        );
     }
 }
