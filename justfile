@@ -96,7 +96,7 @@ bench-compare baseline candidate:
 bench-gate baseline candidate duration_threshold="10" memory_threshold="10":
     #!/usr/bin/env bash
     set -euo pipefail
-    for stage in total variables; do
+    for stage in total export_csc export_crs export_coo; do
         echo "Checking stage=${stage} duration<={{ duration_threshold }}% memory<={{ memory_threshold }}%"
         cargo run -p arco-bench -- compare \
             --baseline "{{ baseline }}" \

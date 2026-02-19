@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use arco_expr::ids::{ConstraintId, VariableId};
 
-use crate::model::Model;
+use crate::model::{Model, SparseMatrixExport};
 use crate::types::{Bounds, Sense};
 
 const FLOAT_EQ_EPSILON: f64 = 1e-12;
@@ -122,7 +122,7 @@ impl Model {
 
         lines.push("s.t.".to_string());
 
-        let rows = self.rows();
+        let crs = self.export_crs();
         let total_constraints = self.num_constraints();
         let constraint_limit = options
             .constraints
@@ -135,8 +135,13 @@ impl Model {
             let mut rendered_constraints = Vec::with_capacity(constraint_limit);
             for constraint_idx in 0..constraint_limit {
                 let constraint_id = ConstraintId::new(constraint_idx as u32);
-                let row = rows.get(constraint_idx).map_or(&[][..], Vec::as_slice);
-                let mut lhs = self.format_linear_expression(row, options.terms, adapter);
+                let (row_start, row_end) = Self::crs_row_bounds(&crs.row_ptrs, constraint_idx);
+                let mut lhs = self.format_sparse_row_expression(
+                    &crs.col_indices[row_start..row_end],
+                    &crs.values[row_start..row_end],
+                    options.terms,
+                    adapter,
+                );
                 if let Some(label) = self.resolve_constraint_label(adapter, constraint_id) {
                     lhs = format!("{label}: {lhs}");
                 }
@@ -354,6 +359,75 @@ impl Model {
         rendered
     }
 
+    fn format_sparse_row_expression<A: PrettyPrintAdapter>(
+        &self,
+        col_indices: &[u32],
+        values: &[f64],
+        max_terms: Option<usize>,
+        adapter: &A,
+    ) -> String {
+        let nonzero_terms = values
+            .iter()
+            .filter(|coeff| !float_approx_equal(**coeff, 0.0))
+            .count();
+        if nonzero_terms == 0 {
+            return "0".to_string();
+        }
+
+        let term_limit = max_terms.unwrap_or(nonzero_terms).min(nonzero_terms);
+        let mut rendered = String::new();
+        let mut rendered_terms = 0usize;
+
+        for (&var_idx, &coeff) in col_indices.iter().zip(values.iter()) {
+            if float_approx_equal(coeff, 0.0) {
+                continue;
+            }
+            if rendered_terms == term_limit {
+                break;
+            }
+
+            let negative = coeff < 0.0;
+            let abs_coeff = coeff.abs();
+            let label = self.resolve_variable_label(adapter, VariableId::new(var_idx));
+            let term_body = if float_approx_equal(abs_coeff, 1.0) {
+                label
+            } else {
+                format!("{} {label}", format_ascii_number(abs_coeff))
+            };
+
+            if rendered_terms == 0 {
+                if negative {
+                    rendered.push('-');
+                }
+                rendered.push_str(&term_body);
+            } else if negative {
+                let _ = write!(rendered, " - {term_body}");
+            } else {
+                let _ = write!(rendered, " + {term_body}");
+            }
+
+            rendered_terms += 1;
+        }
+
+        if term_limit < nonzero_terms {
+            let _ = write!(
+                rendered,
+                " + ... ({} more terms)",
+                nonzero_terms - term_limit
+            );
+        }
+
+        rendered
+    }
+
+    fn crs_row_bounds(row_ptrs: &[usize], row_idx: usize) -> (usize, usize) {
+        let Some(start) = row_ptrs.get(row_idx).copied() else {
+            return (0, 0);
+        };
+        let end = row_ptrs.get(row_idx + 1).copied().unwrap_or(start);
+        (start, end)
+    }
+
     fn resolve_variable_label<A: PrettyPrintAdapter>(
         &self,
         adapter: &A,
@@ -506,28 +580,39 @@ mod tests {
         let x0 = model
             .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
             .expect("var0");
-        let x1 = model
+        let _x1 = model
             .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
             .expect("var1");
+        let x2 = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("var2");
         let c = model
             .add_constraint(Constraint {
                 bounds: Bounds::new(f64::NEG_INFINITY, 5.0),
             })
             .expect("constraint");
+        let c2 = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(2.0, 2.0),
+            })
+            .expect("constraint2");
         model.set_coefficient(x0, c, 1.0).expect("coeff0");
-        model.set_coefficient(x1, c, 2.0).expect("coeff1");
+        model.set_coefficient(x2, c, 2.0).expect("coeff1");
+        model.set_coefficient(x0, c2, -3.0).expect("coeff2");
         model
             .set_objective(Objective {
                 sense: Some(Sense::Minimize),
-                terms: vec![(x0, 1.0), (x1, 3.0)],
+                terms: vec![(x0, 1.0), (x2, 3.0)],
             })
             .expect("objective");
 
         let rendered = model.format_ascii_with_adapter(&LabelAdapter, PrettyPrintOptions::full());
-        assert!(rendered.contains("Min gen[0] + 3 gen[1]"));
+        assert!(rendered.contains("Min gen[0] + 3 gen[2]"));
         assert!(rendered.contains("Index sets:"));
         assert!(rendered.contains("s.t."));
-        assert!(rendered.contains("c[0]: gen[0] + 2 gen[1] <= 5"));
+        assert!(rendered.contains("c[0]: gen[0] + 2 gen[2] <= 5"));
+        assert!(rendered.contains("c[1]: -3 gen[0]"));
+        assert!(rendered.contains("= 2"));
         assert!(rendered.contains("0 <= gen[t] <= 10  for t in T"));
     }
 
@@ -554,5 +639,93 @@ mod tests {
 
         let rendered = model.format_ascii(PrettyPrintOptions::preview());
         assert!(rendered.contains("... (5 more constraints)"));
+    }
+
+    #[test]
+    fn format_ascii_respects_term_limit_with_sparse_rows() {
+        let mut model = Model::new();
+        let x0 = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("x0");
+        let _x1 = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("x1");
+        let x2 = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("x2");
+        let x3 = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("x3");
+
+        let c0 = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(f64::NEG_INFINITY, 10.0),
+            })
+            .expect("c0");
+        model.set_coefficient(x0, c0, 1.0).expect("coeff0");
+        model.set_coefficient(x2, c0, 2.0).expect("coeff1");
+        model.set_coefficient(x3, c0, -3.0).expect("coeff2");
+
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(x0, 1.0)],
+            })
+            .expect("objective");
+
+        let rendered = model.format_ascii_with_adapter(
+            &LabelAdapter,
+            PrettyPrintOptions {
+                constraints: None,
+                terms: Some(1),
+                domain_items: None,
+            },
+        );
+
+        assert!(rendered.contains("c[0]: gen[0] + ... (2 more terms) <= 10"));
+    }
+
+    #[test]
+    fn format_ascii_handles_empty_middle_row_with_sparse_crs() {
+        let mut model = Model::new();
+        let x0 = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("x0");
+        let x1 = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("x1");
+
+        let c0 = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(f64::NEG_INFINITY, 5.0),
+            })
+            .expect("c0");
+        let _c1 = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(0.0, 0.0),
+            })
+            .expect("c1");
+        let c2 = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(1.0, f64::INFINITY),
+            })
+            .expect("c2");
+
+        model.set_coefficient(x0, c0, 1.0).expect("coeff0");
+        model.set_coefficient(x1, c2, 2.0).expect("coeff1");
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(x0, 1.0)],
+            })
+            .expect("objective");
+
+        let rendered = model.format_ascii_with_adapter(&LabelAdapter, PrettyPrintOptions::full());
+        assert!(rendered.contains("c[0]: gen[0]"));
+        assert!(rendered.contains("<= 5"));
+        assert!(rendered.contains("c[1]: 0"));
+        assert!(rendered.contains("= 0"));
+        assert!(rendered.contains("c[2]: 2 gen[1]"));
+        assert!(rendered.contains(">= 1"));
     }
 }
