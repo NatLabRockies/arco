@@ -38,40 +38,33 @@ fn build_solver_kwargs<'py>(
     time_limit: Option<f64>,
     mip_gap: Option<f64>,
     verbosity: Option<u32>,
-    primal_start: Option<&Vec<(u32, f64)>>,
+    primal_start: Option<&[(u32, f64)]>,
 ) -> PyResult<Option<Bound<'py, PyDict>>> {
     let kwargs = PyDict::new(py);
-    let mut has_kwargs = false;
 
     if let Some(solver) = solver {
         kwargs.set_item("solver", solver.clone_ref(py))?;
-        has_kwargs = true;
     }
     if let Some(enabled) = log_to_console {
         kwargs.set_item("log_to_console", enabled)?;
-        has_kwargs = true;
     }
     if let Some(limit) = time_limit {
         kwargs.set_item("time_limit", limit)?;
-        has_kwargs = true;
     }
     if let Some(gap) = mip_gap {
         kwargs.set_item("mip_gap", gap)?;
-        has_kwargs = true;
     }
     if let Some(level) = verbosity {
         kwargs.set_item("verbosity", level)?;
-        has_kwargs = true;
     }
-    if let Some(primal_start) = primal_start {
-        kwargs.set_item("primal_start", primal_start)?;
-        has_kwargs = true;
+    if let Some(hints) = primal_start {
+        kwargs.set_item("primal_start", hints)?;
     }
 
-    if has_kwargs {
-        Ok(Some(kwargs))
-    } else {
+    if kwargs.is_empty() {
         Ok(None)
+    } else {
+        Ok(Some(kwargs))
     }
 }
 
@@ -791,7 +784,7 @@ impl BlockModel {
                     time_limit,
                     mip_gap,
                     verbosity,
-                    warm_start_hints.as_ref(),
+                    warm_start_hints.as_deref(),
                 )?;
                 let solution = if let Some(kwargs) = solve_kwargs {
                     model.call_method("solve", (), Some(&kwargs))?
@@ -1014,45 +1007,21 @@ mod tests {
             .expect("building kwargs should not fail")
             .expect("kwargs should be present");
 
-            let log_to_console = kwargs
-                .get_item("log_to_console")
-                .expect("log_to_console lookup should not fail")
-                .expect("log_to_console should be present")
-                .extract::<bool>()
-                .expect("log_to_console should be bool");
-            assert!(log_to_console);
+            let get = |key: &str| {
+                kwargs
+                    .get_item(key)
+                    .expect("lookup should not fail")
+                    .expect("key should be present")
+            };
 
-            let time_limit = kwargs
-                .get_item("time_limit")
-                .expect("time_limit lookup should not fail")
-                .expect("time_limit should be present")
-                .extract::<f64>()
-                .expect("time_limit should be f64");
-            assert_eq!(time_limit, 15.0);
-
-            let mip_gap = kwargs
-                .get_item("mip_gap")
-                .expect("mip_gap lookup should not fail")
-                .expect("mip_gap should be present")
-                .extract::<f64>()
-                .expect("mip_gap should be f64");
-            assert_eq!(mip_gap, 0.001);
-
-            let verbosity = kwargs
-                .get_item("verbosity")
-                .expect("verbosity lookup should not fail")
-                .expect("verbosity should be present")
-                .extract::<u32>()
-                .expect("verbosity should be u32");
-            assert_eq!(verbosity, 2);
-
-            let primal_start = kwargs
-                .get_item("primal_start")
-                .expect("primal_start lookup should not fail")
-                .expect("primal_start should be present")
-                .extract::<Vec<(u32, f64)>>()
-                .expect("primal_start should decode");
-            assert_eq!(primal_start, hints);
+            assert!(get("log_to_console").extract::<bool>().unwrap());
+            assert_eq!(get("time_limit").extract::<f64>().unwrap(), 15.0);
+            assert_eq!(get("mip_gap").extract::<f64>().unwrap(), 0.001);
+            assert_eq!(get("verbosity").extract::<u32>().unwrap(), 2);
+            assert_eq!(
+                get("primal_start").extract::<Vec<(u32, f64)>>().unwrap(),
+                hints
+            );
         });
     }
 }
