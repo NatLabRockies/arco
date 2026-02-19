@@ -102,3 +102,45 @@ impl Default for Objective {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Bounds, Objective, SimplifyLevel, Variable};
+
+    fn assert_variable(variable: Variable, bounds: Bounds, is_integer: bool) {
+        assert_eq!(variable.bounds, bounds);
+        assert_eq!(variable.is_integer, is_integer);
+        assert!(variable.is_active);
+    }
+
+    #[test]
+    fn simplify_level_strings_match_variants() {
+        assert_eq!(SimplifyLevel::None.as_str(), "none");
+        assert_eq!(SimplifyLevel::Light.as_str(), "light");
+        assert_eq!(SimplifyLevel::default(), SimplifyLevel::None);
+    }
+
+    #[test]
+    fn variable_constructors_set_expected_bounds_and_integrality() {
+        assert_variable(Variable::binary(), Bounds::new(0.0, 1.0), true);
+
+        let continuous_bounds = Bounds::new(-10.0, 15.0);
+        assert_variable(
+            Variable::continuous(continuous_bounds),
+            continuous_bounds,
+            false,
+        );
+
+        let integer_bounds = Bounds::new(3.0, 9.0);
+        assert_variable(Variable::integer(integer_bounds), integer_bounds, true);
+    }
+
+    #[test]
+    fn objective_constructor_creates_empty_objective_without_sense() {
+        let objective = Objective::new();
+        let default_objective = Objective::default();
+
+        assert!(objective.sense.is_none() && default_objective.sense.is_none());
+        assert!(objective.terms.is_empty() && default_objective.terms.is_empty());
+    }
+}
