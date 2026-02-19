@@ -564,3 +564,6 @@ package*
 
 # Generated during packaging from root licenses/
 bindings/python/licenses/
+
+# Local git worktrees
+.worktrees/
