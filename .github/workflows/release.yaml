@@ -15,6 +15,7 @@ permissions:
 
 env:
   UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.5.0"
 
 jobs:
   release-please:
@@ -44,7 +45,7 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
@@ -60,14 +61,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
 
       - name: Build wheel
-        run: uv run --with maturin maturin build --release --manifest-path
-          bindings/python/Cargo.toml --out dist --interpreter python
+        run: just py-build-ci
 
       - name: Smoke test wheel install and import
-        run: uv run python scripts/python_package_smoke.py --artifact-glob
-          "dist/*.whl"
+        run: just py-smoke-wheel "dist/*.whl"
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

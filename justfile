@@ -49,7 +49,7 @@ clippy:
 [group("rust")]
 [doc("Run all Rust tests")]
 test:
-    cargo test --workspace --all-features
+    cargo test --workspace --all-features --exclude arco-python
 
 [group("rust")]
 [doc("Build rustdoc for the workspace")]
@@ -96,6 +96,21 @@ py-dev: py-licenses
 [working-directory: "bindings/python"]
 py-build: py-licenses
     {{ maturin }} build --release
+
+[group("python")]
+[doc("Build wheel artifact into dist/ for CI")]
+py-build-ci:
+    uv run --with build python -m build bindings/python --wheel --outdir dist
+
+[group("python")]
+[doc("Smoke test built wheel artifact import")]
+py-smoke-wheel artifact_glob="dist/*.whl":
+    uv run python scripts/python_package_smoke.py --artifact-glob "{{ artifact_glob }}"
+
+[group("python")]
+[doc("Run docs doctests in CI")]
+py-doctest-ci:
+    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py
 
 [group("python")]
 [doc("Build dev extension then run docs doctests")]
@@ -146,6 +161,11 @@ bench-gate baseline candidate duration_threshold="10" memory_threshold="10":
             --memory-threshold-pct "{{ memory_threshold }}" \
             --format table
     done
+
+[group("ci")]
+[doc("Run GitHub workflow quality checks")]
+workflow-quality:
+    uvx zizmor .github
 
 [group("ci")]
 [doc("Full CI pipeline: format → clippy → test → docs")]

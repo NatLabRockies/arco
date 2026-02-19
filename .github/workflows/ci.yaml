@@ -16,8 +16,52 @@ permissions:
 
 env:
   UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.5.0"
+  PYTHON_LATEST: "3.12"
 
 jobs:
+  workflow-quality:
+    name: Workflow quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+
+      - name: Run workflow quality checks
+        run: just workflow-quality
+
+  rust-validation:
+    name: Rust validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+
+      - name: Check Rust formatting
+        run: just fmt-check
+
+      - name: Run clippy
+        run: just clippy
+
+      - name: Run Rust tests
+        run: just test
+
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -35,17 +79,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
 
       - name: Build wheel
-        run:
-          uv run --with build python -m build bindings/python --wheel --outdir
-          dist
+        run: just py-build-ci
 
       - name: Install built wheel and validate import
-        run: uv run python scripts/python_package_smoke.py --artifact-glob
-          "dist/*.whl"
+        run: just py-smoke-wheel "dist/*.whl"
 
       - name: Run docs doctests
         if: matrix.python-version == '3.12'
-        run: uv run --project bindings/python --with pytest --with numpy pytest
-          scripts/test_docs_doctest.py -v
+        run: just py-doctest-ci

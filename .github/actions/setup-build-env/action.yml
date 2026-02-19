@@ -8,10 +8,22 @@ inputs:
   uv-version:
     description: uv version to install.
     required: true
+  just-version:
+    description: just version to install.
+    required: true
 
 runs:
   using: composite
   steps:
+    - name: Cache uv cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ github.workspace }}/.uv-cache
+        key: ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{ inputs.python-version }}-${{ hashFiles('bindings/python/uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{ inputs.python-version }}-
+          ${{ runner.os }}-uv-${{ inputs.uv-version }}-
+
     - name: Install uv
       uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
       with:
@@ -26,6 +38,19 @@ runs:
     - name: Cache Rust build artifacts
       uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
 
+    - name: Cache just toolcache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ runner.tool_cache }}/just
+        key: ${{ runner.os }}-just-${{ inputs.just-version }}
+
+    - name: Install just
+      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+      with:
+        just-version: ${{ inputs.just-version }}
+
     - name: Sync Python license files
+      env:
+        UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
       shell: bash
-      run: python scripts/sync_python_licenses.py
+      run: uv run python scripts/sync_python_licenses.py
