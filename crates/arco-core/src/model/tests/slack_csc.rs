@@ -217,24 +217,20 @@ fn test_from_csc_only_stores_non_empty_columns() {
     .expect("model should build");
 
     assert_eq!(model.columns.len(), 1);
-    assert!(
-        model
-            .get_column(VariableId::new(0))
-            .expect("missing column")
-            .is_empty()
-    );
+    assert!(model
+        .get_column(VariableId::new(0))
+        .expect("missing column")
+        .is_empty());
     assert_eq!(
         model
             .get_column(VariableId::new(1))
             .expect("missing column"),
         &vec![(ConstraintId::new(0), 1.0), (ConstraintId::new(1), 2.0)]
     );
-    assert!(
-        model
-            .get_column(VariableId::new(2))
-            .expect("missing column")
-            .is_empty()
-    );
+    assert!(model
+        .get_column(VariableId::new(2))
+        .expect("missing column")
+        .is_empty());
 }
 
 #[test]

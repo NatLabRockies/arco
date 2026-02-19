@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use arco_expr::ids::{ConstraintId, VariableId};
 
-use crate::model::Model;
 use crate::model::error::ModelError;
+use crate::model::Model;
 
 impl Model {
     /// Set name for a variable.
