@@ -31,6 +31,50 @@ use std::time::Instant;
 
 type PyObject = Py<PyAny>;
 
+fn build_solver_kwargs<'py>(
+    py: Python<'py>,
+    solver: Option<&PyObject>,
+    log_to_console: Option<bool>,
+    time_limit: Option<f64>,
+    mip_gap: Option<f64>,
+    verbosity: Option<u32>,
+    primal_start: Option<&Vec<(u32, f64)>>,
+) -> PyResult<Option<Bound<'py, PyDict>>> {
+    let kwargs = PyDict::new(py);
+    let mut has_kwargs = false;
+
+    if let Some(solver) = solver {
+        kwargs.set_item("solver", solver.clone_ref(py))?;
+        has_kwargs = true;
+    }
+    if let Some(enabled) = log_to_console {
+        kwargs.set_item("log_to_console", enabled)?;
+        has_kwargs = true;
+    }
+    if let Some(limit) = time_limit {
+        kwargs.set_item("time_limit", limit)?;
+        has_kwargs = true;
+    }
+    if let Some(gap) = mip_gap {
+        kwargs.set_item("mip_gap", gap)?;
+        has_kwargs = true;
+    }
+    if let Some(level) = verbosity {
+        kwargs.set_item("verbosity", level)?;
+        has_kwargs = true;
+    }
+    if let Some(primal_start) = primal_start {
+        kwargs.set_item("primal_start", primal_start)?;
+        has_kwargs = true;
+    }
+
+    if has_kwargs {
+        Ok(Some(kwargs))
+    } else {
+        Ok(None)
+    }
+}
+
 #[pyclass(name = "DropPolicy", eq, eq_int, from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropPolicy {
@@ -719,14 +763,14 @@ impl BlockModel {
 
                 let warm_start = block_ref.warm_start && !runs.is_empty();
                 let solve_start = Instant::now();
-                let solution = if warm_start {
+                let warm_start_hints = if warm_start {
                     let previous = runs.last().and_then(|run| {
                         run.borrow(py)
                             .solution
                             .as_ref()
                             .map(|solution| solution.clone_ref(py))
                     });
-                    let hints = previous
+                    previous
                         .and_then(|solution| solution.bind(py).getattr("primal_values").ok())
                         .and_then(|values| values.extract::<Vec<f64>>().ok())
                         .map(|values| {
@@ -735,74 +779,21 @@ impl BlockModel {
                                 .enumerate()
                                 .map(|(idx, val)| (idx as u32, val))
                                 .collect::<Vec<_>>()
-                        });
-                    if let Some(hints) = hints {
-                        let kwargs = PyDict::new(py);
-                        if let Some(ref solver) = solver {
-                            kwargs.set_item("solver", solver.clone_ref(py))?;
-                        }
-                        if let Some(enabled) = log_to_console {
-                            kwargs.set_item("log_to_console", enabled)?;
-                        }
-                        if let Some(limit) = time_limit {
-                            kwargs.set_item("time_limit", limit)?;
-                        }
-                        if let Some(gap) = mip_gap {
-                            kwargs.set_item("mip_gap", gap)?;
-                        }
-                        if let Some(level) = verbosity {
-                            kwargs.set_item("verbosity", level)?;
-                        }
-                        kwargs.set_item("primal_start", hints)?;
-                        model.call_method("solve", (), Some(&kwargs))?
-                    } else if solver.is_some()
-                        || log_to_console.is_some()
-                        || time_limit.is_some()
-                        || mip_gap.is_some()
-                        || verbosity.is_some()
-                    {
-                        let kwargs = PyDict::new(py);
-                        if let Some(ref solver) = solver {
-                            kwargs.set_item("solver", solver.clone_ref(py))?;
-                        }
-                        if let Some(enabled) = log_to_console {
-                            kwargs.set_item("log_to_console", enabled)?;
-                        }
-                        if let Some(limit) = time_limit {
-                            kwargs.set_item("time_limit", limit)?;
-                        }
-                        if let Some(gap) = mip_gap {
-                            kwargs.set_item("mip_gap", gap)?;
-                        }
-                        if let Some(level) = verbosity {
-                            kwargs.set_item("verbosity", level)?;
-                        }
-                        model.call_method("solve", (), Some(&kwargs))?
-                    } else {
-                        model.call_method0("solve")?
-                    }
-                } else if solver.is_some()
-                    || log_to_console.is_some()
-                    || time_limit.is_some()
-                    || mip_gap.is_some()
-                    || verbosity.is_some()
-                {
-                    let kwargs = PyDict::new(py);
-                    if let Some(ref solver) = solver {
-                        kwargs.set_item("solver", solver.clone_ref(py))?;
-                    }
-                    if let Some(enabled) = log_to_console {
-                        kwargs.set_item("log_to_console", enabled)?;
-                    }
-                    if let Some(limit) = time_limit {
-                        kwargs.set_item("time_limit", limit)?;
-                    }
-                    if let Some(gap) = mip_gap {
-                        kwargs.set_item("mip_gap", gap)?;
-                    }
-                    if let Some(level) = verbosity {
-                        kwargs.set_item("verbosity", level)?;
-                    }
+                        })
+                } else {
+                    None
+                };
+
+                let solve_kwargs = build_solver_kwargs(
+                    py,
+                    solver.as_ref(),
+                    log_to_console,
+                    time_limit,
+                    mip_gap,
+                    verbosity,
+                    warm_start_hints.as_ref(),
+                )?;
+                let solution = if let Some(kwargs) = solve_kwargs {
                     model.call_method("solve", (), Some(&kwargs))?
                 } else {
                     model.call_method0("solve")?
@@ -994,5 +985,74 @@ mod tests {
         assert_eq!(port.block_name, cloned.block_name);
         assert_eq!(port.key, cloned.key);
         assert_eq!(port.kind, cloned.kind);
+    }
+
+    #[test]
+    fn test_build_solver_kwargs_returns_none_when_empty() {
+        Python::initialize();
+        Python::attach(|py| {
+            let kwargs = build_solver_kwargs(py, None, None, None, None, None, None)
+                .expect("building kwargs should not fail");
+            assert!(kwargs.is_none());
+        });
+    }
+
+    #[test]
+    fn test_build_solver_kwargs_includes_config_and_primal_start() {
+        Python::initialize();
+        Python::attach(|py| {
+            let hints = vec![(0_u32, 1.25_f64), (3_u32, -2.0_f64)];
+            let kwargs = build_solver_kwargs(
+                py,
+                None,
+                Some(true),
+                Some(15.0),
+                Some(0.001),
+                Some(2),
+                Some(&hints),
+            )
+            .expect("building kwargs should not fail")
+            .expect("kwargs should be present");
+
+            let log_to_console = kwargs
+                .get_item("log_to_console")
+                .expect("log_to_console lookup should not fail")
+                .expect("log_to_console should be present")
+                .extract::<bool>()
+                .expect("log_to_console should be bool");
+            assert!(log_to_console);
+
+            let time_limit = kwargs
+                .get_item("time_limit")
+                .expect("time_limit lookup should not fail")
+                .expect("time_limit should be present")
+                .extract::<f64>()
+                .expect("time_limit should be f64");
+            assert_eq!(time_limit, 15.0);
+
+            let mip_gap = kwargs
+                .get_item("mip_gap")
+                .expect("mip_gap lookup should not fail")
+                .expect("mip_gap should be present")
+                .extract::<f64>()
+                .expect("mip_gap should be f64");
+            assert_eq!(mip_gap, 0.001);
+
+            let verbosity = kwargs
+                .get_item("verbosity")
+                .expect("verbosity lookup should not fail")
+                .expect("verbosity should be present")
+                .extract::<u32>()
+                .expect("verbosity should be u32");
+            assert_eq!(verbosity, 2);
+
+            let primal_start = kwargs
+                .get_item("primal_start")
+                .expect("primal_start lookup should not fail")
+                .expect("primal_start should be present")
+                .extract::<Vec<(u32, f64)>>()
+                .expect("primal_start should decode");
+            assert_eq!(primal_start, hints);
+        });
     }
 }
