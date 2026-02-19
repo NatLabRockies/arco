@@ -58,22 +58,6 @@ impl Model {
         })
     }
 
-    /// Get the coefficient matrix in CRS (row-sparse-compressed) form.
-    ///
-    /// Returns a vector of rows, each containing (variable_id, coefficient) pairs.
-    pub fn rows(&self) -> Vec<Vec<(VariableId, f64)>> {
-        let mut rows = vec![Vec::new(); self.num_constraints()];
-        for (var_id, coeffs) in self.columns() {
-            for (constraint_id, coeff) in coeffs {
-                let idx = constraint_id.inner() as usize;
-                if let Some(row) = rows.get_mut(idx) {
-                    row.push((var_id, *coeff));
-                }
-            }
-        }
-        rows
-    }
-
     /// Get the coefficients for a specific variable (column)
     pub fn get_column(&self, var_id: VariableId) -> Option<&[(ConstraintId, f64)]> {
         if (var_id.inner() as usize) < self.variables.len() {

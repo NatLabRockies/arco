@@ -25,7 +25,7 @@ mod variable;
 mod views;
 
 use arco_blocks::{BlockPort, add_blocks_submodule};
-use arco_core::model::{CscInput, PrettyPrintOptions};
+use arco_core::model::{CscInput, PrettyPrintOptions, SparseMatrixExport};
 use arco_core::types::Bounds;
 use arco_core::{InspectOptions, Model, Objective, Sense, SlackBound, Variable};
 use arco_expr::{ComparisonSense, ConstraintId, VariableId};
@@ -35,6 +35,16 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyType};
 
 pub(crate) type PyObject = Py<PyAny>;
+
+fn sparse_export_dict<F>(py: Python<'_>, shape: (usize, usize), fill: F) -> PyResult<PyObject>
+where
+    F: FnOnce(&Bound<'_, PyDict>) -> PyResult<()>,
+{
+    let dict = PyDict::new(py);
+    fill(&dict)?;
+    dict.set_item("shape", (shape.0 as u32, shape.1 as u32))?;
+    Ok(dict.unbind().into())
+}
 
 // Re-export types from modules
 pub use arrays::{PyConstraintArray, PyExprArray, PyVariableArray};
@@ -1102,28 +1112,12 @@ impl PyModel {
     /// - values: list of non-zero values
     /// - shape: tuple (num_constraints, num_variables)
     fn export_csc(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let num_constraints = self.inner.num_constraints();
-        let num_variables = self.inner.num_variables();
-
-        let mut col_ptrs = vec![0usize];
-        let mut row_indices = Vec::new();
-        let mut values = Vec::new();
-
-        for (_var_id, coeffs) in self.inner.columns() {
-            for (constraint_id, coeff) in coeffs {
-                row_indices.push(constraint_id.inner());
-                values.push(*coeff);
-            }
-            col_ptrs.push(row_indices.len());
-        }
-
-        let dict = PyDict::new(py);
-        dict.set_item("col_ptrs", col_ptrs)?;
-        dict.set_item("row_indices", row_indices)?;
-        dict.set_item("values", values)?;
-        dict.set_item("shape", (num_constraints as u32, num_variables as u32))?;
-
-        Ok(dict.unbind().into())
+        let matrix = self.inner.export_csc();
+        sparse_export_dict(py, matrix.shape, |dict| {
+            dict.set_item("col_ptrs", matrix.col_ptrs)?;
+            dict.set_item("row_indices", matrix.row_indices)?;
+            dict.set_item("values", matrix.values)
+        })
     }
 
     /// Export CRS matrix in a sparse-matrix compatible format.
@@ -1134,29 +1128,28 @@ impl PyModel {
     /// - values: list of non-zero values
     /// - shape: tuple (num_constraints, num_variables)
     fn export_crs(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let num_constraints = self.inner.num_constraints();
-        let num_variables = self.inner.num_variables();
-        let rows = self.inner.rows();
+        let matrix = self.inner.export_crs();
+        sparse_export_dict(py, matrix.shape, |dict| {
+            dict.set_item("row_ptrs", matrix.row_ptrs)?;
+            dict.set_item("col_indices", matrix.col_indices)?;
+            dict.set_item("values", matrix.values)
+        })
+    }
 
-        let mut row_ptrs = vec![0usize];
-        let mut col_indices = Vec::new();
-        let mut values = Vec::new();
-
-        for row in &rows {
-            for (var_id, coeff) in row {
-                col_indices.push(var_id.inner());
-                values.push(*coeff);
-            }
-            row_ptrs.push(col_indices.len());
-        }
-
-        let dict = PyDict::new(py);
-        dict.set_item("row_ptrs", row_ptrs)?;
-        dict.set_item("col_indices", col_indices)?;
-        dict.set_item("values", values)?;
-        dict.set_item("shape", (num_constraints as u32, num_variables as u32))?;
-
-        Ok(dict.unbind().into())
+    /// Export COO matrix in a sparse-matrix compatible format.
+    ///
+    /// Returns dict with keys:
+    /// - rows: list of row indices
+    /// - cols: list of column indices
+    /// - values: list of non-zero values
+    /// - shape: tuple (num_constraints, num_variables)
+    fn export_coo(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let matrix = self.inner.export_coo();
+        sparse_export_dict(py, matrix.shape, |dict| {
+            dict.set_item("rows", matrix.rows)?;
+            dict.set_item("cols", matrix.cols)?;
+            dict.set_item("values", matrix.values)
+        })
     }
 
     #[allow(clippy::unused_self)]

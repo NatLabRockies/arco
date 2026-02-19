@@ -1,3 +1,4 @@
+use arco_core::model::{CscMatrix as CoreCscMatrix, SparseMatrixExport};
 use arco_core::types::Bounds;
 use arco_core::{Constraint, Model, Objective, Sense, Variable};
 use arco_expr::{ConstraintId, VariableId};
@@ -412,6 +413,17 @@ fn execute_case(
     });
     recorder.end_stage(stage_start);
 
+    let exported_csc = if collect_csc {
+        Some(measure_stage(&mut recorder, "export_csc", || {
+            model.export_csc()
+        }))
+    } else {
+        measure_stage_discard(&mut recorder, "export_csc", || model.export_csc());
+        None
+    };
+    measure_stage_discard(&mut recorder, "export_crs", || model.export_crs());
+    measure_stage_discard(&mut recorder, "export_coo", || model.export_coo());
+
     let total_duration = total_started.elapsed();
     let total_rss_after = capture_rss_bytes("bench_total");
 
@@ -424,11 +436,7 @@ fn execute_case(
         rss_delta_bytes: rss_delta(total_rss_before, total_rss_after),
     });
 
-    let csc = if collect_csc {
-        Some(extract_csc_matrix(&model))
-    } else {
-        None
-    };
+    let csc = exported_csc.map(convert_csc_matrix);
 
     CaseExecution {
         variables: model.num_variables(),
@@ -438,24 +446,33 @@ fn execute_case(
     }
 }
 
-fn extract_csc_matrix(model: &Model) -> CscMatrix {
-    let mut col_ptrs = Vec::with_capacity(model.num_variables() + 1);
-    let mut row_indices = Vec::new();
-    let mut values = Vec::new();
-    col_ptrs.push(0);
+fn measure_stage<T>(
+    recorder: &mut MeasurementRecorder,
+    stage: &str,
+    operation: impl FnOnce() -> T,
+) -> T {
+    let stage_start = recorder.begin_stage(stage);
+    let output = operation();
+    recorder.end_stage(stage_start);
+    output
+}
 
-    for (_, column) in model.columns() {
-        for (constraint_id, coeff) in column {
-            row_indices.push(constraint_id.inner());
-            values.push(*coeff);
-        }
-        col_ptrs.push(row_indices.len() as u64);
-    }
+fn measure_stage_discard<T>(
+    recorder: &mut MeasurementRecorder,
+    stage: &str,
+    operation: impl FnOnce() -> T,
+) {
+    let stage_start = recorder.begin_stage(stage);
+    let output = operation();
+    drop(output);
+    recorder.end_stage(stage_start);
+}
 
+fn convert_csc_matrix(matrix: CoreCscMatrix) -> CscMatrix {
     CscMatrix {
-        col_ptrs,
-        row_indices,
-        values,
+        col_ptrs: matrix.col_ptrs.into_iter().map(|ptr| ptr as u64).collect(),
+        row_indices: matrix.row_indices,
+        values: matrix.values,
     }
 }
 
@@ -827,7 +844,7 @@ fn boxed_input_error(message: &str) -> Box<dyn std::error::Error> {
 #[cfg(test)]
 mod tests {
     use super::{
-        BenchRecord, CompareRow, SummaryRow, build_comparison_rows, has_regressions,
+        BenchRecord, CompareRow, SummaryRow, build_comparison_rows, execute_case, has_regressions,
         summarize_records,
     };
 
@@ -914,5 +931,15 @@ mod tests {
 
         assert!(has_regressions(&rows, Some(10.0), Some(20.0)));
         assert!(!has_regressions(&rows, Some(25.0), Some(35.0)));
+
+        let execution = execute_case(32, Some(8), 0.25, false);
+        let stages: Vec<&str> = execution
+            .stage_measurements
+            .iter()
+            .map(|measurement| measurement.stage.as_str())
+            .collect();
+        assert!(stages.contains(&"export_csc"));
+        assert!(stages.contains(&"export_crs"));
+        assert!(stages.contains(&"export_coo"));
     }
 }
