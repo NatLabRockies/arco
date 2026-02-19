@@ -322,7 +322,7 @@ impl Model {
         if terms.is_empty() {
             return;
         }
-        let mut merged = self.objective.terms.clone();
+        let mut merged = std::mem::take(&mut self.objective.terms);
         merged.extend(terms);
         self.objective.terms = self.normalize_terms(merged);
     }
@@ -536,6 +536,60 @@ mod tests {
 
         let result = model.maximize(Expr::term(var_id, 1.0));
         assert_eq!(result, Err(ModelError::MultipleObjectives));
+    }
+
+    #[test]
+    fn test_add_objective_terms_merges_with_existing_objective_terms() {
+        let mut model = Model::new();
+        let x = model
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: true,
+            })
+            .unwrap();
+        let y = model
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: true,
+            })
+            .unwrap();
+
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(x, 1.0)],
+            })
+            .unwrap();
+
+        model.add_objective_terms(vec![(x, 2.0), (y, 3.0), (x, -1.0)]);
+
+        assert_eq!(model.objective().sense, Some(Sense::Minimize));
+        assert_eq!(model.objective().terms, vec![(x, 2.0), (y, 3.0)]);
+    }
+
+    #[test]
+    fn test_add_objective_terms_noop_on_empty_terms() {
+        let mut model = Model::new();
+        let x = model
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: true,
+            })
+            .unwrap();
+
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(x, 1.0)],
+            })
+            .unwrap();
+
+        model.add_objective_terms(Vec::new());
+
+        assert_eq!(model.objective().terms, vec![(x, 1.0)]);
     }
 
     #[test]
