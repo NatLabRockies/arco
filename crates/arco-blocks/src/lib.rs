@@ -1,33 +1,35 @@
 //! Block orchestration primitives for Arco (Python bindings).
 
 mod dag;
+mod decorator;
 mod error;
 mod once_map;
+mod resolve;
+mod schema;
+mod spec;
+mod transform;
+mod util;
 
 use crate::dag::BlockDag;
-use crate::error::BlockError;
-use crate::once_map::OnceMap;
-use arco_tools::{capture_rss_bytes, rss_delta};
-use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
-use pyo3::prelude::*;
-use pyo3::types::{
-    PyAny, PyBytes, PyDict, PyFloat, PyList, PySequence, PySequenceMethods, PyString, PyType,
+use crate::decorator::block;
+use crate::resolve::{
+    block_spec, build_model_from_spec, extract_outputs, inspect_model, resolve_links,
+    schemas_compatible, specs_are_swappable,
 };
+use crate::schema::{coerce_inputs, coerce_outputs, outputs_schema_dict};
+use crate::spec::{
+    BlockSpec, get_spec_attr, make_spec_builder, make_spec_extractor, validate_spec,
+};
+use crate::transform::Transform;
+use crate::util::{log_block_error, log_block_phase, model_type, rss_bytes};
+use arco_tools::rss_delta;
+use pyo3::exceptions::{PyRuntimeError, PyTypeError};
+use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyDict};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 type PyObject = Py<PyAny>;
-
-/// Log a [`BlockError`] and convert it to a Python exception.
-fn log_block_error(err: BlockError) -> PyErr {
-    tracing::error!(
-        component = "block",
-        operation = "solve",
-        status = "error",
-        "{err}"
-    );
-    PyRuntimeError::new_err(err.to_string())
-}
 
 #[pyclass(name = "DropPolicy", eq, eq_int, from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,8 +44,8 @@ pub enum DropPolicy {
 
 #[pyclass(name = "BlockContext")]
 pub struct BlockContext {
-    inputs: Py<PyDict>,
-    attachments: Py<PyDict>,
+    pub(crate) inputs: Py<PyDict>,
+    pub(crate) attachments: Py<PyDict>,
 }
 
 #[pymethods]
@@ -72,145 +74,6 @@ impl BlockContext {
 
     fn attach(&self, py: Python<'_>, key: String, value: PyObject) -> PyResult<()> {
         self.attachments.bind(py).set_item(key, value)
-    }
-}
-
-enum TransformStep {
-    Custom(Py<PyAny>),
-    Scale(Py<PyAny>),
-    Offset(Py<PyAny>),
-    Shift(i64),
-    Clip { lower: f64, upper: f64 },
-    Select(Vec<usize>),
-}
-
-#[pyclass(name = "Transform")]
-pub struct Transform {
-    steps: Vec<TransformStep>,
-}
-
-#[pymethods]
-impl Transform {
-    #[new]
-    #[pyo3(signature = (steps=None))]
-    fn new(steps: Option<Vec<PyObject>>) -> Self {
-        let steps = steps
-            .unwrap_or_default()
-            .into_iter()
-            .map(TransformStep::Custom)
-            .collect();
-        Self { steps }
-    }
-
-    fn __or__(&self, py: Python<'_>, other: &Transform) -> Transform {
-        let mut steps = clone_steps(py, &self.steps);
-        steps.extend(clone_steps(py, &other.steps));
-        Transform { steps }
-    }
-
-    fn apply(&self, py: Python<'_>, values: PyObject) -> PyResult<PyObject> {
-        let mut current = values;
-        for step in &self.steps {
-            current = apply_step(py, step, current)?;
-        }
-        Ok(current)
-    }
-
-    #[staticmethod]
-    fn identity() -> Self {
-        Self { steps: Vec::new() }
-    }
-
-    #[staticmethod]
-    fn scale(factor: PyObject) -> Self {
-        Self {
-            steps: vec![TransformStep::Scale(factor)],
-        }
-    }
-
-    #[staticmethod]
-    fn offset(delta: PyObject) -> Self {
-        Self {
-            steps: vec![TransformStep::Offset(delta)],
-        }
-    }
-
-    #[staticmethod]
-    fn shift(periods: i64) -> Self {
-        Self {
-            steps: vec![TransformStep::Shift(periods)],
-        }
-    }
-
-    #[staticmethod]
-    fn clip(lower: f64, upper: f64) -> Self {
-        Self {
-            steps: vec![TransformStep::Clip { lower, upper }],
-        }
-    }
-
-    #[staticmethod]
-    fn select(indices: Vec<usize>) -> Self {
-        Self {
-            steps: vec![TransformStep::Select(indices)],
-        }
-    }
-    fn clone_with_py(&self, py: Python<'_>) -> Transform {
-        Transform {
-            steps: clone_steps(py, &self.steps),
-        }
-    }
-}
-
-fn clone_steps(py: Python<'_>, steps: &[TransformStep]) -> Vec<TransformStep> {
-    steps
-        .iter()
-        .map(|step| match step {
-            TransformStep::Custom(func) => TransformStep::Custom(func.clone_ref(py)),
-            TransformStep::Scale(factor) => TransformStep::Scale(factor.clone_ref(py)),
-            TransformStep::Offset(delta) => TransformStep::Offset(delta.clone_ref(py)),
-            TransformStep::Shift(periods) => TransformStep::Shift(*periods),
-            TransformStep::Clip { lower, upper } => TransformStep::Clip {
-                lower: *lower,
-                upper: *upper,
-            },
-            TransformStep::Select(indices) => TransformStep::Select(indices.clone()),
-        })
-        .collect()
-}
-
-#[pyclass(subclass, dict, name = "BlockSpec")]
-pub struct BlockSpec {
-    build_fn: Option<Py<PyAny>>,
-}
-
-#[pymethods]
-impl BlockSpec {
-    #[new]
-    fn new() -> Self {
-        Self { build_fn: None }
-    }
-
-    #[pyo3(signature = (model, *, data, ctx))]
-    fn build(
-        &self,
-        py: Python<'_>,
-        model: PyObject,
-        data: PyObject,
-        ctx: PyObject,
-    ) -> PyResult<PyObject> {
-        let Some(build_fn) = &self.build_fn else {
-            return Err(PyRuntimeError::new_err(
-                "ARCO_BLOCK_502: build() is not implemented",
-            ));
-        };
-        let kwargs = PyDict::new(py);
-        kwargs.set_item("data", data.clone_ref(py))?;
-        kwargs.set_item("ctx", ctx.clone_ref(py))?;
-        let result = build_fn
-            .bind(py)
-            .call((model.clone_ref(py),), Some(&kwargs))?;
-        Ok(result.unbind())
     }
 }
 
@@ -246,17 +109,17 @@ impl BlockPort {
 #[pyclass(name = "BlockLink")]
 pub struct BlockLink {
     #[pyo3(get)]
-    source: BlockPort,
+    pub(crate) source: BlockPort,
     #[pyo3(get)]
-    target: BlockPort,
-    transform: Transform,
+    pub(crate) target: BlockPort,
+    pub(crate) transform: Transform,
 }
 
 #[pymethods]
 impl BlockLink {
     #[getter]
     fn transform(&self, py: Python<'_>) -> Transform {
-        self.transform.clone_with_py(py)
+        self.transform.clone_with_py_internal(py)
     }
 }
 
@@ -276,10 +139,10 @@ pub struct BlockDiagnostics {
 #[pyclass(name = "BlockRun")]
 pub struct BlockRun {
     #[pyo3(get)]
-    name: String,
+    pub(crate) name: String,
     model: Option<PyObject>,
     solution: Option<PyObject>,
-    outputs: Py<PyDict>,
+    pub(crate) outputs: Py<PyDict>,
     attachments: Py<PyDict>,
     #[pyo3(get)]
     diagnostics: BlockDiagnostics,
@@ -346,22 +209,22 @@ impl BlockRun {
 #[pyclass(name = "BuildResult")]
 pub struct BuildResult {
     #[pyo3(get)]
-    model: PyObject,
+    pub(crate) model: PyObject,
     #[pyo3(get)]
-    outputs: PyObject,
+    pub(crate) outputs: PyObject,
     #[pyo3(get)]
-    spec_name: String,
+    pub(crate) spec_name: String,
     #[pyo3(get)]
-    spec_version: String,
+    pub(crate) spec_version: String,
 }
 
 #[pyclass(name = "Block")]
 pub struct Block {
-    build: PyObject,
-    name: String,
-    inputs: Py<PyDict>,
-    outputs: Py<PyDict>,
-    extract: Option<PyObject>,
+    pub(crate) build: PyObject,
+    pub(crate) name: String,
+    pub(crate) inputs: Py<PyDict>,
+    pub(crate) outputs: Py<PyDict>,
+    pub(crate) extract: Option<PyObject>,
     cache_scaffolding: bool,
     warm_start: bool,
     drop_policy: DropPolicy,
@@ -474,15 +337,8 @@ impl Block {
         let outputs_dict = outputs_schema_dict(py, &outputs_schema)?;
         let outputs_dict_bound = outputs_dict.bind(py);
         let spec_obj = spec.clone().unbind();
-        let build = Py::new(
-            py,
-            SpecBuilder {
-                spec: spec_obj.clone_ref(py),
-                _slack_penalty: slack_penalty,
-            },
-        )?
-        .into_any();
-        let extract = Py::new(py, SpecExtractor { spec: spec_obj })?.into_any();
+        let build = make_spec_builder(py, spec_obj.clone_ref(py), slack_penalty)?;
+        let extract = make_spec_extractor(py, spec_obj)?;
         let inputs_dict = PyDict::new(py);
         inputs_dict.set_item("data", data_schema.clone())?;
         let block = Block::new(
@@ -497,84 +353,6 @@ impl Block {
             drop_policy,
         );
         Ok(block)
-    }
-}
-
-#[pyclass]
-struct SpecBuilder {
-    spec: Py<PyAny>,
-    _slack_penalty: f64,
-}
-
-#[pymethods]
-impl SpecBuilder {
-    fn __call__(&self, py: Python<'_>, ctx: PyObject) -> PyResult<PyObject> {
-        let ctx_ref: PyRef<'_, BlockContext> = ctx.bind(py).extract()?;
-        let data_raw = ctx_ref.inputs.bind(py).get_item("data")?;
-        let data_raw = data_raw.ok_or_else(|| {
-            PyRuntimeError::new_err("ARCO_BLOCK_502: Missing data input for spec build")
-        })?;
-        let spec = self.spec.bind(py);
-        let data_schema = get_spec_attr(spec, "data_schema")?;
-        let data_validated = validate_data(py, data_raw.unbind(), &data_schema, "Block input")?;
-        ctx_ref.attach(
-            py,
-            "_spec_name".to_string(),
-            get_spec_attr(spec, "name")?.unbind(),
-        )?;
-        let spec_version = spec
-            .getattr("version")
-            .ok()
-            .and_then(|value| value.extract::<String>().ok())
-            .unwrap_or_else(|| "0.0.0".to_string());
-        ctx_ref.attach(
-            py,
-            "_spec_version".to_string(),
-            PyString::new(py, &spec_version).into_any().unbind(),
-        )?;
-        let model = create_model(py)?;
-        let kwargs = PyDict::new(py);
-        kwargs.set_item("data", data_validated.clone_ref(py))?;
-        kwargs.set_item("ctx", ctx.clone_ref(py))?;
-        let outputs = spec.call_method("build", (model.clone_ref(py),), Some(&kwargs))?;
-        let outputs_schema = get_spec_attr(spec, "outputs_schema")?;
-        let outputs_validated =
-            validate_data(py, outputs.unbind(), &outputs_schema, "Block output")?;
-        ctx_ref.attach(py, "_outputs".to_string(), outputs_validated)?;
-        Ok(model)
-    }
-}
-
-#[pyclass]
-struct SpecExtractor {
-    spec: Py<PyAny>,
-}
-
-#[pymethods]
-impl SpecExtractor {
-    fn __call__(
-        &self,
-        py: Python<'_>,
-        _solution: PyObject,
-        ctx: &BlockContext,
-    ) -> PyResult<PyObject> {
-        let outputs = ctx.attachments.bind(py).get_item("_outputs")?;
-        let Some(outputs) = outputs else {
-            return Ok(PyDict::new(py).into_any().unbind());
-        };
-        if outputs.is_instance_of::<PyDict>() {
-            return Ok(outputs.unbind());
-        }
-        let spec = self.spec.bind(py);
-        if is_pydantic_schema(py, &get_spec_attr(spec, "outputs_schema")?)? {
-            return Ok(outputs.call_method0("model_dump")?.unbind());
-        }
-        if is_dataclass_schema(py, &get_spec_attr(spec, "outputs_schema")?)? {
-            let dataclasses = PyModule::import(py, "dataclasses")?;
-            let asdict = dataclasses.getattr("asdict")?;
-            return Ok(asdict.call1((outputs,))?.unbind());
-        }
-        Ok(PyDict::new(py).into_any().unbind())
     }
 }
 
@@ -692,7 +470,9 @@ impl BlockModel {
             );
             return Err(PyRuntimeError::new_err(msg));
         }
-        let transform = transform.map_or_else(Transform::identity, |value| value.clone_with_py(py));
+        let transform = transform.map_or_else(Transform::identity_internal, |value| {
+            value.clone_with_py_internal(py)
+        });
         self.links.push(BlockLink {
             source,
             target,
@@ -909,7 +689,7 @@ impl BlockModel {
                 for (key, value) in resolved_dict.iter() {
                     inputs.set_item(key, value)?;
                 }
-                let inputs = coerce_inputs(py, &block_ref, inputs)?;
+                let inputs = coerce_inputs(py, &block_ref.name, block_ref.inputs.bind(py), inputs)?;
                 let context = Py::new(
                     py,
                     BlockContext {
@@ -1034,7 +814,8 @@ impl BlockModel {
                 let context_ref = context.borrow(py);
                 let outputs =
                     extract_outputs(py, &block_ref, solution_obj.clone_ref(py), &context)?;
-                let outputs = coerce_outputs(py, &block_ref, outputs)?;
+                let outputs =
+                    coerce_outputs(py, &block_ref.name, block_ref.outputs.bind(py), outputs)?;
                 let attachments = context_ref.attachments.clone_ref(py);
 
                 let rss_delta_total = match (rss_before, rss_after_solve) {
@@ -1104,283 +885,6 @@ impl BlockModel {
     }
 }
 
-const ARCO_BLOCK_MARKER_ATTR: &str = "__arco_block_marker__";
-const ARCO_BLOCK_NAME_ATTR: &str = "__arco_block_name__";
-const ARCO_BLOCK_INPUT_SCHEMA_ATTR: &str = "__arco_block_input_schema__";
-const ARCO_BLOCK_INPUT_FIELDS_ATTR: &str = "__arco_block_input_fields__";
-const ARCO_BLOCK_EXPECTS_CTX_ATTR: &str = "__arco_block_expects_ctx__";
-
-#[pyclass]
-struct FunctionBlockDecorator {
-    name: Option<String>,
-}
-
-#[pymethods]
-impl FunctionBlockDecorator {
-    fn __call__(&self, py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
-        decorate_block_function(py, func.bind(py), self.name.as_deref())
-    }
-}
-
-#[pyfunction]
-#[pyo3(signature = (func=None, *, name=None))]
-fn block(py: Python<'_>, func: Option<PyObject>, name: Option<String>) -> PyResult<PyObject> {
-    if let Some(func) = func {
-        return decorate_block_function(py, func.bind(py), name.as_deref());
-    }
-    Ok(Py::new(py, FunctionBlockDecorator { name })?.into_any())
-}
-
-fn decorate_block_function(
-    py: Python<'_>,
-    func: &Bound<'_, PyAny>,
-    name_override: Option<&str>,
-) -> PyResult<PyObject> {
-    let (name, input_schema, input_fields, expects_ctx) =
-        typed_block_meta_from_function(py, func, name_override)?;
-    func.setattr(ARCO_BLOCK_MARKER_ATTR, true)?;
-    func.setattr(ARCO_BLOCK_NAME_ATTR, name)?;
-    func.setattr(ARCO_BLOCK_INPUT_SCHEMA_ATTR, input_schema)?;
-    func.setattr(ARCO_BLOCK_INPUT_FIELDS_ATTR, input_fields.bind(py))?;
-    func.setattr(ARCO_BLOCK_EXPECTS_CTX_ATTR, expects_ctx)?;
-    Ok(func.clone().unbind())
-}
-
-fn typed_block_meta_from_function(
-    py: Python<'_>,
-    func: &Bound<'_, PyAny>,
-    name_override: Option<&str>,
-) -> PyResult<(String, PyObject, Py<PyDict>, bool)> {
-    if !func.is_callable() {
-        return Err(PyTypeError::new_err("block: expected a callable"));
-    }
-    let inspect = PyModule::import(py, "inspect")?;
-    let signature = inspect.getattr("signature")?.call1((func,))?;
-    let empty = inspect.getattr("_empty")?;
-    let parameter = inspect.getattr("Parameter")?;
-    let var_positional = parameter.getattr("VAR_POSITIONAL")?;
-    let var_keyword = parameter.getattr("VAR_KEYWORD")?;
-    let keyword_only = parameter.getattr("KEYWORD_ONLY")?;
-
-    let mut params: Vec<PyObject> = Vec::new();
-    let parameter_values = signature.getattr("parameters")?.call_method0("values")?;
-    for param in parameter_values.try_iter()? {
-        params.push(param?.unbind());
-    }
-    if params.len() != 2 && params.len() != 3 {
-        return Err(PyTypeError::new_err(
-            "block: expected signature (model, data) or (model, data, ctx)",
-        ));
-    }
-    for param in &params {
-        let kind = param.bind(py).getattr("kind")?;
-        if kind.eq(&var_positional)? || kind.eq(&var_keyword)? {
-            return Err(PyTypeError::new_err(
-                "block: variadic *args/**kwargs are not supported",
-            ));
-        }
-        if kind.eq(&keyword_only)? {
-            return Err(PyTypeError::new_err(
-                "block: keyword-only parameters are not supported",
-            ));
-        }
-    }
-
-    let input_schema = params[1].bind(py).getattr("annotation")?;
-    if input_schema.is(&empty) {
-        return Err(PyTypeError::new_err(
-            "block: data parameter must include a schema annotation",
-        ));
-    }
-    if !is_dataclass_schema(py, &input_schema)? && !is_pydantic_schema(py, &input_schema)? {
-        return Err(PyTypeError::new_err(
-            "block: data annotation must be a dataclass or pydantic BaseModel type",
-        ));
-    }
-
-    let input_fields = if is_dataclass_schema(py, &input_schema)? {
-        dataclass_fields(py, &input_schema)?
-    } else {
-        let out = PyDict::new(py);
-        let model_fields_any = input_schema.getattr("model_fields")?;
-        let model_fields = model_fields_any.cast::<PyDict>()?;
-        for (name, field) in model_fields.iter() {
-            out.set_item(name, field.getattr("annotation")?)?;
-        }
-        out.unbind()
-    };
-
-    let name = if let Some(name) = name_override {
-        name.to_string()
-    } else {
-        func.getattr("__name__")?.extract::<String>()?
-    };
-    Ok((name, input_schema.unbind(), input_fields, params.len() == 3))
-}
-
-#[pyfunction]
-#[pyo3(signature = (*, name, data_schema, outputs_schema, build, version="0.0.0"))]
-fn block_spec(
-    py: Python<'_>,
-    name: String,
-    data_schema: PyObject,
-    outputs_schema: PyObject,
-    build: PyObject,
-    version: &str,
-) -> PyResult<Py<BlockSpec>> {
-    let spec = BlockSpec {
-        build_fn: Some(build),
-    };
-    let spec = Py::new(py, spec)?;
-    let spec_ref = spec.bind(py);
-    spec_ref.setattr("name", name)?;
-    spec_ref.setattr("data_schema", data_schema)?;
-    spec_ref.setattr("outputs_schema", outputs_schema)?;
-    spec_ref.setattr("version", version)?;
-    Ok(spec)
-}
-
-#[pyfunction]
-#[pyo3(signature = (*, spec, data, allow_slacks=false, slack_penalty=1e6))]
-fn build_model_from_spec(
-    py: Python<'_>,
-    spec: &Bound<'_, PyAny>,
-    data: PyObject,
-    allow_slacks: bool,
-    slack_penalty: f64,
-) -> PyResult<BuildResult> {
-    let _ = slack_penalty;
-    if allow_slacks {
-        let msg = "ARCO_BLOCK_502: allow_slacks is not yet implemented. Inject slacks in your spec.build() method instead.";
-        tracing::error!(
-            component = "block",
-            operation = "build_model_from_spec",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyRuntimeError::new_err(msg));
-    }
-    validate_spec(spec)?;
-    let data_schema = get_spec_attr(spec, "data_schema")?;
-    let data_validated = validate_data(py, data, &data_schema, "build_model_from_spec")?;
-    let inputs = PyDict::new(py);
-    inputs.set_item("data", data_validated.clone_ref(py))?;
-    let ctx = Py::new(
-        py,
-        BlockContext {
-            inputs: inputs.unbind(),
-            attachments: PyDict::new(py).unbind(),
-        },
-    )?;
-    let model = create_model(py)?;
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("data", data_validated.clone_ref(py))?;
-    kwargs.set_item("ctx", ctx.clone_ref(py))?;
-    let outputs = spec.call_method("build", (model.clone_ref(py),), Some(&kwargs))?;
-    let outputs_schema = get_spec_attr(spec, "outputs_schema")?;
-    let outputs_validated = validate_data(
-        py,
-        outputs.unbind(),
-        &outputs_schema,
-        "build_model_from_spec output",
-    )?;
-    let spec_name = get_spec_attr(spec, "name")?.extract::<String>()?;
-    let spec_version = get_spec_attr(spec, "version")
-        .ok()
-        .and_then(|value| value.extract::<String>().ok())
-        .unwrap_or_else(|| "0.0.0".to_string());
-    Ok(BuildResult {
-        model,
-        outputs: outputs_validated,
-        spec_name,
-        spec_version,
-    })
-}
-
-#[pyfunction]
-#[pyo3(signature = (*, model, constraints=None, variables=None, include_coeffs=false, include_slacks=true))]
-fn inspect_model(
-    py: Python<'_>,
-    model: PyObject,
-    constraints: Option<Vec<u32>>,
-    variables: Option<Vec<u32>>,
-    include_coeffs: bool,
-    include_slacks: bool,
-) -> PyResult<PyObject> {
-    let kwargs = PyDict::new(py);
-    kwargs.set_item("constraint_ids", constraints)?;
-    kwargs.set_item("variable_ids", variables)?;
-    kwargs.set_item("include_coeffs", include_coeffs)?;
-    kwargs.set_item("include_slacks", include_slacks)?;
-    Ok(model
-        .bind(py)
-        .call_method("inspect", (), Some(&kwargs))?
-        .unbind())
-}
-
-#[pyfunction]
-fn schemas_compatible(
-    py: Python<'_>,
-    schema_a: &Bound<'_, PyAny>,
-    schema_b: &Bound<'_, PyAny>,
-) -> PyResult<(bool, String)> {
-    if schema_a.is(schema_b) {
-        return Ok((true, String::new()));
-    }
-    let result = if is_pydantic_schema(py, schema_a)? && is_pydantic_schema(py, schema_b)? {
-        let fields_any_a = schema_a.getattr("model_fields")?;
-        let fields_a = fields_any_a.cast::<PyDict>()?;
-        let fields_any_b = schema_b.getattr("model_fields")?;
-        let fields_b = fields_any_b.cast::<PyDict>()?;
-        compare_fields(fields_a, fields_b)?
-    } else if is_dataclass_schema(py, schema_a)? && is_dataclass_schema(py, schema_b)? {
-        let fields_a = dataclass_fields(py, schema_a)?;
-        let fields_b = dataclass_fields(py, schema_b)?;
-        compare_fields(fields_a.bind(py), fields_b.bind(py))?
-    } else {
-        let type_a = schema_a.get_type().name()?.to_str()?.to_string();
-        let type_b = schema_b.get_type().name()?.to_str()?.to_string();
-        if type_a != type_b {
-            return Ok((false, format!("Schema types differ: {type_a} vs {type_b}")));
-        }
-        return Ok((
-            false,
-            format!("Incompatible schema types: {type_a} vs {type_b}"),
-        ));
-    };
-    Ok(result)
-}
-
-#[pyfunction]
-fn specs_are_swappable(
-    py: Python<'_>,
-    spec_a: &Bound<'_, PyAny>,
-    spec_b: &Bound<'_, PyAny>,
-) -> PyResult<(bool, String)> {
-    let name_a = get_spec_attr(spec_a, "name")?.extract::<String>()?;
-    let name_b = get_spec_attr(spec_b, "name")?.extract::<String>()?;
-    if name_a != name_b {
-        return Ok((false, format!("Names differ: '{name_a}' != '{name_b}'")));
-    }
-    let data_schema_a = get_spec_attr(spec_a, "data_schema")?;
-    let data_schema_b = get_spec_attr(spec_b, "data_schema")?;
-    let (data_compat, data_diff) = schemas_compatible(py, &data_schema_a, &data_schema_b)?;
-    if !data_compat {
-        return Ok((false, format!("Data schemas incompatible: {data_diff}")));
-    }
-    let outputs_schema_a = get_spec_attr(spec_a, "outputs_schema")?;
-    let outputs_schema_b = get_spec_attr(spec_b, "outputs_schema")?;
-    let (outputs_compat, outputs_diff) =
-        schemas_compatible(py, &outputs_schema_a, &outputs_schema_b)?;
-    if !outputs_compat {
-        return Ok((
-            false,
-            format!("Output schemas incompatible: {outputs_diff}"),
-        ));
-    }
-    Ok((true, String::new()))
-}
-
 pub fn add_blocks_submodule(py: Python<'_>, parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let blocks = PyModule::new(py, "blocks")?;
     blocks.add_class::<Block>()?;
@@ -1407,583 +911,6 @@ pub fn add_blocks_submodule(py: Python<'_>, parent: &Bound<'_, PyModule>) -> PyR
     modules.set_item("arco.blocks", &blocks)?;
     parent.setattr("blocks", &blocks)?;
     Ok(())
-}
-
-fn apply_step(py: Python<'_>, step: &TransformStep, values: PyObject) -> PyResult<PyObject> {
-    let value_any = values.bind(py);
-    match step {
-        TransformStep::Custom(func) => Ok(func.bind(py).call1((values,))?.unbind()),
-        TransformStep::Scale(factor) => apply_binary(py, value_any, factor.bind(py), "__mul__"),
-        TransformStep::Offset(delta) => apply_binary(py, value_any, delta.bind(py), "__add__"),
-        TransformStep::Shift(periods) => apply_shift(py, value_any, *periods),
-        TransformStep::Clip { lower, upper } => apply_clip(py, value_any, *lower, *upper),
-        TransformStep::Select(indices) => apply_select(py, value_any, indices),
-    }
-}
-
-fn apply_binary(
-    py: Python<'_>,
-    values: &Bound<'_, PyAny>,
-    rhs: &Bound<'_, PyAny>,
-    op: &str,
-) -> PyResult<PyObject> {
-    if is_sequence(values) {
-        let seq = values.cast::<PySequence>()?;
-        let rhs_seq = if is_sequence(rhs) {
-            Some(rhs.cast::<PySequence>()?)
-        } else {
-            None
-        };
-        let len = seq.len()?;
-        let mut results = Vec::new();
-        if let Some(rhs_seq) = rhs_seq {
-            let rhs_len = rhs_seq.len()?;
-            let count = len.min(rhs_len);
-            for idx in 0..count {
-                let left = seq.get_item(idx)?;
-                let right = rhs_seq.get_item(idx)?;
-                let value = left.call_method1(op, (right,))?;
-                results.push(value.unbind());
-            }
-        } else {
-            for idx in 0..len {
-                let left = seq.get_item(idx)?;
-                let value = left.call_method1(op, (rhs,))?;
-                results.push(value.unbind());
-            }
-        }
-        return Ok(PyList::new(py, results)?.into_any().unbind());
-    }
-    Ok(values.call_method1(op, (rhs,))?.unbind())
-}
-
-fn apply_shift(py: Python<'_>, values: &Bound<'_, PyAny>, periods: i64) -> PyResult<PyObject> {
-    if !is_sequence(values) {
-        return Ok(values.clone().unbind());
-    }
-    let seq = values.cast::<PySequence>()?;
-    let len = seq.len()?;
-    let mut items = Vec::with_capacity(len);
-    for idx in 0..len {
-        items.push(seq.get_item(idx)?.unbind());
-    }
-    if periods == 0 {
-        return Ok(PyList::new(py, items)?.into_any().unbind());
-    }
-    let fill = PyFloat::new(py, 0.0).into_any().unbind();
-    if periods > 0 {
-        let shift = periods as usize;
-        let mut out = Vec::with_capacity(len + shift);
-        for _ in 0..shift {
-            out.push(fill.clone_ref(py));
-        }
-        let keep = len.saturating_sub(shift);
-        out.extend(items.into_iter().take(keep));
-        return Ok(PyList::new(py, out)?.into_any().unbind());
-    }
-    let shift = (-periods) as usize;
-    let mut out: Vec<PyObject> = items.into_iter().skip(shift).collect();
-    for _ in 0..shift {
-        out.push(fill.clone_ref(py));
-    }
-    Ok(PyList::new(py, out)?.into_any().unbind())
-}
-
-fn apply_clip(
-    py: Python<'_>,
-    values: &Bound<'_, PyAny>,
-    lower: f64,
-    upper: f64,
-) -> PyResult<PyObject> {
-    if is_sequence(values) {
-        let seq = values.cast::<PySequence>()?;
-        let len = seq.len()?;
-        let mut out = Vec::with_capacity(len);
-        for idx in 0..len {
-            let value = seq.get_item(idx)?;
-            let number = value.extract::<f64>()?;
-            let clipped = number.max(lower).min(upper);
-            out.push(PyFloat::new(py, clipped).into_any().unbind());
-        }
-        return Ok(PyList::new(py, out)?.into_any().unbind());
-    }
-    let number = values.extract::<f64>()?;
-    Ok(PyFloat::new(py, number.max(lower).min(upper))
-        .into_any()
-        .unbind())
-}
-
-fn apply_select(
-    py: Python<'_>,
-    values: &Bound<'_, PyAny>,
-    indices: &[usize],
-) -> PyResult<PyObject> {
-    if !is_sequence(values) {
-        return Ok(values.clone().unbind());
-    }
-    let seq = values.cast::<PySequence>()?;
-    let mut out = Vec::with_capacity(indices.len());
-    for idx in indices {
-        out.push(seq.get_item(*idx)?.unbind());
-    }
-    Ok(PyList::new(py, out)?.into_any().unbind())
-}
-
-fn is_sequence(value: &Bound<'_, PyAny>) -> bool {
-    if value.is_instance_of::<PyString>() {
-        return false;
-    }
-    if value.is_instance_of::<PyBytes>() {
-        return false;
-    }
-    value.cast::<PySequence>().is_ok()
-}
-
-fn rss_bytes() -> Option<u64> {
-    capture_rss_bytes("block")
-}
-
-fn log_block_phase(
-    block: &str,
-    phase: &str,
-    duration_ms: f64,
-    rss_bytes: Option<u64>,
-    rss_delta_bytes: Option<i64>,
-    warm_start: bool,
-) {
-    tracing::info!(
-        component = "block",
-        operation = phase,
-        status = "success",
-        block,
-        phase,
-        cache_hit = false,
-        warm_start,
-        duration_ms,
-        rss_bytes,
-        rss_delta_bytes,
-        "Block phase complete"
-    );
-}
-
-fn model_type(py: Python<'_>) -> PyResult<Bound<'_, PyType>> {
-    let module = PyModule::import(py, "arco.arco")?;
-    let model_any = module.getattr("Model")?;
-    Ok(model_any.cast::<PyType>()?.clone())
-}
-
-fn create_model(py: Python<'_>) -> PyResult<PyObject> {
-    let model_type = model_type(py)?;
-    Ok(model_type.call0()?.unbind())
-}
-
-fn validate_spec(spec: &Bound<'_, PyAny>) -> PyResult<()> {
-    if spec.get_type().name()?.to_str()? == "BlockSpec" {
-        let msg = "ARCO_BLOCK_502: BlockSpec is abstract";
-        tracing::error!(
-            component = "block",
-            operation = "from_spec",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyRuntimeError::new_err(msg));
-    }
-    if !spec.hasattr("name")? || spec.getattr("name")?.is_none() {
-        let msg = "ARCO_BLOCK_501: BlockSpec must have a non-empty 'name' attribute";
-        tracing::error!(
-            component = "block",
-            operation = "from_spec",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyRuntimeError::new_err(msg));
-    }
-    if !spec.hasattr("data_schema")? {
-        let msg = "ARCO_BLOCK_501: BlockSpec must have a 'data_schema' attribute";
-        tracing::error!(
-            component = "block",
-            operation = "from_spec",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyRuntimeError::new_err(msg));
-    }
-    if !spec.hasattr("outputs_schema")? {
-        let msg = "ARCO_BLOCK_501: BlockSpec must have an 'outputs_schema' attribute";
-        tracing::error!(
-            component = "block",
-            operation = "from_spec",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyRuntimeError::new_err(msg));
-    }
-    if !spec.hasattr("build")? {
-        let msg = "ARCO_BLOCK_501: BlockSpec must have a callable 'build' method";
-        tracing::error!(
-            component = "block",
-            operation = "from_spec",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyRuntimeError::new_err(msg));
-    }
-    if !spec.getattr("build")?.is_callable() {
-        let msg = "ARCO_BLOCK_501: BlockSpec must have a callable 'build' method";
-        tracing::error!(
-            component = "block",
-            operation = "from_spec",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyRuntimeError::new_err(msg));
-    }
-    Ok(())
-}
-
-fn get_spec_attr<'py>(spec: &Bound<'py, PyAny>, name: &str) -> PyResult<Bound<'py, PyAny>> {
-    spec.getattr(name)
-}
-
-fn is_pydantic_schema(py: Python<'_>, schema: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let Ok(schema_type) = schema.cast::<PyType>() else {
-        return Ok(false);
-    };
-    let pydantic = PyModule::import(py, "pydantic")?;
-    let base_model_any = pydantic.getattr("BaseModel")?;
-    let base_model = base_model_any.cast::<PyType>()?;
-    schema_type.is_subclass(base_model)
-}
-
-fn is_dataclass_schema(py: Python<'_>, schema: &Bound<'_, PyAny>) -> PyResult<bool> {
-    let dataclasses = PyModule::import(py, "dataclasses")?;
-    let is_dataclass = dataclasses.getattr("is_dataclass")?;
-    is_dataclass.call1((schema,))?.extract::<bool>()
-}
-
-fn dataclass_fields(py: Python<'_>, schema: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-    let dataclasses = PyModule::import(py, "dataclasses")?;
-    let fields = dataclasses.getattr("fields")?.call1((schema,))?;
-    let dict = PyDict::new(py);
-    for item in fields.try_iter()? {
-        let item = item?;
-        let name = item.getattr("name")?;
-        let field_type = item.getattr("type")?;
-        dict.set_item(name, field_type)?;
-    }
-    Ok(dict.unbind())
-}
-
-fn compare_fields(
-    fields_a: &Bound<'_, PyDict>,
-    fields_b: &Bound<'_, PyDict>,
-) -> PyResult<(bool, String)> {
-    let keys_a: HashSet<String> = fields_a
-        .keys()
-        .iter()
-        .filter_map(|key| key.extract::<String>().ok())
-        .collect();
-    let keys_b: HashSet<String> = fields_b
-        .keys()
-        .iter()
-        .filter_map(|key| key.extract::<String>().ok())
-        .collect();
-    if keys_a != keys_b {
-        let missing_a: HashSet<_> = keys_b.difference(&keys_a).cloned().collect();
-        let missing_b: HashSet<_> = keys_a.difference(&keys_b).cloned().collect();
-        let mut parts = Vec::new();
-        if !missing_a.is_empty() {
-            parts.push(format!("missing in first: {missing_a:?}"));
-        }
-        if !missing_b.is_empty() {
-            parts.push(format!("missing in second: {missing_b:?}"));
-        }
-        return Ok((false, parts.join(", ")));
-    }
-    for key in keys_a {
-        let value_a = fields_a.get_item(&key)?.unwrap();
-        let value_b = fields_b.get_item(&key)?.unwrap();
-        if !value_a.eq(&value_b)? {
-            let value_a_str = value_a.str()?.to_str()?.to_string();
-            let value_b_str = value_b.str()?.to_str()?.to_string();
-            return Ok((
-                false,
-                format!("Type mismatch for field '{key}': {value_a_str} != {value_b_str}"),
-            ));
-        }
-    }
-    Ok((true, String::new()))
-}
-
-fn validate_data(
-    py: Python<'_>,
-    data: PyObject,
-    schema: &Bound<'_, PyAny>,
-    context: &str,
-) -> PyResult<PyObject> {
-    if data.is_none(py) {
-        let msg = format!(
-            "ARCO_BLOCK_502: {context} received None data for schema {}",
-            schema.get_type().name()?
-        );
-        tracing::error!(
-            component = "block",
-            operation = "validate_data",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyValueError::new_err(msg));
-    }
-    if data.bind(py).is_instance(schema)? {
-        return Ok(data);
-    }
-    if is_pydantic_schema(py, schema)? {
-        match schema.call_method1("model_validate", (data.clone_ref(py),)) {
-            Ok(validated) => return Ok(validated.unbind()),
-            Err(err) => {
-                let msg = format!("ARCO_BLOCK_502: {context} validation failed: {err}");
-                tracing::error!(
-                    component = "block",
-                    operation = "validate_data",
-                    status = "error",
-                    "{msg}"
-                );
-                return Err(PyValueError::new_err(msg));
-            }
-        }
-    }
-    if is_dataclass_schema(py, schema)? {
-        let data_any = data.bind(py);
-        if data_any.is_instance_of::<PyDict>() {
-            let dict = data_any.cast::<PyDict>()?;
-            match schema.call((), Some(dict)) {
-                Ok(instance) => return Ok(instance.unbind()),
-                Err(err) => {
-                    let msg =
-                        format!("ARCO_BLOCK_502: {context} dataclass construction failed: {err}");
-                    tracing::error!(
-                        component = "block",
-                        operation = "validate_data",
-                        status = "error",
-                        "{msg}"
-                    );
-                    return Err(PyValueError::new_err(msg));
-                }
-            }
-        }
-        let msg = format!(
-            "ARCO_BLOCK_502: {context} dataclass requires dict, got {}",
-            data_any.get_type().name()?
-        );
-        tracing::error!(
-            component = "block",
-            operation = "validate_data",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyValueError::new_err(msg));
-    }
-    let msg = format!(
-        "ARCO_BLOCK_502: {context} unsupported schema type {}",
-        schema.get_type().name()?
-    );
-    tracing::error!(
-        component = "block",
-        operation = "validate_data",
-        status = "error",
-        "{msg}"
-    );
-    Err(PyValueError::new_err(msg))
-}
-
-fn outputs_schema_dict(py: Python<'_>, schema: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-    if is_pydantic_schema(py, schema)? {
-        let fields_any = schema.getattr("model_fields")?;
-        let fields = fields_any.cast::<PyDict>()?;
-        let dict = PyDict::new(py);
-        for key in fields.keys() {
-            dict.set_item(key, py.None())?;
-        }
-        return Ok(dict.unbind());
-    }
-    if is_dataclass_schema(py, schema)? {
-        let dict = PyDict::new(py);
-        let fields = dataclass_fields(py, schema)?;
-        for key in fields.bind(py).keys() {
-            dict.set_item(key, py.None())?;
-        }
-        return Ok(dict.unbind());
-    }
-    Ok(PyDict::new(py).unbind())
-}
-
-fn resolve_links(
-    py: Python<'_>,
-    block_name: &str,
-    links: &[BlockLink],
-    runs: &[Py<BlockRun>],
-) -> PyResult<PyObject> {
-    let resolved = PyDict::new(py);
-    let source_index_cache: OnceMap<String, usize> = OnceMap::default();
-
-    for link in links {
-        if link.target.block_name != block_name {
-            continue;
-        }
-        let source_name = link.source.block_name.as_str();
-        let source_index = if let Some(index) = source_index_cache.get(source_name) {
-            index
-        } else {
-            let index = runs
-                .iter()
-                .position(|run| run.borrow(py).name == source_name)
-                .ok_or_else(|| {
-                    PyRuntimeError::new_err(format!(
-                        "ARCO_BLOCK_501: Block '{}' not found in run list",
-                        source_name
-                    ))
-                })?;
-            if source_index_cache.register(link.source.block_name.clone()) {
-                let _ = source_index_cache.done(link.source.block_name.clone(), index);
-            }
-            index
-        };
-        let value = runs[source_index]
-            .borrow(py)
-            .outputs
-            .bind(py)
-            .get_item(&link.source.key)?
-            .ok_or_else(|| {
-                PyRuntimeError::new_err(format!(
-                    "ARCO_BLOCK_502: Output '{}' not available from block '{}'",
-                    link.source.key, link.source.block_name
-                ))
-            })?;
-        let transformed = link.transform.apply(py, value.unbind())?;
-        resolved.set_item(&link.target.key, transformed)?;
-    }
-    Ok(resolved.into_any().unbind())
-}
-
-fn extract_outputs<'py>(
-    py: Python<'py>,
-    block: &Block,
-    solution: PyObject,
-    context: &Py<BlockContext>,
-) -> PyResult<Bound<'py, PyDict>> {
-    let outputs = if let Some(extract) = &block.extract {
-        let ctx_obj = context.clone_ref(py).into_any();
-        let result = extract.bind(py).call1((solution.clone_ref(py), ctx_obj))?;
-        result
-            .cast::<PyDict>()
-            .map_err(|_| {
-                PyRuntimeError::new_err(format!(
-                    "ARCO_BLOCK_502: Block '{}' extract must return dict",
-                    block.name
-                ))
-            })?
-            .clone()
-    } else {
-        PyDict::new(py)
-    };
-    for key in outputs.keys() {
-        if block.outputs.bind(py).get_item(&key)?.is_none() {
-            let key_name = key.str()?;
-            let key_str = key_name.to_str()?;
-            let msg = format!(
-                "ARCO_BLOCK_502: Output '{key_str}' not declared on block '{}'",
-                block.name
-            );
-            tracing::error!(
-                component = "block",
-                operation = "extract",
-                status = "error",
-                "{msg}"
-            );
-            return Err(PyRuntimeError::new_err(msg));
-        }
-    }
-    Ok(outputs)
-}
-
-fn coerce_inputs<'py>(
-    py: Python<'py>,
-    block: &Block,
-    inputs: Bound<'py, PyDict>,
-) -> PyResult<Bound<'py, PyDict>> {
-    let coerced = PyDict::new(py);
-    for (key, value) in inputs.iter() {
-        let schema = block.inputs.bind(py).get_item(&key)?;
-        let coerced_value = coerce_schema(py, value.unbind(), schema, &block.name, &key, "input")?;
-        coerced.set_item(key, coerced_value)?;
-    }
-    Ok(coerced)
-}
-
-fn coerce_outputs<'py>(
-    py: Python<'py>,
-    block: &Block,
-    outputs: Bound<'py, PyDict>,
-) -> PyResult<Bound<'py, PyDict>> {
-    let coerced = PyDict::new(py);
-    for (key, value) in outputs.iter() {
-        let schema = block.outputs.bind(py).get_item(&key)?;
-        let coerced_value = coerce_schema(py, value.unbind(), schema, &block.name, &key, "output")?;
-        coerced.set_item(key, coerced_value)?;
-    }
-    Ok(coerced)
-}
-
-fn coerce_schema(
-    py: Python<'_>,
-    value: PyObject,
-    schema: Option<Bound<'_, PyAny>>,
-    block: &str,
-    key: &Bound<'_, PyAny>,
-    kind: &str,
-) -> PyResult<PyObject> {
-    let Some(schema) = schema else {
-        return Ok(value);
-    };
-    if schema.is_none() {
-        return Ok(value);
-    }
-    if value.bind(py).is_instance(&schema)? {
-        return Ok(value);
-    }
-    if is_pydantic_schema(py, &schema)? {
-        let validated = schema.call_method1("model_validate", (value.clone_ref(py),))?;
-        return Ok(validated.unbind());
-    }
-    if is_dataclass_schema(py, &schema)? {
-        if value.bind(py).is_instance_of::<PyDict>() {
-            let dict = value.bind(py).cast::<PyDict>()?;
-            let instance = schema.call((), Some(dict))?;
-            return Ok(instance.unbind());
-        }
-        let msg = format!(
-            "ARCO_BLOCK_502: {kind} '{}' for block '{block}' does not match schema",
-            key.str()?.to_str()?
-        );
-        tracing::error!(
-            component = "block",
-            operation = "validate",
-            status = "error",
-            "{msg}"
-        );
-        return Err(PyRuntimeError::new_err(msg));
-    }
-    let msg = format!(
-        "ARCO_BLOCK_502: {kind} '{}' for block '{block}' does not match schema",
-        key.str()?.to_str()?
-    );
-    tracing::error!(
-        component = "block",
-        operation = "validate",
-        status = "error",
-        "{msg}"
-    );
-    Err(PyRuntimeError::new_err(msg))
 }
 
 #[cfg(test)]

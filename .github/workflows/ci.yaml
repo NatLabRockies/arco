@@ -42,12 +42,10 @@ jobs:
           dist
 
       - name: Install built wheel and validate import
-        run:
-          uv run python scripts/python_package_smoke.py --artifact-glob
+        run: uv run python scripts/python_package_smoke.py --artifact-glob
           "dist/*.whl"
 
       - name: Run docs doctests
         if: matrix.python-version == '3.12'
-        run:
-          uv run --project bindings/python --with pytest --with numpy pytest
+        run: uv run --project bindings/python --with pytest --with numpy pytest
           scripts/test_docs_doctest.py -v
