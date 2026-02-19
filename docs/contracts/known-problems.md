@@ -1,11 +1,8 @@
-# Known Problems
+# Known Optimization Problems Contract
 
-This reference page defines Arco's canonical set of known optimization problems.
-Each section includes:
-
-- Mathematical formulation.
-- A runnable Arco model.
-- A known solution check in `python doctest` format.
+This file encodes solver-correctness guarantees for Arco's canonical set of
+known optimization problems as executable doctests. Each section includes the
+mathematical formulation, a runnable Arco model, and expected solution values.
 
 ## Simple LP
 
@@ -23,8 +20,9 @@ Known optimum: `x = 1`, `y = 4`, objective `11`.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=1.0, upper=float("inf")), name="x")
 >>> y = model.add_variable(bounds=arco.Bounds(lower=2.0, upper=float("inf")), name="y")
->>> _ = model.add_constraint(expr=x + y >= 5.0, name="demand")
->>> model.minimize(expr=3.0 * x + 2.0 * y)
+>>> model.add_constraint(x + y >= 5.0, name="demand")
+Constraint('demand', Bounds(5, inf))
+>>> model.minimize(3.0 * x + 2.0 * y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -54,10 +52,13 @@ Known optimum: `x = 20`, `y = 60`, objective `2600`.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
 >>> y = model.add_variable(bounds=arco.NonNegativeFloat, name="y")
->>> _ = model.add_constraint(expr=x <= 40.0, name="demand")
->>> _ = model.add_constraint(expr=x + y <= 80.0, name="labor_a")
->>> _ = model.add_constraint(expr=2.0 * x + y <= 100.0, name="labor_b")
->>> model.maximize(expr=40.0 * x + 30.0 * y)
+>>> model.add_constraint(x <= 40.0, name="demand")
+Constraint('demand', Bounds(-inf, 40))
+>>> model.add_constraint(x + y <= 80.0, name="labor_a")
+Constraint('labor_a', Bounds(-inf, 80))
+>>> model.add_constraint(2.0 * x + y <= 100.0, name="labor_b")
+Constraint('labor_b', Bounds(-inf, 100))
+>>> model.maximize(40.0 * x + 30.0 * y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -94,8 +95,14 @@ Known solution: `x = [1, 2]`.
 >>> model = arco.Model()
 >>> j = arco.IndexSet(name="j", size=2)
 >>> x = model.add_variables(index_sets=[j], bounds=arco.NonNegativeFloat, name="x")
->>> _ = model.add_constraints(expr=(A @ x) == b, name="row")
->>> model.minimize(expr=0.0)
+>>> row_constraints = model.add_constraints((A @ x) == b, name="row")
+>>> len(row_constraints)
+2
+>>> row_constraints[0].bounds
+Bounds(lower=3, upper=3)
+>>> row_constraints[1].bounds
+Bounds(lower=1, upper=1)
+>>> model.minimize(0.0)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -123,11 +130,12 @@ With values `[6,5,4]` and weights `[3,2,1]`, the known optimum value is `10`
 >>> weights = [3.0, 2.0, 1.0]
 >>> model = arco.Model()
 >>> x = {name: model.add_variable(bounds=arco.Binary, name=name) for name in items}
->>> _ = model.add_constraint(
-...     expr=sum(w * x[name] for w, name in zip(weights, items, strict=True)) <= 4.0,
+>>> model.add_constraint(
+...     sum(w * x[name] for w, name in zip(weights, items, strict=True)) <= 4.0,
 ...     name="capacity",
 ... )
->>> model.maximize(expr=sum(v * x[name] for v, name in zip(values, items, strict=True)))
+Constraint('capacity', Bounds(-inf, 4))
+>>> model.maximize(sum(v * x[name] for v, name in zip(values, items, strict=True)))
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -160,9 +168,13 @@ Known optimum on the small test graph: objective `2` using the direct arc
 >>> src = arco.IndexSet(name="src", size=3)
 >>> dst = arco.IndexSet(name="dst", size=3)
 >>> x = model.add_variables(index_sets=[src, dst], bounds=arco.Binary, name="x")
->>> _ = model.add_constraints(expr=x[costs == 0.0] == 0.0, name="no_arc")
->>> _ = model.add_constraints(expr=(x.sum(over=dst) - x.sum(over=src)) == balance, name="flow")
->>> model.minimize(expr=np.sum(costs * x))
+>>> no_arc = model.add_constraints(x[costs == 0.0] == 0.0, name="no_arc")
+>>> len(no_arc)
+6
+>>> flow = model.add_constraints((x.sum(over=dst) - x.sum(over=src)) == balance, name="flow")
+>>> len(flow)
+3
+>>> model.minimize(np.sum(costs * x))
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -199,9 +211,12 @@ Known optimum for this two-unit instance: objective `275`, generation
 >>> units = arco.IndexSet(name="unit", size=2)
 >>> g = model.add_variables(index_sets=[units], bounds=arco.NonNegativeFloat, name="gen")
 >>> u = model.add_variables(index_sets=[units], bounds=arco.Binary, name="commit")
->>> _ = model.add_constraint(expr=g.sum() == demand, name="balance")
->>> _ = model.add_constraints(expr=g <= gen_max * u, name="capacity")
->>> model.minimize(expr=np.sum(fixed_cost * u + variable_cost * g))
+>>> model.add_constraint(g.sum() == demand, name="balance")
+Constraint('balance', Bounds(120, 120))
+>>> capacity = model.add_constraints(g <= gen_max * u, name="capacity")
+>>> len(capacity)
+2
+>>> model.minimize(np.sum(fixed_cost * u + variable_cost * g))
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -242,13 +257,18 @@ Known optimum for this toy graph: select edges `0->1` and `1->3`, objective
 >>> dst = arco.IndexSet(name="dst", size=4)
 >>> edge = model.add_variables(index_sets=[src, dst], bounds=arco.Binary, name="edge")
 >>> flow = model.add_variables(index_sets=[src, dst], bounds=arco.NonNegativeFloat, name="flow")
->>> _ = model.add_constraint(expr=np.sum(edge) <= 2.0, name="edge_budget")
->>> _ = model.add_constraints(expr=flow <= G * edge, name="capacity")
->>> _ = model.add_constraints(
-...     expr=flow[1:-1, :].sum(over=dst) == flow[:, 1:-1].sum(over=src),
+>>> model.add_constraint(np.sum(edge) <= 2.0, name="edge_budget")
+Constraint('edge_budget', Bounds(-inf, 2))
+>>> capacity = model.add_constraints(flow <= G * edge, name="capacity")
+>>> len(capacity)
+16
+>>> conservation = model.add_constraints(
+...     flow[1:-1, :].sum(over=dst) == flow[:, 1:-1].sum(over=src),
 ...     name="flow_conservation",
 ... )
->>> model.minimize(expr=0.1 * np.sum(edge) - flow[0, :].sum())
+>>> len(conservation)
+2
+>>> model.minimize(0.1 * np.sum(edge) - flow[0, :].sum())
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -291,11 +311,17 @@ generation `[2,2]`.
 >>> s = model.add_variables(index_sets=[time], bounds=arco.Bounds(lower=0.0, upper=2.0), name="storage")
 >>> c = model.add_variables(index_sets=[time], bounds=arco.Bounds(lower=0.0, upper=1.0), name="charge")
 >>> d = model.add_variables(index_sets=[time], bounds=arco.Bounds(lower=0.0, upper=1.0), name="discharge")
->>> _ = model.add_constraints(expr=p + r + d == demand + c, name="balance")
+>>> balance = model.add_constraints(p + r + d == demand + c, name="balance")
+>>> len(balance)
+2
 >>> s_prev = np.concatenate([[initial_storage], s[:-1]])
->>> _ = model.add_constraints(expr=s == s_prev + c - d, name="storage_dynamics")
->>> _ = model.add_constraints(expr=r <= available, name="renewable_cap")
->>> model.minimize(expr=10.0 * p.sum())
+>>> dynamics = model.add_constraints(s == s_prev + c - d, name="storage_dynamics")
+>>> len(dynamics)
+2
+>>> renewable_cap = model.add_constraints(r <= available, name="renewable_cap")
+>>> len(renewable_cap)
+2
+>>> model.minimize(10.0 * p.sum())
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -330,13 +356,19 @@ For `N=4`, the model is feasible with objective `0`.
 >>> rows = arco.IndexSet(name="row", size=N)
 >>> cols = arco.IndexSet(name="col", size=N)
 >>> q = model.add_variables(index_sets=[rows, cols], bounds=arco.Binary, name="queen")
->>> _ = model.add_constraints(expr=q.sum(over=cols) == 1.0, name="row")
->>> _ = model.add_constraints(expr=q.sum(over=rows) == 1.0, name="col")
->>> for k in range(-(N - 1), N):
-...     _ = model.add_constraint(expr=np.diag(q, k).sum() <= 1.0, name=f"diag_down_{k}")
->>> for k in range(-(N - 1), N):
-...     _ = model.add_constraint(expr=np.diag(np.fliplr(q), k).sum() <= 1.0, name=f"diag_up_{k}")
->>> model.minimize(expr=0.0)
+>>> row_cons = model.add_constraints(q.sum(over=cols) == 1.0, name="row")
+>>> len(row_cons)
+4
+>>> col_cons = model.add_constraints(q.sum(over=rows) == 1.0, name="col")
+>>> len(col_cons)
+4
+>>> diag_down = [model.add_constraint(np.diag(q, k).sum() <= 1.0, name=f"diag_down_{k}") for k in range(-(N - 1), N)]
+>>> len(diag_down)
+7
+>>> diag_up = [model.add_constraint(np.diag(np.fliplr(q), k).sum() <= 1.0, name=f"diag_up_{k}") for k in range(-(N - 1), N)]
+>>> len(diag_up)
+7
+>>> model.minimize(0.0)
 >>> solution = model.solve(log_to_console=False)
 >>> board = solution.get_value(q).reshape(N, N)
 >>> solution.is_optimal()
@@ -352,7 +384,3 @@ True
 >>> bool(max(np.diag(np.fliplr(board), k).sum() for k in range(-(N - 1), N)) <= 1.0 + 1e-6)
 True
 ```
-
----
-
-[Back to reference](./) | [Back to docs home](../)

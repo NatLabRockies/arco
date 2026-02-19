@@ -47,7 +47,7 @@ Each block has:
 ...         bounds=arco.Bounds(lower=0.0, upper=data.capacity),
 ...         name="supply",
 ...     )
-...     model.minimize(expr=x)
+...     model.minimize(x)
 >>>
 >>> def extract_supply(result, data: SupplyIn) -> SupplyOut:
 ...     return SupplyOut(level=result.get_primal(index=0))
@@ -58,7 +58,7 @@ Each block has:
 ...         bounds=arco.Bounds(lower=data.supply_level, upper=100.0),
 ...         name="demand",
 ...     )
-...     model.minimize(expr=y)
+...     model.minimize(y)
 >>>
 >>> def extract_demand(result, data: DemandIn) -> DemandOut:
 ...     return DemandOut(level=result.get_primal(index=0))
@@ -92,7 +92,7 @@ Register blocks with `model.add_block()` and link fields with `.out` and `.in_`.
 >>> @block
 ... def build_supply(model: arco.Model, data: SupplyIn) -> None:
 ...     x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=data.capacity), name="supply")
-...     model.minimize(expr=x)
+...     model.minimize(x)
 >>>
 >>> def extract_supply(result, data: SupplyIn) -> SupplyOut:
 ...     return SupplyOut(level=result.get_primal(index=0))
@@ -100,7 +100,7 @@ Register blocks with `model.add_block()` and link fields with `.out` and `.in_`.
 >>> @block
 ... def build_demand(model: arco.Model, data: DemandIn) -> None:
 ...     y = model.add_variable(bounds=arco.Bounds(lower=data.supply_level, upper=100.0), name="demand")
-...     model.minimize(expr=y)
+...     model.minimize(y)
 >>>
 >>> def extract_demand(result, data: DemandIn) -> DemandOut:
 ...     return DemandOut(level=result.get_primal(index=0))

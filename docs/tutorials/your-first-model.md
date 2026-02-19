@@ -76,7 +76,7 @@ in a natural mathematical style. The expression `x + y >= 5.0` produces a
 `ConstraintExpr` that you pass to `model.add_constraint()`.
 
 ```python
-_ = model.add_constraint(expr=x + y >= 5.0, name="demand")
+_ = model.add_constraint(x + y >= 5.0, name="demand")
 ```
 
 The name `"demand"` is optional, but naming your constraints makes it much
@@ -90,7 +90,7 @@ constraints, the objective expression uses operator overloading, so you can writ
 `3.0 * x + 2.0 * y` directly.
 
 ```python
-model.minimize(expr=3.0 * x + 2.0 * y)
+model.minimize(3.0 * x + 2.0 * y)
 ```
 
 The model is now complete. It has two variables, one explicit constraint (plus
@@ -126,9 +126,9 @@ Here is the complete model and solution check as a self-contained example:
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=1.0, upper=float("inf")), name="x")
 >>> y = model.add_variable(bounds=arco.Bounds(lower=2.0, upper=float("inf")), name="y")
->>> model.add_constraint(expr=x + y >= 5.0, name="demand")
+>>> model.add_constraint(x + y >= 5.0, name="demand")
 Constraint('demand', Bounds(5, inf))
->>> model.minimize(expr=3.0 * x + 2.0 * y)
+>>> model.minimize(3.0 * x + 2.0 * y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -158,9 +158,9 @@ solver outcome.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=1.0, upper=float("inf")), name="x")
 >>> y = model.add_variable(bounds=arco.Bounds(lower=2.0, upper=float("inf")), name="y")
->>> model.add_constraint(expr=x + y >= 5.0, name="demand")
+>>> model.add_constraint(x + y >= 5.0, name="demand")
 Constraint('demand', Bounds(5, inf))
->>> model.minimize(expr=3.0 * x + 2.0 * y)
+>>> model.minimize(3.0 * x + 2.0 * y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
