@@ -65,6 +65,13 @@ pub enum HighsModelError {
         /// Name of the operation that requires a prior solve.
         operation: &'static str,
     },
+    /// HiGHS returned row/column dimensions that cannot be represented as `usize`.
+    InvalidSolutionDimensions {
+        /// Raw number of columns reported by HiGHS.
+        num_cols: highs_sys::HighsInt,
+        /// Raw number of rows reported by HiGHS.
+        num_rows: highs_sys::HighsInt,
+    },
     /// HiGHS returned a non-OK status while extracting the solution vectors.
     SolutionExtractionFailed { status: i32 },
 }
@@ -603,21 +610,23 @@ impl HighsModel {
         // Call highs-sys directly: highs::Solution only exposes borrowed slices,
         // forcing an extra copy. Reading into owned vectors avoids that.
         let ptr = solved.as_ptr();
-        let num_cols = usize::try_from(unsafe { highs_sys::Highs_getNumCol(ptr) }).unwrap_or(0);
-        let num_rows = usize::try_from(unsafe { highs_sys::Highs_getNumRow(ptr) }).unwrap_or(0);
+        let num_cols_raw = unsafe { highs_sys::Highs_getNumCol(ptr) };
+        let num_rows_raw = unsafe { highs_sys::Highs_getNumRow(ptr) };
+        let (num_cols, num_rows) = checked_solution_dimensions(num_cols_raw, num_rows_raw)?;
         let mut col_values = vec![0.0; num_cols];
         let mut col_duals = vec![0.0; num_cols];
         let mut row_values = vec![0.0; num_rows];
         let mut row_duals = vec![0.0; num_rows];
-        unsafe {
+        let status = unsafe {
             highs_sys::Highs_getSolution(
                 ptr,
                 col_values.as_mut_ptr(),
                 col_duals.as_mut_ptr(),
                 row_values.as_mut_ptr(),
                 row_duals.as_mut_ptr(),
-            );
-        }
+            )
+        };
+        ensure_highs_status_ok(status)?;
         Ok(SolutionSnapshot {
             col_values,
             col_duals,
