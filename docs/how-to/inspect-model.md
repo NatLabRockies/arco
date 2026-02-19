@@ -14,11 +14,11 @@ everything registered on the model. Each item carries its name and bounds.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0), name="x")
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0), name="y")
->>> model.add_constraint(expr=1.5 * x + 2.0 * y == 5.0, name="balance")
+>>> model.add_constraint(1.5 * x + 2.0 * y == 5.0, name="balance")
 Constraint('balance', Bounds(5, 5))
->>> model.add_constraint(expr=x + y >= 3.0, name="floor")
+>>> model.add_constraint(x + y >= 3.0, name="floor")
 Constraint('floor', Bounds(3, inf))
->>> model.minimize(expr=x + y)
+>>> model.minimize(x + y)
 >>> model.num_variables
 2
 >>> model.num_constraints
@@ -36,7 +36,7 @@ You can also access the full object to inspect bounds and integrality.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0), name="x")
 >>> y = model.add_variable(bounds=arco.Binary, name="y")
->>> model.minimize(expr=x + y)
+>>> model.minimize(x + y)
 >>> for v in model.list_variables():
 ...     print(v.name, v.bounds, v.is_integer)
 x Bounds(lower=0, upper=10) False
@@ -62,8 +62,8 @@ full dump, call `model.pprint()`.
 ... )
 >>> capacity = {"solar": 50.0, "wind": 80.0, "gas": 100.0}
 >>> caps = [capacity[name] for name in g.members] * t.size
->>> _ = model.add_constraints(expr=gen <= caps)
->>> _ = model.add_constraints(expr=gen.sum(over=g) >= [120.0, 90.0])
+>>> _ = model.add_constraints(gen <= caps)
+>>> _ = model.add_constraints(gen.sum(over=g) >= [120.0, 90.0])
 >>> preview = str(model)
 >>> "s.t." in preview
 True
@@ -108,8 +108,8 @@ confirm the model matches your data.
 ...     bounds=arco.Bounds(lower=0.0, upper=100.0),
 ... )
 >>> caps = [capacity[g] for g in G.members] * T.size
->>> cap_cons = model.add_constraints(expr=gen <= caps)
->>> demand_cons = model.add_constraints(expr=gen.sum(over=G) >= demand)
+>>> cap_cons = model.add_constraints(gen <= caps)
+>>> demand_cons = model.add_constraints(gen.sum(over=G) >= demand)
 >>>
 >>> len(cap_cons) == T.size * G.size
 True
@@ -138,8 +138,8 @@ programmatically.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0), name="x")
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0), name="y")
->>> con = model.add_constraint(expr=1.5 * x + 2.0 * y == 5.0, name="balance")
->>> model.minimize(expr=x + y)
+>>> con = model.add_constraint(1.5 * x + 2.0 * y == 5.0, name="balance")
+>>> model.minimize(x + y)
 >>>
 >>> snapshot = model.inspect(include_coeffs=True)
 >>> snapshot.metadata.variables
@@ -162,9 +162,9 @@ dual prices, and timing information.
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0), name="x")
->>> model.add_constraint(expr=x >= 3.0, name="floor")
+>>> model.add_constraint(x >= 3.0, name="floor")
 Constraint('floor', Bounds(3, inf))
->>> model.minimize(expr=x)
+>>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> arco.solution_summary(solution)  # doctest: +SKIP
 >>> solution.solve_time_seconds() >= 0.0
@@ -194,8 +194,8 @@ analysis tools.
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0))
->>> _ = model.add_constraint(expr=x >= 1.0)
->>> model.minimize(expr=x)
+>>> _ = model.add_constraint(x >= 1.0)
+>>> model.minimize(x)
 >>> csc = model.export_csc()
 >>> "col_ptrs" in csc
 True

@@ -16,11 +16,6 @@ future release, once docstrings are added to the Rust source via PyO3.
 - `arco.IndexSet` — named index sets for multi-dimensional variable arrays.
 - `arco.VariableArray` — multi-dimensional arrays of decision variables.
 
-## Known Problems
-
-- [Known Problems](known-problems.md) — canonical markdown catalog of default
-  optimization problems used for benchmarking and regression discussions.
-
 ---
 
 [Back to docs home](../)

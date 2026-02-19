@@ -28,7 +28,7 @@ bound is 0, the optimal value is exactly 0.
 >>> import arco
 >>> model = arco.Model()
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0), is_integer=True)
->>> model.minimize(expr=y)
+>>> model.minimize(y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -45,8 +45,9 @@ the nearest feasible integer.
 ## Binary variables
 
 A binary variable is a special case of an integer variable that can only be 0 or
+
 1. These are the workhorses of combinatorial optimization: they represent yes/no
-decisions. You create one by setting `is_binary=True` along with bounds of 0 to
+   decisions. You create one by setting `is_binary=True` along with bounds of 0 to
 1.
 
 ```python
@@ -77,7 +78,7 @@ left behind. The constraint ensures the total weight stays within the capacity W
 Consider three items with the following data:
 
 | Item | Value | Weight |
-|------|-------|--------|
+| ---- | ----- | ------ |
 | a    | 6     | 3      |
 | b    | 5     | 2      |
 | c    | 4     | 1      |
@@ -106,10 +107,10 @@ overloading.
 ...         name=item,
 ...     )
 >>> weight_expr = sum(weights[i] * x[item] for i, item in enumerate(items))
->>> model.add_constraint(expr=weight_expr <= capacity, name="capacity")
+>>> model.add_constraint(weight_expr <= capacity, name="capacity")
 Constraint('capacity', Bounds(-inf, 4))
 >>> value_expr = sum(values[i] * x[item] for i, item in enumerate(items))
->>> model.maximize(expr=value_expr)
+>>> model.maximize(value_expr)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
@@ -135,17 +136,17 @@ directly on the `arco` module and can be passed to the `bounds` parameter.
 
 The most commonly used values are:
 
-| Shortcut                           | Bounds             | Integer | Binary |
-|------------------------------------|--------------------|---------|--------|
-| `arco.NonNegativeFloat`  | [0, +inf)          | no      | no     |
-| `arco.NonNegativeInt`    | [0, +inf)          | yes     | no     |
-| `arco.Binary`            | [0, 1]             | yes     | yes    |
-| `arco.PositiveFloat`     | (0, +inf)          | no      | no     |
-| `arco.PositiveInt`       | [1, +inf)          | yes     | no     |
-| `arco.NonPositiveFloat`  | (-inf, 0]          | no      | no     |
-| `arco.NonPositiveInt`    | (-inf, 0]          | yes     | no     |
-| `arco.NegativeFloat`     | (-inf, 0)          | no      | no     |
-| `arco.NegativeInt`       | (-inf, -1]         | yes     | no     |
+| Shortcut                | Bounds     | Integer | Binary |
+| ----------------------- | ---------- | ------- | ------ |
+| `arco.NonNegativeFloat` | [0, +inf)  | no      | no     |
+| `arco.NonNegativeInt`   | [0, +inf)  | yes     | no     |
+| `arco.Binary`           | [0, 1]     | yes     | yes    |
+| `arco.PositiveFloat`    | (0, +inf)  | no      | no     |
+| `arco.PositiveInt`      | [1, +inf)  | yes     | no     |
+| `arco.NonPositiveFloat` | (-inf, 0]  | no      | no     |
+| `arco.NonPositiveInt`   | (-inf, 0]  | yes     | no     |
+| `arco.NegativeFloat`    | (-inf, 0)  | no      | no     |
+| `arco.NegativeInt`      | (-inf, -1] | yes     | no     |
 
 When you use a `BoundType`, you do not need to pass `is_integer` or `is_binary`
 separately -- the shortcut carries that information. This makes the model
@@ -156,7 +157,7 @@ definition shorter and less error-prone.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
 >>> y = model.add_variable(bounds=arco.Binary, name="y")
->>> model.minimize(expr=x + y)
+>>> model.minimize(x + y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True

@@ -14,7 +14,7 @@ Use `arco.Bounds` to set lower and upper limits on a continuous decision variabl
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> model.minimize(expr=x)
+>>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -30,7 +30,7 @@ Pass `is_integer=True` to restrict a variable to integer values within its bound
 >>> import arco
 >>> model = arco.Model()
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0), is_integer=True)
->>> model.minimize(expr=y)
+>>> model.minimize(y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -46,7 +46,7 @@ Pass `is_binary=True` to create a variable that takes only the values 0 or 1.
 >>> import arco
 >>> model = arco.Model()
 >>> z = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=1.0), is_binary=True)
->>> model.maximize(expr=z)
+>>> model.maximize(z)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -68,7 +68,7 @@ Multiply variables by scalar coefficients and add them together to form a linear
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> cost = 2.0 * x + 3.0 * y
->>> _ = model.add_constraint(expr=x + y >= 6.0)
+>>> _ = model.add_constraint(x + y >= 6.0)
 >>> model.minimize(cost)
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.objective_value, 6)
@@ -88,9 +88,9 @@ Use the `>=` operator to create a lower-bound constraint on an expression.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> model.add_constraint(expr=x + y >= 5.0, name="floor")
+>>> model.add_constraint(x + y >= 5.0, name="floor")
 Constraint('floor', Bounds(5, inf))
->>> model.minimize(expr=x + y)
+>>> model.minimize(x + y)
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.objective_value, 6)
 5.0
@@ -105,9 +105,9 @@ Use the `<=` operator to create an upper-bound constraint on an expression.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> model.add_constraint(expr=x + y <= 8.0, name="ceiling")
+>>> model.add_constraint(x + y <= 8.0, name="ceiling")
 Constraint('ceiling', Bounds(-inf, 8))
->>> model.maximize(expr=x + y)
+>>> model.maximize(x + y)
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.objective_value, 6)
 8.0
@@ -122,9 +122,9 @@ Use the `==` operator to fix an expression to an exact value.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> model.add_constraint(expr=x + y == 6.0, name="balance")
+>>> model.add_constraint(x + y == 6.0, name="balance")
 Constraint('balance', Bounds(6, 6))
->>> model.minimize(expr=x)
+>>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.get_primal(index=y), 6)
 6.0
@@ -139,12 +139,12 @@ Pass a `bounds` argument instead of a comparison operator to constrain an expres
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> model.add_constraint(
-...     expr=x,
+...     x,
 ...     bounds=arco.Bounds(lower=3.0, upper=7.0),
 ...     name="range",
 ... )
 Constraint('range', Bounds(3, 7))
->>> model.minimize(expr=x)
+>>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.get_primal(index=x), 6)
 3.0
@@ -162,7 +162,7 @@ Use `model.minimize()` to find the smallest feasible value of an expression.
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=2.0, upper=8.0))
->>> model.minimize(expr=x)
+>>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -178,7 +178,7 @@ Use `model.maximize()` to find the largest feasible value of the same expression
 >>> import arco
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=2.0, upper=8.0))
->>> model.maximize(expr=x)
+>>> model.maximize(x)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -200,9 +200,9 @@ passing the variable object directly.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0), name="x")
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0), name="y")
->>> model.add_constraint(expr=x + y <= 8.0, name="capacity")
+>>> model.add_constraint(x + y <= 8.0, name="capacity")
 Constraint('capacity', Bounds(-inf, 8))
->>> model.maximize(expr=2.0 * x + 3.0 * y)
+>>> model.maximize(2.0 * x + 3.0 * y)
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.get_value(x), 6)
 3.0
@@ -220,8 +220,8 @@ Use `solution.get_dual()` for the shadow price of a constraint and
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0), name="x")
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0), name="y")
->>> con = model.add_constraint(expr=x + y <= 8.0, name="capacity")
->>> model.maximize(expr=2.0 * x + 3.0 * y)
+>>> con = model.add_constraint(x + y <= 8.0, name="capacity")
+>>> model.maximize(2.0 * x + 3.0 * y)
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.get_dual(con), 6)
 2.0
@@ -238,7 +238,7 @@ Supply an initial feasible point via `primal_start` to give the solver a head st
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> model.minimize(expr=x + 2.0 * y)
+>>> model.minimize(x + 2.0 * y)
 >>> solution = model.solve(
 ...     log_to_console=False,
 ...     primal_start=[(int(x), 2.0), (int(y), 1.0)],

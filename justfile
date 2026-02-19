@@ -111,7 +111,7 @@ docs-test: py-dev
 [doc("Build dev extension then launch IPython")]
 [working-directory: "bindings/python"]
 py-shell: py-dev
-    uv run ipython
+    uv run --with numpy ipython
 
 
 [group("bench")]

@@ -16,7 +16,7 @@ during optimization.
 >>> solver = arco.HiGHS(time_limit=60.0, log_to_console=False)
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> model.minimize(expr=x)
+>>> model.minimize(x)
 >>> solution = model.solve(solver=solver)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -30,7 +30,7 @@ creates a generic solver backed by HiGHS with default settings.
 >>> solver = arco.Solver(log_to_console=False)
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> model.minimize(expr=x)
+>>> model.minimize(x)
 >>> solution = model.solve(solver=solver)
 >>> solution.status
 SolutionStatus.OPTIMAL
@@ -74,15 +74,15 @@ a tighter variant for quick validation without duplicating every setting.
 All settings return `None` when not explicitly set, in which case the solver
 backend uses its own default.
 
-| Setting          | Type    | Description                                                        |
-|------------------|---------|--------------------------------------------------------------------|
-| `presolve`       | `bool`  | Enable or disable the presolve phase.                              |
-| `threads`        | `int`   | Number of threads the solver may use.                              |
-| `tolerance`      | `float` | Feasibility tolerance for primal and dual values.                  |
-| `time_limit`     | `float` | Maximum wall-clock seconds the solver may run.                     |
-| `mip_gap`        | `float` | Relative MIP optimality gap at which the solver stops.             |
-| `verbosity`      | `int`   | Solver output verbosity level (backend-specific scale).            |
-| `log_to_console` | `bool`  | Whether the solver prints progress to the console during a solve.  |
+| Setting          | Type    | Description                                                       |
+| ---------------- | ------- | ----------------------------------------------------------------- |
+| `presolve`       | `bool`  | Enable or disable the presolve phase.                             |
+| `threads`        | `int`   | Number of threads the solver may use.                             |
+| `tolerance`      | `float` | Feasibility tolerance for primal and dual values.                 |
+| `time_limit`     | `float` | Maximum wall-clock seconds the solver may run.                    |
+| `mip_gap`        | `float` | Relative MIP optimality gap at which the solver stops.            |
+| `verbosity`      | `int`   | Solver output verbosity level (backend-specific scale).           |
+| `log_to_console` | `bool`  | Whether the solver prints progress to the console during a solve. |
 
 > [!NOTE]
 > Not every backend interprets every setting. If a setting does not apply to the
@@ -102,8 +102,8 @@ avoids creating a separate solver object.
 >>> model = arco.Model()
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
->>> _ = model.add_constraint(expr=x + y >= 5.0)
->>> model.minimize(expr=x + y)
+>>> _ = model.add_constraint(x + y >= 5.0)
+>>> model.minimize(x + y)
 >>> solution = model.solve(log_to_console=False, time_limit=60.0, mip_gap=0.01)
 >>> solution.status
 SolutionStatus.OPTIMAL
