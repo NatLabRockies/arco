@@ -200,7 +200,7 @@ numpy, or custom analysis tools.
 >>> sorted(csc.keys())
 ['col_ptrs', 'row_indices', 'shape', 'values']
 >>> csc["shape"]
-(2, 2)
+(1, 1)
 >>> len(csc["col_ptrs"]) == model.num_variables + 1
 True
 >>> all(isinstance(idx, int) for idx in csc["row_indices"])
@@ -209,7 +209,7 @@ True
 >>> sorted(crs.keys())
 ['col_indices', 'row_ptrs', 'shape', 'values']
 >>> crs["shape"]
-(2, 2)
+(1, 1)
 >>> len(crs["row_ptrs"]) == model.num_constraints + 1
 True
 >>> all(isinstance(idx, int) for idx in crs["col_indices"])
@@ -218,7 +218,7 @@ True
 >>> sorted(coo.keys())
 ['cols', 'rows', 'shape', 'values']
 >>> coo["shape"]
-(2, 2)
+(1, 1)
 >>> len(coo["rows"]) == len(coo["cols"]) == len(coo["values"])
 True
 >>> all(isinstance(idx, int) for idx in coo["rows"] + coo["cols"])
