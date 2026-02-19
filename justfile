@@ -37,7 +37,7 @@ clippy:
     cargo clippy --all --benches --tests --examples --all-features -- -D warnings
 
 test:
-    cargo test --workspace --all-features --exclude arco-python
+    PYO3_PYTHON=$(cd bindings/python && uv run which python) cargo test --workspace --all-features --exclude arco-python
 
 doc:
     cargo doc --workspace --no-deps
