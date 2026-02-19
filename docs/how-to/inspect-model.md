@@ -184,24 +184,46 @@ Solution Summary
 With `verbose=True`, the output includes variable values, dual prices, and
 solver work statistics.
 
-## Export to CSC format
+## Export sparse matrix formats
 
-Use `export_csc()` to get the constraint matrix in compressed sparse column
-format. This is useful for interoperability with scipy, numpy, or custom
-analysis tools.
+Use `export_csc()`, `export_crs()`, and `export_coo()` to get the constraint
+matrix in sparse formats. This is useful for interoperability with scipy,
+numpy, or custom analysis tools.
 
 ```python doctest
 >>> import arco
 >>> model = arco.Model()
->>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0))
->>> _ = model.add_constraint(expr=x >= 1.0)
+>>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0), name="x")
+>>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0), name="y")
+>>> _ = model.add_constraint(expr=x + 2.0 * y >= 1.0)
+>>> _ = model.add_constraint(expr=3.0 * x <= 4.0)
 >>> model.minimize(expr=x)
 >>> csc = model.export_csc()
->>> "col_ptrs" in csc
+>>> sorted(csc.keys())
+['col_ptrs', 'row_indices', 'shape', 'values']
+>>> csc["shape"]
+(2, 2)
+>>> len(csc["col_ptrs"]) == model.num_variables + 1
 True
->>> "row_indices" in csc
+>>> all(isinstance(idx, int) for idx in csc["row_indices"])
 True
->>> "values" in csc
+>>> crs = model.export_crs()
+>>> sorted(crs.keys())
+['col_indices', 'row_ptrs', 'shape', 'values']
+>>> crs["shape"]
+(2, 2)
+>>> len(crs["row_ptrs"]) == model.num_constraints + 1
+True
+>>> all(isinstance(idx, int) for idx in crs["col_indices"])
+True
+>>> coo = model.export_coo()
+>>> sorted(coo.keys())
+['cols', 'rows', 'shape', 'values']
+>>> coo["shape"]
+(2, 2)
+>>> len(coo["rows"]) == len(coo["cols"]) == len(coo["values"])
+True
+>>> all(isinstance(idx, int) for idx in coo["rows"] + coo["cols"])
 True
 ```
 
