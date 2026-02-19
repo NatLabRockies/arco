@@ -39,21 +39,31 @@ pub enum HighsStatus {
 /// Errors returned by the HiGHS model wrapper.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HighsModelError {
-    /// Row coefficient count does not match referenced column count.
-    ColumnCoefficientLengthMismatch { columns: usize, coefficients: usize },
-    /// A row references a column index that does not exist in the model.
+    /// Column index and coefficient slices had different lengths when adding a row.
+    ColumnCoefficientLengthMismatch {
+        /// Number of column indices provided.
+        columns: usize,
+        /// Number of coefficients provided.
+        coefficients: usize,
+    },
+    /// A row referenced a column index that does not exist in the model.
     ColumnIndexOutOfBounds {
+        /// Invalid column index.
         column_index: usize,
+        /// Current number of columns in the model.
         num_columns: usize,
     },
-    /// Warm-start values have a different length than the model column count.
-    PrimalStartLengthMismatch { expected: usize, got: usize },
-    /// The requested operation requires `solve` to have been called first.
-    SolveRequired { operation: &'static str },
-    /// HiGHS returned invalid row/column dimensions for solution extraction.
-    InvalidSolutionDimensions {
-        num_cols: highs_sys::HighsInt,
-        num_rows: highs_sys::HighsInt,
+    /// Warm-start vector length did not match the model's column count.
+    PrimalStartLengthMismatch {
+        /// Expected number of entries.
+        expected: usize,
+        /// Provided number of entries.
+        got: usize,
+    },
+    /// A solution-only accessor was called before solving.
+    SolveRequired {
+        /// Name of the operation that requires a prior solve.
+        operation: &'static str,
     },
     /// HiGHS returned a non-OK status while extracting the solution vectors.
     SolutionExtractionFailed { status: i32 },
@@ -628,11 +638,11 @@ impl Default for HighsModel {
 pub enum HighsOption {
     /// Boolean option value.
     Bool(bool),
-    /// Signed integer option value.
+    /// Integer option value.
     Int(i32),
     /// Floating-point option value.
     Float(f64),
-    /// UTF-8 string option value.
+    /// String option value.
     Str(String),
 }
 
