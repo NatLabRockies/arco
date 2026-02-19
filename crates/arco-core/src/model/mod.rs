@@ -37,8 +37,8 @@ pub use inspect::{
     SnapshotMetadata, VariableView,
 };
 pub use pretty::{
-    format_ascii_number, DefaultPrettyPrintAdapter, PrettyBoundGroup, PrettyPrintAdapter,
-    PrettyPrintOptions, PrettySection,
+    DefaultPrettyPrintAdapter, PrettyBoundGroup, PrettyPrintAdapter, PrettyPrintOptions,
+    PrettySection, format_ascii_number,
 };
 pub use sparse::{CooMatrix, CrsMatrix, CscMatrix, SparseMatrixExport};
 
@@ -628,12 +628,16 @@ mod tests {
             })
             .unwrap();
 
-        assert!(model
-            .set_coefficient(var_id, constraint_id, f64::INFINITY)
-            .is_err());
-        assert!(model
-            .set_coefficient(var_id, constraint_id, f64::NAN)
-            .is_err());
+        assert!(
+            model
+                .set_coefficient(var_id, constraint_id, f64::INFINITY)
+                .is_err()
+        );
+        assert!(
+            model
+                .set_coefficient(var_id, constraint_id, f64::NAN)
+                .is_err()
+        );
     }
 
     #[test]

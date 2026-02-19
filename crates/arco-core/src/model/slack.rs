@@ -5,7 +5,7 @@ use crate::types::{Bounds, Sense, Variable};
 use arco_expr::ids::ConstraintId;
 
 use crate::model::error::ModelError;
-use crate::model::{slack_variable_name, Model};
+use crate::model::{Model, slack_variable_name};
 
 impl Model {
     /// Attach slack variables to a constraint bound.

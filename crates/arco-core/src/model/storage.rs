@@ -3,8 +3,8 @@
 use crate::types::{Constraint, Variable};
 use arco_expr::ids::{ConstraintId, VariableId};
 
-use crate::model::error::ModelError;
 use crate::model::Model;
+use crate::model::error::ModelError;
 
 fn empty_column() -> &'static [(ConstraintId, f64)] {
     &[]

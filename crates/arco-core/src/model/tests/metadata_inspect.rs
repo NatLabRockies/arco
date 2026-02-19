@@ -119,9 +119,11 @@ fn inspect_includes_coefficients_and_slacks() {
         .as_ref()
         .expect("coefficients missing");
     assert_eq!(coeffs.len(), 2);
-    assert!(coeffs
-        .iter()
-        .any(|coeff| coeff.variable_id == x && coeff.constraint_id == c && coeff.value == 1.5));
+    assert!(
+        coeffs
+            .iter()
+            .any(|coeff| coeff.variable_id == x && coeff.constraint_id == c && coeff.value == 1.5)
+    );
 
     let slacks = snapshot.slacks.as_ref().expect("slacks missing");
     assert_eq!(slacks.len(), 1);
