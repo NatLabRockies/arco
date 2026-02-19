@@ -31,6 +31,12 @@ use std::time::Instant;
 
 type PyObject = Py<PyAny>;
 
+fn block_runtime_error(operation: &'static str, msg: impl Into<String>) -> PyErr {
+    let msg = msg.into();
+    tracing::error!(component = "block", operation, status = "error", "{msg}");
+    PyRuntimeError::new_err(msg)
+}
+
 fn build_solver_kwargs<'py>(
     py: Python<'py>,
     solver: Option<&PyObject>,
@@ -357,14 +363,10 @@ impl Block {
     ) -> PyResult<Block> {
         validate_spec(spec)?;
         if allow_slacks {
-            let msg = "ARCO_BLOCK_502: allow_slacks is not yet implemented in Block.from_spec(). Inject slacks in your spec.build() method instead.";
-            tracing::error!(
-                component = "block",
-                operation = "from_spec",
-                status = "error",
-                "{msg}"
-            );
-            return Err(PyRuntimeError::new_err(msg));
+            return Err(block_runtime_error(
+                "from_spec",
+                "ARCO_BLOCK_502: allow_slacks is not yet implemented in Block.from_spec(). Inject slacks in your spec.build() method instead.",
+            ));
         }
         let data_schema = get_spec_attr(spec, "data_schema")?;
         let outputs_schema = get_spec_attr(spec, "outputs_schema")?;
@@ -466,13 +468,7 @@ impl BlockModel {
             .any(|existing| existing.borrow(py).name == block_name)
         {
             let msg = format!("ARCO_BLOCK_501: Block '{block_name}' already exists in BlockModel");
-            tracing::error!(
-                component = "block",
-                operation = "add_block",
-                status = "error",
-                "{msg}"
-            );
-            return Err(PyRuntimeError::new_err(msg));
+            return Err(block_runtime_error("add_block", msg));
         }
 
         if let Some(inputs) = inputs {
@@ -498,14 +494,10 @@ impl BlockModel {
         transform: Option<&Transform>,
     ) -> PyResult<()> {
         if source.kind != "output" || target.kind != "input" {
-            let msg = "ARCO_BLOCK_502: Links must connect block outputs to inputs";
-            tracing::error!(
-                component = "block",
-                operation = "link",
-                status = "error",
-                "{msg}"
-            );
-            return Err(PyRuntimeError::new_err(msg));
+            return Err(block_runtime_error(
+                "link",
+                "ARCO_BLOCK_502: Links must connect block outputs to inputs",
+            ));
         }
         let transform = transform.map_or_else(Transform::identity_internal, |value| {
             value.clone_with_py_internal(py)
@@ -531,26 +523,14 @@ impl BlockModel {
                     "ARCO_BLOCK_501: Block '{}' not found in BlockModel",
                     link.source.block_name
                 );
-                tracing::error!(
-                    component = "block",
-                    operation = "validate",
-                    status = "error",
-                    "{msg}"
-                );
-                return Err(PyRuntimeError::new_err(msg));
+                return Err(block_runtime_error("validate", msg));
             }
             if !block_names.contains(&link.target.block_name) {
                 let msg = format!(
                     "ARCO_BLOCK_501: Block '{}' not found in BlockModel",
                     link.target.block_name
                 );
-                tracing::error!(
-                    component = "block",
-                    operation = "validate",
-                    status = "error",
-                    "{msg}"
-                );
-                return Err(PyRuntimeError::new_err(msg));
+                return Err(block_runtime_error("validate", msg));
             }
             let source_block = &self.blocks[name_to_index[&link.source.block_name]];
             let target_block = &self.blocks[name_to_index[&link.target.block_name]];
@@ -561,26 +541,14 @@ impl BlockModel {
                     "ARCO_BLOCK_502: Output '{}' not defined on block '{}'",
                     link.source.key, link.source.block_name
                 );
-                tracing::error!(
-                    component = "block",
-                    operation = "validate",
-                    status = "error",
-                    "{msg}"
-                );
-                return Err(PyRuntimeError::new_err(msg));
+                return Err(block_runtime_error("validate", msg));
             }
             if !target_inputs.bind(py).contains(&link.target.key)? {
                 let msg = format!(
                     "ARCO_BLOCK_502: Input '{}' not defined on block '{}'",
                     link.target.key, link.target.block_name
                 );
-                tracing::error!(
-                    component = "block",
-                    operation = "validate",
-                    status = "error",
-                    "{msg}"
-                );
-                return Err(PyRuntimeError::new_err(msg));
+                return Err(block_runtime_error("validate", msg));
             }
             let source_schema = source_outputs.bind(py).get_item(&link.source.key)?;
             let target_schema = target_inputs.bind(py).get_item(&link.target.key)?;
@@ -596,13 +564,7 @@ impl BlockModel {
                         link.target.block_name,
                         link.target.key
                     );
-                    tracing::error!(
-                        component = "block",
-                        operation = "validate",
-                        status = "error",
-                        "{msg}"
-                    );
-                    return Err(PyRuntimeError::new_err(msg));
+                    return Err(block_runtime_error("validate", msg));
                 }
             }
         }
@@ -634,13 +596,7 @@ impl BlockModel {
                         "ARCO_BLOCK_502: Input '{}' not provided for block '{}'",
                         key, name
                     );
-                    tracing::error!(
-                        component = "block",
-                        operation = "validate",
-                        status = "error",
-                        "{msg}"
-                    );
-                    return Err(PyRuntimeError::new_err(msg));
+                    return Err(block_runtime_error("validate", msg));
                 }
             }
         }
@@ -745,13 +701,7 @@ impl BlockModel {
                         "ARCO_BLOCK_502: Block '{}' build must return arco.Model",
                         block_ref.name
                     );
-                    tracing::error!(
-                        component = "block",
-                        operation = "build",
-                        status = "error",
-                        "{msg}"
-                    );
-                    return Err(PyRuntimeError::new_err(msg));
+                    return Err(block_runtime_error("build", msg));
                 }
 
                 let warm_start = block_ref.warm_start && !runs.is_empty();
@@ -1021,6 +971,20 @@ mod tests {
             assert_eq!(
                 get("primal_start").extract::<Vec<(u32, f64)>>().unwrap(),
                 hints
+            );
+        });
+    }
+
+    #[test]
+    fn test_block_runtime_error_preserves_message() {
+        let err = block_runtime_error("test", "ARCO_BLOCK_599: test runtime error");
+
+        Python::initialize();
+        Python::attach(|py| {
+            assert!(err.is_instance_of::<PyRuntimeError>(py));
+            assert_eq!(
+                err.to_string(),
+                "RuntimeError: ARCO_BLOCK_599: test runtime error"
             );
         });
     }
