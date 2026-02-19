@@ -27,7 +27,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [features]
 default = []
-arrow = []
 
 [lints]
 workspace = true
