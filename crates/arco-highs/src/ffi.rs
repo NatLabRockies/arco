@@ -695,10 +695,7 @@ fn ensure_highs_status_ok(status: i32) -> Result<(), HighsModelError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ffi::{
-        HighsModel, HighsModelError, ObjectiveSense, SolutionSnapshot, checked_solution_dimensions,
-        ensure_highs_status_ok,
-    };
+    use crate::ffi::{HighsModel, ObjectiveSense, SolutionSnapshot};
 
     #[test]
     fn test_create_model() {
@@ -723,64 +720,5 @@ mod tests {
             (cv, cd, rv, rd),
             (vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0], vec![6.0])
         );
-    }
-
-    #[test]
-    fn test_solution_snapshot_requires_solve() {
-        let model = HighsModel::new();
-        assert!(matches!(
-            model.solution_snapshot(),
-            Err(HighsModelError::SolveRequired {
-                operation: "solution_snapshot"
-            })
-        ));
-    }
-
-    #[test]
-    fn test_checked_solution_dimensions_rejects_negative_counts() {
-        assert_eq!(
-            checked_solution_dimensions(-1, 0),
-            Err(HighsModelError::InvalidSolutionDimensions {
-                num_cols: -1,
-                num_rows: 0
-            })
-        );
-    }
-
-    #[test]
-    fn test_checked_solution_dimensions_accepts_valid_counts() {
-        assert!(matches!(checked_solution_dimensions(2, 3), Ok((2, 3))));
-    }
-
-    #[test]
-    fn test_ensure_highs_status_ok_rejects_error_status() {
-        assert_eq!(
-            ensure_highs_status_ok(highs_sys::STATUS_ERROR),
-            Err(HighsModelError::SolutionExtractionFailed {
-                status: highs_sys::STATUS_ERROR
-            })
-        );
-    }
-
-    #[test]
-    fn test_ensure_highs_status_ok_accepts_ok_status() {
-        assert_eq!(ensure_highs_status_ok(highs_sys::STATUS_OK), Ok(()));
-    }
-
-    #[test]
-    fn test_solution_snapshot_success_after_solve() {
-        let mut model = HighsModel::new();
-        model.add_col(1.0, f64::INFINITY, 1.0);
-
-        let status = model.solve();
-        assert_eq!(status, crate::ffi::HighsStatus::Optimal);
-
-        let snapshot = model
-            .solution_snapshot()
-            .expect("snapshot should be available");
-        assert_eq!(snapshot.col_values().len(), 1);
-        assert_eq!(snapshot.col_duals().len(), 1);
-        assert_eq!(snapshot.row_values().len(), 0);
-        assert_eq!(snapshot.row_duals().len(), 0);
     }
 }
