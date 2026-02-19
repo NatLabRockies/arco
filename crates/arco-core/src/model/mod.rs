@@ -12,6 +12,7 @@
 //! - [`slack`]: Slack variable and elastic constraint support
 //! - [`inspect`]: Model inspection and snapshots
 //! - [`csc_import`]: CSC format import
+//! - [`sparse`]: Sparse matrix exports (CSC/CRS/COO)
 
 mod builder;
 mod csc_import;
@@ -20,6 +21,7 @@ mod inspect;
 mod metadata;
 mod pretty;
 mod slack;
+mod sparse;
 mod storage;
 
 use crate::slack::SlackHandle;
@@ -38,6 +40,7 @@ pub use pretty::{
     DefaultPrettyPrintAdapter, PrettyBoundGroup, PrettyPrintAdapter, PrettyPrintOptions,
     PrettySection, format_ascii_number,
 };
+pub use sparse::{CooMatrix, CrsMatrix, CscMatrix, SparseMatrixExport};
 
 /// A lazy model builder for linear and mixed-integer programs.
 ///
@@ -353,6 +356,7 @@ mod tests {
 
     mod metadata_inspect;
     mod slack_csc;
+    mod sparse_export;
     mod support;
 
     #[test]
