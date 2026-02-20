@@ -11,46 +11,15 @@ use crate::errors::{
 };
 use crate::expr::PyExpr;
 use crate::index_set::PyIndexSet;
-use crate::variable::PyVariable;
 
-/// Resolved axis index: either a single index or a range of indices.
-enum AxisIndex {
-    Single(usize),
-    Range(Vec<usize>),
-}
+mod constraint_array;
+mod expr_array;
+mod indexing;
+mod variable_array;
 
-/// Resolve a Python index (int or slice) to an AxisIndex for one dimension.
-fn resolve_axis_index(index: &Bound<'_, PyAny>, dim_size: usize) -> PyResult<AxisIndex> {
-    // Try integer index (supports negative indexing)
-    if let Ok(idx) = index.extract::<isize>() {
-        let resolved = if idx < 0 {
-            (dim_size as isize + idx) as usize
-        } else {
-            idx as usize
-        };
-        if resolved >= dim_size {
-            return Err(ArrayIndexError::new_err(format!(
-                "index {} out of range for dimension of size {}",
-                idx, dim_size
-            )));
-        }
-        return Ok(AxisIndex::Single(resolved));
-    }
-    // Try slice
-    if let Ok(slice) = index.cast::<pyo3::types::PySlice>() {
-        let indices = slice.indices(dim_size as isize)?;
-        let mut result = Vec::new();
-        let mut i = indices.start;
-        while (indices.step > 0 && i < indices.stop) || (indices.step < 0 && i > indices.stop) {
-            result.push(i as usize);
-            i += indices.step;
-        }
-        return Ok(AxisIndex::Range(result));
-    }
-    Err(ArrayTypeError::new_err(
-        "tuple index components must be integers or slices",
-    ))
-}
+pub use constraint_array::PyConstraintArray;
+pub use expr_array::PyExprArray;
+pub use variable_array::PyVariableArray;
 
 /// Sum values along a specific axis in a flat row-major array.
 ///
@@ -798,56 +767,56 @@ macro_rules! impl_array_ops {
     ($ty:ty, { $($extra:tt)* }) => {
         #[pymethods]
         impl $ty {
-            fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-                array_add(&self.core, other)
+            fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
+                super::array_add(&self.core, other)
             }
-            fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-                array_add(&self.core, other)
+            fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
+                super::array_add(&self.core, other)
             }
-            fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-                array_sub(&self.core, other)
+            fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
+                super::array_sub(&self.core, other)
             }
-            fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-                array_rsub(&self.core, other)
+            fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
+                super::array_rsub(&self.core, other)
             }
-            fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-                array_mul(&self.core, other)
+            fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
+                super::array_mul(&self.core, other)
             }
-            fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-                array_mul(&self.core, other)
+            fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
+                super::array_mul(&self.core, other)
             }
-            fn __truediv__(&self, other: f64) -> PyResult<PyExprArray> {
-                array_truediv(&self.core, other)
+            fn __truediv__(&self, other: f64) -> PyResult<super::PyExprArray> {
+                super::array_truediv(&self.core, other)
             }
-            fn __neg__(&self) -> PyExprArray {
-                array_neg(&self.core)
+            fn __neg__(&self) -> super::PyExprArray {
+                super::array_neg(&self.core)
             }
-            fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-                compare_array_rhs(&self.core, rhs, ComparisonSense::GreaterEqual)
+            fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
+                super::compare_array_rhs(&self.core, rhs, super::ComparisonSense::GreaterEqual)
             }
-            fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-                compare_array_rhs(&self.core, rhs, ComparisonSense::LessEqual)
+            fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
+                super::compare_array_rhs(&self.core, rhs, super::ComparisonSense::LessEqual)
             }
-            fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-                compare_array_rhs(&self.core, rhs, ComparisonSense::Equal)
+            fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
+                super::compare_array_rhs(&self.core, rhs, super::ComparisonSense::Equal)
             }
             #[pyo3(signature = (*, over=None))]
             fn sum(&self, py: Python<'_>, over: Option<&Bound<'_, PyAny>>) -> PyResult<PyObject> {
-                array_sum(&self.core, py, over)
+                super::array_sum(&self.core, py, over)
             }
             fn __rshift__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-                array_reduce(&self.core, py, rhs)
+                super::array_reduce(&self.core, py, rhs)
             }
             fn __matmul__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-                array_reduce(&self.core, py, rhs)
+                super::array_reduce(&self.core, py, rhs)
             }
             #[getter]
             fn index_sets(&self, py: Python<'_>) -> PyResult<PyObject> {
-                array_index_sets(&self.core, py)
+                super::array_index_sets(&self.core, py)
             }
             #[getter]
             fn shape(&self, py: Python<'_>) -> PyResult<PyObject> {
-                array_shape(&self.core, py)
+                super::array_shape(&self.core, py)
             }
             #[getter]
             fn values(&self) -> Vec<PyExpr> {
@@ -868,7 +837,7 @@ macro_rules! impl_array_ops {
                 inputs: &Bound<'_, PyTuple>,
                 kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
             ) -> PyResult<PyObject> {
-                array_ufunc(
+                super::array_ufunc(
                     &self.core,
                     py,
                     |ob| ob.is_instance_of::<$ty>(),
@@ -886,7 +855,7 @@ macro_rules! impl_array_ops {
                 args: &Bound<'_, PyTuple>,
                 kwargs: &Bound<'_, PyAny>,
             ) -> PyResult<PyObject> {
-                array_function(&self.core, py, func, _types, args, kwargs)
+                super::array_function(&self.core, py, func, _types, args, kwargs)
             }
 
             $($extra)*
@@ -894,547 +863,7 @@ macro_rules! impl_array_ops {
     };
 }
 
-// ============================================================================
-// PyVariableArray: a grid of decision variables from add_variables()
-// ============================================================================
-
-/// A multi-dimensional array of decision variables.
-/// This is ONLY created by Model.add_variables(). Any operation on it produces ExprArray.
-#[pyclass(name = "VariableArray")]
-pub struct PyVariableArray {
-    pub(crate) core: LinearArrayCore,
-    /// Variable objects for each element (parallel to core.values)
-    variables: Vec<PyVariable>,
-}
-
-impl PyVariableArray {
-    pub fn new(
-        index_sets: Vec<Py<PyIndexSet>>,
-        shape: Vec<usize>,
-        values: Vec<PyExpr>,
-        variables: Vec<PyVariable>,
-    ) -> Self {
-        Self {
-            core: LinearArrayCore::new(index_sets, shape, values),
-            variables,
-        }
-    }
-
-    pub fn get_values(&self) -> &[PyExpr] {
-        &self.core.values
-    }
-
-    pub fn get_variable_refs(&self) -> &[PyVariable] {
-        &self.variables
-    }
-
-    pub fn get_shape(&self) -> &[usize] {
-        &self.core.shape
-    }
-
-    /// Handle tuple-based multi-dimensional indexing for VariableArray.
-    /// Returns Variable for single element, VariableArray for slices.
-    fn getitem_tuple(&self, py: Python<'_>, tuple: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
-        if self.core.shape.len() != 2 || tuple.len() != 2 {
-            return Err(ArrayDimensionError::new_err(
-                "tuple indexing requires a 2D array and exactly 2 indices",
-            ));
-        }
-        let nrows = self.core.shape[0];
-        let ncols = self.core.shape[1];
-        let idx0 = tuple.get_item(0)?;
-        let idx1 = tuple.get_item(1)?;
-
-        let rows = resolve_axis_index(&idx0, nrows)?;
-        let cols = resolve_axis_index(&idx1, ncols)?;
-
-        match (&rows, &cols) {
-            (AxisIndex::Single(r), AxisIndex::Single(c)) => {
-                // x[i, j] -> single element (Variable)
-                let flat_idx = r * ncols + c;
-                let var = self.variables.get(flat_idx).cloned().ok_or_else(|| {
-                    ArrayIndexError::new_err(format!("flat index {} out of range", flat_idx))
-                })?;
-                Ok(var.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Single(r), AxisIndex::Range(col_indices)) => {
-                // x[int, :] -> 1D sub-array (single row)
-                let mut vals = Vec::with_capacity(col_indices.len());
-                let mut vars = Vec::with_capacity(col_indices.len());
-                for &c in col_indices {
-                    let flat_idx = r * ncols + c;
-                    vals.push(self.core.values[flat_idx].clone());
-                    vars.push(self.variables[flat_idx].clone());
-                }
-                let n = vals.len();
-                let new_index_sets =
-                    if col_indices.len() == ncols && self.core.index_sets.len() == 2 {
-                        vec![self.core.index_sets[1].clone_ref(py)]
-                    } else {
-                        Vec::new()
-                    };
-                let result = PyVariableArray::new(new_index_sets, vec![n], vals, vars);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Range(row_indices), AxisIndex::Single(c)) => {
-                // x[:, int] -> 1D sub-array (single column)
-                let mut vals = Vec::with_capacity(row_indices.len());
-                let mut vars = Vec::with_capacity(row_indices.len());
-                for &r in row_indices {
-                    let flat_idx = r * ncols + c;
-                    vals.push(self.core.values[flat_idx].clone());
-                    vars.push(self.variables[flat_idx].clone());
-                }
-                let n = vals.len();
-                let new_index_sets =
-                    if row_indices.len() == nrows && self.core.index_sets.len() == 2 {
-                        vec![self.core.index_sets[0].clone_ref(py)]
-                    } else {
-                        Vec::new()
-                    };
-                let result = PyVariableArray::new(new_index_sets, vec![n], vals, vars);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Range(row_indices), AxisIndex::Range(col_indices)) => {
-                // x[slice, slice] -> 2D sub-array
-                let new_nrows = row_indices.len();
-                let new_ncols = col_indices.len();
-                let mut vals = Vec::with_capacity(new_nrows * new_ncols);
-                let mut vars = Vec::with_capacity(new_nrows * new_ncols);
-                for &r in row_indices {
-                    for &c in col_indices {
-                        let flat_idx = r * ncols + c;
-                        vals.push(self.core.values[flat_idx].clone());
-                        vars.push(self.variables[flat_idx].clone());
-                    }
-                }
-                let new_index_sets = if self.core.index_sets.len() == 2 {
-                    vec![
-                        if row_indices.len() == nrows {
-                            self.core.index_sets[0].clone_ref(py)
-                        } else {
-                            Py::new(
-                                py,
-                                PyIndexSet {
-                                    name: format!("_slice_{}", new_nrows),
-                                    members: (0..new_nrows)
-                                        .map(|i| crate::index_set::IndexMember::Int(i as i64))
-                                        .collect(),
-                                },
-                            )?
-                        },
-                        if col_indices.len() == ncols {
-                            self.core.index_sets[1].clone_ref(py)
-                        } else {
-                            Py::new(
-                                py,
-                                PyIndexSet {
-                                    name: format!("_slice_{}", new_ncols),
-                                    members: (0..new_ncols)
-                                        .map(|i| crate::index_set::IndexMember::Int(i as i64))
-                                        .collect(),
-                                },
-                            )?
-                        },
-                    ]
-                } else {
-                    Vec::new()
-                };
-                let result =
-                    PyVariableArray::new(new_index_sets, vec![new_nrows, new_ncols], vals, vars);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
-            }
-        }
-    }
-}
-
-impl_array_ops!(PyVariableArray, {
-    #[getter]
-    fn variables(&self) -> Vec<PyVariable> {
-        self.variables.clone()
-    }
-
-    fn __getitem__(&self, py: Python<'_>, index: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        // Try tuple indexing for multi-dimensional access
-        if let Ok(tuple) = index.cast::<PyTuple>() {
-            return self.getitem_tuple(py, tuple);
-        }
-
-        // Try integer index
-        if let Ok(idx) = index.extract::<usize>() {
-            return self
-                .variables
-                .get(idx)
-                .cloned()
-                .ok_or_else(|| {
-                    ArrayIndexError::new_err(format!(
-                        "index {} out of range for array of size {}",
-                        idx,
-                        self.variables.len()
-                    ))
-                })
-                .and_then(|v| Ok(v.into_pyobject(py)?.into_any().unbind()));
-        }
-
-        // Try boolean numpy array masking
-        let np = py.import("numpy")?;
-        let ndarray_type = np.getattr("ndarray")?;
-        if index.is_instance(&ndarray_type)? {
-            let dtype = index.getattr("dtype")?;
-            let kind: String = dtype.getattr("kind")?.extract()?;
-            if kind == "b" {
-                let flat_mask: Vec<bool> = index.call_method0("flatten")?.extract()?;
-                if flat_mask.len() != self.core.values.len() {
-                    return Err(ArrayShapeMismatchError::new_err(format!(
-                        "boolean mask length {} does not match array length {}",
-                        flat_mask.len(),
-                        self.core.values.len()
-                    )));
-                }
-                let filtered_values: Vec<PyExpr> = self
-                    .core
-                    .values
-                    .iter()
-                    .zip(flat_mask.iter())
-                    .filter(|(_, m)| **m)
-                    .map(|(v, _)| v.clone())
-                    .collect();
-                let filtered_variables: Vec<PyVariable> = self
-                    .variables
-                    .iter()
-                    .zip(flat_mask.iter())
-                    .filter(|(_, m)| **m)
-                    .map(|(v, _)| v.clone())
-                    .collect();
-                let n = filtered_values.len();
-                let result =
-                    PyVariableArray::new(Vec::new(), vec![n], filtered_values, filtered_variables);
-                return Ok(result.into_pyobject(py)?.into_any().unbind());
-            }
-        }
-
-        // Try slice
-        if let Ok(slice) = index.cast::<pyo3::types::PySlice>() {
-            let len = self.core.values.len() as isize;
-            let indices = slice.indices(len)?;
-            let start = indices.start;
-            let stop = indices.stop;
-            let step = indices.step;
-
-            let mut sliced_values = Vec::new();
-            let mut sliced_variables = Vec::new();
-            let mut idx = start;
-            while (step > 0 && idx < stop) || (step < 0 && idx > stop) {
-                let ui = idx as usize;
-                sliced_values.push(self.core.values[ui].clone());
-                sliced_variables.push(self.variables[ui].clone());
-                idx += step;
-            }
-            let n = sliced_values.len();
-            let result = PyVariableArray::new(Vec::new(), vec![n], sliced_values, sliced_variables);
-            return Ok(result.into_pyobject(py)?.into_any().unbind());
-        }
-
-        Err(ArrayIndexError::new_err(
-            "index must be an integer, tuple, slice, or a boolean numpy array",
-        ))
-    }
-
-    fn __repr__(&self) -> String {
-        format!("VariableArray(shape={:?})", self.core.shape)
-    }
-});
-
-// ============================================================================
-// PyExprArray: a grid of linear expressions (result of operations on arrays)
-// ============================================================================
-
-/// A multi-dimensional array of linear expressions.
-/// This is the result of any operation on VariableArray or ExprArray.
-#[pyclass(name = "ExprArray")]
-pub struct PyExprArray {
-    pub(crate) core: LinearArrayCore,
-}
-
-impl PyExprArray {
-    pub fn new(index_sets: Vec<Py<PyIndexSet>>, shape: Vec<usize>, values: Vec<PyExpr>) -> Self {
-        Self {
-            core: LinearArrayCore::new(index_sets, shape, values),
-        }
-    }
-
-    /// Handle tuple-based multi-dimensional indexing for ExprArray.
-    /// Returns Expr for single element, ExprArray for slices.
-    fn getitem_tuple(&self, py: Python<'_>, tuple: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
-        if self.core.shape.len() != 2 || tuple.len() != 2 {
-            return Err(ArrayDimensionError::new_err(
-                "tuple indexing requires a 2D array and exactly 2 indices",
-            ));
-        }
-        let nrows = self.core.shape[0];
-        let ncols = self.core.shape[1];
-        let idx0 = tuple.get_item(0)?;
-        let idx1 = tuple.get_item(1)?;
-
-        let rows = resolve_axis_index(&idx0, nrows)?;
-        let cols = resolve_axis_index(&idx1, ncols)?;
-
-        match (&rows, &cols) {
-            (AxisIndex::Single(r), AxisIndex::Single(c)) => {
-                // x[i, j] -> single element (Expr)
-                let flat_idx = r * ncols + c;
-                let expr = self.core.values.get(flat_idx).cloned().ok_or_else(|| {
-                    ArrayIndexError::new_err(format!("flat index {} out of range", flat_idx))
-                })?;
-                Ok(expr.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Single(r), AxisIndex::Range(col_indices)) => {
-                let mut vals = Vec::with_capacity(col_indices.len());
-                for &c in col_indices {
-                    let flat_idx = r * ncols + c;
-                    vals.push(self.core.values[flat_idx].clone());
-                }
-                let n = vals.len();
-                let new_index_sets =
-                    if col_indices.len() == ncols && self.core.index_sets.len() == 2 {
-                        vec![self.core.index_sets[1].clone_ref(py)]
-                    } else {
-                        Vec::new()
-                    };
-                let result = PyExprArray::new(new_index_sets, vec![n], vals);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Range(row_indices), AxisIndex::Single(c)) => {
-                let mut vals = Vec::with_capacity(row_indices.len());
-                for &r in row_indices {
-                    let flat_idx = r * ncols + c;
-                    vals.push(self.core.values[flat_idx].clone());
-                }
-                let n = vals.len();
-                let new_index_sets =
-                    if row_indices.len() == nrows && self.core.index_sets.len() == 2 {
-                        vec![self.core.index_sets[0].clone_ref(py)]
-                    } else {
-                        Vec::new()
-                    };
-                let result = PyExprArray::new(new_index_sets, vec![n], vals);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Range(row_indices), AxisIndex::Range(col_indices)) => {
-                let new_nrows = row_indices.len();
-                let new_ncols = col_indices.len();
-                let mut vals = Vec::with_capacity(new_nrows * new_ncols);
-                for &r in row_indices {
-                    for &c in col_indices {
-                        let flat_idx = r * ncols + c;
-                        vals.push(self.core.values[flat_idx].clone());
-                    }
-                }
-                let new_index_sets = if self.core.index_sets.len() == 2 {
-                    vec![
-                        if row_indices.len() == nrows {
-                            self.core.index_sets[0].clone_ref(py)
-                        } else {
-                            Py::new(
-                                py,
-                                PyIndexSet {
-                                    name: format!("_slice_{}", new_nrows),
-                                    members: (0..new_nrows)
-                                        .map(|i| crate::index_set::IndexMember::Int(i as i64))
-                                        .collect(),
-                                },
-                            )?
-                        },
-                        if col_indices.len() == ncols {
-                            self.core.index_sets[1].clone_ref(py)
-                        } else {
-                            Py::new(
-                                py,
-                                PyIndexSet {
-                                    name: format!("_slice_{}", new_ncols),
-                                    members: (0..new_ncols)
-                                        .map(|i| crate::index_set::IndexMember::Int(i as i64))
-                                        .collect(),
-                                },
-                            )?
-                        },
-                    ]
-                } else {
-                    Vec::new()
-                };
-                let result = PyExprArray::new(new_index_sets, vec![new_nrows, new_ncols], vals);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
-            }
-        }
-    }
-}
-
-impl_array_ops!(PyExprArray, {
-    fn __getitem__(&self, py: Python<'_>, index: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        // Try tuple indexing for multi-dimensional access
-        if let Ok(tuple) = index.cast::<PyTuple>() {
-            return self.getitem_tuple(py, tuple);
-        }
-
-        // Try integer index -> returns Expr
-        if let Ok(idx) = index.extract::<usize>() {
-            return self
-                .core
-                .values
-                .get(idx)
-                .cloned()
-                .ok_or_else(|| {
-                    ArrayIndexError::new_err(format!(
-                        "index {} out of range for array of size {}",
-                        idx,
-                        self.core.values.len()
-                    ))
-                })
-                .and_then(|v| Ok(v.into_pyobject(py)?.into_any().unbind()));
-        }
-
-        // Try boolean numpy array masking
-        let np = py.import("numpy")?;
-        let ndarray_type = np.getattr("ndarray")?;
-        if index.is_instance(&ndarray_type)? {
-            let dtype = index.getattr("dtype")?;
-            let kind: String = dtype.getattr("kind")?.extract()?;
-            if kind == "b" {
-                let flat_mask: Vec<bool> = index.call_method0("flatten")?.extract()?;
-                if flat_mask.len() != self.core.values.len() {
-                    return Err(ArrayShapeMismatchError::new_err(format!(
-                        "boolean mask length {} does not match array length {}",
-                        flat_mask.len(),
-                        self.core.values.len()
-                    )));
-                }
-                let filtered_values: Vec<PyExpr> = self
-                    .core
-                    .values
-                    .iter()
-                    .zip(flat_mask.iter())
-                    .filter(|(_, m)| **m)
-                    .map(|(v, _)| v.clone())
-                    .collect();
-                let n = filtered_values.len();
-                let result = PyExprArray::new(Vec::new(), vec![n], filtered_values);
-                return Ok(result.into_pyobject(py)?.into_any().unbind());
-            }
-        }
-
-        // Try slice -> returns ExprArray
-        if let Ok(slice) = index.cast::<pyo3::types::PySlice>() {
-            let len = self.core.values.len() as isize;
-            let indices = slice.indices(len)?;
-            let start = indices.start;
-            let stop = indices.stop;
-            let step = indices.step;
-
-            let mut sliced_values = Vec::new();
-            let mut idx = start;
-            while (step > 0 && idx < stop) || (step < 0 && idx > stop) {
-                let ui = idx as usize;
-                sliced_values.push(self.core.values[ui].clone());
-                idx += step;
-            }
-            let n = sliced_values.len();
-            let result = PyExprArray::new(Vec::new(), vec![n], sliced_values);
-            return Ok(result.into_pyobject(py)?.into_any().unbind());
-        }
-
-        Err(ArrayIndexError::new_err(
-            "index must be an integer, tuple, slice, or a boolean numpy array",
-        ))
-    }
-
-    fn __repr__(&self) -> String {
-        format!("ExprArray(shape={:?})", self.core.shape)
-    }
-});
-
-// ============================================================================
-// PyConstraintArray: a grid of constraint expressions
-// ============================================================================
-
-/// A multi-dimensional array of constraint expressions.
-#[pyclass(name = "ConstraintArray")]
-pub struct PyConstraintArray {
-    exprs: Vec<PyExpr>,
-    sense: ComparisonSense,
-    rhs: Vec<f64>,
-    shape: Vec<usize>,
-    index_sets: Vec<Py<PyIndexSet>>,
-}
-
-impl PyConstraintArray {
-    pub fn new(
-        exprs: Vec<PyExpr>,
-        sense: ComparisonSense,
-        rhs: Vec<f64>,
-        shape: Vec<usize>,
-        index_sets: Vec<Py<PyIndexSet>>,
-    ) -> Self {
-        Self {
-            exprs,
-            sense,
-            rhs,
-            shape,
-            index_sets,
-        }
-    }
-
-    pub fn exprs(&self) -> &[PyExpr] {
-        &self.exprs
-    }
-
-    pub fn get_sense(&self) -> ComparisonSense {
-        self.sense
-    }
-
-    pub fn get_rhs(&self) -> &[f64] {
-        &self.rhs
-    }
-}
-
-#[pymethods]
-impl PyConstraintArray {
-    #[getter]
-    fn sense(&self) -> String {
-        self.sense.as_str().to_string()
-    }
-
-    #[getter]
-    fn rhs(&self) -> Vec<f64> {
-        self.rhs.clone()
-    }
-
-    #[getter]
-    fn shape(&self, py: Python<'_>) -> PyResult<PyObject> {
-        Ok(PyTuple::new(py, self.shape.clone())?.into())
-    }
-
-    #[getter]
-    fn index_sets(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let sets = self
-            .index_sets
-            .iter()
-            .map(|set| set.clone_ref(py))
-            .collect::<Vec<_>>();
-        Ok(PyTuple::new(py, sets)?.into())
-    }
-
-    fn __len__(&self) -> usize {
-        self.exprs.len()
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ConstraintArray(shape={:?}, sense='{}')",
-            self.shape,
-            self.sense.as_str()
-        )
-    }
-}
+pub(super) use impl_array_ops;
 
 // ============================================================================
 // Numpy helper functions
