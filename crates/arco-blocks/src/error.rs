@@ -1,13 +1,13 @@
 //! Error types for block operations.
 
-/// Error type for block operations.
+/// Error type for block graph construction and execution planning.
 #[derive(Debug, Clone)]
 pub enum BlockError {
-    /// Block with this name already exists.
+    /// A block name appears more than once in an input collection.
     DuplicateBlock(String),
-    /// Block not found.
+    /// A link references a block name that is not present.
     BlockNotFound(String),
-    /// Cycle detected in block dependencies.
+    /// A cycle was found while validating dependencies.
     CycleDetected(String),
 }
 
