@@ -20,6 +20,11 @@ pub struct MemorySnapshot {
 /// Errors produced by memory instrumentation.
 #[derive(Debug, Clone)]
 pub enum MemoryError {
+    /// The current process ID was not found in `sysinfo`'s process table.
+    ///
+    /// This is uncommon but can happen when process metadata refresh fails.
+    ///
+    /// `pid` is the OS process identifier that could not be resolved.
     ProcessNotFound { pid: u32 },
 }
 
@@ -79,6 +84,9 @@ impl MemorySnapshot {
 }
 
 /// Capture RSS bytes for the current process.
+///
+/// The `_stage` parameter is reserved for call-site labeling and parity with
+/// other stage-aware APIs.
 pub fn capture_rss_bytes(_stage: &str) -> Option<u64> {
     read_process_rss_bytes().ok()
 }
@@ -126,7 +134,7 @@ impl MeasurementRecorder {
         Self { stages: Vec::new() }
     }
 
-    /// Capture stage start timing and memory.
+    /// Captures stage start timing and baseline RSS.
     pub fn begin_stage(&self, stage: &str) -> StageStart {
         StageStart {
             stage: stage.to_string(),
@@ -135,7 +143,7 @@ impl MeasurementRecorder {
         }
     }
 
-    /// Capture stage end timing and memory and append a stage measurement.
+    /// Captures stage end metrics and appends a completed measurement.
     pub fn end_stage(&mut self, start: StageStart) {
         let rss_after_bytes = capture_rss_bytes(&start.stage);
         let measurement = StageMeasurement {
@@ -184,7 +192,9 @@ impl MemoryProbe {
         &self.snapshots
     }
 
-    /// Get the difference between the last two snapshots.
+    /// Returns RSS delta between the two most recently recorded snapshots.
+    ///
+    /// Returns `None` when fewer than two snapshots are available.
     pub fn last_diff(&self) -> Option<i64> {
         if self.snapshots.len() < 2 {
             return None;

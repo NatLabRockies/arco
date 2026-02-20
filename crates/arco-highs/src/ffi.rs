@@ -37,23 +37,43 @@ pub enum HighsStatus {
 }
 
 /// Errors returned by the HiGHS model wrapper.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HighsModelError {
+    /// Column index and coefficient slices had different lengths when adding a row.
     ColumnCoefficientLengthMismatch {
+        /// Number of column indices provided.
         columns: usize,
+        /// Number of coefficients provided.
         coefficients: usize,
     },
+    /// A row referenced a column index that does not exist in the model.
     ColumnIndexOutOfBounds {
+        /// Invalid column index.
         column_index: usize,
+        /// Current number of columns in the model.
         num_columns: usize,
     },
+    /// Warm-start vector length did not match the model's column count.
     PrimalStartLengthMismatch {
+        /// Expected number of entries.
         expected: usize,
+        /// Provided number of entries.
         got: usize,
     },
+    /// A solution-only accessor was called before solving.
     SolveRequired {
+        /// Name of the operation that requires a prior solve.
         operation: &'static str,
     },
+    /// HiGHS returned row/column dimensions that cannot be represented as `usize`.
+    InvalidSolutionDimensions {
+        /// Raw number of columns reported by HiGHS.
+        num_cols: highs_sys::HighsInt,
+        /// Raw number of rows reported by HiGHS.
+        num_rows: highs_sys::HighsInt,
+    },
+    /// HiGHS returned a non-OK status while extracting the solution vectors.
+    SolutionExtractionFailed { status: i32 },
 }
 
 impl fmt::Display for HighsModelError {
@@ -82,6 +102,18 @@ impl fmt::Display for HighsModelError {
             ),
             HighsModelError::SolveRequired { operation } => {
                 write!(f, "solve must be called before {}", operation)
+            }
+            HighsModelError::InvalidSolutionDimensions { num_cols, num_rows } => write!(
+                f,
+                "invalid solution dimensions from HiGHS (num_cols = {}, num_rows = {})",
+                num_cols, num_rows
+            ),
+            HighsModelError::SolutionExtractionFailed { status } => {
+                write!(
+                    f,
+                    "failed to extract solution from HiGHS (status = {})",
+                    status
+                )
             }
         }
     }
@@ -566,7 +598,10 @@ impl HighsModel {
     ///
     /// # Errors
     ///
-    /// Returns an error if the model has not been solved yet.
+    /// Returns an error if:
+    /// - the model has not been solved yet,
+    /// - HiGHS reports invalid row/column dimensions,
+    /// - or HiGHS fails to extract solution vectors.
     pub fn solution_snapshot(&self) -> Result<SolutionSnapshot, HighsModelError> {
         let solved = self.solved.as_ref().ok_or(HighsModelError::SolveRequired {
             operation: "solution_snapshot",
@@ -575,21 +610,23 @@ impl HighsModel {
         // Call highs-sys directly: highs::Solution only exposes borrowed slices,
         // forcing an extra copy. Reading into owned vectors avoids that.
         let ptr = solved.as_ptr();
-        let num_cols = usize::try_from(unsafe { highs_sys::Highs_getNumCol(ptr) }).unwrap_or(0);
-        let num_rows = usize::try_from(unsafe { highs_sys::Highs_getNumRow(ptr) }).unwrap_or(0);
+        let num_cols_raw = unsafe { highs_sys::Highs_getNumCol(ptr) };
+        let num_rows_raw = unsafe { highs_sys::Highs_getNumRow(ptr) };
+        let (num_cols, num_rows) = checked_solution_dimensions(num_cols_raw, num_rows_raw)?;
         let mut col_values = vec![0.0; num_cols];
         let mut col_duals = vec![0.0; num_cols];
         let mut row_values = vec![0.0; num_rows];
         let mut row_duals = vec![0.0; num_rows];
-        unsafe {
+        let status = unsafe {
             highs_sys::Highs_getSolution(
                 ptr,
                 col_values.as_mut_ptr(),
                 col_duals.as_mut_ptr(),
                 row_values.as_mut_ptr(),
                 row_duals.as_mut_ptr(),
-            );
-        }
+            )
+        };
+        ensure_highs_status_ok(status)?;
         Ok(SolutionSnapshot {
             col_values,
             col_duals,
@@ -608,9 +645,13 @@ impl Default for HighsModel {
 /// Option value types for HiGHS solver configuration.
 #[derive(Debug, Clone)]
 pub enum HighsOption {
+    /// Boolean option value.
     Bool(bool),
+    /// Integer option value.
     Int(i32),
+    /// Floating-point option value.
     Float(f64),
+    /// String option value.
     Str(String),
 }
 
@@ -647,6 +688,25 @@ fn map_status(status: HighsModelStatus) -> HighsStatus {
         HighsModelStatus::ReachedTimeLimit => HighsStatus::ReachedTimeLimit,
         HighsModelStatus::ReachedIterationLimit => HighsStatus::ReachedIterationLimit,
         _ => HighsStatus::Unknown,
+    }
+}
+
+fn checked_solution_dimensions(
+    num_cols: highs_sys::HighsInt,
+    num_rows: highs_sys::HighsInt,
+) -> Result<(usize, usize), HighsModelError> {
+    let to_usize = |value| {
+        usize::try_from(value)
+            .map_err(|_| HighsModelError::InvalidSolutionDimensions { num_cols, num_rows })
+    };
+    Ok((to_usize(num_cols)?, to_usize(num_rows)?))
+}
+
+fn ensure_highs_status_ok(status: i32) -> Result<(), HighsModelError> {
+    if status == highs_sys::STATUS_OK {
+        Ok(())
+    } else {
+        Err(HighsModelError::SolutionExtractionFailed { status })
     }
 }
 

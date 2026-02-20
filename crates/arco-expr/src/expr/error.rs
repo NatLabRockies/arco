@@ -1,9 +1,13 @@
 //! Expression construction errors.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Errors returned while building linear expressions from user input.
 pub enum LinearExprError {
+    /// Both paired `terms` and split `variables/coefficients` were provided.
     MixedInputs,
+    /// Required inputs were omitted for the selected construction style.
     MissingInputs,
+    /// `variables` and `coefficients` lengths differ.
     MismatchedLengths,
 }
 

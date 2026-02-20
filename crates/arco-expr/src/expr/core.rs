@@ -13,6 +13,10 @@ use crate::ids::VariableId;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Default)]
+/// Sparse polynomial expression split by degree plus a constant term.
+///
+/// Terms are stored in separate vectors for linear, quadratic, and cubic
+/// components to keep the hot path compact and predictable.
 pub struct Expr {
     constant: f64,
     linear: Vec<(VariableId, f64)>,
@@ -74,18 +78,22 @@ impl Expr {
 
     // ── Accessors ───────────────────────────────────────────
 
+    /// Returns the scalar constant term.
     pub fn constant(&self) -> f64 {
         self.constant
     }
 
+    /// Returns the raw linear terms `(var, coeff)` in insertion order.
     pub fn linear_terms(&self) -> &[(VariableId, f64)] {
         &self.linear
     }
 
+    /// Returns the raw quadratic terms `(var_a, var_b, coeff)`.
     pub fn quadratic_terms(&self) -> &[(VariableId, VariableId, f64)] {
         &self.quadratic
     }
 
+    /// Returns the raw cubic terms `(var_a, var_b, var_c, coeff)`.
     pub fn cubic_terms(&self) -> &[(VariableId, VariableId, VariableId, f64)] {
         &self.cubic
     }
@@ -194,35 +202,43 @@ impl Expr {
 
     // ── Comparison methods (produce ConstraintExpr) ─────────
 
+    /// Builds `self (sense) rhs`, moving this expression's constant to the RHS.
     pub fn compare_scalar(&self, rhs: f64, sense: ComparisonSense) -> ConstraintExpr {
         ConstraintExpr::new(self.without_constant(), sense, rhs - self.constant)
     }
 
+    /// Builds `self (sense) other` as a normalized single-sided constraint.
     pub fn compare_expr(&self, other: &Expr, sense: ComparisonSense) -> ConstraintExpr {
         let combined = self.add(&other.scale(-1.0));
         ConstraintExpr::new(combined.without_constant(), sense, -combined.constant)
     }
 
+    /// Convenience wrapper for `self <= rhs`.
     pub fn le_scalar(&self, rhs: f64) -> ConstraintExpr {
         self.compare_scalar(rhs, ComparisonSense::LessEqual)
     }
 
+    /// Convenience wrapper for `self >= rhs`.
     pub fn ge_scalar(&self, rhs: f64) -> ConstraintExpr {
         self.compare_scalar(rhs, ComparisonSense::GreaterEqual)
     }
 
+    /// Convenience wrapper for `self == rhs`.
     pub fn eq_scalar(&self, rhs: f64) -> ConstraintExpr {
         self.compare_scalar(rhs, ComparisonSense::Equal)
     }
 
+    /// Convenience wrapper for `self <= rhs_expr`.
     pub fn le_expr(&self, rhs: &Expr) -> ConstraintExpr {
         self.compare_expr(rhs, ComparisonSense::LessEqual)
     }
 
+    /// Convenience wrapper for `self >= rhs_expr`.
     pub fn ge_expr(&self, rhs: &Expr) -> ConstraintExpr {
         self.compare_expr(rhs, ComparisonSense::GreaterEqual)
     }
 
+    /// Convenience wrapper for `self == rhs_expr`.
     pub fn eq_expr(&self, rhs: &Expr) -> ConstraintExpr {
         self.compare_expr(rhs, ComparisonSense::Equal)
     }
