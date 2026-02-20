@@ -18,7 +18,7 @@ use crate::resolve::{
 };
 use crate::schema::{coerce_inputs, coerce_outputs, outputs_schema_dict};
 use crate::spec::{
-    get_spec_attr, make_spec_builder, make_spec_extractor, validate_spec, BlockSpec,
+    BlockSpec, get_spec_attr, make_spec_builder, make_spec_extractor, validate_spec,
 };
 use crate::transform::Transform;
 use crate::util::{log_block_error, log_block_phase, model_type, rss_bytes};

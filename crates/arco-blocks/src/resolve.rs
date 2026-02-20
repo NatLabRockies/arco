@@ -2,7 +2,7 @@ use crate::once_map::OnceMap;
 use crate::schema::{
     compare_fields, dataclass_fields, is_dataclass_schema, is_pydantic_schema, validate_data,
 };
-use crate::spec::{get_spec_attr, validate_spec, BlockSpec};
+use crate::spec::{BlockSpec, get_spec_attr, validate_spec};
 use crate::util::create_model;
 use crate::{Block, BlockContext, BlockLink, BlockRun, BuildResult};
 use pyo3::exceptions::PyRuntimeError;
