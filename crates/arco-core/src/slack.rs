@@ -55,3 +55,46 @@ pub struct ElasticHandle {
     pub lower: Option<SlackHandle>,
     pub upper: Option<SlackHandle>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ElasticHandle, SlackBound, SlackVariables};
+    use arco_expr::ids::VariableId;
+
+    #[test]
+    fn slack_bound_variants_report_consistent_strings_and_flags() {
+        let cases = [
+            (SlackBound::Lower, "lower", true, false),
+            (SlackBound::Upper, "upper", false, true),
+            (SlackBound::Both, "both", true, true),
+        ];
+
+        for (bound, name, has_lower, has_upper) in cases {
+            assert_eq!(bound.as_str(), name);
+            assert_eq!(bound.has_lower(), has_lower);
+            assert_eq!(bound.has_upper(), has_upper);
+        }
+    }
+
+    #[test]
+    fn slack_variables_constructor_preserves_ids() {
+        let lower = Some(VariableId::new(1));
+        let upper = Some(VariableId::new(2));
+
+        let vars = SlackVariables::new(lower, upper);
+
+        assert_eq!(vars.lower, lower);
+        assert_eq!(vars.upper, upper);
+    }
+
+    #[test]
+    fn default_handles_start_without_any_slack_variables() {
+        let vars = SlackVariables::default();
+        let elastic = ElasticHandle::default();
+
+        assert!(vars.lower.is_none());
+        assert!(vars.upper.is_none());
+        assert!(elastic.lower.is_none());
+        assert!(elastic.upper.is_none());
+    }
+}

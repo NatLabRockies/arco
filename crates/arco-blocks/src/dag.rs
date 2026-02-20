@@ -4,7 +4,10 @@ use std::collections::HashMap;
 
 use crate::error::BlockError;
 
-/// Dependency graph of blocks for determining execution order.
+/// Directed acyclic graph (DAG) representation for block scheduling.
+///
+/// The graph stores dependencies by block index, where each index maps back to
+/// the position in the `block_names` slice used to construct it.
 #[derive(Debug, Clone)]
 pub struct BlockDag {
     /// For each block index, which blocks it depends on.
@@ -12,10 +15,14 @@ pub struct BlockDag {
 }
 
 impl BlockDag {
-    /// Build a DAG from block names and links.
+    /// Build a dependency graph from block names and directed links.
     ///
     /// Links are `(source_block_name, target_block_name)` pairs,
-    /// meaning `target` depends on `source`.
+    /// meaning `target` depends on `source` and must execute after it.
+    ///
+    /// Returns [`BlockError::DuplicateBlock`] when `block_names` contains the
+    /// same name more than once, or [`BlockError::BlockNotFound`] when a link
+    /// references a block missing from `block_names`.
     pub fn from_links(
         block_names: &[String],
         links: &[(String, String)],
@@ -45,9 +52,10 @@ impl BlockDag {
         Ok(Self { dependencies })
     }
 
-    /// Return execution levels where blocks at each level can run in parallel.
+    /// Compute execution levels where each level can run in parallel.
     ///
-    /// Validates the DAG is acyclic before computing levels.
+    /// Validates the graph is acyclic before returning levels. When a cycle is
+    /// present, returns [`BlockError::CycleDetected`].
     pub fn execution_levels(&self) -> Result<Vec<Vec<usize>>, BlockError> {
         let num_blocks = self.dependencies.len();
         let mut indegree = self
