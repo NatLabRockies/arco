@@ -1,7 +1,10 @@
+//! Typed identifier wrappers used across Arco expression APIs.
+
 macro_rules! define_id_type {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         #[repr(transparent)]
+        #[doc = concat!(stringify!($name), " is a compact, type-safe numeric identifier.")]
         pub struct $name(u32);
 
         impl $name {

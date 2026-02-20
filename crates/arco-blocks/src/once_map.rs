@@ -1,8 +1,8 @@
 //! Internal once-map utility used by block orchestration.
 
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Mutex;
 

@@ -18,7 +18,7 @@ use crate::resolve::{
 };
 use crate::schema::{coerce_inputs, coerce_outputs, outputs_schema_dict};
 use crate::spec::{
-    BlockSpec, get_spec_attr, make_spec_builder, make_spec_extractor, validate_spec,
+    get_spec_attr, make_spec_builder, make_spec_extractor, validate_spec, BlockSpec,
 };
 use crate::transform::Transform;
 use crate::util::{log_block_error, log_block_phase, model_type, rss_bytes};
@@ -571,18 +571,28 @@ impl BlockModel {
 
         for block in &self.blocks {
             let name = block.borrow(py).name.clone();
-            let provided = self
-                .inputs
-                .get(&name)
-                .map(|inputs| {
-                    inputs
-                        .bind(py)
-                        .keys()
-                        .iter()
-                        .filter_map(|key| key.extract::<String>().ok())
-                        .collect::<HashSet<_>>()
-                })
-                .unwrap_or_default();
+            let key_type_error = |key_kind: &str| {
+                let msg = format!("ARCO_BLOCK_502: {key_kind} for block '{name}' must be str");
+                tracing::error!(
+                    component = "block",
+                    operation = "validate",
+                    status = "error",
+                    "{msg}"
+                );
+                PyRuntimeError::new_err(msg)
+            };
+            let provided = if let Some(inputs) = self.inputs.get(&name) {
+                let mut provided = HashSet::new();
+                for key in inputs.bind(py).keys().iter() {
+                    let key = key
+                        .extract::<String>()
+                        .map_err(|_| key_type_error("Provided input key"))?;
+                    provided.insert(key);
+                }
+                provided
+            } else {
+                HashSet::new()
+            };
             let linked: HashSet<String> = self
                 .links
                 .iter()
@@ -590,7 +600,9 @@ impl BlockModel {
                 .map(|link| link.target.key.clone())
                 .collect();
             for key in block.borrow(py).inputs.bind(py).keys().iter() {
-                let key = key.extract::<String>().unwrap_or_default();
+                let key = key
+                    .extract::<String>()
+                    .map_err(|_| key_type_error("Input schema key"))?;
                 if !provided.contains(&key) && !linked.contains(&key) {
                     let msg = format!(
                         "ARCO_BLOCK_502: Input '{}' not provided for block '{}'",
@@ -986,6 +998,70 @@ mod tests {
                 err.to_string(),
                 "RuntimeError: ARCO_BLOCK_599: test runtime error"
             );
+        });
+    }
+
+    #[test]
+    fn test_validate_errors_when_provided_input_key_is_not_string() {
+        Python::initialize();
+        Python::attach(|py| {
+            let block_inputs = PyDict::new(py);
+            block_inputs.set_item("required", py.None()).unwrap();
+            let block = Block::new(
+                py,
+                py.None(),
+                "blk".to_string(),
+                Some(&block_inputs),
+                None,
+                None,
+                false,
+                false,
+                DropPolicy::KeepSummary,
+            );
+            let block = Py::new(py, block).unwrap();
+
+            let provided_inputs = PyDict::new(py);
+            provided_inputs.set_item(1_i32, py.None()).unwrap();
+
+            let mut model = BlockModel::new(Some("model".to_string()));
+            model.blocks.push(block);
+            model
+                .inputs
+                .insert("blk".to_string(), provided_inputs.unbind());
+
+            let err = model.validate(py).unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("ARCO_BLOCK_502"));
+            assert!(msg.contains("Provided input key for block 'blk' must be str"));
+        });
+    }
+
+    #[test]
+    fn test_validate_errors_when_block_input_schema_key_is_not_string() {
+        Python::initialize();
+        Python::attach(|py| {
+            let block_inputs = PyDict::new(py);
+            block_inputs.set_item(7_i32, py.None()).unwrap();
+            let block = Block::new(
+                py,
+                py.None(),
+                "blk".to_string(),
+                Some(&block_inputs),
+                None,
+                None,
+                false,
+                false,
+                DropPolicy::KeepSummary,
+            );
+            let block = Py::new(py, block).unwrap();
+
+            let mut model = BlockModel::new(Some("model".to_string()));
+            model.blocks.push(block);
+
+            let err = model.validate(py).unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("ARCO_BLOCK_502"));
+            assert!(msg.contains("Input schema key for block 'blk' must be str"));
         });
     }
 }
