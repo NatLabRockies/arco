@@ -79,6 +79,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          save-uv-cache: "false"
+          save-rust-cache: "false"
 
       - name: Build wheel
         run: just py-build-ci
