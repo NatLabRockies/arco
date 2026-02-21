@@ -54,9 +54,6 @@ jobs:
           install-uv: "false"
           sync-python-licenses: "false"
 
-      - name: Check Rust formatting
-        run: just fmt-check
-
       - name: Run clippy
         run: just clippy
 
@@ -65,6 +62,7 @@ jobs:
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
+    needs: [rust-validation]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
