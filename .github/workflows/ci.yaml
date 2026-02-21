@@ -28,18 +28,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
         with:
+          version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
 
       - name: Run workflow quality checks
-        run: just workflow-quality
+        run: uvx zizmor .github
 
-  rust-prime:
-    name: Rust prime
+  rust-validation:
+    name: Rust validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -52,70 +51,20 @@ jobs:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
-
-      - name: Prime Rust artifacts
-        run: cargo check --workspace --all-features
-
-  rust-fmt:
-    name: Rust formatting
-    needs: [rust-prime]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
+          install-uv: "false"
+          sync-python-licenses: "false"
 
       - name: Check Rust formatting
         run: just fmt-check
 
-  rust-clippy:
-    name: Rust clippy
-    needs: [rust-prime]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
-
       - name: Run clippy
         run: just clippy
-
-  rust-test:
-    name: Rust tests
-    needs: [rust-prime]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
 
       - name: Run Rust tests
         run: just test
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
-    needs: [rust-prime]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true

@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ needs.release-please.outputs.release_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Set up build environment
@@ -74,6 +74,7 @@ jobs:
         with:
           name: wheel-${{ matrix.os }}-py${{ matrix.python-version }}
           path: dist/*.whl
+          compression-level: 0
 
   publish-pypi:
     name: Publish to PyPI

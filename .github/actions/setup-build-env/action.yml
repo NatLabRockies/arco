@@ -11,11 +11,20 @@ inputs:
   just-version:
     description: just version to install.
     required: true
+  install-uv:
+    description: Whether to install uv and prime its cache.
+    required: false
+    default: "true"
+  sync-python-licenses:
+    description: Whether to run Python license synchronization.
+    required: false
+    default: "true"
 
 runs:
   using: composite
   steps:
     - name: Cache uv cache
+      if: ${{ inputs.install-uv == 'true' }}
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ github.workspace }}/.uv-cache
@@ -25,6 +34,7 @@ runs:
           ${{ runner.os }}-uv-${{ inputs.uv-version }}-
 
     - name: Install uv
+      if: ${{ inputs.install-uv == 'true' }}
       uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
       with:
         version: ${{ inputs.uv-version }}
@@ -55,6 +65,7 @@ runs:
         just-version: ${{ inputs.just-version }}
 
     - name: Sync Python license files
+      if: ${{ inputs.sync-python-licenses == 'true' && inputs.install-uv == 'true' }}
       env:
         UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
       shell: bash
