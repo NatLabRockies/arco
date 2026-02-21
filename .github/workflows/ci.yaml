@@ -28,18 +28,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
         with:
+          version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
 
       - name: Run workflow quality checks
-        run: just workflow-quality
+        run: uvx zizmor .github
 
-  rust-validation:
-    name: Rust validation
+  rust-clippy:
+    name: Rust clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -47,23 +46,36 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: ./.github/actions/setup-rust-validation-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
 
-      - name: Check Rust formatting
-        run: just fmt-check
-
       - name: Run clippy
         run: just clippy
+
+  rust-test:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-rust-validation-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
 
       - name: Run Rust tests
         run: just test
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
+    needs: [rust-test]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -80,6 +92,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          save-uv-cache: "false"
+          save-rust-cache: "false"
 
       - name: Build wheel
         run: just py-build-ci
