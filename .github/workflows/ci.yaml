@@ -46,13 +46,11 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: ./.github/actions/setup-rust-validation-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
-          install-uv: "false"
-          sync-python-licenses: "false"
 
       - name: Run clippy
         run: just clippy
@@ -66,13 +64,11 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: ./.github/actions/setup-rust-validation-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
-          install-uv: "false"
-          sync-python-licenses: "false"
 
       - name: Run Rust tests
         run: just test

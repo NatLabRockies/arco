@@ -1,0 +1,25 @@
+name: Setup Rust Validation Environment
+description: Configure Rust and shared tooling for Rust validation jobs.
+
+inputs:
+  python-version:
+    description: Python version passed through to build environment setup.
+    required: true
+  uv-version:
+    description: uv version passed through to build environment setup.
+    required: true
+  just-version:
+    description: just version passed through to build environment setup.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up build environment
+      uses: ./.github/actions/setup-build-env
+      with:
+        python-version: ${{ inputs.python-version }}
+        uv-version: ${{ inputs.uv-version }}
+        just-version: ${{ inputs.just-version }}
+        install-uv: "false"
+        sync-python-licenses: "false"
