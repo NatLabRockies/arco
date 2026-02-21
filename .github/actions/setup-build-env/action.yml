@@ -45,9 +45,12 @@ runs:
     - name: Install uv
       if: ${{ inputs.install-uv == 'true' }}
       uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
+      env:
+        UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
       with:
         version: ${{ inputs.uv-version }}
         python-version: ${{ inputs.python-version }}
+        enable-cache: false
 
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
