@@ -52,7 +52,7 @@ test-core:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ core-packages }} --all-features
 
 test-solver package:
-    cargo test -p {{ package }} --all-features
+    cargo test -p {{ package }} --all-features -- --test-threads=1
 
 doc:
     cargo doc --workspace --no-deps
