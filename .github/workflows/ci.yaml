@@ -63,7 +63,10 @@ jobs:
       matrix:
         solver:
           - package: arco-ipopt
-            apt-deps: coinor-libipopt-dev liblapack-dev gfortran
+            # Do NOT install coinor-libipopt-dev: Ubuntu 24.04 ships IPOPT 3.11.9
+            # which has a known memory corruption bug with MUMPS >= 5.1.0.
+            # ipopt-sys will build IPOPT 3.12.13 from source instead.
+            apt-deps: liblapack-dev gfortran
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -108,20 +111,17 @@ jobs:
       matrix:
         solver:
           - package: arco-ipopt
-            apt-deps: coinor-libipopt-dev liblapack-dev gfortran
+            # Do NOT install coinor-libipopt-dev: Ubuntu 24.04 ships IPOPT 3.11.9
+            # which has a known memory corruption bug with MUMPS >= 5.1.0.
+            # ipopt-sys will build IPOPT 3.12.13 from source instead.
+            apt-deps: liblapack-dev gfortran
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
       - name: Install solver system dependencies
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
-          # Force dynamic linking: remove static libipopt.a so ipopt-sys
-          # does not set all transitive deps (including libm) to static.
-          # libm.a on Ubuntu 24.04 is a GNU linker script, not an archive,
-          # which Rust's archive reader cannot parse.
-          sudo find /usr -name 'libipopt.a' -delete
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
 
       - name: Set up build environment
         uses: ./.github/actions/setup-rust-validation-env
