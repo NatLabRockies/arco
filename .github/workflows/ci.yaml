@@ -115,12 +115,7 @@ jobs:
           persist-credentials: false
 
       - name: Install solver system dependencies
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
-          # Remove static libipopt.a so ipopt-sys links dynamically.
-          # Static linking pulls in libm.a which is a thin archive on
-          # Ubuntu 24.04 and triggers "Unsupported archive identifier".
-          sudo rm -f /usr/lib/*/libipopt.a
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
 
       - name: Set up build environment
         uses: ./.github/actions/setup-rust-validation-env
@@ -129,8 +124,12 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
 
+      # Use lld to avoid "Unsupported archive identifier" errors from
+      # thin archives (libm.a) on Ubuntu 24.04.
       - name: Run Rust tests (${{ matrix.solver.package }})
         run: just test-solver ${{ matrix.solver.package }}
+        env:
+          RUSTFLAGS: "-Clink-arg=-fuse-ld=lld"
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
