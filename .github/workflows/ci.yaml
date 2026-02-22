@@ -115,7 +115,12 @@ jobs:
           persist-credentials: false
 
       - name: Install solver system dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
+          # Remove static libipopt.a so ipopt-sys links dynamically.
+          # Static linking pulls in libm.a which is a thin archive on
+          # Ubuntu 24.04 and triggers "Unsupported archive identifier".
+          sudo rm -f /usr/lib/*/libipopt.a
 
       - name: Set up build environment
         uses: ./.github/actions/setup-rust-validation-env
