@@ -84,6 +84,11 @@ jobs:
 
       - name: Run clippy (${{ matrix.solver.package }})
         run: just clippy-solver ${{ matrix.solver.package }}
+        env:
+          # MUMPS 4.10.0 (bundled by ipopt-sys) has Fortran type mismatches
+          # that GCC 14 on Ubuntu 24.04 rejects by default.
+          FFLAGS: "-fallow-argument-mismatch"
+          FCFLAGS: "-fallow-argument-mismatch"
 
   rust-test-core:
     name: Rust tests (core)
@@ -132,6 +137,11 @@ jobs:
 
       - name: Run Rust tests (${{ matrix.solver.package }})
         run: just test-solver ${{ matrix.solver.package }}
+        env:
+          # MUMPS 4.10.0 (bundled by ipopt-sys) has Fortran type mismatches
+          # that GCC 14 on Ubuntu 24.04 rejects by default.
+          FFLAGS: "-fallow-argument-mismatch"
+          FCFLAGS: "-fallow-argument-mismatch"
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
