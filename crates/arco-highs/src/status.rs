@@ -16,19 +16,8 @@ pub(crate) fn highs_to_core_status(status: HighsStatus) -> CoreSolverStatus {
     }
 }
 
-pub(crate) fn core_to_generic_status(status: CoreSolverStatus) -> SolverStatus {
-    match status {
-        CoreSolverStatus::Optimal => SolverStatus::Optimal,
-        CoreSolverStatus::Infeasible => SolverStatus::Infeasible,
-        CoreSolverStatus::Unbounded => SolverStatus::Unbounded,
-        CoreSolverStatus::TimeLimit => SolverStatus::ReachedTimeLimit,
-        CoreSolverStatus::IterationLimit => SolverStatus::ReachedIterationLimit,
-        CoreSolverStatus::Unknown => SolverStatus::Unknown,
-    }
-}
-
 pub(crate) fn highs_to_generic_status(status: HighsStatus) -> SolverStatus {
-    core_to_generic_status(highs_to_core_status(status))
+    highs_to_core_status(status).into()
 }
 
 pub(crate) fn highs_status_string(status: HighsStatus) -> &'static str {
@@ -73,15 +62,15 @@ mod tests {
     #[test]
     fn test_core_to_generic_mapping() {
         assert_eq!(
-            core_to_generic_status(CoreSolverStatus::Optimal),
+            SolverStatus::from(CoreSolverStatus::Optimal),
             SolverStatus::Optimal
         );
         assert_eq!(
-            core_to_generic_status(CoreSolverStatus::TimeLimit),
+            SolverStatus::from(CoreSolverStatus::TimeLimit),
             SolverStatus::ReachedTimeLimit
         );
         assert_eq!(
-            core_to_generic_status(CoreSolverStatus::IterationLimit),
+            SolverStatus::from(CoreSolverStatus::IterationLimit),
             SolverStatus::ReachedIterationLimit
         );
     }

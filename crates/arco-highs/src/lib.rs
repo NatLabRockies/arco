@@ -22,4 +22,4 @@ pub use ffi::{
     highs_version,
 };
 pub use solution::Solution;
-pub use solver::{Solver, SolverError};
+pub use solver::{HiGHSBackend, Solver, SolverError};

@@ -3,11 +3,11 @@
 use crate::async_matrix::{AsyncCrsBuilder, ConstraintEntries};
 use crate::ffi::{HighsModel, HighsModelError, HighsOption, HighsStatus, ObjectiveSense};
 use crate::solution::Solution;
-use crate::status::{core_to_generic_status, highs_has_solution, highs_to_core_status};
+use crate::status::{highs_has_solution, highs_to_core_status};
 use arco_core::solver::SolverError as CoreSolverError;
 use arco_core::{Model, Sense};
 use arco_expr::{ConstraintId, VariableId};
-use arco_solver::{Solve, SolverConfig, SolverError as GenericSolverError};
+use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -19,21 +19,6 @@ pub type SolverError = CoreSolverError;
 /// Convert a HighsModelError into a SolverError.
 fn highs_model_error_to_solver_error(err: HighsModelError) -> SolverError {
     SolverError::SolverSpecific(err.to_string())
-}
-
-/// Convert a arco_core::SolverError to a arco_solver::SolverError.
-fn core_error_to_generic(err: CoreSolverError) -> GenericSolverError {
-    match err {
-        CoreSolverError::EmptyModel => GenericSolverError::EmptyModel,
-        CoreSolverError::NoObjective => GenericSolverError::NoObjective,
-        CoreSolverError::InvalidObjectiveSense => GenericSolverError::InvalidObjectiveSense,
-        CoreSolverError::InvalidVariableId(id) => GenericSolverError::InvalidVariableId(id),
-        CoreSolverError::SolverNotAvailable(msg) => GenericSolverError::InternalError(msg),
-        CoreSolverError::SolverSpecific(msg) => GenericSolverError::InternalError(msg),
-        CoreSolverError::SolveFailure { status } => GenericSolverError::SolveFailure {
-            status: core_to_generic_status(status),
-        },
-    }
 }
 
 /// Zero-copy bridge from arco-core::Model to HiGHS
@@ -208,7 +193,27 @@ impl Solve for Solver {
 
     fn solve(&mut self, config: &SolverConfig) -> Result<Self::Solution, GenericSolverError> {
         self.solve_with_config(config)
-            .map_err(core_error_to_generic)
+            .map_err(Into::into)
+    }
+}
+
+/// Zero-sized backend for trait-based dispatch from the Python bindings.
+pub struct HiGHSBackend;
+
+impl SolverBackend for HiGHSBackend {
+    fn solve(
+        &self,
+        model: &Model,
+        config: &SolverConfig,
+        primal_start: Option<&[(VariableId, f64)]>,
+    ) -> Result<arco_core::solver::Solution, GenericSolverError> {
+        solve_model(model, config, primal_start, false)
+            .map(|s| s.into_core_solution())
+            .map_err(Into::into)
+    }
+
+    fn name(&self) -> &'static str {
+        "HiGHS"
     }
 }
 
