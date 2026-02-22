@@ -11,11 +11,13 @@
 //! - [`Solve`]: Trait for solver implementations
 //! - [`SolutionView`]: Trait for accessing solution data
 
+mod backend;
 mod config;
 mod error;
 mod status;
 mod traits;
 
+pub use backend::SolverBackend;
 pub use config::SolverConfig;
 pub use error::SolverError;
 pub use status::SolverStatus;
