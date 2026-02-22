@@ -120,6 +120,54 @@ This is equivalent to constructing an `arco.HiGHS(...)` and passing it via the
 > pass the same settings and use `solver=arco.Xpress(threads=4)` in the solve
 > call.
 
+## IPOPT (nonlinear / continuous solver)
+
+The IPOPT backend is available when Arco is built with the `ipopt` feature flag.
+IPOPT is a continuous-only solver -- it does **not** support integer or binary
+variables. Passing a model that contains integer variables will raise an error.
+
+> [!IMPORTANT]
+> Building with IPOPT requires the IPOPT C library to be installed on the
+> system. See the [IPOPT installation guide](https://coin-or.github.io/Ipopt/INSTALL.html)
+> for platform-specific instructions.
+
+### Build with IPOPT support
+
+```bash
+# Rust crate
+cargo build --features ipopt
+
+# Python wheel (maturin)
+maturin develop --features ipopt
+```
+
+### Usage
+
+```python
+import arco
+
+solver = arco.Ipopt(tolerance=1e-8, log_to_console=False)
+model = arco.Model()
+x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
+model.minimize(x)
+solution = model.solve(solver=solver)
+```
+
+### Settings mapping
+
+The following table shows how `SolverSettings` map to IPOPT options. Settings
+that do not apply to IPOPT are silently ignored.
+
+| Setting          | IPOPT option                  | Notes                         |
+| ---------------- | ----------------------------- | ----------------------------- |
+| `time_limit`     | `max_cpu_time`                |                               |
+| `tolerance`      | `tol` + `constr_viol_tol`     |                               |
+| `verbosity`      | `print_level`                 | Clamped to 0--12              |
+| `log_to_console` | `print_level` (0 when false)  |                               |
+| `presolve`       | --                            | Ignored                       |
+| `threads`        | --                            | Ignored                       |
+| `mip_gap`        | --                            | Ignored (continuous only)     |
+
 ---
 
 [How-to Guides](./) | [Docs home](../)
