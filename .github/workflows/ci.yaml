@@ -37,8 +37,8 @@ jobs:
       - name: Run workflow quality checks
         run: uvx zizmor .github
 
-  rust-clippy:
-    name: Rust clippy
+  rust-clippy-core:
+    name: Rust clippy (core)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -52,11 +52,38 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
 
-      - name: Run clippy
-        run: just clippy
+      - name: Run clippy (core)
+        run: just clippy-core
 
-  rust-test:
-    name: Rust tests
+  rust-clippy-solvers:
+    name: Rust clippy (${{ matrix.solver.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        solver:
+          - package: arco-ipopt
+            apt-deps: coinor-libipopt-dev
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install solver system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-rust-validation-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+
+      - name: Run clippy (${{ matrix.solver.package }})
+        run: just clippy-solver ${{ matrix.solver.package }}
+
+  rust-test-core:
+    name: Rust tests (core)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -70,12 +97,39 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
 
-      - name: Run Rust tests
-        run: just test
+      - name: Run Rust tests (core)
+        run: just test-core
+
+  rust-test-solvers:
+    name: Rust tests (${{ matrix.solver.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        solver:
+          - package: arco-ipopt
+            apt-deps: coinor-libipopt-dev
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install solver system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-rust-validation-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+
+      - name: Run Rust tests (${{ matrix.solver.package }})
+        run: just test-solver ${{ matrix.solver.package }}
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
-    needs: [rust-test]
+    needs: [rust-test-core]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
