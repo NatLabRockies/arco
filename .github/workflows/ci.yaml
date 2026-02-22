@@ -63,9 +63,8 @@ jobs:
       matrix:
         solver:
           - package: arco-ipopt
-            # Do NOT install coinor-libipopt-dev: Ubuntu 24.04 ships IPOPT 3.11.9
-            # which has a known memory corruption bug with MUMPS >= 5.1.0.
-            # ipopt-sys will build IPOPT 3.12.13 from source instead.
+            # Build IPOPT from source via ipopt-sys; the Ubuntu 24.04 system
+            # package (3.11.9) has a memory corruption bug with MUMPS >= 5.1.0.
             apt-deps: liblapack-dev libopenblas-dev gfortran
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -85,8 +84,8 @@ jobs:
       - name: Run clippy (${{ matrix.solver.package }})
         run: just clippy-solver ${{ matrix.solver.package }}
         env:
-          # MUMPS 4.10.0 (bundled by ipopt-sys) has Fortran type mismatches
-          # that GCC 14 on Ubuntu 24.04 rejects by default.
+          # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
+          # GCC 14 rejects by default (-fallow-argument-mismatch).
           FFLAGS: "-fallow-argument-mismatch"
           FCFLAGS: "-fallow-argument-mismatch"
 
@@ -116,9 +115,8 @@ jobs:
       matrix:
         solver:
           - package: arco-ipopt
-            # Do NOT install coinor-libipopt-dev: Ubuntu 24.04 ships IPOPT 3.11.9
-            # which has a known memory corruption bug with MUMPS >= 5.1.0.
-            # ipopt-sys will build IPOPT 3.12.13 from source instead.
+            # Build IPOPT from source via ipopt-sys; the Ubuntu 24.04 system
+            # package (3.11.9) has a memory corruption bug with MUMPS >= 5.1.0.
             apt-deps: liblapack-dev libopenblas-dev gfortran
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -138,8 +136,8 @@ jobs:
       - name: Run Rust tests (${{ matrix.solver.package }})
         run: just test-solver ${{ matrix.solver.package }}
         env:
-          # MUMPS 4.10.0 (bundled by ipopt-sys) has Fortran type mismatches
-          # that GCC 14 on Ubuntu 24.04 rejects by default.
+          # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
+          # GCC 14 rejects by default (-fallow-argument-mismatch).
           FFLAGS: "-fallow-argument-mismatch"
           FCFLAGS: "-fallow-argument-mismatch"
 

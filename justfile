@@ -51,6 +51,7 @@ test:
 test-core:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ core-packages }} --all-features
 
+# Run single-threaded: MUMPS (IPOPT's linear solver) uses non-thread-safe global state
 test-solver package:
     cargo test -p {{ package }} --all-features -- --test-threads=1
 
