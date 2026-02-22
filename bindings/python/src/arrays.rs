@@ -42,7 +42,7 @@ fn sum_over_axis(values: &[PyExpr], shape: &[usize], axis: usize) -> Vec<PyExpr>
             for i in 0..inner {
                 let src_idx = o * axis_size * inner + a * inner + i;
                 let dst_idx = o * inner + i;
-                result[dst_idx] = result[dst_idx].add(values[src_idx].clone());
+                result[dst_idx].add_assign(&values[src_idx]);
             }
         }
     }
@@ -381,10 +381,20 @@ impl LinearArrayCore {
 
     /// Sum all elements to a scalar Expr.
     fn sum_all(&self) -> PyExpr {
-        self.values
-            .iter()
-            .cloned()
-            .fold(PyExpr::default(), |acc, v| acc.add(v))
+        let mut total_linear = 0usize;
+        let mut total_quadratic = 0usize;
+        let mut total_cubic = 0usize;
+        for v in &self.values {
+            total_linear += v.inner().linear_terms().len();
+            total_quadratic += v.inner().quadratic_terms().len();
+            total_cubic += v.inner().cubic_terms().len();
+        }
+        let mut acc = Expr::new_empty();
+        acc.reserve(total_linear, total_quadratic, total_cubic);
+        for v in &self.values {
+            acc.add_assign(v.inner());
+        }
+        PyExpr::from_expr(acc)
     }
 }
 
@@ -439,9 +449,10 @@ fn reduce_or_wrap(
     py: Python<'_>,
 ) -> PyResult<PyObject> {
     if shape.is_empty() {
-        let acc = values
-            .into_iter()
-            .fold(PyExpr::default(), |acc, v| acc.add(v));
+        let mut acc = PyExpr::default();
+        for v in values {
+            acc.add_assign_owned(v);
+        }
         Ok(acc.into_pyobject(py)?.into_any().unbind())
     } else {
         let arr = PyExprArray {
@@ -869,6 +880,17 @@ pub(super) use impl_array_ops;
 // Numpy helper functions
 // ============================================================================
 
+/// Compute `sum(weights[i] * exprs[i])` into a single PyExpr.
+///
+/// Both slices must have the same length (caller is responsible for validation).
+fn weighted_sum(weights: &[f64], exprs: &[PyExpr]) -> PyExpr {
+    let mut acc = PyExpr::default();
+    for (w, expr) in weights.iter().zip(exprs.iter()) {
+        acc.add_assign_owned(expr.scale(*w));
+    }
+    acc
+}
+
 /// np.dot(a, b): weighted sum of 1D arrays (one ndarray, one VariableArray/ExprArray).
 fn numpy_dot(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
     if args.len() != 2 {
@@ -911,10 +933,7 @@ fn numpy_dot(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
         )));
     }
 
-    let mut acc = PyExpr::default();
-    for (w, expr) in weights.iter().zip(core.values.iter()) {
-        acc = acc.add(expr.scale(*w));
-    }
+    let acc = weighted_sum(&weights, &core.values);
     Ok(acc.into_pyobject(py)?.into_any().unbind())
 }
 
@@ -966,10 +985,7 @@ fn numpy_matmul(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject>
                     n
                 )));
             }
-            let mut acc = PyExpr::default();
-            for (w, expr) in weights.iter().zip(core.values.iter()) {
-                acc = acc.add(expr.scale(*w));
-            }
+            let acc = weighted_sum(&weights, &core.values);
             Ok(acc.into_pyobject(py)?.into_any().unbind())
         }
         2 => {
@@ -993,14 +1009,8 @@ fn numpy_matmul(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject>
             let weights: Vec<f64> = flat.extract()?;
             let mut values = Vec::with_capacity(rows);
 
-            for row in 0..rows {
-                let start = row * cols;
-                let end = start + cols;
-                let mut acc = PyExpr::default();
-                for (w, expr) in weights[start..end].iter().zip(core.values.iter()) {
-                    acc = acc.add(expr.scale(*w));
-                }
-                values.push(acc);
+            for row_weights in weights.chunks(cols) {
+                values.push(weighted_sum(row_weights, &core.values));
             }
 
             let result = PyExprArray::new(Vec::new(), vec![rows], values);

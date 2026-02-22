@@ -121,6 +121,25 @@ impl PyModel {
         Ok(())
     }
 
+    fn set_objective_from_expr(
+        &mut self,
+        expr: &Bound<'_, PyAny>,
+        sense: Sense,
+        name: Option<String>,
+    ) -> PyResult<()> {
+        let terms = extract_objective_terms(expr)?;
+        self.inner
+            .set_objective(Objective {
+                sense: Some(sense),
+                terms,
+            })
+            .map_err(errors::model_error_to_py)?;
+        self.inner
+            .set_objective_name(name)
+            .map_err(errors::model_error_to_py)?;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn add_variables_scalar_bounds(
         &mut self,
@@ -812,35 +831,13 @@ impl PyModel {
     /// Minimize a linear expression.
     #[pyo3(signature = (expr, *, name=None))]
     fn minimize(&mut self, expr: &Bound<'_, PyAny>, name: Option<String>) -> PyResult<()> {
-        let linear_expr = extract_expr(expr)?;
-        let (expr, _offset) = linear_expr.into_parts();
-        self.inner
-            .set_objective(Objective {
-                sense: Some(Sense::Minimize),
-                terms: expr.into_linear_terms(),
-            })
-            .map_err(errors::model_error_to_py)?;
-        self.inner
-            .set_objective_name(name)
-            .map_err(errors::model_error_to_py)?;
-        Ok(())
+        self.set_objective_from_expr(expr, Sense::Minimize, name)
     }
 
     /// Maximize a linear expression.
     #[pyo3(signature = (expr, *, name=None))]
     fn maximize(&mut self, expr: &Bound<'_, PyAny>, name: Option<String>) -> PyResult<()> {
-        let linear_expr = extract_expr(expr)?;
-        let (expr, _offset) = linear_expr.into_parts();
-        self.inner
-            .set_objective(Objective {
-                sense: Some(Sense::Maximize),
-                terms: expr.into_linear_terms(),
-            })
-            .map_err(errors::model_error_to_py)?;
-        self.inner
-            .set_objective_name(name)
-            .map_err(errors::model_error_to_py)?;
-        Ok(())
+        self.set_objective_from_expr(expr, Sense::Maximize, name)
     }
 
     /// Set the objective name stored in model metadata.
@@ -1451,6 +1448,31 @@ fn extract_constraint_id(ob: &Bound<'_, PyAny>) -> PyResult<ConstraintId> {
 /// Extract a `PyExpr` from a Python object that may be a `PyExpr`, `PyVariable`, or scalar.
 fn extract_expr(ob: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
     Ok(ob.extract::<crate::expr::ExprLike>()?.0)
+}
+
+/// Collect linear terms from a slice of PyExpr values into a single Vec.
+fn collect_linear_terms(values: &[PyExpr]) -> Vec<(VariableId, f64)> {
+    let total: usize = values.iter().map(|e| e.inner().linear_terms().len()).sum();
+    let mut terms = Vec::with_capacity(total);
+    for expr in values {
+        terms.extend_from_slice(expr.inner().linear_terms());
+    }
+    terms
+}
+
+/// Extract objective terms directly from an array or expression, avoiding O(n^2) intermediate Expr.
+fn extract_objective_terms(ob: &Bound<'_, PyAny>) -> PyResult<Vec<(VariableId, f64)>> {
+    // Fast path: VariableArray or ExprArray -- collect all constituent terms directly in O(n)
+    if let Ok(va) = ob.extract::<PyRef<'_, PyVariableArray>>() {
+        return Ok(collect_linear_terms(&va.core.values));
+    }
+    if let Ok(ea) = ob.extract::<PyRef<'_, PyExprArray>>() {
+        return Ok(collect_linear_terms(&ea.core.values));
+    }
+    // Fallback: extract as expression
+    let linear_expr = extract_expr(ob)?;
+    let (expr, _offset) = linear_expr.into_parts();
+    Ok(expr.into_linear_terms())
 }
 
 fn parse_slack_bound(bound: &str) -> PyResult<SlackBound> {

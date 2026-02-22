@@ -282,21 +282,13 @@ impl Model {
         let started = Instant::now();
         let terms_in = terms.len();
 
-        let mut merged: BTreeMap<VariableId, f64> = BTreeMap::new();
-        match self.simplify_level {
-            SimplifyLevel::None => {
-                for (var_id, coeff) in terms {
-                    *merged.entry(var_id).or_insert(0.0) += coeff;
-                }
+        let skip_zeros = matches!(self.simplify_level, SimplifyLevel::Light);
+        let mut merged: HashMap<VariableId, f64> = HashMap::with_capacity(terms.len());
+        for (var_id, coeff) in terms {
+            if skip_zeros && coeff == 0.0 {
+                continue;
             }
-            SimplifyLevel::Light => {
-                for (var_id, coeff) in terms {
-                    if coeff == 0.0 {
-                        continue;
-                    }
-                    *merged.entry(var_id).or_insert(0.0) += coeff;
-                }
-            }
+            *merged.entry(var_id).or_insert(0.0) += coeff;
         }
 
         let normalized: Vec<(VariableId, f64)> = merged
@@ -566,7 +558,9 @@ mod tests {
         model.add_objective_terms(vec![(x, 2.0), (y, 3.0), (x, -1.0)]);
 
         assert_eq!(model.objective().sense, Some(Sense::Minimize));
-        assert_eq!(model.objective().terms, vec![(x, 2.0), (y, 3.0)]);
+        let mut terms = model.objective().terms.clone();
+        terms.sort_by_key(|(id, _)| id.inner());
+        assert_eq!(terms, vec![(x, 2.0), (y, 3.0)]);
     }
 
     #[test]

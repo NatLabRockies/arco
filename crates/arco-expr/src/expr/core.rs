@@ -10,7 +10,7 @@
 
 use crate::expr::constraint::{ComparisonSense, ConstraintExpr};
 use crate::ids::VariableId;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 /// Sparse polynomial expression split by degree plus a constant term.
@@ -108,6 +108,11 @@ impl Expr {
         (self.linear, self.constant)
     }
 
+    /// Total number of terms across all degrees.
+    pub fn num_terms(&self) -> usize {
+        self.linear.len() + self.quadratic.len() + self.cubic.len()
+    }
+
     /// Max degree of any term (0 = constant only).
     pub fn degree(&self) -> usize {
         if !self.cubic.is_empty() {
@@ -168,6 +173,29 @@ impl Expr {
         }
     }
 
+    /// Add another expression in-place (O(other.len()), avoids cloning self).
+    pub fn add_assign(&mut self, other: &Expr) {
+        self.constant += other.constant;
+        self.linear.extend_from_slice(&other.linear);
+        self.quadratic.extend_from_slice(&other.quadratic);
+        self.cubic.extend_from_slice(&other.cubic);
+    }
+
+    /// Add another expression in-place, consuming `other` to avoid cloning.
+    pub fn add_assign_owned(&mut self, mut other: Expr) {
+        self.constant += other.constant;
+        self.linear.append(&mut other.linear);
+        self.quadratic.append(&mut other.quadratic);
+        self.cubic.append(&mut other.cubic);
+    }
+
+    /// Pre-allocate capacity for the internal Vecs.
+    pub fn reserve(&mut self, linear: usize, quadratic: usize, cubic: usize) {
+        self.linear.reserve(linear);
+        self.quadratic.reserve(quadratic);
+        self.cubic.reserve(cubic);
+    }
+
     /// Add a constant offset.
     pub fn add_constant(&self, value: f64) -> Self {
         Self {
@@ -190,7 +218,7 @@ impl Expr {
 
     /// Merged linear terms with duplicates combined.
     pub fn normalized_terms(&self) -> Vec<(VariableId, f64)> {
-        let mut merged: BTreeMap<VariableId, f64> = BTreeMap::new();
+        let mut merged: HashMap<VariableId, f64> = HashMap::with_capacity(self.linear.len());
         for (var_id, coeff) in &self.linear {
             if *coeff == 0.0 {
                 continue;
@@ -251,6 +279,12 @@ impl std::ops::Add for Expr {
 
     fn add(self, rhs: Expr) -> Self::Output {
         Expr::add(&self, &rhs)
+    }
+}
+
+impl std::ops::AddAssign for Expr {
+    fn add_assign(&mut self, rhs: Expr) {
+        Expr::add_assign_owned(self, rhs);
     }
 }
 
