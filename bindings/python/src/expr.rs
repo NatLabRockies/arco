@@ -270,15 +270,10 @@ impl PyConstraintExpr {
 
 const LARGE_EXPR_THRESHOLD: usize = 10_000;
 
-/// Emit a PerformanceWarning when an Expr being copied via `+` is large.
+/// Emit a UserWarning when an Expr being copied via `+` is large.
 fn warn_if_large(py: Python<'_>, num_terms: usize) -> PyResult<()> {
     if num_terms >= LARGE_EXPR_THRESHOLD {
         let warnings = py.import("warnings")?;
-        let builtins = py.import("builtins")?;
-        let perf_warning = builtins.getattr("PerformanceWarning").or_else(|_| {
-            // PerformanceWarning was added in Python 3.12; fall back to UserWarning
-            builtins.getattr("UserWarning")
-        })?;
         warnings.call_method1(
             "warn",
             (
@@ -286,8 +281,8 @@ fn warn_if_large(py: Python<'_>, num_terms: usize) -> PyResult<()> {
                     "Adding to an Expr with {num_terms} terms using `+` copies the entire \
                      expression. Use `+=` for in-place accumulation or `.sum()` on arrays."
                 ),
-                perf_warning,
-                2, // stacklevel: point at the caller's code
+                py.get_type::<pyo3::exceptions::PyUserWarning>(),
+                2_i32, // stacklevel: point at the caller's code
             ),
         )?;
     }
