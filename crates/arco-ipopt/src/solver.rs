@@ -3,8 +3,8 @@
 use crate::problem::ArcoProblem;
 use crate::solution::Solution;
 use crate::status::{ipopt_has_solution, ipopt_to_core_status};
-use arco_core::solver::SolverError as CoreSolverError;
 use arco_core::Model;
+use arco_core::solver::SolverError as CoreSolverError;
 use arco_expr::VariableId;
 use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
 use ipopt::Ipopt;
@@ -259,10 +259,7 @@ mod tests {
     #[test]
     fn test_solver_new_rejects_empty_model() {
         let model = Model::new();
-        assert!(matches!(
-            Solver::new(model),
-            Err(SolverError::EmptyModel)
-        ));
+        assert!(matches!(Solver::new(model), Err(SolverError::EmptyModel)));
     }
 
     fn build_single_variable_model() -> Model {

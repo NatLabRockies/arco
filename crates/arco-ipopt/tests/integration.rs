@@ -115,14 +115,18 @@ fn test_dual_values() {
 
     assert_eq!(solution.variable_duals().len(), num_variables);
     assert_eq!(solution.constraint_duals().len(), num_constraints);
-    assert!(solution
-        .variable_duals()
-        .iter()
-        .all(|value| value.is_finite()));
-    assert!(solution
-        .constraint_duals()
-        .iter()
-        .all(|value| value.is_finite()));
+    assert!(
+        solution
+            .variable_duals()
+            .iter()
+            .all(|value| value.is_finite())
+    );
+    assert!(
+        solution
+            .constraint_duals()
+            .iter()
+            .all(|value| value.is_finite())
+    );
 }
 
 /// Test: model with integer variable is rejected

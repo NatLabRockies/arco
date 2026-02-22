@@ -928,9 +928,9 @@ impl PyModel {
 
         let result = match backend.solve(&self.inner, &config, hints.as_deref()) {
             Ok(solution) => Ok(PySolveResult::new(solution)),
-            Err(arco_solver::SolverError::SolveFailure { status }) => {
-                Ok(PySolveResult::new(solve_failure_solution(status.to_core_status())))
-            }
+            Err(arco_solver::SolverError::SolveFailure { status }) => Ok(PySolveResult::new(
+                solve_failure_solution(status.to_core_status()),
+            )),
             Err(e) => Err(errors::generic_solver_error_to_py(e)),
         }?;
 

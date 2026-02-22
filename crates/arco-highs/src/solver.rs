@@ -192,8 +192,7 @@ impl Solve for Solver {
     type Solution = Solution;
 
     fn solve(&mut self, config: &SolverConfig) -> Result<Self::Solution, GenericSolverError> {
-        self.solve_with_config(config)
-            .map_err(Into::into)
+        self.solve_with_config(config).map_err(Into::into)
     }
 }
 

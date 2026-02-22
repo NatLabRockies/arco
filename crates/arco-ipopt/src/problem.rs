@@ -1,7 +1,7 @@
 //! IPOPT problem adapter that maps an `arco_core::Model` to `ipopt::ConstrainedProblem`.
 
-use arco_core::solver::SolverError;
 use arco_core::Model;
+use arco_core::solver::SolverError;
 use arco_expr::{ConstraintId, VariableId};
 use ipopt::{BasicProblem, ConstrainedProblem, Index, Number};
 use std::collections::BTreeMap;
