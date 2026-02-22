@@ -306,26 +306,25 @@ pub fn model_error_to_py(e: arco_core::model::ModelError) -> PyErr {
     }
 }
 
-/// Convert a `arco_core::SolverError` into the appropriate ArcoError subclass.
-pub fn solver_error_to_py(e: arco_core::SolverError) -> PyErr {
+/// Convert a `arco_solver::SolverError` into the appropriate ArcoError subclass.
+pub fn generic_solver_error_to_py(e: arco_solver::SolverError) -> PyErr {
     let msg = e.to_string();
     match e {
-        arco_core::SolverError::EmptyModel => ModelEmptyError::new_err(msg),
-        arco_core::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
-        arco_core::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
-        arco_core::SolverError::SolveFailure { status } => {
-            use arco_core::solver::SolverStatus;
+        arco_solver::SolverError::EmptyModel => ModelEmptyError::new_err(msg),
+        arco_solver::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
+        arco_solver::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
+        arco_solver::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
+        arco_solver::SolverError::InternalError(_) => SolverInternalError::new_err(msg),
+        arco_solver::SolverError::SolveFailure { status } => {
+            use arco_solver::SolverStatus;
             match status {
                 SolverStatus::Infeasible => SolverInfeasibleError::new_err(msg),
                 SolverStatus::Unbounded => SolverUnboundedError::new_err(msg),
-                SolverStatus::TimeLimit => SolverTimeLimitError::new_err(msg),
-                SolverStatus::IterationLimit => SolverIterationLimitError::new_err(msg),
+                SolverStatus::ReachedTimeLimit => SolverTimeLimitError::new_err(msg),
+                SolverStatus::ReachedIterationLimit => SolverIterationLimitError::new_err(msg),
                 _ => SolverInternalError::new_err(msg),
             }
         }
-        arco_core::SolverError::InvalidObjectiveSense
-        | arco_core::SolverError::SolverNotAvailable(_)
-        | arco_core::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
     }
 }
 

@@ -104,6 +104,33 @@ impl SolverSettings {
             solver.set_tolerance(tolerance);
         }
     }
+
+    /// Convert these settings into a generic `SolverConfig`.
+    pub fn to_solver_config(&self) -> arco_solver::SolverConfig {
+        let mut config = arco_solver::SolverConfig::new();
+        if let Some(presolve) = self.presolve {
+            config = config.with_presolve(presolve);
+        }
+        if let Some(threads) = self.threads {
+            config = config.with_threads(threads);
+        }
+        if let Some(tolerance) = self.tolerance {
+            config = config.with_tolerance(tolerance);
+        }
+        if let Some(time_limit) = self.time_limit {
+            config = config.with_time_limit(time_limit);
+        }
+        if let Some(mip_gap) = self.mip_gap {
+            config = config.with_mip_gap(mip_gap);
+        }
+        if let Some(verbosity) = self.verbosity {
+            config = config.with_verbosity(verbosity);
+        }
+        if let Some(log_to_console) = self.log_to_console {
+            config = config.with_log_to_console(log_to_console);
+        }
+        config
+    }
 }
 
 fn extract_optional<T: for<'a, 'py> FromPyObject<'a, 'py, Error = PyErr>>(
@@ -339,10 +366,62 @@ impl PyXpress {
     }
 }
 
+#[cfg(feature = "ipopt")]
+#[pyclass(from_py_object, extends = PySolver, name = "Ipopt")]
+#[derive(Debug, Clone)]
+pub struct PyIpopt;
+
+#[cfg(feature = "ipopt")]
+#[pymethods]
+impl PyIpopt {
+    #[new]
+    #[pyo3(
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+    )]
+    fn new(
+        presolve: Option<bool>,
+        threads: Option<u32>,
+        tolerance: Option<f64>,
+        time_limit: Option<f64>,
+        mip_gap: Option<f64>,
+        verbosity: Option<u32>,
+        log_to_console: Option<bool>,
+    ) -> PyResult<(Self, PySolver)> {
+        let settings = SolverSettings::new(
+            presolve,
+            threads,
+            tolerance,
+            time_limit,
+            mip_gap,
+            verbosity,
+            log_to_console,
+        )?;
+        Ok((PyIpopt, PySolver { settings }))
+    }
+
+    #[pyo3(signature = (*, update=None))]
+    fn copy(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        update: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Py<Self>> {
+        let base = slf.into_super();
+        let settings = apply_solver_updates(base.settings.clone(), update)?;
+        Py::new(py, (PyIpopt, PySolver { settings }))
+    }
+
+    fn __repr__(slf: PyRef<'_, Self>) -> String {
+        let base = slf.into_super();
+        solver_repr("Ipopt", &base.settings)
+    }
+}
+
 /// Register solver classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySolver>()?;
     m.add_class::<PyHiGHS>()?;
     m.add_class::<PyXpress>()?;
+    #[cfg(feature = "ipopt")]
+    m.add_class::<PyIpopt>()?;
     Ok(())
 }
