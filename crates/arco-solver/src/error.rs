@@ -76,6 +76,24 @@ fn status_message(status: SolverStatus) -> &'static str {
 
 impl std::error::Error for SolverError {}
 
+impl From<arco_core::solver::SolverError> for SolverError {
+    fn from(err: arco_core::solver::SolverError) -> Self {
+        use arco_core::solver::SolverError as Core;
+        match err {
+            Core::EmptyModel => SolverError::EmptyModel,
+            Core::NoObjective => SolverError::NoObjective,
+            Core::InvalidObjectiveSense => SolverError::InvalidObjectiveSense,
+            Core::InvalidVariableId(id) => SolverError::InvalidVariableId(id),
+            Core::SolverNotAvailable(msg) | Core::SolverSpecific(msg) => {
+                SolverError::InternalError(msg)
+            }
+            Core::SolveFailure { status } => SolverError::SolveFailure {
+                status: status.into(),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

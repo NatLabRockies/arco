@@ -58,6 +58,8 @@ pub use model_blocks::{PyBlockHandle, PyBlockPorts, PyBlockResults};
 pub use slack_variable::PySlackVariable;
 pub use snapshot::{PyModelSnapshot, PySnapshotMetadata};
 pub use solution::{PySolutionStatus, PySolveResult};
+#[cfg(feature = "ipopt")]
+pub use solver::PyIpopt;
 pub use solver::{PyHiGHS, PySolver, PyXpress, SolveOverrides, SolverSettings};
 pub use variable::PyVariable;
 pub use views::{
@@ -69,7 +71,7 @@ pub use views::{
 pub struct PyModel {
     pub(crate) inner: Model,
     solver_settings: SolverSettings,
-    use_xpress: bool,
+    default_backend: String,
     last_solution: Option<Py<PySolveResult>>,
     /// Block definitions added via add_block()
     block_defs: Vec<model_blocks::BlockDef>,
@@ -305,12 +307,12 @@ impl PyModel {
         } else {
             Model::new()
         };
-        let use_xpress = solver.is_some_and(|s| s.cast::<PyXpress>().is_ok());
+        let default_backend = detect_default_backend(solver);
         let solver_settings = extract_solver_settings(solver)?;
         Ok(PyModel {
             inner,
             solver_settings,
-            use_xpress,
+            default_backend,
             last_solution: None,
             block_defs: Vec::new(),
             link_defs: Vec::new(),
@@ -368,7 +370,7 @@ impl PyModel {
         Ok(PyModel {
             inner,
             solver_settings: SolverSettings::default(),
-            use_xpress: false,
+            default_backend: "highs".to_string(),
             last_solution: None,
             block_defs: Vec::new(),
             link_defs: Vec::new(),
@@ -914,38 +916,22 @@ impl PyModel {
                 .collect()
         });
 
-        let solver_backend = if let Some(s) = solver {
-            resolve_solver_backend(Some(s))?
-        } else if self.use_xpress {
-            SolverBackend::Xpress(self.solver_settings.clone())
+        let effective_settings = if let Some(s) = solver {
+            extract_solver_settings(Some(s))?
         } else {
-            SolverBackend::HiGHS(self.solver_settings.clone())
+            self.solver_settings.clone()
         };
+        let effective_settings = effective_settings.with_overrides(overrides)?;
 
-        let result = match solver_backend {
-            SolverBackend::Xpress(_settings) => Err(errors::SolverInternalError::new_err(
-                "Xpress backend is not enabled in this build",
+        let backend = resolve_backend(solver, &self.default_backend)?;
+        let config = effective_settings.to_solver_config();
+
+        let result = match backend.solve(&self.inner, &config, hints.as_deref()) {
+            Ok(solution) => Ok(PySolveResult::new(solution)),
+            Err(arco_solver::SolverError::SolveFailure { status }) => Ok(PySolveResult::new(
+                solve_failure_solution(status.to_core_status()),
             )),
-            SolverBackend::HiGHS(settings) => {
-                let settings = settings.with_overrides(overrides)?;
-                let mut highs = arco_highs::Solver::new(self.inner.clone())
-                    .map_err(errors::solver_error_to_py)?;
-                settings.apply_highs(&mut highs);
-
-                if let Some(ref hints) = hints {
-                    highs
-                        .set_primal_start(hints)
-                        .map_err(errors::solver_error_to_py)?;
-                }
-
-                match highs.solve() {
-                    Ok(solution) => Ok(PySolveResult::new(solution.into_core_solution())),
-                    Err(arco_core::SolverError::SolveFailure { status }) => {
-                        Ok(PySolveResult::new(solve_failure_solution(status)))
-                    }
-                    Err(e) => Err(errors::solver_error_to_py(e)),
-                }
-            }
+            Err(e) => Err(errors::generic_solver_error_to_py(e)),
         }?;
 
         let py_result = Py::new(py, result)?;
@@ -1393,19 +1379,32 @@ fn solve_failure_solution(status: arco_core::solver::SolverStatus) -> arco_core:
     }
 }
 
-/// Which solver backend to use when solving.
-enum SolverBackend {
-    HiGHS(SolverSettings),
-    Xpress(SolverSettings),
+/// Detect which backend name a solver object represents.
+fn detect_default_backend(solver: Option<&Bound<'_, PyAny>>) -> String {
+    let Some(solver) = solver else {
+        return "highs".to_string();
+    };
+    #[cfg(feature = "ipopt")]
+    if solver.cast::<PyIpopt>().is_ok() {
+        return "ipopt".to_string();
+    }
+    if solver.cast::<PyXpress>().is_ok() {
+        return "xpress".to_string();
+    }
+    "highs".to_string()
 }
 
-/// Extract `SolverSettings` from an optional Python solver object (`HiGHS`, `Xpress`, or `Solver`).
+/// Extract `SolverSettings` from an optional Python solver object (`HiGHS`, `Ipopt`, `Xpress`, or `Solver`).
 fn extract_solver_settings(solver: Option<&Bound<'_, PyAny>>) -> PyResult<SolverSettings> {
     let Some(solver) = solver else {
         return Ok(SolverSettings::default());
     };
     if let Ok(highs) = solver.cast::<PyHiGHS>() {
         return Ok(highs.borrow().into_super().settings.clone());
+    }
+    #[cfg(feature = "ipopt")]
+    if let Ok(ipopt) = solver.cast::<PyIpopt>() {
+        return Ok(ipopt.borrow().into_super().settings.clone());
     }
     if let Ok(xpress) = solver.cast::<PyXpress>() {
         return Ok(xpress.borrow().into_super().settings.clone());
@@ -1414,30 +1413,26 @@ fn extract_solver_settings(solver: Option<&Bound<'_, PyAny>>) -> PyResult<Solver
         return Ok(base.borrow().settings.clone());
     }
     Err(errors::SolverTypeError::new_err(
-        "solver must be a Solver, HiGHS, or Xpress instance",
+        "solver must be a Solver, HiGHS, Ipopt, or Xpress instance",
     ))
 }
 
-/// Determine the solver backend from the `solver` parameter passed to `solve()`.
-fn resolve_solver_backend(solver: Option<&Bound<'_, PyAny>>) -> PyResult<SolverBackend> {
-    let Some(solver) = solver else {
-        return Ok(SolverBackend::HiGHS(SolverSettings::default()));
-    };
-    if let Ok(xpress) = solver.cast::<PyXpress>() {
-        let settings = xpress.borrow().into_super().settings.clone();
-        return Ok(SolverBackend::Xpress(settings));
+/// Resolve which `SolverBackend` implementation to use.
+fn resolve_backend(
+    solver: Option<&Bound<'_, PyAny>>,
+    default_backend: &str,
+) -> PyResult<Box<dyn arco_solver::SolverBackend>> {
+    #[cfg(feature = "ipopt")]
+    if solver.is_some_and(|s| s.cast::<PyIpopt>().is_ok()) || default_backend == "ipopt" {
+        return Ok(Box::new(arco_ipopt::IpoptBackend));
     }
-    if let Ok(highs) = solver.cast::<PyHiGHS>() {
-        let settings = highs.borrow().into_super().settings.clone();
-        return Ok(SolverBackend::HiGHS(settings));
+    if solver.is_some_and(|s| s.cast::<PyXpress>().is_ok()) || default_backend == "xpress" {
+        return Err(errors::SolverInternalError::new_err(
+            "Xpress backend is not enabled in this build",
+        ));
     }
-    if let Ok(base) = solver.cast::<PySolver>() {
-        let settings = base.borrow().settings.clone();
-        return Ok(SolverBackend::HiGHS(settings));
-    }
-    Err(errors::SolverTypeError::new_err(
-        "solver must be a Solver, HiGHS, or Xpress instance",
-    ))
+    // Default: HiGHS
+    Ok(Box::new(arco_highs::HiGHSBackend))
 }
 
 /// Extract a `ConstraintId` from a Python object that may be a `PyConstraint` or `u32`.

@@ -1,13 +1,13 @@
 [package]
-name = "arco-solver"
+name = "arco-ipopt"
 version = { workspace = true }
+description = "IPOPT solver backend for Arco optimization"
 edition = { workspace = true }
 rust-version = { workspace = true }
-license-file = { workspace = true }
-authors = { workspace = true }
-description = "Shared solver abstractions for Arco optimization"
 homepage = { workspace = true }
 repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
 publish = false
 
 [lints]
@@ -16,5 +16,9 @@ workspace = true
 [dependencies]
 arco-core = { workspace = true }
 arco-expr = { workspace = true }
+arco-solver = { workspace = true }
+ipopt = "0.5"
+tracing = { workspace = true }
 
 [dev-dependencies]
+tracing-subscriber = { workspace = true }

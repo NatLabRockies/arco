@@ -13,6 +13,7 @@ arco-core = { path = "crates/arco-core" }
 arco-expr = { path = "crates/arco-expr" }
 arco-solver = { path = "crates/arco-solver" }
 arco-highs = { path = "crates/arco-highs" }
+arco-ipopt = { path = "crates/arco-ipopt" }
 arco-tools = { path = "crates/arco-tools" }
 arco-blocks = { path = "crates/arco-blocks" }
 

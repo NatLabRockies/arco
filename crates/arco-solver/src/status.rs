@@ -43,6 +43,19 @@ impl SolverStatus {
         matches!(self, SolverStatus::Unbounded)
     }
 
+    /// Convert to the corresponding [`arco_core::solver::SolverStatus`].
+    pub fn to_core_status(self) -> arco_core::solver::SolverStatus {
+        use arco_core::solver::SolverStatus as Core;
+        match self {
+            SolverStatus::Optimal => Core::Optimal,
+            SolverStatus::Infeasible => Core::Infeasible,
+            SolverStatus::Unbounded => Core::Unbounded,
+            SolverStatus::ReachedTimeLimit => Core::TimeLimit,
+            SolverStatus::ReachedIterationLimit => Core::IterationLimit,
+            SolverStatus::Unknown => Core::Unknown,
+        }
+    }
+
     /// Get a human-readable string representation.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -59,6 +72,20 @@ impl SolverStatus {
 impl std::fmt::Display for SolverStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
+    }
+}
+
+impl From<arco_core::solver::SolverStatus> for SolverStatus {
+    fn from(status: arco_core::solver::SolverStatus) -> Self {
+        use arco_core::solver::SolverStatus as Core;
+        match status {
+            Core::Optimal => SolverStatus::Optimal,
+            Core::Infeasible => SolverStatus::Infeasible,
+            Core::Unbounded => SolverStatus::Unbounded,
+            Core::TimeLimit => SolverStatus::ReachedTimeLimit,
+            Core::IterationLimit => SolverStatus::ReachedIterationLimit,
+            Core::Unknown => SolverStatus::Unknown,
+        }
     }
 }
 

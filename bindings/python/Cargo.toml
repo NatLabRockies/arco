@@ -20,13 +20,16 @@ pyo3 = { workspace = true, features = ["extension-module"] }
 arco-core = { workspace = true }
 arco-expr = { workspace = true }
 arco-highs = { workspace = true }
+arco-solver = { workspace = true }
 arco-blocks = { workspace = true }
+arco-ipopt = { workspace = true, optional = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [features]
 default = []
+ipopt = ["arco-ipopt"]
 
 [lints]
 workspace = true
