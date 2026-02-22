@@ -326,7 +326,7 @@ mod tests {
         let problem = ArcoProblem::from_model(&model, None).unwrap();
         assert_eq!(problem.num_vars, 2);
         assert_eq!(problem.num_constraints, 1);
-        assert_eq!(problem.obj_sign, 1.0);
+        assert!((problem.obj_sign - 1.0).abs() < f64::EPSILON);
         assert_eq!(problem.jac_rows.len(), 2);
     }
 
@@ -345,7 +345,7 @@ mod tests {
             .unwrap();
 
         let problem = ArcoProblem::from_model(&model, None).unwrap();
-        assert_eq!(problem.obj_sign, -1.0);
+        assert!((problem.obj_sign - (-1.0)).abs() < f64::EPSILON);
         // Coefficient should be negated: -1 * 3.0 = -3.0
         assert!((problem.obj_coeffs[0] - (-3.0)).abs() < 1e-12);
     }
