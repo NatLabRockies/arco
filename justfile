@@ -19,6 +19,9 @@ export UV_CACHE_DIR := justfile_directory() / ".uv-cache"
 
 maturin := "uv run --with maturin maturin"
 
+# Core crates that do not require system solver libraries
+core-packages := "-p arco-core -p arco-expr -p arco-solver -p arco-tools -p arco-blocks -p arco-highs -p arco-bench"
+
 default: check
 
 fmt:
@@ -36,8 +39,20 @@ check-lib:
 clippy:
     cargo clippy --all --benches --tests --examples --all-features -- -D warnings
 
+clippy-core:
+    cargo clippy {{ core-packages }} --benches --tests --examples --all-features -- -D warnings
+
+clippy-solver package:
+    cargo clippy -p {{ package }} --benches --tests --examples --all-features -- -D warnings
+
 test:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test --workspace --all-features --exclude arco-python
+
+test-core:
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ core-packages }} --all-features
+
+test-solver package:
+    cargo test -p {{ package }} --all-features
 
 doc:
     cargo doc --workspace --no-deps
