@@ -1,9 +1,11 @@
+use arco_core::types::Bounds;
 use arco_expr::ComparisonSense;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
 use crate::PyExpr;
 use crate::PyObject;
+use crate::constraint::PyConstraint;
 use crate::index_set::PyIndexSet;
 
 use super::CompactTerm;
@@ -63,6 +65,8 @@ pub struct PyConstraintArray {
     storage: ConstraintArrayStorage,
     shape: Vec<usize>,
     index_sets: Vec<Py<PyIndexSet>>,
+    /// Set after constraints are inserted into the model (via `from_batch`).
+    first_constraint_id: Option<u32>,
 }
 
 impl PyConstraintArray {
@@ -77,6 +81,7 @@ impl PyConstraintArray {
             storage: ConstraintArrayStorage::Full { exprs, sense, rhs },
             shape,
             index_sets,
+            first_constraint_id: None,
         }
     }
 
@@ -90,6 +95,7 @@ impl PyConstraintArray {
             storage: ConstraintArrayStorage::Compact(compact),
             shape,
             index_sets,
+            first_constraint_id: None,
         }
     }
 
@@ -125,7 +131,7 @@ impl PyConstraintArray {
     /// Create a lightweight ConstraintArray from batch insertion results.
     /// The exprs are empty since constraints have already been added to the model.
     pub fn from_batch(
-        _first_constraint_id: u32,
+        first_constraint_id: u32,
         count: usize,
         sense: ComparisonSense,
         rhs: &[f64],
@@ -138,6 +144,7 @@ impl PyConstraintArray {
             },
             shape: vec![count],
             index_sets: Vec::new(),
+            first_constraint_id: Some(first_constraint_id),
         }
     }
 
@@ -178,6 +185,35 @@ impl PyConstraintArray {
 
     fn __len__(&self) -> usize {
         self.len()
+    }
+
+    fn __getitem__(&self, index: usize) -> PyResult<PyConstraint> {
+        let len = self.len();
+        if index >= len {
+            return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                "index {} out of range for ConstraintArray of size {}",
+                index, len
+            )));
+        }
+        let first_id = self.first_constraint_id.ok_or_else(|| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "this ConstraintArray has not been added to a model yet and is not subscriptable",
+            )
+        })?;
+        let sense = self.get_sense();
+        let rhs_val = match &self.storage {
+            ConstraintArrayStorage::Full { rhs, .. } => rhs[index],
+            ConstraintArrayStorage::Compact(c) => match &c.rhs {
+                CompactRhs::Scalar(v) => *v,
+                CompactRhs::Vec(v) => v[index],
+            },
+        };
+        let bounds = match sense {
+            ComparisonSense::LessEqual => Bounds::new(f64::NEG_INFINITY, rhs_val),
+            ComparisonSense::GreaterEqual => Bounds::new(rhs_val, f64::INFINITY),
+            ComparisonSense::Equal => Bounds::new(rhs_val, rhs_val),
+        };
+        Ok(PyConstraint::new(first_id + index as u32, None, bounds))
     }
 
     fn __repr__(&self) -> String {

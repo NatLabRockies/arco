@@ -275,7 +275,7 @@ impl PyModel {
             .zip(rhs.iter())
             .map(|(expr, &rhs_val)| {
                 let bounds = bounds_from_sense(sense, rhs_val);
-                (expr.into_inner().into_linear_terms(), bounds)
+                (expr.into_inner().normalized_terms(), bounds)
             })
             .collect();
 
