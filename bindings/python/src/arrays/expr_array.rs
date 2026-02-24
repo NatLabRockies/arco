@@ -94,12 +94,11 @@ impl PyExprArray {
                     vals.push(core.values[flat_idx].clone());
                 }
                 let n = vals.len();
-                let new_index_sets =
-                    if col_indices.len() == ncols && core.index_sets.len() == 2 {
-                        vec![core.index_sets[1].clone_ref(py)]
-                    } else {
-                        Vec::new()
-                    };
+                let new_index_sets = if col_indices.len() == ncols && core.index_sets.len() == 2 {
+                    vec![core.index_sets[1].clone_ref(py)]
+                } else {
+                    Vec::new()
+                };
                 let result = PyExprArray::new(new_index_sets, vec![n], vals);
                 Ok(result.into_pyobject(py)?.into_any().unbind())
             }
@@ -110,12 +109,11 @@ impl PyExprArray {
                     vals.push(core.values[flat_idx].clone());
                 }
                 let n = vals.len();
-                let new_index_sets =
-                    if row_indices.len() == nrows && core.index_sets.len() == 2 {
-                        vec![core.index_sets[0].clone_ref(py)]
-                    } else {
-                        Vec::new()
-                    };
+                let new_index_sets = if row_indices.len() == nrows && core.index_sets.len() == 2 {
+                    vec![core.index_sets[0].clone_ref(py)]
+                } else {
+                    Vec::new()
+                };
                 let result = PyExprArray::new(new_index_sets, vec![n], vals);
                 Ok(result.into_pyobject(py)?.into_any().unbind())
             }
@@ -244,11 +242,9 @@ impl PyExprArray {
     fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
         // Fast path: compact >= scalar/index_set/vec
         if let Some(self_compact) = self.as_compact() {
-            if let Some(compact_con) = try_make_compact_constraint(
-                self_compact,
-                rhs,
-                super::ComparisonSense::GreaterEqual,
-            )? {
+            if let Some(compact_con) =
+                try_make_compact_constraint(self_compact, rhs, super::ComparisonSense::GreaterEqual)
+            {
                 return Ok(super::PyConstraintArray::from_compact(
                     compact_con,
                     self.storage.shape().to_vec(),
@@ -262,11 +258,9 @@ impl PyExprArray {
 
     fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
         if let Some(self_compact) = self.as_compact() {
-            if let Some(compact_con) = try_make_compact_constraint(
-                self_compact,
-                rhs,
-                super::ComparisonSense::LessEqual,
-            )? {
+            if let Some(compact_con) =
+                try_make_compact_constraint(self_compact, rhs, super::ComparisonSense::LessEqual)
+            {
                 return Ok(super::PyConstraintArray::from_compact(
                     compact_con,
                     self.storage.shape().to_vec(),
@@ -281,7 +275,7 @@ impl PyExprArray {
     fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
         if let Some(self_compact) = self.as_compact() {
             if let Some(compact_con) =
-                try_make_compact_constraint(self_compact, rhs, super::ComparisonSense::Equal)?
+                try_make_compact_constraint(self_compact, rhs, super::ComparisonSense::Equal)
             {
                 return Ok(super::PyConstraintArray::from_compact(
                     compact_con,

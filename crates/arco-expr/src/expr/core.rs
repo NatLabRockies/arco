@@ -12,7 +12,6 @@ use crate::expr::constraint::{ComparisonSense, ConstraintExpr};
 use crate::ids::VariableId;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Default)]
 /// Sparse polynomial expression split by degree plus a constant term.
 ///
 /// Terms are stored in separate vectors for linear, quadratic, and cubic
@@ -20,6 +19,8 @@ use std::collections::HashMap;
 /// Quadratic and cubic fields use `Option<Box<Vec<T>>>` to avoid 24-byte
 /// empty `Vec` overhead per expression (saves ~32 bytes each for the
 /// common linear-only case).
+#[derive(Debug, Clone, Default)]
+#[allow(clippy::box_collection, clippy::type_complexity)]
 pub struct Expr {
     constant: f64,
     linear: Vec<(VariableId, f64)>,
@@ -32,8 +33,13 @@ impl Expr {
 
     /// Wrap a non-empty vec into `Option<Box<Vec<T>>>`, returning `None` for empty.
     #[inline]
+    #[allow(clippy::box_collection)]
     fn wrap_optional<T>(v: Vec<T>) -> Option<Box<Vec<T>>> {
-        if v.is_empty() { None } else { Some(Box::new(v)) }
+        if v.is_empty() {
+            None
+        } else {
+            Some(Box::new(v))
+        }
     }
 
     /// Return quadratic terms as a slice (empty if `None`).
@@ -199,6 +205,7 @@ impl Expr {
 
     /// Merge two slices into `Option<Box<Vec<T>>>`, returning `None` if both are empty.
     #[inline]
+    #[allow(clippy::box_collection)]
     fn merge_slices<T: Copy>(a: &[T], b: &[T]) -> Option<Box<Vec<T>>> {
         if a.is_empty() && b.is_empty() {
             return None;

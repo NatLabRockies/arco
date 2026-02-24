@@ -15,9 +15,9 @@ use super::indexing::{
     AxisIndex, maybe_boolean_mask_indices, resolve_axis_index, slice_indices, sliced_2d_index_sets,
 };
 use super::{
-    CompactExprStorage, PyConstraintArray, PyExprArray, array_add, array_function, array_mul,
-    array_neg, array_reduce, array_rsub, array_sub, array_sum, array_truediv, array_ufunc,
-    compare_array_rhs, try_extract_compact, try_make_compact_constraint, ComparisonSense,
+    CompactExprStorage, ComparisonSense, PyConstraintArray, PyExprArray, array_add, array_function,
+    array_mul, array_neg, array_reduce, array_rsub, array_sub, array_sum, array_truediv,
+    array_ufunc, compare_array_rhs, try_extract_compact, try_make_compact_constraint,
 };
 
 /// Compact metadata for a contiguous block of variables with scalar bounds.
@@ -134,9 +134,7 @@ impl PyVariableArray {
 
     /// Clone index_sets (requires GIL).
     fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
-        Python::attach(|py| {
-            self.index_sets.iter().map(|s| s.clone_ref(py)).collect()
-        })
+        Python::attach(|py| self.index_sets.iter().map(|s| s.clone_ref(py)).collect())
     }
 
     /// Create a 1D subarray from a list of flat indices.
@@ -215,9 +213,10 @@ impl PyVariableArray {
     /// Return compact expression storage if this array uses compact storage.
     pub(crate) fn as_compact_expr(&self) -> Option<CompactExprStorage> {
         match &self.storage {
-            VariableStorage::Compact(c) => {
-                Some(CompactExprStorage::from_variable_array(c.start_var_id, c.count))
-            }
+            VariableStorage::Compact(c) => Some(CompactExprStorage::from_variable_array(
+                c.start_var_id,
+                c.count,
+            )),
             VariableStorage::Full(_) => None,
         }
     }
@@ -284,12 +283,11 @@ impl PyVariableArray {
                     vars.push(self.variable_at(flat_idx).unwrap());
                 }
                 let n = vals.len();
-                let new_index_sets =
-                    if col_indices.len() == ncols && self.index_sets.len() == 2 {
-                        vec![self.index_sets[1].clone_ref(py)]
-                    } else {
-                        Vec::new()
-                    };
+                let new_index_sets = if col_indices.len() == ncols && self.index_sets.len() == 2 {
+                    vec![self.index_sets[1].clone_ref(py)]
+                } else {
+                    Vec::new()
+                };
                 let result = PyVariableArray::new(new_index_sets, vec![n], vals, vars);
                 Ok(result.into_pyobject(py)?.into_any().unbind())
             }
@@ -302,12 +300,11 @@ impl PyVariableArray {
                     vars.push(self.variable_at(flat_idx).unwrap());
                 }
                 let n = vals.len();
-                let new_index_sets =
-                    if row_indices.len() == nrows && self.index_sets.len() == 2 {
-                        vec![self.index_sets[0].clone_ref(py)]
-                    } else {
-                        Vec::new()
-                    };
+                let new_index_sets = if row_indices.len() == nrows && self.index_sets.len() == 2 {
+                    vec![self.index_sets[0].clone_ref(py)]
+                } else {
+                    Vec::new()
+                };
                 let result = PyVariableArray::new(new_index_sets, vec![n], vals, vars);
                 Ok(result.into_pyobject(py)?.into_any().unbind())
             }
@@ -376,9 +373,7 @@ impl PyVariableArray {
     fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
         if let Some(self_compact) = self.as_compact_expr() {
             if let Ok(value) = other.extract::<f64>() {
-                return Ok(self.wrap_compact_expr(
-                    self_compact.scale(-1.0).add_constant(value),
-                ));
+                return Ok(self.wrap_compact_expr(self_compact.scale(-1.0).add_constant(value)));
             }
             if let Some(other_compact) = try_extract_compact(other) {
                 if other_compact.count == self_compact.count {
@@ -423,7 +418,7 @@ impl PyVariableArray {
     fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
         if let Some(self_compact) = self.as_compact_expr() {
             if let Some(compact_con) =
-                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::GreaterEqual)?
+                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::GreaterEqual)
             {
                 return Ok(PyConstraintArray::from_compact(
                     compact_con,
@@ -438,7 +433,7 @@ impl PyVariableArray {
     fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
         if let Some(self_compact) = self.as_compact_expr() {
             if let Some(compact_con) =
-                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::LessEqual)?
+                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::LessEqual)
             {
                 return Ok(PyConstraintArray::from_compact(
                     compact_con,
@@ -453,7 +448,7 @@ impl PyVariableArray {
     fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
         if let Some(self_compact) = self.as_compact_expr() {
             if let Some(compact_con) =
-                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::Equal)?
+                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::Equal)
             {
                 return Ok(PyConstraintArray::from_compact(
                     compact_con,

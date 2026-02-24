@@ -77,11 +77,7 @@ pub(crate) const BITS_PER_WORD: usize = u64::BITS as usize;
 
 /// Upsert a coefficient in a column: update existing entry or append.
 #[inline]
-pub(crate) fn column_upsert(
-    column: &mut ColumnVec,
-    constraint_id: ConstraintId,
-    coefficient: f64,
-) {
+pub(crate) fn column_upsert(column: &mut ColumnVec, constraint_id: ConstraintId, coefficient: f64) {
     if let Some(entry) = column.iter_mut().find(|(cid, _)| *cid == constraint_id) {
         entry.1 = coefficient;
     } else {

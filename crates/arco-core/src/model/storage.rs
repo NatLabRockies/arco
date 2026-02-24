@@ -40,9 +40,10 @@ impl Model {
     /// Returns an iterator over columns, where each column contains (constraint_id, coefficient) pairs.
     /// This enables zero-copy access to the sparse matrix structure.
     pub fn columns(&self) -> impl Iterator<Item = (VariableId, &[(ConstraintId, f64)])> + '_ {
-        self.columns.iter().enumerate().map(|(idx, col)| {
-            (VariableId::new(idx as u32), col.as_slice())
-        })
+        self.columns
+            .iter()
+            .enumerate()
+            .map(|(idx, col)| (VariableId::new(idx as u32), col.as_slice()))
     }
 
     /// Get the coefficients for a specific variable (column)

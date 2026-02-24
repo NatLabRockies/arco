@@ -53,7 +53,6 @@ fn sum_over_axis(values: &[PyExpr], shape: &[usize], axis: usize) -> Vec<PyExpr>
     result
 }
 
-
 /// Shared storage for indexed linear expression arrays.
 /// Both VariableArray and ExprArray compose this internally.
 pub(crate) struct LinearArrayCore {
@@ -486,12 +485,7 @@ impl CompactExprStorage {
                 let terms: Vec<(VariableId, f64)> = self
                     .terms
                     .iter()
-                    .map(|t| {
-                        (
-                            VariableId::new(t.start_var_id + i as u32),
-                            t.coefficient,
-                        )
-                    })
+                    .map(|t| (VariableId::new(t.start_var_id + i as u32), t.coefficient))
                     .collect();
                 PyExpr::from_expr(Expr::new(terms, self.constant))
             })
@@ -585,7 +579,7 @@ impl ExprArrayStorage {
     pub fn as_compact(&self) -> Option<&CompactExprStorage> {
         match self {
             ExprArrayStorage::Compact { storage, .. } => Some(storage),
-            _ => None,
+            ExprArrayStorage::Full(_) => None,
         }
     }
 }
@@ -607,59 +601,58 @@ pub(crate) fn try_make_compact_constraint(
     compact_expr: &CompactExprStorage,
     rhs: &Bound<'_, PyAny>,
     sense: ComparisonSense,
-) -> PyResult<Option<constraint_array::CompactConstraintStorage>> {
+) -> Option<constraint_array::CompactConstraintStorage> {
     use constraint_array::{CompactConstraintStorage, CompactRhs};
 
     if let Ok(scalar) = rhs.extract::<f64>() {
-        return Ok(Some(CompactConstraintStorage {
+        return Some(CompactConstraintStorage {
             terms: compact_expr.terms.clone(),
             sense,
             rhs: CompactRhs::Scalar(scalar - compact_expr.constant),
             count: compact_expr.count,
-        }));
+        });
     }
     if let Ok(index_set) = rhs.extract::<PyRef<'_, PyIndexSet>>() {
         let members_len = index_set.members.len();
         if members_len == 0 || compact_expr.count % members_len != 0 {
-            return Ok(None); // shape mismatch, fall back
+            return None; // shape mismatch, fall back
         }
         let inner = compact_expr.count / members_len;
         let mut rhs_values = Vec::with_capacity(compact_expr.count);
         for member in &index_set.members {
             let value = match member.as_f64() {
                 Some(v) => v - compact_expr.constant,
-                None => return Ok(None), // non-numeric, fall back
+                None => return None, // non-numeric, fall back
             };
             for _ in 0..inner {
                 rhs_values.push(value);
             }
         }
-        return Ok(Some(CompactConstraintStorage {
+        return Some(CompactConstraintStorage {
             terms: compact_expr.terms.clone(),
             sense,
             rhs: CompactRhs::Vec(rhs_values),
             count: compact_expr.count,
-        }));
+        });
     }
     if let Ok(rhs_values) = rhs.extract::<Vec<f64>>() {
         if rhs_values.len() != compact_expr.count {
-            return Ok(None); // length mismatch, fall back
+            return None; // length mismatch, fall back
         }
         let adjusted: Vec<f64> = rhs_values
             .iter()
             .map(|v| v - compact_expr.constant)
             .collect();
-        return Ok(Some(CompactConstraintStorage {
+        return Some(CompactConstraintStorage {
             terms: compact_expr.terms.clone(),
             sense,
             rhs: CompactRhs::Vec(adjusted),
             count: compact_expr.count,
-        }));
+        });
     }
     // Can't handle compactly (e.g., another array)
-    Ok(None)
+    None
 }
-
 
 /// Extract a LinearArrayCore from a PyAny that is either a VariableArray or ExprArray.
 fn extract_array_core(other: &Bound<'_, PyAny>) -> PyResult<LinearArrayCore> {
@@ -995,7 +988,6 @@ fn array_function(
         _ => Ok(py.NotImplemented().into_pyobject(py)?.unbind()),
     }
 }
-
 
 /// Compute `sum(weights[i] * exprs[i])` into a single PyExpr.
 ///

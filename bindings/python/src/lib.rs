@@ -238,8 +238,7 @@ impl PyModel {
     ) -> PyResult<PyConstraintArray> {
         // Fast path: compact expression
         if let Some(ref compact) = compact_expr {
-            if let Some(compact_con) =
-                arrays::try_make_compact_constraint(compact, rhs_obj, sense)?
+            if let Some(compact_con) = arrays::try_make_compact_constraint(compact, rhs_obj, sense)
             {
                 return self.add_constraints_compact_internal(&compact_con, name);
             }

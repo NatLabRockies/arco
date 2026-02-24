@@ -118,7 +118,7 @@ impl PyConstraintArray {
     pub(crate) fn as_compact(&self) -> Option<&CompactConstraintStorage> {
         match &self.storage {
             ConstraintArrayStorage::Compact(c) => Some(c),
-            _ => None,
+            ConstraintArrayStorage::Full { .. } => None,
         }
     }
 

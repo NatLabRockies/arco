@@ -166,10 +166,7 @@ impl Model {
         let first_constraint_id = self.next_constraint_id;
 
         for (i, bounds) in bounds_list.iter().enumerate() {
-            if bounds.lower.is_nan()
-                || bounds.upper.is_nan()
-                || bounds.lower > bounds.upper
-            {
+            if bounds.lower.is_nan() || bounds.upper.is_nan() || bounds.lower > bounds.upper {
                 return Err(ModelError::InvalidConstraintBounds {
                     lower: bounds.lower,
                     upper: bounds.upper,
@@ -214,10 +211,7 @@ impl Model {
         let first_constraint_id = self.next_constraint_id;
 
         for (terms, bounds) in constraints {
-            if bounds.lower.is_nan()
-                || bounds.upper.is_nan()
-                || bounds.lower > bounds.upper
-            {
+            if bounds.lower.is_nan() || bounds.upper.is_nan() || bounds.lower > bounds.upper {
                 return Err(ModelError::InvalidConstraintBounds {
                     lower: bounds.lower,
                     upper: bounds.upper,
