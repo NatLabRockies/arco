@@ -654,6 +654,29 @@ pub(crate) fn try_make_compact_constraint(
     None
 }
 
+/// Compare with compact fast path, falling back to full materialized comparison.
+///
+/// Used by both `PyVariableArray` and `PyExprArray` comparison operators (`__ge__`, `__le__`, `__eq__`).
+pub(crate) fn compare_with_compact_fallback(
+    compact: Option<&CompactExprStorage>,
+    shape: &[usize],
+    index_sets: &[Py<PyIndexSet>],
+    core_fn: impl FnOnce() -> LinearArrayCore,
+    rhs: &Bound<'_, PyAny>,
+    sense: ComparisonSense,
+) -> PyResult<PyConstraintArray> {
+    if let Some(compact_expr) = compact {
+        if let Some(compact_con) = try_make_compact_constraint(compact_expr, rhs, sense) {
+            return Ok(PyConstraintArray::from_compact(
+                compact_con,
+                shape.to_vec(),
+                Python::attach(|py| index_sets.iter().map(|s| s.clone_ref(py)).collect()),
+            ));
+        }
+    }
+    compare_array_rhs(&core_fn(), rhs, sense)
+}
+
 /// Extract a LinearArrayCore from a PyAny that is either a VariableArray or ExprArray.
 fn extract_array_core(other: &Bound<'_, PyAny>) -> PyResult<LinearArrayCore> {
     if let Ok(va) = other.extract::<PyRef<'_, PyVariableArray>>() {

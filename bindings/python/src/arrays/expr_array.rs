@@ -9,9 +9,9 @@ use crate::index_set::PyIndexSet;
 use super::indexing::{
     AxisIndex, maybe_boolean_mask_indices, resolve_axis_index, slice_indices, sliced_2d_index_sets,
 };
-use super::{
-    CompactExprStorage, ExprArrayStorage, LinearArrayCore, try_extract_compact,
-    try_make_compact_constraint,
+use crate::arrays::{
+    CompactExprStorage, ComparisonSense, ExprArrayStorage, LinearArrayCore, PyConstraintArray,
+    compare_with_compact_fallback, try_extract_compact,
 };
 
 /// A multi-dimensional array of linear expressions.
@@ -60,6 +60,22 @@ impl PyExprArray {
     /// Get compact storage if available.
     pub(crate) fn as_compact(&self) -> Option<&CompactExprStorage> {
         self.storage.as_compact()
+    }
+
+    /// Shared comparison logic for __ge__, __le__, __eq__.
+    fn compare(
+        &self,
+        rhs: &Bound<'_, PyAny>,
+        sense: ComparisonSense,
+    ) -> PyResult<PyConstraintArray> {
+        compare_with_compact_fallback(
+            self.as_compact(),
+            self.storage.shape(),
+            self.storage.index_sets_ref(),
+            || self.to_core(),
+            rhs,
+            sense,
+        )
     }
 
     fn getitem_tuple(&self, py: Python<'_>, tuple: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
@@ -239,53 +255,16 @@ impl PyExprArray {
         super::array_neg(&core)
     }
 
-    fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
-        // Fast path: compact >= scalar/index_set/vec
-        if let Some(self_compact) = self.as_compact() {
-            if let Some(compact_con) =
-                try_make_compact_constraint(self_compact, rhs, super::ComparisonSense::GreaterEqual)
-            {
-                return Ok(super::PyConstraintArray::from_compact(
-                    compact_con,
-                    self.storage.shape().to_vec(),
-                    self.storage.clone_index_sets(),
-                ));
-            }
-        }
-        let core = self.to_core();
-        super::compare_array_rhs(&core, rhs, super::ComparisonSense::GreaterEqual)
+    fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        self.compare(rhs, ComparisonSense::GreaterEqual)
     }
 
-    fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
-        if let Some(self_compact) = self.as_compact() {
-            if let Some(compact_con) =
-                try_make_compact_constraint(self_compact, rhs, super::ComparisonSense::LessEqual)
-            {
-                return Ok(super::PyConstraintArray::from_compact(
-                    compact_con,
-                    self.storage.shape().to_vec(),
-                    self.storage.clone_index_sets(),
-                ));
-            }
-        }
-        let core = self.to_core();
-        super::compare_array_rhs(&core, rhs, super::ComparisonSense::LessEqual)
+    fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        self.compare(rhs, ComparisonSense::LessEqual)
     }
 
-    fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
-        if let Some(self_compact) = self.as_compact() {
-            if let Some(compact_con) =
-                try_make_compact_constraint(self_compact, rhs, super::ComparisonSense::Equal)
-            {
-                return Ok(super::PyConstraintArray::from_compact(
-                    compact_con,
-                    self.storage.shape().to_vec(),
-                    self.storage.clone_index_sets(),
-                ));
-            }
-        }
-        let core = self.to_core();
-        super::compare_array_rhs(&core, rhs, super::ComparisonSense::Equal)
+    fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        self.compare(rhs, ComparisonSense::Equal)
     }
 
     #[pyo3(signature = (*, over=None))]

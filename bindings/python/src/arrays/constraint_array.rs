@@ -154,6 +154,17 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Compact(c) => c.count,
         }
     }
+
+    /// Get the rhs value at a specific index without allocating.
+    fn rhs_at(&self, index: usize) -> f64 {
+        match &self.storage {
+            ConstraintArrayStorage::Full { rhs, .. } => rhs[index],
+            ConstraintArrayStorage::Compact(c) => match &c.rhs {
+                CompactRhs::Scalar(v) => *v,
+                CompactRhs::Vec(v) => v[index],
+            },
+        }
+    }
 }
 
 #[pymethods]
@@ -188,11 +199,11 @@ impl PyConstraintArray {
     }
 
     fn __getitem__(&self, index: usize) -> PyResult<PyConstraint> {
-        let len = self.len();
-        if index >= len {
+        if index >= self.len() {
             return Err(pyo3::exceptions::PyIndexError::new_err(format!(
                 "index {} out of range for ConstraintArray of size {}",
-                index, len
+                index,
+                self.len()
             )));
         }
         let first_id = self.first_constraint_id.ok_or_else(|| {
@@ -200,15 +211,8 @@ impl PyConstraintArray {
                 "this ConstraintArray has not been added to a model yet and is not subscriptable",
             )
         })?;
-        let sense = self.get_sense();
-        let rhs_val = match &self.storage {
-            ConstraintArrayStorage::Full { rhs, .. } => rhs[index],
-            ConstraintArrayStorage::Compact(c) => match &c.rhs {
-                CompactRhs::Scalar(v) => *v,
-                CompactRhs::Vec(v) => v[index],
-            },
-        };
-        let bounds = match sense {
+        let rhs_val = self.rhs_at(index);
+        let bounds = match self.get_sense() {
             ComparisonSense::LessEqual => Bounds::new(f64::NEG_INFINITY, rhs_val),
             ComparisonSense::GreaterEqual => Bounds::new(rhs_val, f64::INFINITY),
             ComparisonSense::Equal => Bounds::new(rhs_val, rhs_val),

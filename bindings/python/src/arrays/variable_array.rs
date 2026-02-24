@@ -17,7 +17,7 @@ use super::indexing::{
 use super::{
     CompactExprStorage, ComparisonSense, PyConstraintArray, PyExprArray, array_add, array_function,
     array_mul, array_neg, array_reduce, array_rsub, array_sub, array_sum, array_truediv,
-    array_ufunc, compare_array_rhs, try_extract_compact, try_make_compact_constraint,
+    array_ufunc, compare_with_compact_fallback, try_extract_compact,
 };
 
 /// Compact metadata for a contiguous block of variables with scalar bounds.
@@ -252,6 +252,23 @@ impl PyVariableArray {
         }
     }
 
+    /// Shared comparison logic for __ge__, __le__, __eq__.
+    fn compare(
+        &self,
+        rhs: &Bound<'_, PyAny>,
+        sense: ComparisonSense,
+    ) -> PyResult<PyConstraintArray> {
+        let compact = self.as_compact_expr();
+        compare_with_compact_fallback(
+            compact.as_ref(),
+            &self.shape,
+            &self.index_sets,
+            || self.to_core(),
+            rhs,
+            sense,
+        )
+    }
+
     fn getitem_tuple(&self, py: Python<'_>, tuple: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
         if self.shape.len() != 2 || tuple.len() != 2 {
             return Err(ArrayDimensionError::new_err(
@@ -416,49 +433,13 @@ impl PyVariableArray {
         array_neg(&core)
     }
     fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        if let Some(self_compact) = self.as_compact_expr() {
-            if let Some(compact_con) =
-                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::GreaterEqual)
-            {
-                return Ok(PyConstraintArray::from_compact(
-                    compact_con,
-                    self.shape.clone(),
-                    self.clone_index_sets(),
-                ));
-            }
-        }
-        let core = self.to_core();
-        compare_array_rhs(&core, rhs, ComparisonSense::GreaterEqual)
+        self.compare(rhs, ComparisonSense::GreaterEqual)
     }
     fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        if let Some(self_compact) = self.as_compact_expr() {
-            if let Some(compact_con) =
-                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::LessEqual)
-            {
-                return Ok(PyConstraintArray::from_compact(
-                    compact_con,
-                    self.shape.clone(),
-                    self.clone_index_sets(),
-                ));
-            }
-        }
-        let core = self.to_core();
-        compare_array_rhs(&core, rhs, ComparisonSense::LessEqual)
+        self.compare(rhs, ComparisonSense::LessEqual)
     }
     fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        if let Some(self_compact) = self.as_compact_expr() {
-            if let Some(compact_con) =
-                try_make_compact_constraint(&self_compact, rhs, ComparisonSense::Equal)
-            {
-                return Ok(PyConstraintArray::from_compact(
-                    compact_con,
-                    self.shape.clone(),
-                    self.clone_index_sets(),
-                ));
-            }
-        }
-        let core = self.to_core();
-        compare_array_rhs(&core, rhs, ComparisonSense::Equal)
+        self.compare(rhs, ComparisonSense::Equal)
     }
     #[pyo3(signature = (*, over=None))]
     fn sum(&self, py: Python<'_>, over: Option<&Bound<'_, PyAny>>) -> PyResult<PyObject> {
