@@ -38,15 +38,19 @@ pub fn linear_terms(
     }
 }
 
-/// Combines multiple expressions into a single expression by concatenating all their linear terms.
+/// Combines multiple expressions into a single expression by concatenating all terms.
 ///
-/// This function merges the linear terms from each input expression into a new expression.
-/// Note that duplicate variable terms are NOT merged - use `normalized_terms()` on the result
+/// Duplicate variable terms are NOT merged -- use `normalized_terms()` on the result
 /// if term consolidation is needed.
 pub fn linear_sum(exprs: Vec<Expr>) -> Expr {
-    let mut terms = Vec::new();
+    let total_linear: usize = exprs.iter().map(|e| e.linear_terms().len()).sum();
+    let total_quadratic: usize = exprs.iter().map(|e| e.quadratic_terms().len()).sum();
+    let total_cubic: usize = exprs.iter().map(|e| e.cubic_terms().len()).sum();
+
+    let mut acc = Expr::new_empty();
+    acc.reserve(total_linear, total_quadratic, total_cubic);
     for expr in exprs {
-        terms.extend(expr.into_linear_terms());
+        acc.add_assign_owned(expr);
     }
-    Expr::from_linear(terms)
+    acc
 }

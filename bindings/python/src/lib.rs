@@ -108,6 +108,51 @@ impl PyModel {
         })
     }
 
+    /// Reconstruct a variable name from array print specs.
+    /// First checks Model's explicit names, then falls back to array spec reconstruction.
+    fn reconstruct_variable_name(&self, var_id: u32) -> Option<String> {
+        let vid = VariableId::new(var_id);
+        // Check Model's explicit names first (for individually named vars)
+        if let Some(name) = self.inner.get_variable_name(vid) {
+            return Some(name.to_string());
+        }
+        // Reconstruct from array_print_spec
+        let spec = self.find_array_print_spec(vid)?;
+        let offset = (var_id - spec.start_var_id) as usize;
+        if spec.len == 1 {
+            Some(spec.base_name.clone())
+        } else {
+            Some(format!("{}[{}]", spec.base_name, offset))
+        }
+    }
+
+    /// Find a variable by name, checking both explicit names and array spec reconstruction.
+    fn find_variable_by_name(&self, name: &str) -> Option<VariableId> {
+        // Check Model's explicit names first
+        if let Some(id) = self.inner.get_variable_by_name(name) {
+            return Some(id);
+        }
+        // Try to parse as "base_name[offset]" and check array specs
+        if let Some(bracket_pos) = name.rfind('[') {
+            let base = &name[..bracket_pos];
+            let idx_str = name[bracket_pos + 1..].strip_suffix(']')?;
+            let offset: usize = idx_str.parse().ok()?;
+            for spec in &self.array_print_specs {
+                if spec.base_name == base && offset < spec.len {
+                    return Some(VariableId::new(spec.start_var_id + offset as u32));
+                }
+            }
+        } else {
+            // Try scalar name match (spec.len == 1)
+            for spec in &self.array_print_specs {
+                if spec.len == 1 && spec.base_name == name {
+                    return Some(VariableId::new(spec.start_var_id));
+                }
+            }
+        }
+        None
+    }
+
     fn set_constraint_name_if_provided(
         &mut self,
         constraint_id: ConstraintId,
@@ -118,6 +163,153 @@ impl PyModel {
                 .set_constraint_name(constraint_id, name)
                 .map_err(errors::model_error_to_py)?;
         }
+        Ok(())
+    }
+
+    /// Name a contiguous block of constraints starting at `first_id`.
+    fn name_constraint_block(
+        &mut self,
+        first_id: ConstraintId,
+        count: usize,
+        name: Option<&str>,
+    ) -> PyResult<()> {
+        let Some(base) = name else { return Ok(()) };
+        for index in 0..count {
+            let constraint_id = ConstraintId::new(first_id.inner() + index as u32);
+            let con_name = if count == 1 {
+                base.to_string()
+            } else {
+                format!("{base}[{index}]")
+            };
+            self.inner
+                .set_constraint_name(constraint_id, con_name)
+                .map_err(errors::model_error_to_py)?;
+        }
+        Ok(())
+    }
+
+    /// Insert constraints via compact term patterns (zero per-element allocation).
+    fn add_constraints_compact_internal(
+        &mut self,
+        compact: &arrays::CompactConstraintStorage,
+        name: Option<String>,
+    ) -> PyResult<PyConstraintArray> {
+        let count = compact.count;
+        let term_patterns = compact.term_patterns();
+        let sense = compact.sense;
+
+        // Build per-element bounds from sense + rhs
+        let bounds_list: Vec<Bounds> = match &compact.rhs {
+            arrays::CompactRhs::Scalar(rhs_val) => {
+                vec![bounds_from_sense(sense, *rhs_val); count]
+            }
+            arrays::CompactRhs::Vec(rhs_values) => rhs_values
+                .iter()
+                .map(|rhs_val| bounds_from_sense(sense, *rhs_val))
+                .collect(),
+        };
+
+        let first_constraint_id = self
+            .inner
+            .add_constraints_compact(&term_patterns, &bounds_list)
+            .map_err(errors::model_error_to_py)?;
+
+        self.name_constraint_block(first_constraint_id, count, name.as_deref())?;
+
+        let rhs_vec = compact.rhs_vec();
+        Ok(PyConstraintArray::from_batch(
+            first_constraint_id.inner(),
+            count,
+            sense,
+            &rhs_vec,
+        ))
+    }
+
+    /// Add constraints from an array expression (VariableArray or ExprArray) with a separate rhs.
+    ///
+    /// Tries the compact fast path first, then falls back to materialized comparison.
+    fn add_constraints_from_array(
+        &mut self,
+        compact_expr: Option<arrays::CompactExprStorage>,
+        core_fn: impl FnOnce() -> arrays::LinearArrayCore,
+        rhs_obj: &Bound<'_, PyAny>,
+        sense: ComparisonSense,
+        name: Option<String>,
+    ) -> PyResult<PyConstraintArray> {
+        // Fast path: compact expression
+        if let Some(ref compact) = compact_expr {
+            if let Some(compact_con) = arrays::try_make_compact_constraint(compact, rhs_obj, sense)
+            {
+                return self.add_constraints_compact_internal(&compact_con, name);
+            }
+        }
+
+        // Full path: materialize and compare
+        let core = core_fn();
+        let constraints = if let Ok(index_set) = rhs_obj.extract::<PyRef<'_, PyIndexSet>>() {
+            core.compare_index_set(&index_set, sense)?
+        } else {
+            let value = rhs_obj.extract::<f64>()?;
+            core.compare_scalar(value, sense)
+        };
+        self.add_constraints_full_internal(
+            constraints.exprs().to_vec(),
+            constraints.get_sense(),
+            constraints.get_rhs(),
+            name,
+        )
+    }
+
+    /// Insert constraints via materialized expressions (existing batch path).
+    fn add_constraints_full_internal(
+        &mut self,
+        exprs: Vec<PyExpr>,
+        sense: ComparisonSense,
+        rhs: Vec<f64>,
+        name: Option<String>,
+    ) -> PyResult<PyConstraintArray> {
+        let total = exprs.len();
+
+        let batch: Vec<(Vec<(VariableId, f64)>, Bounds)> = exprs
+            .into_iter()
+            .zip(rhs.iter())
+            .map(|(expr, &rhs_val)| {
+                let bounds = bounds_from_sense(sense, rhs_val);
+                (expr.into_inner().normalized_terms(), bounds)
+            })
+            .collect();
+
+        let first_constraint_id = self
+            .inner
+            .add_constraints_batch(&batch)
+            .map_err(errors::model_error_to_py)?;
+
+        self.name_constraint_block(first_constraint_id, total, name.as_deref())?;
+
+        Ok(PyConstraintArray::from_batch(
+            first_constraint_id.inner(),
+            total,
+            sense,
+            &rhs,
+        ))
+    }
+
+    fn set_objective_from_expr(
+        &mut self,
+        expr: &Bound<'_, PyAny>,
+        sense: Sense,
+        name: Option<String>,
+    ) -> PyResult<()> {
+        let terms = extract_objective_terms(expr)?;
+        self.inner
+            .set_objective(Objective {
+                sense: Some(sense),
+                terms,
+            })
+            .map_err(errors::model_error_to_py)?;
+        self.inner
+            .set_objective_name(name)
+            .map_err(errors::model_error_to_py)?;
         Ok(())
     }
 
@@ -135,35 +327,18 @@ impl PyModel {
     ) -> PyResult<PyVariableArray> {
         let effective_bounds = Self::effective_bounds(&bounds, is_integer, is_binary)?;
         let start_var_id = self.inner.num_variables() as u32;
+        self.inner.reserve_variables(total);
 
-        let mut values = Vec::with_capacity(total);
-        let mut variables = Vec::with_capacity(total);
-        for i in 0..total {
-            let var = Variable {
-                bounds: bounds.bounds,
-                is_integer: effective_bounds.is_integer,
-                is_active: true,
-            };
-            let var_id = self
-                .inner
-                .add_variable(var)
+        // Add all variables to the model in a tight loop (no PyExpr/PyVariable allocation)
+        let var_template = Variable {
+            bounds: bounds.bounds,
+            is_integer: effective_bounds.is_integer,
+            is_active: true,
+        };
+        for _ in 0..total {
+            self.inner
+                .add_variable(var_template)
                 .map_err(errors::model_error_to_py)?;
-
-            let var_name = name.as_ref().map(|base| {
-                if total == 1 {
-                    base.clone()
-                } else {
-                    format!("{base}[{i}]")
-                }
-            });
-            if let Some(ref n) = var_name {
-                self.inner
-                    .set_variable_name(var_id, n.clone())
-                    .map_err(errors::model_error_to_py)?;
-            }
-
-            values.push(PyExpr::from_term(var_id.inner(), 1.0));
-            variables.push(PyVariable::new(var_id.inner(), var_name, effective_bounds));
         }
 
         self.register_array_print_spec(
@@ -175,11 +350,14 @@ impl PyModel {
             name.as_deref(),
         );
 
-        Ok(PyVariableArray::new(
+        // Use compact storage: no Vec<PyExpr> or Vec<PyVariable> allocated
+        Ok(PyVariableArray::new_compact(
             index_sets,
             shape.to_vec(),
-            values,
-            variables,
+            start_var_id,
+            total,
+            effective_bounds,
+            name,
         ))
     }
 
@@ -196,6 +374,7 @@ impl PyModel {
         name: Option<String>,
     ) -> PyResult<PyVariableArray> {
         let start_var_id = self.inner.num_variables() as u32;
+        self.inner.reserve_variables(total);
 
         // Extract lower and upper as numpy arrays from a Bounds-like object
         let lo_attr = bounds_obj
@@ -255,11 +434,6 @@ impl PyModel {
                     format!("{base}[{i}]")
                 }
             });
-            if let Some(ref n) = var_name {
-                self.inner
-                    .set_variable_name(var_id, n.clone())
-                    .map_err(errors::model_error_to_py)?;
-            }
 
             let element_bounds_spec = BoundsSpec {
                 bounds: element_bounds,
@@ -544,6 +718,10 @@ impl PyModel {
     }
 
     /// Add a batch of constraints to the model.
+    ///
+    /// Returns a `ConstraintArray` representing the added constraints.
+    /// Uses compact insertion when possible (zero per-element allocation),
+    /// falling back to a batch path for materialized expressions.
     #[pyo3(signature = (expr, *, sense="ge", rhs=None, name=None))]
     fn add_constraints(
         &mut self,
@@ -551,85 +729,60 @@ impl PyModel {
         sense: &str,
         rhs: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
-    ) -> PyResult<Vec<PyConstraint>> {
-        let (exprs, sense, rhs) = if let Ok(array) = expr.extract::<PyRef<'_, PyConstraintArray>>()
-        {
+    ) -> PyResult<PyConstraintArray> {
+        // Branch 1: ConstraintArray input
+        if let Ok(array) = expr.extract::<PyRef<'_, PyConstraintArray>>() {
             if rhs.is_some() || !sense.eq_ignore_ascii_case("ge") {
                 return Err(errors::ConstraintSenseError::new_err(
                     "sense/rhs are not supported for comparison arrays",
                 ));
             }
-            (
+
+            // Fast path: compact constraint storage
+            if let Some(compact) = array.as_compact() {
+                return self.add_constraints_compact_internal(compact, name);
+            }
+
+            // Full path
+            return self.add_constraints_full_internal(
                 array.exprs().to_vec(),
                 array.get_sense(),
-                array.get_rhs().to_vec(),
-            )
-        } else if let Ok(array) = expr.extract::<PyRef<'_, PyVariableArray>>() {
-            let sense = parse_comparison_sense(sense)?;
-            let rhs = rhs.ok_or_else(|| {
-                errors::ConstraintBoundsMissingError::new_err("rhs is required for add_constraints")
-            })?;
-            let constraints = if let Ok(index_set) = rhs.extract::<PyRef<'_, PyIndexSet>>() {
-                array.core.compare_index_set(&index_set, sense)?
-            } else {
-                let value = rhs.extract::<f64>()?;
-                array.core.compare_scalar(value, sense)
-            };
-            (
-                constraints.exprs().to_vec(),
-                constraints.get_sense(),
-                constraints.get_rhs().to_vec(),
-            )
-        } else if let Ok(array) = expr.extract::<PyRef<'_, PyExprArray>>() {
-            let sense = parse_comparison_sense(sense)?;
-            let rhs = rhs.ok_or_else(|| {
-                errors::ConstraintBoundsMissingError::new_err("rhs is required for add_constraints")
-            })?;
-            let constraints = if let Ok(index_set) = rhs.extract::<PyRef<'_, PyIndexSet>>() {
-                array.core.compare_index_set(&index_set, sense)?
-            } else {
-                let value = rhs.extract::<f64>()?;
-                array.core.compare_scalar(value, sense)
-            };
-            (
-                constraints.exprs().to_vec(),
-                constraints.get_sense(),
-                constraints.get_rhs().to_vec(),
-            )
-        } else {
-            return Err(errors::ConstraintTypeError::new_err(
-                "expected ConstraintArray, VariableArray, or ExprArray",
-            ));
-        };
-
-        let total = exprs.len();
-        let mut constraints = Vec::with_capacity(total);
-        for (index, expr) in exprs.into_iter().enumerate() {
-            let con_bounds = bounds_from_sense(sense, rhs[index]);
-            let constraint_id = self
-                .inner
-                .add_expr_constraint(expr.into_inner(), con_bounds)
-                .map_err(errors::model_error_to_py)?;
-            let con_name = name.as_ref().map(|base| {
-                if total == 1 {
-                    base.clone()
-                } else {
-                    format!("{base}[{index}]")
-                }
-            });
-            if let Some(ref label) = con_name {
-                self.inner
-                    .set_constraint_name(constraint_id, label.clone())
-                    .map_err(errors::model_error_to_py)?;
-            }
-            constraints.push(PyConstraint::new(
-                constraint_id.inner(),
-                con_name,
-                con_bounds,
-            ));
+                array.get_rhs(),
+                name,
+            );
         }
 
-        Ok(constraints)
+        // Branch 2: VariableArray or ExprArray input
+        let sense = parse_comparison_sense(sense)?;
+        let rhs_obj = rhs.ok_or_else(|| {
+            errors::ConstraintBoundsMissingError::new_err("rhs is required for add_constraints")
+        })?;
+
+        if let Ok(array) = expr.extract::<PyRef<'_, PyVariableArray>>() {
+            let compact = array.as_compact_expr();
+            return self.add_constraints_from_array(
+                compact,
+                || array.to_core(),
+                rhs_obj,
+                sense,
+                name,
+            );
+        }
+
+        if let Ok(array) = expr.extract::<PyRef<'_, PyExprArray>>() {
+            let compact = array.as_compact().cloned();
+            return self.add_constraints_from_array(
+                compact,
+                || array.to_core(),
+                rhs_obj,
+                sense,
+                name,
+            );
+        }
+
+        Err(errors::ConstraintTypeError::new_err(
+            "expected ConstraintArray, VariableArray, or ExprArray",
+        ))
     }
 
     /// Attach slack variables to a constraint bound, returning a SlackVariable.
@@ -812,35 +965,13 @@ impl PyModel {
     /// Minimize a linear expression.
     #[pyo3(signature = (expr, *, name=None))]
     fn minimize(&mut self, expr: &Bound<'_, PyAny>, name: Option<String>) -> PyResult<()> {
-        let linear_expr = extract_expr(expr)?;
-        let (expr, _offset) = linear_expr.into_parts();
-        self.inner
-            .set_objective(Objective {
-                sense: Some(Sense::Minimize),
-                terms: expr.into_linear_terms(),
-            })
-            .map_err(errors::model_error_to_py)?;
-        self.inner
-            .set_objective_name(name)
-            .map_err(errors::model_error_to_py)?;
-        Ok(())
+        self.set_objective_from_expr(expr, Sense::Minimize, name)
     }
 
     /// Maximize a linear expression.
     #[pyo3(signature = (expr, *, name=None))]
     fn maximize(&mut self, expr: &Bound<'_, PyAny>, name: Option<String>) -> PyResult<()> {
-        let linear_expr = extract_expr(expr)?;
-        let (expr, _offset) = linear_expr.into_parts();
-        self.inner
-            .set_objective(Objective {
-                sense: Some(Sense::Maximize),
-                terms: expr.into_linear_terms(),
-            })
-            .map_err(errors::model_error_to_py)?;
-        self.inner
-            .set_objective_name(name)
-            .map_err(errors::model_error_to_py)?;
-        Ok(())
+        self.set_objective_from_expr(expr, Sense::Maximize, name)
     }
 
     /// Set the objective name stored in model metadata.
@@ -971,7 +1102,7 @@ impl PyModel {
         for i in 0..num {
             let var_id = VariableId::new(i as u32);
             if let Ok(var) = self.inner.get_variable(var_id) {
-                let name = self.inner.get_variable_name(var_id).map(|s| s.to_string());
+                let name = self.reconstruct_variable_name(i as u32);
                 result.push(PyVariable::from_model_variable(i as u32, name, &var));
             }
         }
@@ -1036,8 +1167,7 @@ impl PyModel {
     #[pyo3(signature = (*, name))]
     fn get_variable(&self, name: &str) -> PyResult<PyVariable> {
         let var_id = self
-            .inner
-            .get_variable_by_name(name)
+            .find_variable_by_name(name)
             .ok_or_else(|| PyKeyError::new_err(name.to_string()))?;
         let var = self
             .inner
@@ -1166,14 +1296,13 @@ impl PyModel {
     /// # Returns
     /// The name if set, None otherwise
     fn get_variable_name(&self, var_id: u32) -> Option<String> {
-        let id = VariableId::new(var_id);
-        self.inner.get_variable_name(id).map(|s| s.to_string())
+        self.reconstruct_variable_name(var_id)
     }
 
     /// Lookup a variable by name.
     #[pyo3(signature = (name, /))]
     fn get_variable_by_name(&self, name: String) -> Option<u32> {
-        self.inner.get_variable_by_name(&name).map(|id| id.inner())
+        self.find_variable_by_name(&name).map(|id| id.inner())
     }
 
     /// Set metadata for a variable
@@ -1451,6 +1580,35 @@ fn extract_constraint_id(ob: &Bound<'_, PyAny>) -> PyResult<ConstraintId> {
 /// Extract a `PyExpr` from a Python object that may be a `PyExpr`, `PyVariable`, or scalar.
 fn extract_expr(ob: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
     Ok(ob.extract::<crate::expr::ExprLike>()?.0)
+}
+
+/// Collect linear terms from a slice of PyExpr values into a single Vec.
+fn collect_linear_terms(values: &[PyExpr]) -> Vec<(VariableId, f64)> {
+    let total: usize = values.iter().map(|e| e.inner().linear_terms().len()).sum();
+    let mut terms = Vec::with_capacity(total);
+    for expr in values {
+        terms.extend_from_slice(expr.inner().linear_terms());
+    }
+    terms
+}
+
+/// Extract objective terms directly from an array or expression, avoiding O(n^2) intermediate Expr.
+fn extract_objective_terms(ob: &Bound<'_, PyAny>) -> PyResult<Vec<(VariableId, f64)>> {
+    // Fast path: VariableArray -- collect terms directly (supports compact storage)
+    if let Ok(va) = ob.extract::<PyRef<'_, PyVariableArray>>() {
+        return Ok(va.collect_linear_terms_fast());
+    }
+    // Fast path: ExprArray -- check compact first, then fall back to full
+    if let Ok(ea) = ob.extract::<PyRef<'_, PyExprArray>>() {
+        if let Some(compact) = ea.as_compact() {
+            return Ok(compact.collect_linear_terms());
+        }
+        return Ok(collect_linear_terms(&ea.get_values()));
+    }
+    // Fallback: extract as expression
+    let linear_expr = extract_expr(ob)?;
+    let (expr, _offset) = linear_expr.into_parts();
+    Ok(expr.into_linear_terms())
 }
 
 fn parse_slack_bound(bound: &str) -> PyResult<SlackBound> {

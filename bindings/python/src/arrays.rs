@@ -1,6 +1,6 @@
 //! Python wrappers for variable, expression, and constraint arrays.
 
-use arco_expr::{ComparisonSense, Expr};
+use arco_expr::{ComparisonSense, Expr, VariableId};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
@@ -20,6 +20,9 @@ mod variable_array;
 pub use constraint_array::PyConstraintArray;
 pub use expr_array::PyExprArray;
 pub use variable_array::PyVariableArray;
+
+// Re-export compact types for use in lib.rs
+pub(crate) use constraint_array::{CompactConstraintStorage, CompactRhs};
 
 /// Sum values along a specific axis in a flat row-major array.
 ///
@@ -42,17 +45,13 @@ fn sum_over_axis(values: &[PyExpr], shape: &[usize], axis: usize) -> Vec<PyExpr>
             for i in 0..inner {
                 let src_idx = o * axis_size * inner + a * inner + i;
                 let dst_idx = o * inner + i;
-                result[dst_idx] = result[dst_idx].add(values[src_idx].clone());
+                result[dst_idx].add_assign(&values[src_idx]);
             }
         }
     }
 
     result
 }
-
-// ============================================================================
-// LinearArrayCore: shared storage and logic for both VariableArray and ExprArray
-// ============================================================================
 
 /// Shared storage for indexed linear expression arrays.
 /// Both VariableArray and ExprArray compose this internally.
@@ -381,24 +380,310 @@ impl LinearArrayCore {
 
     /// Sum all elements to a scalar Expr.
     fn sum_all(&self) -> PyExpr {
-        self.values
-            .iter()
-            .cloned()
-            .fold(PyExpr::default(), |acc, v| acc.add(v))
+        let mut total_linear = 0usize;
+        let mut total_quadratic = 0usize;
+        let mut total_cubic = 0usize;
+        for v in &self.values {
+            total_linear += v.inner().linear_terms().len();
+            total_quadratic += v.inner().quadratic_terms().len();
+            total_cubic += v.inner().cubic_terms().len();
+        }
+        let mut acc = Expr::new_empty();
+        acc.reserve(total_linear, total_quadratic, total_cubic);
+        for v in &self.values {
+            acc.add_assign(v.inner());
+        }
+        PyExpr::from_expr(acc)
     }
 }
 
-// ============================================================================
-// Shared free functions operating on LinearArrayCore
-// ============================================================================
+/// A template for one term per element. Element `i`'s variable ID = `start_var_id + i`.
+#[derive(Clone, Debug)]
+pub(crate) struct CompactTerm {
+    pub start_var_id: u32,
+    pub coefficient: f64,
+}
+
+/// Compact expression storage: represents N elements with O(terms_per_element) memory.
+/// For element `i`: `expr_i = constant + sum(term.coeff * var(term.start_var_id + i))`
+#[derive(Clone, Debug)]
+pub(crate) struct CompactExprStorage {
+    pub terms: Vec<CompactTerm>,
+    pub constant: f64,
+    pub count: usize,
+}
+
+impl CompactExprStorage {
+    /// Create from a single variable array (coefficient 1.0, constant 0.0).
+    pub fn from_variable_array(start_var_id: u32, count: usize) -> Self {
+        Self {
+            terms: vec![CompactTerm {
+                start_var_id,
+                coefficient: 1.0,
+            }],
+            constant: 0.0,
+            count,
+        }
+    }
+
+    /// Scale all coefficients and the constant.
+    pub fn scale(&self, factor: f64) -> Self {
+        Self {
+            terms: self
+                .terms
+                .iter()
+                .map(|t| CompactTerm {
+                    start_var_id: t.start_var_id,
+                    coefficient: t.coefficient * factor,
+                })
+                .collect(),
+            constant: self.constant * factor,
+            count: self.count,
+        }
+    }
+
+    /// Add another compact storage, merging duplicate start_var_ids.
+    pub fn add_compact(&self, other: &CompactExprStorage) -> Self {
+        debug_assert_eq!(self.count, other.count);
+        let mut terms = self.terms.clone();
+        for other_term in &other.terms {
+            if let Some(existing) = terms
+                .iter_mut()
+                .find(|t| t.start_var_id == other_term.start_var_id)
+            {
+                existing.coefficient += other_term.coefficient;
+            } else {
+                terms.push(other_term.clone());
+            }
+        }
+        terms.retain(|t| t.coefficient != 0.0);
+        Self {
+            terms,
+            constant: self.constant + other.constant,
+            count: self.count,
+        }
+    }
+
+    /// Subtract another compact storage.
+    pub fn sub_compact(&self, other: &CompactExprStorage) -> Self {
+        self.add_compact(&other.scale(-1.0))
+    }
+
+    /// Add a constant offset.
+    pub fn add_constant(&self, value: f64) -> Self {
+        Self {
+            terms: self.terms.clone(),
+            constant: self.constant + value,
+            count: self.count,
+        }
+    }
+
+    /// Materialize to LinearArrayCore (fallback).
+    pub fn to_core(&self, index_sets: &[Py<PyIndexSet>], shape: &[usize]) -> LinearArrayCore {
+        let values = (0..self.count)
+            .map(|i| {
+                let terms: Vec<(VariableId, f64)> = self
+                    .terms
+                    .iter()
+                    .map(|t| (VariableId::new(t.start_var_id + i as u32), t.coefficient))
+                    .collect();
+                PyExpr::from_expr(Expr::new(terms, self.constant))
+            })
+            .collect();
+        Python::attach(|py| {
+            LinearArrayCore::new(
+                index_sets.iter().map(|s| s.clone_ref(py)).collect(),
+                shape.to_vec(),
+                values,
+            )
+        })
+    }
+
+    /// Collect linear terms for objective extraction.
+    pub fn collect_linear_terms(&self) -> Vec<(VariableId, f64)> {
+        let total = self.terms.len() * self.count;
+        let mut result = Vec::with_capacity(total);
+        for term in &self.terms {
+            for i in 0..self.count {
+                result.push((
+                    VariableId::new(term.start_var_id + i as u32),
+                    term.coefficient,
+                ));
+            }
+        }
+        result
+    }
+
+    /// Sum all elements to a single PyExpr.
+    pub fn sum_all(&self) -> PyExpr {
+        let linear = self.collect_linear_terms();
+        let total_constant = self.constant * self.count as f64;
+        PyExpr::from_expr(Expr::new(linear, total_constant))
+    }
+}
+
+/// Dual-storage for ExprArray: full materialized or compact pattern.
+pub(crate) enum ExprArrayStorage {
+    Full(LinearArrayCore),
+    Compact {
+        storage: CompactExprStorage,
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+    },
+}
+
+impl ExprArrayStorage {
+    /// Materialize to LinearArrayCore.
+    pub fn to_core(&self) -> LinearArrayCore {
+        match self {
+            ExprArrayStorage::Full(core) => core.clone_with_gil(),
+            ExprArrayStorage::Compact {
+                storage,
+                index_sets,
+                shape,
+            } => storage.to_core(index_sets, shape),
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        match self {
+            ExprArrayStorage::Full(core) => core.values.len(),
+            ExprArrayStorage::Compact { storage, .. } => storage.count,
+        }
+    }
+
+    pub fn shape(&self) -> &[usize] {
+        match self {
+            ExprArrayStorage::Full(core) => &core.shape,
+            ExprArrayStorage::Compact { shape, .. } => shape,
+        }
+    }
+
+    pub fn index_sets_ref(&self) -> &[Py<PyIndexSet>] {
+        match self {
+            ExprArrayStorage::Full(core) => &core.index_sets,
+            ExprArrayStorage::Compact { index_sets, .. } => index_sets,
+        }
+    }
+
+    pub fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
+        Python::attach(|py| {
+            self.index_sets_ref()
+                .iter()
+                .map(|s| s.clone_ref(py))
+                .collect()
+        })
+    }
+
+    /// Get the compact storage if available.
+    pub fn as_compact(&self) -> Option<&CompactExprStorage> {
+        match self {
+            ExprArrayStorage::Compact { storage, .. } => Some(storage),
+            ExprArrayStorage::Full(_) => None,
+        }
+    }
+}
+
+/// Try to extract a CompactExprStorage from a PyAny operand.
+pub(crate) fn try_extract_compact(other: &Bound<'_, PyAny>) -> Option<CompactExprStorage> {
+    if let Ok(va) = other.extract::<PyRef<'_, PyVariableArray>>() {
+        return va.as_compact_expr();
+    }
+    if let Ok(ea) = other.extract::<PyRef<'_, PyExprArray>>() {
+        return ea.as_compact().cloned();
+    }
+    None
+}
+
+/// Try to create a CompactConstraintStorage from a compact expression and a Python RHS.
+/// Returns None if the RHS type cannot be handled compactly (e.g., another array).
+pub(crate) fn try_make_compact_constraint(
+    compact_expr: &CompactExprStorage,
+    rhs: &Bound<'_, PyAny>,
+    sense: ComparisonSense,
+) -> Option<constraint_array::CompactConstraintStorage> {
+    use constraint_array::{CompactConstraintStorage, CompactRhs};
+
+    if let Ok(scalar) = rhs.extract::<f64>() {
+        return Some(CompactConstraintStorage {
+            terms: compact_expr.terms.clone(),
+            sense,
+            rhs: CompactRhs::Scalar(scalar - compact_expr.constant),
+            count: compact_expr.count,
+        });
+    }
+    if let Ok(index_set) = rhs.extract::<PyRef<'_, PyIndexSet>>() {
+        let members_len = index_set.members.len();
+        if members_len == 0 || compact_expr.count % members_len != 0 {
+            return None; // shape mismatch, fall back
+        }
+        let inner = compact_expr.count / members_len;
+        let mut rhs_values = Vec::with_capacity(compact_expr.count);
+        for member in &index_set.members {
+            let value = match member.as_f64() {
+                Some(v) => v - compact_expr.constant,
+                None => return None, // non-numeric, fall back
+            };
+            for _ in 0..inner {
+                rhs_values.push(value);
+            }
+        }
+        return Some(CompactConstraintStorage {
+            terms: compact_expr.terms.clone(),
+            sense,
+            rhs: CompactRhs::Vec(rhs_values),
+            count: compact_expr.count,
+        });
+    }
+    if let Ok(rhs_values) = rhs.extract::<Vec<f64>>() {
+        if rhs_values.len() != compact_expr.count {
+            return None; // length mismatch, fall back
+        }
+        let adjusted: Vec<f64> = rhs_values
+            .iter()
+            .map(|v| v - compact_expr.constant)
+            .collect();
+        return Some(CompactConstraintStorage {
+            terms: compact_expr.terms.clone(),
+            sense,
+            rhs: CompactRhs::Vec(adjusted),
+            count: compact_expr.count,
+        });
+    }
+    // Can't handle compactly (e.g., another array)
+    None
+}
+
+/// Compare with compact fast path, falling back to full materialized comparison.
+///
+/// Used by both `PyVariableArray` and `PyExprArray` comparison operators (`__ge__`, `__le__`, `__eq__`).
+pub(crate) fn compare_with_compact_fallback(
+    compact: Option<&CompactExprStorage>,
+    shape: &[usize],
+    index_sets: &[Py<PyIndexSet>],
+    core_fn: impl FnOnce() -> LinearArrayCore,
+    rhs: &Bound<'_, PyAny>,
+    sense: ComparisonSense,
+) -> PyResult<PyConstraintArray> {
+    if let Some(compact_expr) = compact {
+        if let Some(compact_con) = try_make_compact_constraint(compact_expr, rhs, sense) {
+            return Ok(PyConstraintArray::from_compact(
+                compact_con,
+                shape.to_vec(),
+                Python::attach(|py| index_sets.iter().map(|s| s.clone_ref(py)).collect()),
+            ));
+        }
+    }
+    compare_array_rhs(&core_fn(), rhs, sense)
+}
 
 /// Extract a LinearArrayCore from a PyAny that is either a VariableArray or ExprArray.
 fn extract_array_core(other: &Bound<'_, PyAny>) -> PyResult<LinearArrayCore> {
     if let Ok(va) = other.extract::<PyRef<'_, PyVariableArray>>() {
-        return Ok(va.core.clone_with_gil());
+        return Ok(va.to_core());
     }
     if let Ok(ea) = other.extract::<PyRef<'_, PyExprArray>>() {
-        return Ok(ea.core.clone_with_gil());
+        return Ok(ea.to_core());
     }
     Err(ArrayTypeError::new_err(
         "expected VariableArray or ExprArray",
@@ -412,10 +697,12 @@ fn compare_array_rhs(
     sense: ComparisonSense,
 ) -> PyResult<PyConstraintArray> {
     if let Ok(other) = rhs.extract::<PyRef<'_, PyVariableArray>>() {
-        return core.compare_core(&other.core, sense);
+        let other_core = other.to_core();
+        return core.compare_core(&other_core, sense);
     }
     if let Ok(other) = rhs.extract::<PyRef<'_, PyExprArray>>() {
-        return core.compare_core(&other.core, sense);
+        let other_core = other.to_core();
+        return core.compare_core(&other_core, sense);
     }
     if let Ok(index_set) = rhs.extract::<PyRef<'_, PyIndexSet>>() {
         return core.compare_index_set(&index_set, sense);
@@ -439,14 +726,13 @@ fn reduce_or_wrap(
     py: Python<'_>,
 ) -> PyResult<PyObject> {
     if shape.is_empty() {
-        let acc = values
-            .into_iter()
-            .fold(PyExpr::default(), |acc, v| acc.add(v));
+        let mut acc = PyExpr::default();
+        for v in values {
+            acc.add_assign_owned(v);
+        }
         Ok(acc.into_pyobject(py)?.into_any().unbind())
     } else {
-        let arr = PyExprArray {
-            core: LinearArrayCore::new(index_sets, shape, values),
-        };
+        let arr = PyExprArray::new(index_sets, shape, values);
         Ok(arr.into_pyobject(py)?.into_any().unbind())
     }
 }
@@ -507,68 +793,59 @@ fn array_reduce(
     reduce_or_wrap(new_values, new_shape, new_index_sets, py)
 }
 
+/// Wrap a LinearArrayCore into a full-storage PyExprArray.
+fn wrap_core(core: LinearArrayCore) -> PyExprArray {
+    PyExprArray {
+        storage: ExprArrayStorage::Full(core),
+    }
+}
+
 /// Element-wise addition of a core with a Python operand.
 fn array_add(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
     if let Ok(other_core) = extract_array_core(other) {
         let result = core.combine(&other_core, |left, right| left.add(right.clone()))?;
-        return Ok(PyExprArray { core: result });
+        return Ok(wrap_core(result));
     }
     if let Ok(value) = other.extract::<f64>() {
-        return Ok(PyExprArray {
-            core: core.add_scalar(value),
-        });
+        return Ok(wrap_core(core.add_scalar(value)));
     }
     let values: Vec<f64> = other.extract()?;
-    Ok(PyExprArray {
-        core: core.add_vec(&values)?,
-    })
+    Ok(wrap_core(core.add_vec(&values)?))
 }
 
 /// Element-wise subtraction: core - other.
 fn array_sub(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
     if let Ok(other_core) = extract_array_core(other) {
         let result = core.combine(&other_core, |left, right| left.add(right.scale(-1.0)))?;
-        return Ok(PyExprArray { core: result });
+        return Ok(wrap_core(result));
     }
     if let Ok(value) = other.extract::<f64>() {
-        return Ok(PyExprArray {
-            core: core.sub_scalar(value),
-        });
+        return Ok(wrap_core(core.sub_scalar(value)));
     }
     let values: Vec<f64> = other.extract()?;
-    Ok(PyExprArray {
-        core: core.sub_vec(&values)?,
-    })
+    Ok(wrap_core(core.sub_vec(&values)?))
 }
 
 /// Element-wise reverse subtraction: other - core.
 fn array_rsub(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
     if let Ok(other_core) = extract_array_core(other) {
         let result = other_core.combine(core, |left, right| left.add(right.scale(-1.0)))?;
-        return Ok(PyExprArray { core: result });
+        return Ok(wrap_core(result));
     }
     if let Ok(value) = other.extract::<f64>() {
-        return Ok(PyExprArray {
-            core: core.rsub_scalar(value),
-        });
+        return Ok(wrap_core(core.rsub_scalar(value)));
     }
     let values: Vec<f64> = other.extract()?;
-    Ok(PyExprArray {
-        core: core.rsub_vec(&values)?,
-    })
+    Ok(wrap_core(core.rsub_vec(&values)?))
 }
 
 /// Element-wise multiplication of a core with a scalar or vector.
 fn array_mul(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
     if let Ok(scalar) = other.extract::<f64>() {
-        return Ok(PyExprArray {
-            core: core.scale_all(scalar),
-        });
+        return Ok(wrap_core(core.scale_all(scalar)));
     }
     let weights: Vec<f64> = other.extract()?;
-    Ok(PyExprArray {
-        core: core.mul_vec(&weights)?,
-    })
+    Ok(wrap_core(core.mul_vec(&weights)?))
 }
 
 /// Division of a core by a scalar.
@@ -576,31 +853,12 @@ fn array_truediv(core: &LinearArrayCore, other: f64) -> PyResult<PyExprArray> {
     if other == 0.0 {
         return Err(ExprDivisionByZeroError::new_err("division by zero"));
     }
-    Ok(PyExprArray {
-        core: core.scale_all(1.0 / other),
-    })
+    Ok(wrap_core(core.scale_all(1.0 / other)))
 }
 
 /// Negate all elements in a core.
 fn array_neg(core: &LinearArrayCore) -> PyExprArray {
-    PyExprArray {
-        core: core.scale_all(-1.0),
-    }
-}
-
-/// Return the index_sets as a Python tuple.
-fn array_index_sets(core: &LinearArrayCore, py: Python<'_>) -> PyResult<PyObject> {
-    let sets = core
-        .index_sets
-        .iter()
-        .map(|set| set.clone_ref(py))
-        .collect::<Vec<_>>();
-    Ok(PyTuple::new(py, sets)?.into())
-}
-
-/// Return the shape as a Python tuple.
-fn array_shape(core: &LinearArrayCore, py: Python<'_>) -> PyResult<PyObject> {
-    Ok(PyTuple::new(py, core.shape.clone())?.into())
+    wrap_core(core.scale_all(-1.0))
 }
 
 /// np.diag(array, k): extract the k-th diagonal from a 2D array core.
@@ -704,12 +962,7 @@ fn array_ufunc(
                 .call_method1("asarray", (other,))?
                 .call_method0("flatten")?;
             let weights: Vec<f64> = flat.extract()?;
-            expr_array_to_pyobject(
-                PyExprArray {
-                    core: core.mul_vec(&weights)?,
-                },
-                py,
-            )
+            expr_array_to_pyobject(wrap_core(core.mul_vec(&weights)?), py)
         }
         "add" => expr_array_to_pyobject(array_add(core, other)?, py),
         "subtract" => {
@@ -759,115 +1012,16 @@ fn array_function(
     }
 }
 
-// ============================================================================
-// Macro to generate shared #[pymethods] for both array types
-// ============================================================================
-
-macro_rules! impl_array_ops {
-    ($ty:ty, { $($extra:tt)* }) => {
-        #[pymethods]
-        impl $ty {
-            fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
-                super::array_add(&self.core, other)
-            }
-            fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
-                super::array_add(&self.core, other)
-            }
-            fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
-                super::array_sub(&self.core, other)
-            }
-            fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
-                super::array_rsub(&self.core, other)
-            }
-            fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
-                super::array_mul(&self.core, other)
-            }
-            fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<super::PyExprArray> {
-                super::array_mul(&self.core, other)
-            }
-            fn __truediv__(&self, other: f64) -> PyResult<super::PyExprArray> {
-                super::array_truediv(&self.core, other)
-            }
-            fn __neg__(&self) -> super::PyExprArray {
-                super::array_neg(&self.core)
-            }
-            fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
-                super::compare_array_rhs(&self.core, rhs, super::ComparisonSense::GreaterEqual)
-            }
-            fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
-                super::compare_array_rhs(&self.core, rhs, super::ComparisonSense::LessEqual)
-            }
-            fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<super::PyConstraintArray> {
-                super::compare_array_rhs(&self.core, rhs, super::ComparisonSense::Equal)
-            }
-            #[pyo3(signature = (*, over=None))]
-            fn sum(&self, py: Python<'_>, over: Option<&Bound<'_, PyAny>>) -> PyResult<PyObject> {
-                super::array_sum(&self.core, py, over)
-            }
-            fn __rshift__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-                super::array_reduce(&self.core, py, rhs)
-            }
-            fn __matmul__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-                super::array_reduce(&self.core, py, rhs)
-            }
-            #[getter]
-            fn index_sets(&self, py: Python<'_>) -> PyResult<PyObject> {
-                super::array_index_sets(&self.core, py)
-            }
-            #[getter]
-            fn shape(&self, py: Python<'_>) -> PyResult<PyObject> {
-                super::array_shape(&self.core, py)
-            }
-            #[getter]
-            fn values(&self) -> Vec<PyExpr> {
-                self.core.values.clone()
-            }
-            fn flatten(&self) -> Vec<PyExpr> {
-                self.core.values.clone()
-            }
-            fn __len__(&self) -> usize {
-                self.core.values.len()
-            }
-            #[pyo3(signature = (ufunc, method, *inputs, **kwargs))]
-            fn __array_ufunc__(
-                &self,
-                py: Python<'_>,
-                ufunc: &Bound<'_, PyAny>,
-                method: &str,
-                inputs: &Bound<'_, PyTuple>,
-                kwargs: Option<&Bound<'_, pyo3::types::PyDict>>,
-            ) -> PyResult<PyObject> {
-                super::array_ufunc(
-                    &self.core,
-                    py,
-                    |ob| ob.is_instance_of::<$ty>(),
-                    ufunc,
-                    method,
-                    inputs,
-                    kwargs,
-                )
-            }
-            fn __array_function__(
-                &self,
-                py: Python<'_>,
-                func: &Bound<'_, PyAny>,
-                _types: &Bound<'_, PyAny>,
-                args: &Bound<'_, PyTuple>,
-                kwargs: &Bound<'_, PyAny>,
-            ) -> PyResult<PyObject> {
-                super::array_function(&self.core, py, func, _types, args, kwargs)
-            }
-
-            $($extra)*
-        }
-    };
+/// Compute `sum(weights[i] * exprs[i])` into a single PyExpr.
+///
+/// Both slices must have the same length (caller is responsible for validation).
+fn weighted_sum(weights: &[f64], exprs: &[PyExpr]) -> PyExpr {
+    let mut acc = PyExpr::default();
+    for (w, expr) in weights.iter().zip(exprs.iter()) {
+        acc.add_assign_owned(expr.scale(*w));
+    }
+    acc
 }
-
-pub(super) use impl_array_ops;
-
-// ============================================================================
-// Numpy helper functions
-// ============================================================================
 
 /// np.dot(a, b): weighted sum of 1D arrays (one ndarray, one VariableArray/ExprArray).
 fn numpy_dot(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
@@ -882,16 +1036,16 @@ fn numpy_dot(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
     // Determine which argument has the linear array core
     let (weights, core) = if let Ok(va) = b.extract::<PyRef<'_, PyVariableArray>>() {
         let w: Vec<f64> = a.extract()?;
-        (w, va.core.clone_with_gil())
+        (w, va.to_core())
     } else if let Ok(ea) = b.extract::<PyRef<'_, PyExprArray>>() {
         let w: Vec<f64> = a.extract()?;
-        (w, ea.core.clone_with_gil())
+        (w, ea.to_core())
     } else if let Ok(va) = a.extract::<PyRef<'_, PyVariableArray>>() {
         let w: Vec<f64> = b.extract()?;
-        (w, va.core.clone_with_gil())
+        (w, va.to_core())
     } else if let Ok(ea) = a.extract::<PyRef<'_, PyExprArray>>() {
         let w: Vec<f64> = b.extract()?;
-        (w, ea.core.clone_with_gil())
+        (w, ea.to_core())
     } else {
         return Err(ArrayTypeError::new_err(
             "np.dot requires one VariableArray/ExprArray and one array-like",
@@ -911,10 +1065,7 @@ fn numpy_dot(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
         )));
     }
 
-    let mut acc = PyExpr::default();
-    for (w, expr) in weights.iter().zip(core.values.iter()) {
-        acc = acc.add(expr.scale(*w));
-    }
+    let acc = weighted_sum(&weights, &core.values);
     Ok(acc.into_pyobject(py)?.into_any().unbind())
 }
 
@@ -932,13 +1083,13 @@ fn numpy_matmul(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject>
     // Extract the core and determine order
     let (ndarray_arg, core, variable_array_on_left) =
         if let Ok(va) = b.extract::<PyRef<'_, PyVariableArray>>() {
-            (a.clone(), va.core.clone_with_gil(), false)
+            (a.clone(), va.to_core(), false)
         } else if let Ok(ea) = b.extract::<PyRef<'_, PyExprArray>>() {
-            (a.clone(), ea.core.clone_with_gil(), false)
+            (a.clone(), ea.to_core(), false)
         } else if let Ok(va) = a.extract::<PyRef<'_, PyVariableArray>>() {
-            (b.clone(), va.core.clone_with_gil(), true)
+            (b.clone(), va.to_core(), true)
         } else if let Ok(ea) = a.extract::<PyRef<'_, PyExprArray>>() {
-            (b.clone(), ea.core.clone_with_gil(), true)
+            (b.clone(), ea.to_core(), true)
         } else {
             return Err(ArrayTypeError::new_err(
                 "np.matmul requires one VariableArray/ExprArray and one array-like",
@@ -966,10 +1117,7 @@ fn numpy_matmul(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject>
                     n
                 )));
             }
-            let mut acc = PyExpr::default();
-            for (w, expr) in weights.iter().zip(core.values.iter()) {
-                acc = acc.add(expr.scale(*w));
-            }
+            let acc = weighted_sum(&weights, &core.values);
             Ok(acc.into_pyobject(py)?.into_any().unbind())
         }
         2 => {
@@ -993,14 +1141,8 @@ fn numpy_matmul(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject>
             let weights: Vec<f64> = flat.extract()?;
             let mut values = Vec::with_capacity(rows);
 
-            for row in 0..rows {
-                let start = row * cols;
-                let end = start + cols;
-                let mut acc = PyExpr::default();
-                for (w, expr) in weights[start..end].iter().zip(core.values.iter()) {
-                    acc = acc.add(expr.scale(*w));
-                }
-                values.push(acc);
+            for row_weights in weights.chunks(cols) {
+                values.push(weighted_sum(row_weights, &core.values));
             }
 
             let result = PyExprArray::new(Vec::new(), vec![rows], values);
@@ -1028,10 +1170,10 @@ fn numpy_concatenate(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyOb
     for item in &items {
         if let Ok(va) = item.extract::<PyRef<'_, PyVariableArray>>() {
             has_arrays = true;
-            all_values.extend(va.core.values.iter().cloned());
+            all_values.extend(va.get_values());
         } else if let Ok(ea) = item.extract::<PyRef<'_, PyExprArray>>() {
             has_arrays = true;
-            all_values.extend(ea.core.values.iter().cloned());
+            all_values.extend(ea.get_values().into_iter());
         } else {
             // Try to extract as a flat array of floats
             let np = py.import("numpy")?;

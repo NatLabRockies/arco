@@ -84,6 +84,14 @@ impl PyExpr {
         Self::from_expr(self.inner.add(&other.inner))
     }
 
+    pub fn add_assign(&mut self, other: &PyExpr) {
+        self.inner.add_assign(&other.inner);
+    }
+
+    pub fn add_assign_owned(&mut self, other: PyExpr) {
+        self.inner.add_assign_owned(other.inner);
+    }
+
     pub fn add_constant(&self, value: f64) -> Self {
         Self::from_expr(self.inner.add_constant(value))
     }
@@ -134,12 +142,20 @@ impl PyExpr {
         self.add(other)
     }
 
-    fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+    fn __add__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        warn_if_large(py, self.inner.num_terms())?;
         self.add_any(other)
     }
 
-    fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+    fn __radd__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+        warn_if_large(py, self.inner.num_terms())?;
         self.add_any(other)
+    }
+
+    fn __iadd__(&mut self, other: &Bound<'_, PyAny>) -> PyResult<()> {
+        let ExprLike(other) = other.extract()?;
+        self.add_assign_owned(other);
+        Ok(())
     }
 
     fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
@@ -250,6 +266,27 @@ impl PyConstraintExpr {
             self.inner.rhs()
         )
     }
+}
+
+const LARGE_EXPR_THRESHOLD: usize = 10_000;
+
+/// Emit a UserWarning when an Expr being copied via `+` is large.
+fn warn_if_large(py: Python<'_>, num_terms: usize) -> PyResult<()> {
+    if num_terms >= LARGE_EXPR_THRESHOLD {
+        let warnings = py.import("warnings")?;
+        warnings.call_method1(
+            "warn",
+            (
+                format!(
+                    "Adding to an Expr with {num_terms} terms using `+` copies the entire \
+                     expression. Use `+=` for in-place accumulation or `.sum()` on arrays."
+                ),
+                py.get_type::<pyo3::exceptions::PyUserWarning>(),
+                2_i32, // stacklevel: point at the caller's code
+            ),
+        )?;
+    }
+    Ok(())
 }
 
 /// Register expression classes with the Python module.

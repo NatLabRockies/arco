@@ -1,10 +1,10 @@
 //! CSC format import for building models from sparse matrices.
 
 use crate::types::{Bounds, Constraint, SimplifyLevel, Variable};
-use arco_expr::ids::{ConstraintId, VariableId};
+use arco_expr::ids::ConstraintId;
 
 use crate::model::error::ModelError;
-use crate::model::{ColumnData, Model};
+use crate::model::{ColumnVec, Model};
 
 /// Input data for building a model from CSC format.
 pub struct CscInput<'a> {
@@ -113,7 +113,7 @@ impl Model {
             if start == end {
                 continue;
             }
-            let mut column: Vec<(ConstraintId, f64)> = Vec::with_capacity(end - start);
+            let mut column = ColumnVec::with_capacity(end - start);
             for idx in start..end {
                 let row = row_indices[idx];
                 if row >= num_constraints {
@@ -131,10 +131,7 @@ impl Model {
                 }
                 column.push((ConstraintId::new(row as u32), coefficient));
             }
-            model.columns.insert(
-                VariableId::new(col as u32),
-                ColumnData::from_entries(column),
-            );
+            model.columns[col] = column;
         }
 
         model.next_variable_id = num_variables as u32;

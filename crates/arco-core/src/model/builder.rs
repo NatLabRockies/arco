@@ -5,9 +5,24 @@ use arco_expr::expr::{ComparisonSense, ConstraintExpr, Expr};
 use arco_expr::ids::{ConstraintId, VariableId};
 
 use crate::model::error::ModelError;
-use crate::model::{ColumnData, Model};
+use crate::model::{BITS_PER_WORD, Model, column_upsert};
 
 impl Model {
+    /// Pre-allocate capacity for the given number of additional variables.
+    pub fn reserve_variables(&mut self, count: usize) {
+        self.variables.reserve(count);
+        self.columns.reserve(count);
+        let needed_words = (self.variables.len() + count).div_ceil(BITS_PER_WORD);
+        for bits in [
+            &mut self.variable_is_integer_bits,
+            &mut self.variable_is_inactive_bits,
+        ] {
+            if needed_words > bits.len() {
+                bits.reserve(needed_words - bits.len());
+            }
+        }
+    }
+
     /// Add a variable to the model.
     pub fn add_variable(&mut self, variable: Variable) -> Result<VariableId, ModelError> {
         if variable.bounds.lower.is_nan()
@@ -130,6 +145,97 @@ impl Model {
         self.add_expr_constraint(expr, bounds)
     }
 
+    /// Add constraints from compact term patterns.
+    ///
+    /// Each term pattern is `(start_var_id, coefficient)`. For constraint `i`,
+    /// the variable ID for each pattern is `start_var_id + i`.
+    /// `bounds_list[i]` specifies the bounds for constraint `i`.
+    ///
+    /// This is the fastest insertion path: zero per-constraint Vec allocation.
+    pub fn add_constraints_compact(
+        &mut self,
+        term_patterns: &[(u32, f64)],
+        bounds_list: &[Bounds],
+    ) -> Result<ConstraintId, ModelError> {
+        let count = bounds_list.len();
+        if count == 0 {
+            return Ok(ConstraintId::new(self.next_constraint_id));
+        }
+
+        self.constraints.reserve(count);
+        let first_constraint_id = self.next_constraint_id;
+
+        for (i, bounds) in bounds_list.iter().enumerate() {
+            if bounds.lower.is_nan() || bounds.upper.is_nan() || bounds.lower > bounds.upper {
+                return Err(ModelError::InvalidConstraintBounds {
+                    lower: bounds.lower,
+                    upper: bounds.upper,
+                });
+            }
+
+            let constraint_id = ConstraintId::new(self.next_constraint_id);
+            self.next_constraint_id += 1;
+            self.constraints.push(Constraint { bounds: *bounds });
+
+            for &(start_var_id, coeff) in term_patterns {
+                let var_idx = (start_var_id + i as u32) as usize;
+                if var_idx >= self.variables.len() {
+                    return Err(ModelError::InvalidVariableId(VariableId::new(
+                        var_idx as u32,
+                    )));
+                }
+                self.columns[var_idx].push((constraint_id, coeff));
+            }
+        }
+
+        Ok(ConstraintId::new(first_constraint_id))
+    }
+
+    /// Add a batch of constraints with pre-normalized terms.
+    ///
+    /// Each constraint is given as a slice of `(VariableId, f64)` terms and a `Bounds`.
+    /// Terms are assumed to be already normalized (no duplicate variable IDs, no zero
+    /// coefficients). This skips per-constraint `normalize_terms` HashMap creation.
+    ///
+    /// Returns the first `ConstraintId` in the contiguous block of added constraints.
+    pub fn add_constraints_batch(
+        &mut self,
+        constraints: &[(Vec<(VariableId, f64)>, Bounds)],
+    ) -> Result<ConstraintId, ModelError> {
+        let count = constraints.len();
+        if count == 0 {
+            return Ok(ConstraintId::new(self.next_constraint_id));
+        }
+
+        self.constraints.reserve(count);
+        let first_constraint_id = self.next_constraint_id;
+
+        for (terms, bounds) in constraints {
+            if bounds.lower.is_nan() || bounds.upper.is_nan() || bounds.lower > bounds.upper {
+                return Err(ModelError::InvalidConstraintBounds {
+                    lower: bounds.lower,
+                    upper: bounds.upper,
+                });
+            }
+
+            let constraint_id = ConstraintId::new(self.next_constraint_id);
+            self.next_constraint_id += 1;
+            self.constraints.push(Constraint { bounds: *bounds });
+
+            for &(var_id, coeff) in terms {
+                // Skip validation for each coefficient since terms are pre-normalized.
+                // We still check variable bounds.
+                let var_idx = var_id.inner() as usize;
+                if var_idx >= self.variables.len() {
+                    return Err(ModelError::InvalidVariableId(var_id));
+                }
+                self.columns[var_idx].push((constraint_id, coeff));
+            }
+        }
+
+        Ok(ConstraintId::new(first_constraint_id))
+    }
+
     /// Add a coefficient to the constraint matrix.
     ///
     /// This adds a coefficient at the intersection of a variable column and constraint row.
@@ -146,15 +252,12 @@ impl Model {
         self.ensure_variable_exists(var_id)?;
         self.ensure_constraint_exists(constraint_id)?;
 
-        // Update or insert in column-first storage.
-        match self.columns.entry(var_id) {
-            std::collections::hash_map::Entry::Vacant(vacant) => {
-                vacant.insert(ColumnData::Single((constraint_id, coefficient)));
-            }
-            std::collections::hash_map::Entry::Occupied(mut occupied) => {
-                occupied.get_mut().upsert(constraint_id, coefficient);
-            }
-        }
+        // Update or insert in column-first storage (Vec indexed by variable ID).
+        column_upsert(
+            &mut self.columns[var_id.inner() as usize],
+            constraint_id,
+            coefficient,
+        );
 
         Ok(())
     }
