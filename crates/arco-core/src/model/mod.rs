@@ -27,8 +27,13 @@ mod storage;
 use crate::slack::SlackHandle;
 use crate::types::{Bounds, Constraint, Objective, SimplifyLevel, Variable};
 use arco_expr::ids::{ConstraintId, VariableId};
+use smallvec::SmallVec;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
+
+/// Column storage type: inline for ≤2 constraint entries (the common case),
+/// heap-allocated otherwise.
+pub(crate) type ColumnVec = SmallVec<[(ConstraintId, f64); 2]>;
 
 pub use csc_import::CscInput;
 pub use error::ModelError;
@@ -55,8 +60,9 @@ pub struct Model {
     pub(crate) objective: Objective,
     pub(crate) objective_name: Option<String>,
     simplify_level: SimplifyLevel,
-    // Column-first sparse storage: variable_id -> vec of (constraint_id, coefficient)
-    pub(crate) columns: HashMap<VariableId, ColumnData>,
+    // Column-first sparse storage: indexed by variable_id, each entry is a list of
+    // (constraint_id, coefficient) pairs. Uses SmallVec for inline storage of ≤2 entries.
+    pub(crate) columns: Vec<ColumnVec>,
     pub(crate) next_variable_id: u32,
     pub(crate) next_constraint_id: u32,
     pub(crate) slack_handles: Vec<SlackHandle>,
@@ -67,59 +73,19 @@ pub struct Model {
     pub(crate) constraint_metadata: Option<BTreeMap<ConstraintId, serde_json::Value>>,
 }
 
-const BITS_PER_WORD: usize = u64::BITS as usize;
+pub(crate) const BITS_PER_WORD: usize = u64::BITS as usize;
 
-#[derive(Debug, Clone)]
-pub(crate) enum ColumnData {
-    Single((ConstraintId, f64)),
-    Many(Vec<(ConstraintId, f64)>),
-}
-
-impl ColumnData {
-    #[inline]
-    fn from_entries(entries: Vec<(ConstraintId, f64)>) -> Self {
-        if entries.len() == 1 {
-            ColumnData::Single(entries[0])
-        } else {
-            ColumnData::Many(entries)
-        }
-    }
-
-    #[inline]
-    fn upsert(&mut self, constraint_id: ConstraintId, coefficient: f64) {
-        match self {
-            ColumnData::Single((existing_id, existing_coeff)) => {
-                if *existing_id == constraint_id {
-                    *existing_coeff = coefficient;
-                } else {
-                    let previous = (*existing_id, *existing_coeff);
-                    *self = ColumnData::Many(vec![previous, (constraint_id, coefficient)]);
-                }
-            }
-            ColumnData::Many(entries) => {
-                if let Some(entry) = entries.iter_mut().find(|(cid, _)| *cid == constraint_id) {
-                    entry.1 = coefficient;
-                } else {
-                    entries.push((constraint_id, coefficient));
-                }
-            }
-        }
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        match self {
-            ColumnData::Single(_) => 1,
-            ColumnData::Many(entries) => entries.len(),
-        }
-    }
-
-    #[inline]
-    fn as_slice(&self) -> &[(ConstraintId, f64)] {
-        match self {
-            ColumnData::Single(entry) => std::slice::from_ref(entry),
-            ColumnData::Many(entries) => entries.as_slice(),
-        }
+/// Upsert a coefficient in a column: update existing entry or append.
+#[inline]
+pub(crate) fn column_upsert(
+    column: &mut ColumnVec,
+    constraint_id: ConstraintId,
+    coefficient: f64,
+) {
+    if let Some(entry) = column.iter_mut().find(|(cid, _)| *cid == constraint_id) {
+        entry.1 = coefficient;
+    } else {
+        column.push((constraint_id, coefficient));
     }
 }
 
@@ -134,7 +100,7 @@ impl Model {
             objective: Objective::new(),
             objective_name: None,
             simplify_level: SimplifyLevel::default(),
-            columns: HashMap::new(),
+            columns: Vec::new(),
             next_variable_id: 0,
             next_constraint_id: 0,
             slack_handles: Vec::new(),
@@ -155,7 +121,7 @@ impl Model {
             objective: Objective::new(),
             objective_name: None,
             simplify_level: SimplifyLevel::default(),
-            columns: HashMap::new(),
+            columns: Vec::with_capacity(variable_capacity),
             next_variable_id: 0,
             next_constraint_id: 0,
             slack_handles: Vec::new(),
@@ -201,6 +167,7 @@ impl Model {
     pub(crate) fn push_variable(&mut self, variable: Variable) {
         let idx = self.variables.len();
         self.variables.push(variable.bounds);
+        self.columns.push(ColumnVec::new());
         if variable.is_integer {
             Self::write_packed_flag(&mut self.variable_is_integer_bits, idx, true);
         }
@@ -291,10 +258,11 @@ impl Model {
             *merged.entry(var_id).or_insert(0.0) += coeff;
         }
 
-        let normalized: Vec<(VariableId, f64)> = merged
+        let mut normalized: Vec<(VariableId, f64)> = merged
             .into_iter()
             .filter(|(_, coeff)| *coeff != 0.0)
             .collect();
+        normalized.sort_unstable_by_key(|(id, _)| id.inner());
 
         tracing::debug!(
             component = "model",
@@ -669,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn test_columns_are_lazily_allocated() {
+    fn test_columns_grow_with_variables() {
         let mut model = Model::new();
         let var_id = model
             .add_variable(Variable {
@@ -679,7 +647,8 @@ mod tests {
             })
             .unwrap();
 
-        assert!(model.columns.is_empty());
+        assert_eq!(model.columns.len(), 1);
+        assert!(model.columns[var_id.inner() as usize].is_empty());
         assert_eq!(
             model.get_column(var_id).expect("column should exist"),
             &Vec::new()
@@ -691,7 +660,7 @@ mod tests {
             })
             .unwrap();
         model.set_coefficient(var_id, constraint_id, 1.0).unwrap();
-        assert_eq!(model.columns.len(), 1);
+        assert_eq!(model.columns[var_id.inner() as usize].len(), 1);
     }
 
     #[test]
@@ -752,8 +721,10 @@ mod tests {
 
         model.set_coefficient(var, con, 4.0).unwrap();
 
-        let stored = model.columns.get(&var).expect("column exists");
-        assert!(matches!(stored, ColumnData::Single(_)));
+        let stored = &model.columns[var.inner() as usize];
+        assert_eq!(stored.len(), 1);
+        // SmallVec with ≤2 entries uses inline storage (no heap allocation)
+        assert!(!stored.spilled());
     }
 
     #[test]

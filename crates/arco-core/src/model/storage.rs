@@ -6,19 +6,7 @@ use arco_expr::ids::{ConstraintId, VariableId};
 use crate::model::Model;
 use crate::model::error::ModelError;
 
-fn empty_column() -> &'static [(ConstraintId, f64)] {
-    &[]
-}
-
 impl Model {
-    #[inline]
-    fn column_slice(&self, var_id: VariableId) -> &[(ConstraintId, f64)] {
-        match self.columns.get(&var_id) {
-            Some(column) => column.as_slice(),
-            None => empty_column(),
-        }
-    }
-
     /// Get the number of variables
     pub fn num_variables(&self) -> usize {
         self.variables.len()
@@ -31,7 +19,7 @@ impl Model {
 
     /// Get the number of coefficients in the model.
     pub fn num_coefficients(&self) -> usize {
-        self.columns.values().map(|coeffs| coeffs.len()).sum()
+        self.columns.iter().map(|col| col.len()).sum()
     }
 
     /// Get a variable by ID.
@@ -52,18 +40,15 @@ impl Model {
     /// Returns an iterator over columns, where each column contains (constraint_id, coefficient) pairs.
     /// This enables zero-copy access to the sparse matrix structure.
     pub fn columns(&self) -> impl Iterator<Item = (VariableId, &[(ConstraintId, f64)])> + '_ {
-        (0..self.variables.len()).map(move |idx| {
-            let var_id = VariableId::new(idx as u32);
-            (var_id, self.column_slice(var_id))
+        self.columns.iter().enumerate().map(|(idx, col)| {
+            (VariableId::new(idx as u32), col.as_slice())
         })
     }
 
     /// Get the coefficients for a specific variable (column)
     pub fn get_column(&self, var_id: VariableId) -> Option<&[(ConstraintId, f64)]> {
-        if (var_id.inner() as usize) < self.variables.len() {
-            Some(self.column_slice(var_id))
-        } else {
-            None
-        }
+        self.columns
+            .get(var_id.inner() as usize)
+            .map(|col| col.as_slice())
     }
 }

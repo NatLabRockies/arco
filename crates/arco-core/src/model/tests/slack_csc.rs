@@ -216,7 +216,8 @@ fn test_from_csc_only_stores_non_empty_columns() {
     )
     .expect("model should build");
 
-    assert_eq!(model.columns.len(), 1);
+    // columns Vec has one entry per variable
+    assert_eq!(model.columns.len(), 3);
     assert!(
         model
             .get_column(VariableId::new(0))

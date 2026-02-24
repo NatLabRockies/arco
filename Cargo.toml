@@ -9,6 +9,7 @@ serde_json = "1.0"
 sysinfo = "0.33"
 pyo3 = "0.28"
 tracing-subscriber = "0.3"
+smallvec = "1"
 arco-core = { path = "crates/arco-core" }
 arco-expr = { path = "crates/arco-expr" }
 arco-solver = { path = "crates/arco-solver" }

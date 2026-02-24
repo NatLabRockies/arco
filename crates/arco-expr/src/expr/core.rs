@@ -17,14 +17,49 @@ use std::collections::HashMap;
 ///
 /// Terms are stored in separate vectors for linear, quadratic, and cubic
 /// components to keep the hot path compact and predictable.
+/// Quadratic and cubic fields use `Option<Box<Vec<T>>>` to avoid 24-byte
+/// empty `Vec` overhead per expression (saves ~32 bytes each for the
+/// common linear-only case).
 pub struct Expr {
     constant: f64,
     linear: Vec<(VariableId, f64)>,
-    quadratic: Vec<(VariableId, VariableId, f64)>,
-    cubic: Vec<(VariableId, VariableId, VariableId, f64)>,
+    quadratic: Option<Box<Vec<(VariableId, VariableId, f64)>>>,
+    cubic: Option<Box<Vec<(VariableId, VariableId, VariableId, f64)>>>,
 }
 
 impl Expr {
+    // ── Helpers ──────────────────────────────────────────────
+
+    /// Wrap a non-empty vec into `Option<Box<Vec<T>>>`, returning `None` for empty.
+    #[inline]
+    fn wrap_optional<T>(v: Vec<T>) -> Option<Box<Vec<T>>> {
+        if v.is_empty() { None } else { Some(Box::new(v)) }
+    }
+
+    /// Return quadratic terms as a slice (empty if `None`).
+    #[inline]
+    fn quad_slice(&self) -> &[(VariableId, VariableId, f64)] {
+        self.quadratic.as_deref().map_or(&[], Vec::as_slice)
+    }
+
+    /// Return cubic terms as a slice (empty if `None`).
+    #[inline]
+    fn cubic_slice(&self) -> &[(VariableId, VariableId, VariableId, f64)] {
+        self.cubic.as_deref().map_or(&[], Vec::as_slice)
+    }
+
+    /// Get or create the quadratic vec for mutation.
+    #[inline]
+    fn quad_mut(&mut self) -> &mut Vec<(VariableId, VariableId, f64)> {
+        self.quadratic.get_or_insert_with(|| Box::new(Vec::new()))
+    }
+
+    /// Get or create the cubic vec for mutation.
+    #[inline]
+    fn cubic_mut(&mut self) -> &mut Vec<(VariableId, VariableId, VariableId, f64)> {
+        self.cubic.get_or_insert_with(|| Box::new(Vec::new()))
+    }
+
     // ── Constructors ────────────────────────────────────────
 
     /// Empty expression (all zeros).
@@ -37,7 +72,8 @@ impl Expr {
         Self {
             constant,
             linear,
-            ..Default::default()
+            quadratic: None,
+            cubic: None,
         }
     }
 
@@ -45,7 +81,9 @@ impl Expr {
     pub fn from_constant(constant: f64) -> Self {
         Self {
             constant,
-            ..Default::default()
+            linear: Vec::new(),
+            quadratic: None,
+            cubic: None,
         }
     }
 
@@ -55,24 +93,30 @@ impl Expr {
             return Self::default();
         }
         Self {
+            constant: 0.0,
             linear: vec![(var_id, coeff)],
-            ..Default::default()
+            quadratic: None,
+            cubic: None,
         }
     }
 
     /// Single variable with coefficient 1.0.
     pub fn var(var_id: VariableId) -> Self {
         Self {
+            constant: 0.0,
             linear: vec![(var_id, 1.0)],
-            ..Default::default()
+            quadratic: None,
+            cubic: None,
         }
     }
 
     /// From raw linear terms, no constant.
     pub fn from_linear(linear: Vec<(VariableId, f64)>) -> Self {
         Self {
+            constant: 0.0,
             linear,
-            ..Default::default()
+            quadratic: None,
+            cubic: None,
         }
     }
 
@@ -90,12 +134,12 @@ impl Expr {
 
     /// Returns the raw quadratic terms `(var_a, var_b, coeff)`.
     pub fn quadratic_terms(&self) -> &[(VariableId, VariableId, f64)] {
-        &self.quadratic
+        self.quad_slice()
     }
 
     /// Returns the raw cubic terms `(var_a, var_b, var_c, coeff)`.
     pub fn cubic_terms(&self) -> &[(VariableId, VariableId, VariableId, f64)] {
-        &self.cubic
+        self.cubic_slice()
     }
 
     /// Consume and return linear terms.
@@ -110,14 +154,14 @@ impl Expr {
 
     /// Total number of terms across all degrees.
     pub fn num_terms(&self) -> usize {
-        self.linear.len() + self.quadratic.len() + self.cubic.len()
+        self.linear.len() + self.quad_slice().len() + self.cubic_slice().len()
     }
 
     /// Max degree of any term (0 = constant only).
     pub fn degree(&self) -> usize {
-        if !self.cubic.is_empty() {
+        if !self.cubic_slice().is_empty() {
             3
-        } else if !self.quadratic.is_empty() {
+        } else if !self.quad_slice().is_empty() {
             2
         } else {
             usize::from(!self.linear.is_empty())
@@ -136,19 +180,33 @@ impl Expr {
                 .map(|(v, c)| (*v, *c * by))
                 .filter(|(_, c)| *c != 0.0)
                 .collect(),
-            quadratic: self
-                .quadratic
-                .iter()
-                .map(|(a, b, c)| (*a, *b, *c * by))
-                .filter(|(_, _, c)| *c != 0.0)
-                .collect(),
-            cubic: self
-                .cubic
-                .iter()
-                .map(|(a, b, c, d)| (*a, *b, *c, *d * by))
-                .filter(|(_, _, _, d)| *d != 0.0)
-                .collect(),
+            quadratic: Self::wrap_optional(
+                self.quad_slice()
+                    .iter()
+                    .map(|(a, b, c)| (*a, *b, *c * by))
+                    .filter(|(_, _, c)| *c != 0.0)
+                    .collect(),
+            ),
+            cubic: Self::wrap_optional(
+                self.cubic_slice()
+                    .iter()
+                    .map(|(a, b, c, d)| (*a, *b, *c, *d * by))
+                    .filter(|(_, _, _, d)| *d != 0.0)
+                    .collect(),
+            ),
         }
+    }
+
+    /// Merge two slices into `Option<Box<Vec<T>>>`, returning `None` if both are empty.
+    #[inline]
+    fn merge_slices<T: Copy>(a: &[T], b: &[T]) -> Option<Box<Vec<T>>> {
+        if a.is_empty() && b.is_empty() {
+            return None;
+        }
+        let mut v = Vec::with_capacity(a.len() + b.len());
+        v.extend_from_slice(a);
+        v.extend_from_slice(b);
+        Some(Box::new(v))
     }
 
     /// Add another expression (merges all degree terms + constants).
@@ -157,19 +215,11 @@ impl Expr {
         linear.extend_from_slice(&self.linear);
         linear.extend_from_slice(&other.linear);
 
-        let mut quadratic = Vec::with_capacity(self.quadratic.len() + other.quadratic.len());
-        quadratic.extend_from_slice(&self.quadratic);
-        quadratic.extend_from_slice(&other.quadratic);
-
-        let mut cubic = Vec::with_capacity(self.cubic.len() + other.cubic.len());
-        cubic.extend_from_slice(&self.cubic);
-        cubic.extend_from_slice(&other.cubic);
-
         Self {
             constant: self.constant + other.constant,
             linear,
-            quadratic,
-            cubic,
+            quadratic: Self::merge_slices(self.quad_slice(), other.quad_slice()),
+            cubic: Self::merge_slices(self.cubic_slice(), other.cubic_slice()),
         }
     }
 
@@ -177,23 +227,41 @@ impl Expr {
     pub fn add_assign(&mut self, other: &Expr) {
         self.constant += other.constant;
         self.linear.extend_from_slice(&other.linear);
-        self.quadratic.extend_from_slice(&other.quadratic);
-        self.cubic.extend_from_slice(&other.cubic);
+        let other_quad = other.quad_slice();
+        if !other_quad.is_empty() {
+            self.quad_mut().extend_from_slice(other_quad);
+        }
+        let other_cubic = other.cubic_slice();
+        if !other_cubic.is_empty() {
+            self.cubic_mut().extend_from_slice(other_cubic);
+        }
     }
 
     /// Add another expression in-place, consuming `other` to avoid cloning.
     pub fn add_assign_owned(&mut self, mut other: Expr) {
         self.constant += other.constant;
         self.linear.append(&mut other.linear);
-        self.quadratic.append(&mut other.quadratic);
-        self.cubic.append(&mut other.cubic);
+        if let Some(mut other_quad) = other.quadratic {
+            if !other_quad.is_empty() {
+                self.quad_mut().append(&mut other_quad);
+            }
+        }
+        if let Some(mut other_cubic) = other.cubic {
+            if !other_cubic.is_empty() {
+                self.cubic_mut().append(&mut other_cubic);
+            }
+        }
     }
 
     /// Pre-allocate capacity for the internal Vecs.
     pub fn reserve(&mut self, linear: usize, quadratic: usize, cubic: usize) {
         self.linear.reserve(linear);
-        self.quadratic.reserve(quadratic);
-        self.cubic.reserve(cubic);
+        if quadratic > 0 {
+            self.quad_mut().reserve(quadratic);
+        }
+        if cubic > 0 {
+            self.cubic_mut().reserve(cubic);
+        }
     }
 
     /// Add a constant offset.
