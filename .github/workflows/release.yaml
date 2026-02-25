@@ -63,7 +63,20 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
 
-      - name: Build wheel
+      - name: Build wheel (Linux, PyPI-compatible)
+        if: runner.os == 'Linux'
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # v1
+        with:
+          target: x86_64
+          manylinux: auto
+          args: >-
+            --release
+            --manifest-path bindings/python/Cargo.toml
+            --out dist
+            -i python${{ matrix.python-version }}
+
+      - name: Build wheel (macOS/Windows)
+        if: runner.os != 'Linux'
         run: just py-build-ci
 
       - name: Smoke test wheel install and import
