@@ -6,7 +6,7 @@
 #![allow(unsafe_code)]
 #![allow(non_camel_case_types)]
 
-use std::os::raw::{c_char, c_double, c_int};
+use std::ffi::{c_char, c_double, c_int};
 
 /// Opaque Xpress problem handle.
 pub type XPRSprob = *mut std::ffi::c_void;
@@ -24,14 +24,14 @@ pub const XPRS_OBJ_MAXIMIZE: c_int = -1;
 
 // Integer control indices
 pub const XPRS_THREADS: c_int = 8278;
-pub const XPRS_PRESOLVE: c_int = 8229;
-pub const XPRS_OUTPUTLOG: c_int = 8369;
+pub const XPRS_PRESOLVE: c_int = 8011;
+pub const XPRS_OUTPUTLOG: c_int = 8035;
 
 // Double control indices
 pub const XPRS_MAXTIME: c_int = 8020;
-pub const XPRS_MIPRELSTOP: c_int = 8019;
+pub const XPRS_MIPRELSTOP: c_int = 7020;
 pub const XPRS_FEASTOL: c_int = 7003;
-pub const XPRS_OPTIMALITYTOL: c_int = 7004;
+pub const XPRS_OPTIMALITYTOL: c_int = 7006;
 
 // Integer attribute indices
 pub const XPRS_LPSTATUS: c_int = 1010;
@@ -140,7 +140,9 @@ unsafe extern "C" {
     pub fn XPRSgetdblattrib(prob: XPRSprob, ipar: c_int, p_value: *mut c_double) -> c_int;
 
     // Version
+    /// Caller must provide a buffer of at least 16 bytes.
     pub fn XPRSgetversion(version: *mut c_char) -> c_int;
+    /// Caller must provide a buffer of at least 512 bytes.
     pub fn XPRSgetbanner(banner: *mut c_char) -> c_int;
 }
 
