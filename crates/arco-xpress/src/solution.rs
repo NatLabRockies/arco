@@ -168,8 +168,6 @@ mod tests {
         }
     }
 
-    // --- SolutionView accessor tests ---
-
     #[test]
     fn solution_view_objective_value() {
         let sol = make_solution(CoreSolverStatus::Optimal, false);
@@ -261,8 +259,6 @@ mod tests {
         assert_eq!(SolutionView::get_constraint_dual(&sol, 1), Some(0.6));
     }
 
-    // --- Out-of-bounds tests ---
-
     #[test]
     fn get_primal_out_of_bounds_returns_none() {
         let sol = make_solution(CoreSolverStatus::Optimal, false);
@@ -283,8 +279,6 @@ mod tests {
         assert_eq!(sol.get_constraint_dual(2), None);
         assert_eq!(sol.get_constraint_dual(100), None);
     }
-
-    // --- Status helper method tests ---
 
     #[test]
     fn is_optimal_returns_true_for_optimal() {
@@ -329,8 +323,6 @@ mod tests {
         assert!(!make_solution(CoreSolverStatus::Infeasible, false).is_unbounded());
     }
 
-    // --- is_mip and core_status tests ---
-
     #[test]
     fn is_mip_returns_correct_value() {
         assert!(make_solution(CoreSolverStatus::Optimal, true).is_mip());
@@ -352,8 +344,6 @@ mod tests {
             CoreSolverStatus::Unknown
         );
     }
-
-    // --- into_core_solution tests ---
 
     #[test]
     fn into_core_solution_preserves_all_fields() {
@@ -383,8 +373,6 @@ mod tests {
         let core = sol.into_core_solution();
         assert_eq!(core.status, CoreSolverStatus::TimeLimit);
     }
-
-    // --- Default trait methods from SolutionView ---
 
     #[test]
     fn solution_view_default_is_optimal() {
@@ -421,8 +409,6 @@ mod tests {
         assert!(!SolutionView::is_infeasible(&sol));
         assert!(!SolutionView::is_unbounded(&sol));
     }
-
-    // --- Empty solution edge case ---
 
     #[test]
     fn empty_solution_returns_none_for_all_indices() {

@@ -11,10 +11,6 @@ use std::ffi::{c_char, c_double, c_int};
 /// Opaque Xpress problem handle.
 pub type XPRSprob = *mut std::ffi::c_void;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 pub const XPRS_PLUSINFINITY: f64 = 1.0e20;
 pub const XPRS_MINUSINFINITY: f64 = -1.0e20;
 

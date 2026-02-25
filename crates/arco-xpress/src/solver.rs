@@ -19,10 +19,6 @@ use tracing::{debug, warn};
 /// Re-export of [`arco_core::solver::SolverError`] for backward compatibility.
 pub type SolverError = CoreSolverError;
 
-// ---------------------------------------------------------------------------
-// RAII guards
-// ---------------------------------------------------------------------------
-
 /// RAII guard that calls [`ffi::XPRSfree`] on drop to release the Xpress
 /// global environment.
 struct XpressGuard;
@@ -52,10 +48,6 @@ impl Drop for ProbGuard {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// FFI wrapper helpers
-// ---------------------------------------------------------------------------
 
 /// Initialize the Xpress environment, returning an RAII guard that frees it on
 /// drop.
@@ -122,10 +114,6 @@ fn get_dbl_attrib(prob: ffi::XPRSprob, attrib: c_int) -> Result<f64, SolverError
     Ok(value)
 }
 
-// ---------------------------------------------------------------------------
-// Bounds conversion
-// ---------------------------------------------------------------------------
-
 /// Convert arco (lower, upper) bounds to an Xpress row type, rhs, and range
 /// value.
 ///
@@ -165,10 +153,6 @@ fn bounds_to_xpress_row(lower: f64, upper: f64) -> (u8, f64, f64) {
 fn clamp_bound(value: f64) -> f64 {
     value.clamp(ffi::XPRS_MINUSINFINITY, ffi::XPRS_PLUSINFINITY)
 }
-
-// ---------------------------------------------------------------------------
-// Validation helpers
-// ---------------------------------------------------------------------------
 
 /// Validate that a model is ready for solving.
 fn validate_model(model: &Model) -> Result<(), SolverError> {
@@ -267,10 +251,6 @@ fn apply_solver_config(prob: ffi::XPRSprob, config: &SolverConfig) -> Result<(),
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Core solve logic
-// ---------------------------------------------------------------------------
-
 /// Solve a model with the given configuration.
 ///
 /// This is the shared implementation used by both [`Solver`] and
@@ -297,10 +277,8 @@ fn solve_model(
         "Starting Xpress solve"
     );
 
-    // ---- 1. Collect objective ----
     let (sense, objective_coeffs) = collect_objective_coefficients(model)?;
 
-    // ---- 2. Build variable arrays ----
     let mut obj_coeffs = Vec::with_capacity(ncols);
     let mut lower_bounds = Vec::with_capacity(ncols);
     let mut upper_bounds = Vec::with_capacity(ncols);
@@ -342,7 +320,6 @@ fn solve_model(
         }
     }
 
-    // ---- 3. Build constraint (row) arrays ----
     let mut row_types: Vec<u8> = Vec::with_capacity(nrows);
     let mut rhs: Vec<f64> = Vec::with_capacity(nrows);
     let mut rng: Vec<f64> = Vec::with_capacity(nrows);
@@ -359,7 +336,6 @@ fn solve_model(
         rng.push(rng_val);
     }
 
-    // ---- 4. Build CSC matrix ----
     let mut mstart: Vec<c_int> = Vec::with_capacity(ncols + 1);
     let mut mrwind: Vec<c_int> = Vec::new();
     let mut dmatval: Vec<f64> = Vec::new();
@@ -384,15 +360,12 @@ fn solve_model(
     // Final sentinel entry
     mstart.push(mrwind.len() as c_int);
 
-    // ---- 5. Initialize Xpress and create problem ----
     let _env_guard = xprs_init()?;
     let prob_guard = xprs_create_prob()?;
     let prob = prob_guard.0;
 
-    // ---- 6. Apply configuration ----
     apply_solver_config(prob, config)?;
 
-    // ---- 7. Load problem ----
     let ncols_i = ncols as c_int;
     let nrows_i = nrows as c_int;
 
@@ -450,7 +423,6 @@ fn solve_model(
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadlp failed: {rc}")))?;
     }
 
-    // ---- 8. Set objective sense ----
     let xprs_sense = match sense {
         Sense::Minimize => ffi::XPRS_OBJ_MINIMIZE,
         Sense::Maximize => ffi::XPRS_OBJ_MAXIMIZE,
@@ -459,7 +431,6 @@ fn solve_model(
     ffi::check_xprs(unsafe { ffi::XPRSchgobjsense(prob, xprs_sense) })
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSchgobjsense failed: {rc}")))?;
 
-    // ---- 9. Warm-start (MIP only) ----
     if has_integer {
         if let Some(hints) = primal_start {
             let mut sol_cols: Vec<c_int> = Vec::with_capacity(hints.len());
@@ -490,7 +461,6 @@ fn solve_model(
         }
     }
 
-    // ---- 10. Optimize ----
     // SAFETY: prob is a valid handle; null flags means default behavior.
     if has_integer {
         ffi::check_xprs(unsafe { ffi::XPRSmipoptimize(prob, std::ptr::null()) })
@@ -502,7 +472,6 @@ fn solve_model(
 
     let solve_time = solve_started.elapsed().as_secs_f64();
 
-    // ---- 11. Check status ----
     let (core_status, has_sol, status_str) = if has_integer {
         let raw = get_int_attrib(prob, ffi::XPRS_MIPSTATUS)?;
         (
@@ -544,7 +513,6 @@ fn solve_model(
         });
     }
 
-    // ---- 12. Extract solution ----
     let objective_value = if has_integer {
         get_dbl_attrib(prob, ffi::XPRS_MIPOBJVAL)?
     } else {
@@ -597,10 +565,6 @@ fn solve_model(
         solve_time_seconds: solve_time,
     })
 }
-
-// ---------------------------------------------------------------------------
-// Solver struct
-// ---------------------------------------------------------------------------
 
 /// Xpress solver wrapper.
 ///
@@ -739,10 +703,6 @@ impl Solve for Solver {
     }
 }
 
-// ---------------------------------------------------------------------------
-// XpressBackend
-// ---------------------------------------------------------------------------
-
 /// Zero-sized backend for trait-based dispatch from the Python bindings.
 pub struct XpressBackend;
 
@@ -763,18 +723,12 @@ impl SolverBackend for XpressBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
     use arco_core::types::Bounds;
     use arco_core::{Objective, Variable};
-
-    // --- bounds_to_xpress_row tests ---
 
     #[test]
     fn test_bounds_to_xpress_row_less_equal() {
@@ -816,8 +770,6 @@ mod tests {
         assert_eq!(rng_val, 0.0);
     }
 
-    // --- clamp_bound tests ---
-
     #[test]
     fn test_clamp_bound_infinity() {
         assert_eq!(clamp_bound(f64::INFINITY), ffi::XPRS_PLUSINFINITY);
@@ -834,8 +786,6 @@ mod tests {
         assert_eq!(clamp_bound(-42.5), -42.5);
         assert_eq!(clamp_bound(0.0), 0.0);
     }
-
-    // --- Solver struct tests ---
 
     fn build_single_variable_model() -> Model {
         let mut model = Model::new();
@@ -887,8 +837,6 @@ mod tests {
         assert!(solver.get_primal_start().is_none());
     }
 
-    // --- validate_solver_config tests ---
-
     #[test]
     fn test_validate_solver_config_rejects_negative_time_limit() {
         let config = SolverConfig::new().with_time_limit(-1.0);
@@ -930,8 +878,6 @@ mod tests {
         let config = SolverConfig::new();
         assert!(validate_solver_config(&config).is_ok());
     }
-
-    // --- collect_objective_coefficients tests ---
 
     #[test]
     fn test_collect_objective_rejects_no_objective() {
