@@ -603,16 +603,7 @@ impl PyModel {
         is_binary: bool,
         name: Option<String>,
     ) -> PyResult<PyVariableArray> {
-        let index_sets: Vec<Py<PyIndexSet>> = index_sets
-            .iter()
-            .map(|item| {
-                item.extract::<Py<PyIndexSet>>().map_err(|_| {
-                    PyTypeError::new_err(
-                        "add_variables() expects IndexSet arguments, e.g. model.add_variables(T, G, bounds=...)",
-                    )
-                })
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        let index_sets = extract_index_sets(index_sets)?;
 
         if index_sets.is_empty() {
             return Err(errors::IndexSetEmptyError::new_err(
@@ -620,19 +611,21 @@ impl PyModel {
             ));
         }
 
-        let mut shape = Vec::with_capacity(index_sets.len());
-        for index_set in &index_sets {
-            let size = index_set.borrow(py).members.len();
-            if size == 0 {
-                return Err(errors::IndexSetEmptyError::new_err(
-                    "index sets must be non-empty",
-                ));
-            }
-            shape.push(size);
-        }
+        let shape: Vec<usize> = index_sets
+            .iter()
+            .map(|s| {
+                let size = s.borrow(py).members.len();
+                if size == 0 {
+                    return Err(errors::IndexSetEmptyError::new_err(
+                        "index sets must be non-empty",
+                    ));
+                }
+                Ok(size)
+            })
+            .collect::<PyResult<_>>()?;
 
-        let total = shape.iter().try_fold(1usize, |acc, size| {
-            acc.checked_mul(*size)
+        let total = shape.iter().try_fold(1usize, |acc, &size| {
+            acc.checked_mul(size)
                 .ok_or_else(|| errors::ArrayOverflowError::new_err("array size overflow"))
         })?;
 
@@ -1597,6 +1590,21 @@ fn extract_constraint_id(ob: &Bound<'_, PyAny>) -> PyResult<ConstraintId> {
     Err(errors::ConstraintTypeError::new_err(
         "expected a Constraint or integer constraint ID",
     ))
+}
+
+/// Extract a `Vec<Py<PyIndexSet>>` from the positional `*index_sets` tuple.
+fn extract_index_sets(tuple: &Bound<'_, PyTuple>) -> PyResult<Vec<Py<PyIndexSet>>> {
+    tuple
+        .iter()
+        .map(|item| {
+            item.extract::<Py<PyIndexSet>>().map_err(|_| {
+                PyTypeError::new_err(
+                    "add_variables() expects IndexSet arguments, \
+                     e.g. model.add_variables(T, G, bounds=...)",
+                )
+            })
+        })
+        .collect()
 }
 
 /// Extract a `PyExpr` from a Python object that may be a `PyExpr`, `PyVariable`, or scalar.
