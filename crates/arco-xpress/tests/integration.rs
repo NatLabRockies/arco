@@ -267,7 +267,9 @@ fn test_primal_start() {
     solver
         .set_primal_start(&hints)
         .expect("setting hints before solve should succeed");
-    let solution = solver.solve().expect("solve with primal start should succeed");
+    let solution = solver
+        .solve()
+        .expect("solve with primal start should succeed");
     assert!(
         (solution.objective_value() - 0.0).abs() < 1e-4,
         "Expected objective value 0.0, got {}",
@@ -289,20 +291,11 @@ fn test_solution_metadata() {
         "Solve time should be non-negative, got {}",
         solution.solve_time_seconds()
     );
-    assert!(
-        solution.is_optimal(),
-        "Solution should be optimal"
-    );
-    assert!(
-        solution.is_feasible(),
-        "Solution should be feasible"
-    );
+    assert!(solution.is_optimal(), "Solution should be optimal");
+    assert!(solution.is_feasible(), "Solution should be feasible");
     assert!(
         !solution.is_infeasible(),
         "Solution should not be infeasible"
     );
-    assert!(
-        !solution.is_unbounded(),
-        "Solution should not be unbounded"
-    );
+    assert!(!solution.is_unbounded(), "Solution should not be unbounded");
 }
