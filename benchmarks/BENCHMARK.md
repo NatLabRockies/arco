@@ -44,12 +44,8 @@ i = IndexSet("i", members=range(n))
 j = IndexSet("j", members=range(n))
 bnd = Bounds(lower=-1e20, upper=1e20)
 
-x = model.add_variables(
-    index_sets=[i, j], bounds=bnd, name="x",
-)
-y = model.add_variables(
-    index_sets=[i, j], bounds=bnd, name="y",
-)
+x = model.add_variables(i, j, bounds=bnd, name="x")
+y = model.add_variables(i, j, bounds=bnd, name="y")
 
 model.add_constraints(x - y >= i)
 model.add_constraints(x + y >= 0.0)

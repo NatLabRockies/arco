@@ -39,7 +39,7 @@ models easier to read.
 ## Variable arrays
 
 Once you have index sets, you can create a whole grid of variables in a single
-call. Pass a list of IndexSets to `model.add_variables()` (note the plural),
+call. Pass IndexSets as positional arguments to `model.add_variables()` (note the plural),
 and arco returns a `VariableArray` whose shape matches the Cartesian product of
 the index sets.
 
@@ -52,10 +52,7 @@ is handy for quick objectives or aggregate constraints.
 >>> model = arco.Model()
 >>> T = arco.IndexSet(name="T", size=2)
 >>> G = arco.IndexSet(name="G", members=["solar", "wind", "gas"])
->>> gen = model.add_variables(
-...     index_sets=[T, G],
-...     bounds=arco.Bounds(lower=0.0, upper=100.0),
-... )
+>>> gen = model.add_variables(T, G, bounds=arco.Bounds(lower=0.0, upper=100.0))
 >>> gen.shape
 (2, 3)
 >>> model.minimize(gen.sum())
@@ -114,10 +111,7 @@ zips per-unit costs with the flattened variables and sums the products.
 >>> cost = {"solar": 0.0, "wind": 0.0, "gas": 30.0}
 >>> demand = [120.0, 90.0]
 >>>
->>> gen = model.add_variables(
-...     index_sets=[T, G],
-...     bounds=arco.Bounds(lower=0.0, upper=100.0),
-... )
+>>> gen = model.add_variables(T, G, bounds=arco.Bounds(lower=0.0, upper=100.0))
 >>>
 >>> caps = [capacity[g] for g in G.members] * T.size
 >>> _ = model.add_constraints(gen <= caps)

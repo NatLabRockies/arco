@@ -68,11 +68,7 @@ True
 >>> model = arco.Model()
 >>> t = arco.IndexSet(name="T", size=2)
 >>> g = arco.IndexSet(name="G", members=["solar", "wind", "gas"])
->>> gen = model.add_variables(
-...     index_sets=[t, g],
-...     bounds=arco.Bounds(lower=0.0, upper=100.0),
-...     name="gen",
-... )
+>>> gen = model.add_variables(t, g, bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
 >>> capacity = {"solar": 50.0, "wind": 80.0, "gas": 100.0}
 >>> caps = [capacity[name] for name in g.members] * t.size
 >>> _ = model.add_constraints(gen <= caps)

@@ -60,7 +60,7 @@ enum VariableStorage {
 }
 
 /// A multi-dimensional array of decision variables.
-/// This is ONLY created by Model.add_variables(). Any operation on it produces ExprArray.
+/// Created by `Model.add_variables(T, G, bounds=...)`. Any operation on it produces ExprArray.
 #[pyclass(name = "VariableArray")]
 pub struct PyVariableArray {
     storage: VariableStorage,
