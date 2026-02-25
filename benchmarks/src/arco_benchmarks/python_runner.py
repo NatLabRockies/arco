@@ -62,8 +62,8 @@ def _build_arco(n: int) -> ArcoModel:
     i_set = IndexSet("i", members=list(range(n)))
     j_set = IndexSet("j", members=list(range(n)))
     bounds = Bounds(lower=-1.0e20, upper=1.0e20)
-    x = model.add_variables(index_sets=[i_set, j_set], bounds=bounds, name="x")
-    y = model.add_variables(index_sets=[i_set, j_set], bounds=bounds, name="y")
+    x = model.add_variables(i_set, j_set, bounds=bounds, name="x")
+    y = model.add_variables(i_set, j_set, bounds=bounds, name="y")
     x_view: Any = x
     y_view: Any = y
 

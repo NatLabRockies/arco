@@ -20,7 +20,7 @@ can hand to the solver as an objective.
 >>> model = arco.Model()
 >>> units = arco.IndexSet("unit", members=["solar", "wind", "gas"])
 >>> costs = np.array([0.0, 0.0, 30.0])
->>> gen = model.add_variables(index_sets=[units], bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
+>>> gen = model.add_variables(units, bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
 >>> weighted = costs * gen
 >>> type(weighted).__name__
 'ExprArray'
@@ -45,7 +45,7 @@ to the mathematical notation.
 >>> model = arco.Model()
 >>> units = arco.IndexSet("unit", members=["solar", "wind", "gas"])
 >>> costs = np.array([5.0, 3.0, 30.0])
->>> gen = model.add_variables(index_sets=[units], bounds=arco.Bounds(lower=0.0, upper=100.0))
+>>> gen = model.add_variables(units, bounds=arco.Bounds(lower=0.0, upper=100.0))
 >>> _ = model.add_constraints(gen >= [40.0, 40.0, 0.0])
 >>> model.minimize(np.dot(costs, gen))
 >>> solution = model.solve(log_to_console=False)
@@ -66,7 +66,7 @@ variables created by `add_variables`, so each variable gets its own range.
 >>> units = arco.IndexSet("unit", size=3)
 >>> lo = np.array([0.0, 10.0, 20.0])
 >>> hi = np.array([100.0, 200.0, 300.0])
->>> p = model.add_variables(index_sets=[units], bounds=arco.Bounds(lo, hi), name="power")
+>>> p = model.add_variables(units, bounds=arco.Bounds(lo, hi), name="power")
 >>> [v.bounds for v in p.variables]
 [Bounds(lower=0, upper=100), Bounds(lower=10, upper=200), Bounds(lower=20, upper=300)]
 ```
@@ -87,7 +87,7 @@ any multi-element selection returns a `VariableArray`.
 >>> model = arco.Model()
 >>> rows = arco.IndexSet("row", size=4)
 >>> cols = arco.IndexSet("col", size=3)
->>> x = model.add_variables(index_sets=[rows, cols], bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> x = model.add_variables(rows, cols, bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> x[0, 1]
 Variable(1, Bounds(0, 10))
 >>> x[1:3, 0:2].shape
@@ -113,7 +113,7 @@ always a flat `VariableArray`, regardless of the original dimensionality.
 >>> model = arco.Model()
 >>> rows = arco.IndexSet("row", size=4)
 >>> cols = arco.IndexSet("col", size=3)
->>> x = model.add_variables(index_sets=[rows, cols], bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> x = model.add_variables(rows, cols, bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> mask = np.array([[True,False,True],[False,True,False],[True,False,True],[False,True,False]])
 >>> x[mask].shape
 (6,)
@@ -130,7 +130,7 @@ your data, then apply it to the variable array.
 >>> rows = arco.IndexSet("row", size=3)
 >>> cols = arco.IndexSet("col", size=3)
 >>> G = np.array([[1, 0, 1], [0, 1, 0], [1, 0, 1]])
->>> x = model.add_variables(index_sets=[rows, cols], bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> x = model.add_variables(rows, cols, bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> active = x[G == 1]
 >>> active.shape
 (5,)
@@ -156,7 +156,7 @@ no dimensions remain).
 >>> model = arco.Model()
 >>> i = arco.IndexSet("row", size=3)
 >>> j = arco.IndexSet("col", size=4)
->>> x = model.add_variables(index_sets=[i, j], bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> x = model.add_variables(i, j, bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> x.sum(over=j).shape
 (3,)
 >>> (x >> j).shape
@@ -178,7 +178,7 @@ exhausted, the result is a scalar `Expr`.
 >>> model = arco.Model()
 >>> i = arco.IndexSet("row", size=3)
 >>> j = arco.IndexSet("col", size=4)
->>> x = model.add_variables(index_sets=[i, j], bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> x = model.add_variables(i, j, bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> row_sums = x >> j
 >>> row_sums.shape
 (3,)
@@ -195,7 +195,7 @@ dimensions at once. Passing no argument sums everything to a scalar.
 >>> model = arco.Model()
 >>> i = arco.IndexSet("row", size=3)
 >>> j = arco.IndexSet("col", size=4)
->>> x = model.add_variables(index_sets=[i, j], bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> x = model.add_variables(i, j, bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> total = x.sum()
 >>> type(total).__name__
 'Expr'
@@ -216,8 +216,8 @@ each element is the sum of the corresponding variables. This works with both
 >>> import numpy as np
 >>> model = arco.Model()
 >>> units = arco.IndexSet("unit", size=3)
->>> supply = model.add_variables(index_sets=[units], bounds=arco.Bounds(lower=0.0, upper=50.0))
->>> backup = model.add_variables(index_sets=[units], bounds=arco.Bounds(lower=0.0, upper=20.0))
+>>> supply = model.add_variables(units, bounds=arco.Bounds(lower=0.0, upper=50.0))
+>>> backup = model.add_variables(units, bounds=arco.Bounds(lower=0.0, upper=20.0))
 >>> combined = supply + backup
 >>> type(combined).__name__
 'ExprArray'
@@ -241,7 +241,7 @@ reverses the column order. Both return `ExprArray` objects.
 >>> model = arco.Model()
 >>> rows = arco.IndexSet("row", size=3)
 >>> cols = arco.IndexSet("col", size=3)
->>> x = model.add_variables(index_sets=[rows, cols], bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> x = model.add_variables(rows, cols, bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> diag = np.diag(x)
 >>> diag.shape
 (3,)

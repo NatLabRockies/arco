@@ -30,9 +30,9 @@ use arco_core::types::Bounds;
 use arco_core::{InspectOptions, Model, Objective, Sense, SlackBound, Variable};
 use arco_expr::{ComparisonSense, ConstraintId, VariableId};
 
-use pyo3::exceptions::{PyKeyError, PyRuntimeError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::{PyDict, PyTuple, PyType};
 
 pub(crate) type PyObject = Py<PyAny>;
 
@@ -593,16 +593,27 @@ impl PyModel {
     }
 
     /// Add a vector or grid of variables to the model.
-    #[pyo3(signature = (index_sets, bounds, *, is_integer=false, is_binary=false, name=None))]
+    #[pyo3(signature = (*index_sets, bounds, is_integer=false, is_binary=false, name=None))]
     fn add_variables(
         &mut self,
         py: Python<'_>,
-        index_sets: Vec<Py<PyIndexSet>>,
+        index_sets: &Bound<'_, PyTuple>,
         bounds: &Bound<'_, PyAny>,
         is_integer: bool,
         is_binary: bool,
         name: Option<String>,
     ) -> PyResult<PyVariableArray> {
+        let index_sets: Vec<Py<PyIndexSet>> = index_sets
+            .iter()
+            .map(|item| {
+                item.extract::<Py<PyIndexSet>>().map_err(|_| {
+                    PyTypeError::new_err(
+                        "add_variables() expects IndexSet arguments, e.g. model.add_variables(T, G, bounds=...)",
+                    )
+                })
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+
         if index_sets.is_empty() {
             return Err(errors::IndexSetEmptyError::new_err(
                 "index_sets must be non-empty",

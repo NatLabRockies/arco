@@ -426,9 +426,8 @@ class Model:
     ) -> Variable: ...
     def add_variables(
         self,
-        index_sets: Sequence[IndexSet],
+        *index_sets: IndexSet,
         bounds: Any,
-        *,
         is_integer: bool = False,
         is_binary: bool = False,
         name: str | None = None,
