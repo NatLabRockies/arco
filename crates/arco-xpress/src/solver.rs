@@ -139,6 +139,10 @@ fn get_dbl_attrib(prob: ffi::XPRSprob, attrib: c_int) -> Result<f64, SolverError
 /// | only lower finite    | `G` (>=)        | lower | 0.0           |
 /// | neither finite       | `N` (free)      | 0.0   | 0.0           |
 fn bounds_to_xpress_row(lower: f64, upper: f64) -> (u8, f64, f64) {
+    debug_assert!(
+        lower <= upper || !lower.is_finite() || !upper.is_finite(),
+        "bounds_to_xpress_row: lower ({lower}) > upper ({upper})"
+    );
     let lo_finite = lower.is_finite();
     let up_finite = upper.is_finite();
 
@@ -304,7 +308,7 @@ fn solve_model(
     let mut obj_coeffs = Vec::with_capacity(ncols);
     let mut lower_bounds = Vec::with_capacity(ncols);
     let mut upper_bounds = Vec::with_capacity(ncols);
-    let mut col_types: Vec<u8> = Vec::with_capacity(ncols);
+    let mut col_types: Vec<u8> = Vec::new();
     let mut has_integer = false;
     let mut int_col_indices: Vec<c_int> = Vec::new();
     let mut int_col_limits: Vec<f64> = Vec::new();
@@ -330,30 +334,19 @@ fn solve_model(
         lower_bounds.push(lb);
         upper_bounds.push(ub);
 
-        if var.is_integer {
+        if var.is_integer && var.is_active {
             has_integer = true;
-            col_types.push(
-                if var.bounds.upper <= 1.0 + 1e-12 && var.bounds.lower >= -1e-12 {
-                    b'B'
-                } else {
-                    b'I'
-                },
-            );
+            col_types.push(if ub <= 1.0 + 1e-12 && lb >= -1e-12 {
+                b'B'
+            } else {
+                b'I'
+            });
             int_col_indices.push(index as c_int);
             int_col_limits.push(lb);
-        } else {
-            col_types.push(b'C');
         }
     }
 
-    // ---- 3. Build constraint-id-to-row-index mapping ----
-    let mut constraint_row_map: BTreeMap<ConstraintId, usize> = BTreeMap::new();
-    for index in 0..nrows {
-        let cid = ConstraintId::new(index as u32);
-        constraint_row_map.insert(cid, index);
-    }
-
-    // ---- 4. Build constraint (row) arrays ----
+    // ---- 3. Build constraint (row) arrays ----
     let mut row_types: Vec<u8> = Vec::with_capacity(nrows);
     let mut rhs: Vec<f64> = Vec::with_capacity(nrows);
     let mut rng: Vec<f64> = Vec::with_capacity(nrows);
@@ -385,7 +378,8 @@ fn solve_model(
         }
 
         for (constraint_id, coeff) in column {
-            if let Some(&row_idx) = constraint_row_map.get(constraint_id) {
+            let row_idx = constraint_id.inner() as usize;
+            if row_idx < nrows {
                 mrwind.push(row_idx as c_int);
                 dmatval.push(*coeff);
             }

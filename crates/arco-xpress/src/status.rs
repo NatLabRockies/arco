@@ -37,7 +37,8 @@ pub(crate) fn lp_status_to_core(status: i32) -> CoreSolverStatus {
 
 pub(crate) fn mip_status_to_core(status: i32) -> CoreSolverStatus {
     match status {
-        XPRS_MIP_OPTIMAL | XPRS_MIP_SOLUTION => CoreSolverStatus::Optimal,
+        XPRS_MIP_OPTIMAL => CoreSolverStatus::Optimal,
+        XPRS_MIP_SOLUTION => CoreSolverStatus::TimeLimit,
         XPRS_MIP_INFEAS => CoreSolverStatus::Infeasible,
         XPRS_MIP_UNBOUNDED => CoreSolverStatus::Unbounded,
         _ => CoreSolverStatus::Unknown,
@@ -135,10 +136,10 @@ mod tests {
     }
 
     #[test]
-    fn mip_solution_maps_to_core_optimal() {
+    fn mip_solution_maps_to_core_time_limit() {
         assert_eq!(
             mip_status_to_core(XPRS_MIP_SOLUTION),
-            CoreSolverStatus::Optimal
+            CoreSolverStatus::TimeLimit
         );
     }
 
