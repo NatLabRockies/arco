@@ -1555,6 +1555,17 @@ fn resolve_backend(
     if solver.is_some_and(|s| s.cast::<PyIpopt>().is_ok()) || default_backend == "ipopt" {
         return Ok(Box::new(arco_ipopt::IpoptBackend));
     }
+    #[cfg(not(feature = "ipopt"))]
+    if default_backend == "ipopt" {
+        return Err(errors::SolverInternalError::new_err(
+            "Ipopt backend is not enabled in this build",
+        ));
+    }
+    #[cfg(feature = "xpress")]
+    if solver.is_some_and(|s| s.cast::<PyXpress>().is_ok()) || default_backend == "xpress" {
+        return Ok(Box::new(arco_xpress::XpressBackend));
+    }
+    #[cfg(not(feature = "xpress"))]
     if solver.is_some_and(|s| s.cast::<PyXpress>().is_ok()) || default_backend == "xpress" {
         return Err(errors::SolverInternalError::new_err(
             "Xpress backend is not enabled in this build",

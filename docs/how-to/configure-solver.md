@@ -114,11 +114,49 @@ SolutionStatus.OPTIMAL
 This is equivalent to constructing an `arco.HiGHS(...)` and passing it via the
 `solver` keyword, but more concise for one-off solves.
 
-> [!NOTE]
-> Arco also supports `arco.Xpress(...)` for the FICO Xpress solver backend.
-> Xpress requires a commercial license. The API mirrors `arco.HiGHS(...)` --
-> pass the same settings and use `solver=arco.Xpress(threads=4)` in the solve
-> call.
+## Xpress (LP / MIP solver)
+
+The Xpress backend is available when Arco is built with the `xpress` feature flag.
+Xpress supports LP, MIP, and QP problems. A FICO Xpress license is required.
+
+> [!IMPORTANT]
+> Building with Xpress requires the FICO Xpress Optimizer library to be
+> installed on the system. Set the `XPRESSDIR` environment variable to your
+> Xpress installation directory (e.g. `/opt/xpressmp`).
+
+### Build with Xpress support
+
+```bash
+# Rust crate
+cargo build --features xpress
+
+# Python wheel (maturin)
+maturin develop --features xpress
+```
+
+### Usage
+
+```python
+import arco
+
+solver = arco.Xpress(threads=4, log_to_console=False)
+model = arco.Model()
+x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
+model.minimize(x)
+solution = model.solve(solver=solver)
+```
+
+### Settings mapping
+
+| Setting          | Xpress control            | Notes                             |
+| ---------------- | ------------------------- | --------------------------------- |
+| `time_limit`     | `XPRS_MAXTIME`            |                                   |
+| `mip_gap`        | `XPRS_MIPRELSTOP`         |                                   |
+| `tolerance`      | `XPRS_FEASTOL`            |                                   |
+| `presolve`       | `XPRS_PRESOLVE`           | 1 = on, 0 = off                   |
+| `threads`        | `XPRS_THREADS`            |                                   |
+| `log_to_console` | `XPRS_OUTPUTLOG`          | 1 = on, 0 = off                   |
+| `verbosity`      | --                        | Ignored                           |
 
 ## IPOPT (nonlinear / continuous solver)
 

@@ -15,6 +15,7 @@ arco-expr = { path = "crates/arco-expr" }
 arco-solver = { path = "crates/arco-solver" }
 arco-highs = { path = "crates/arco-highs" }
 arco-ipopt = { path = "crates/arco-ipopt" }
+arco-xpress = { path = "crates/arco-xpress" }
 arco-tools = { path = "crates/arco-tools" }
 arco-blocks = { path = "crates/arco-blocks" }
 
