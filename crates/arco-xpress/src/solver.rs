@@ -359,7 +359,7 @@ fn solve_model(
         rng.push(rng_val);
     }
 
-    // ---- 5. Build CSC matrix ----
+    // ---- 4. Build CSC matrix ----
     let mut mstart: Vec<c_int> = Vec::with_capacity(ncols + 1);
     let mut mrwind: Vec<c_int> = Vec::new();
     let mut dmatval: Vec<f64> = Vec::new();
@@ -384,25 +384,21 @@ fn solve_model(
     // Final sentinel entry
     mstart.push(mrwind.len() as c_int);
 
-    // ---- 6. Initialize Xpress and create problem ----
+    // ---- 5. Initialize Xpress and create problem ----
     let _env_guard = xprs_init()?;
     let prob_guard = xprs_create_prob()?;
     let prob = prob_guard.0;
 
-    // ---- 7. Apply configuration ----
+    // ---- 6. Apply configuration ----
     apply_solver_config(prob, config)?;
 
-    // ---- 8. Load problem ----
+    // ---- 7. Load problem ----
     let ncols_i = ncols as c_int;
     let nrows_i = nrows as c_int;
 
     if has_integer {
         let ngents = int_col_indices.len() as c_int;
-        // SAFETY: All arrays are properly sized and prob is a valid handle.
-        // Row types, rhs, rng have length nrows; obj_coeffs, lower_bounds,
-        // upper_bounds have length ncols; mstart has length ncols+1;
-        // mrwind/dmatval have consistent lengths; col_types/int_col_indices/
-        // int_col_limits have length ngents.
+        // SAFETY: prob is valid; all arrays have correct lengths per Xpress API.
         ffi::check_xprs(unsafe {
             ffi::XPRSloadglobal(
                 prob,
@@ -432,10 +428,7 @@ fn solve_model(
         })
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadglobal failed: {rc}")))?;
     } else {
-        // SAFETY: All arrays are properly sized and prob is a valid handle.
-        // Row types, rhs, rng have length nrows; obj_coeffs, lower_bounds,
-        // upper_bounds have length ncols; mstart has length ncols+1;
-        // mrwind/dmatval have consistent lengths.
+        // SAFETY: prob is valid; all arrays have correct lengths per Xpress API.
         ffi::check_xprs(unsafe {
             ffi::XPRSloadlp(
                 prob,
@@ -457,16 +450,16 @@ fn solve_model(
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadlp failed: {rc}")))?;
     }
 
-    // ---- 9. Set objective sense ----
+    // ---- 8. Set objective sense ----
     let xprs_sense = match sense {
         Sense::Minimize => ffi::XPRS_OBJ_MINIMIZE,
         Sense::Maximize => ffi::XPRS_OBJ_MAXIMIZE,
     };
-    // SAFETY: prob is a valid handle; xprs_sense is a valid constant.
+    // SAFETY: prob is a valid handle.
     ffi::check_xprs(unsafe { ffi::XPRSchgobjsense(prob, xprs_sense) })
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSchgobjsense failed: {rc}")))?;
 
-    // ---- 10. Warm-start (MIP only) ----
+    // ---- 9. Warm-start (MIP only) ----
     if has_integer {
         if let Some(hints) = primal_start {
             let mut sol_cols: Vec<c_int> = Vec::with_capacity(hints.len());
@@ -476,7 +469,7 @@ fn solve_model(
                 sol_vals.push(*value);
             }
             let n = sol_cols.len() as c_int;
-            // SAFETY: prob is valid; sol_vals and sol_cols have length n.
+            // SAFETY: prob is valid; arrays have length n.
             ffi::check_xprs(unsafe {
                 ffi::XPRSaddmipsol(
                     prob,
@@ -497,20 +490,19 @@ fn solve_model(
         }
     }
 
-    // ---- 11. Optimize ----
+    // ---- 10. Optimize ----
+    // SAFETY: prob is a valid handle; null flags means default behavior.
     if has_integer {
-        // SAFETY: prob is valid; empty-string flags means default behavior.
         ffi::check_xprs(unsafe { ffi::XPRSmipoptimize(prob, std::ptr::null()) })
             .map_err(|rc| SolverError::SolverSpecific(format!("XPRSmipoptimize failed: {rc}")))?;
     } else {
-        // SAFETY: prob is valid; empty-string flags means default behavior.
         ffi::check_xprs(unsafe { ffi::XPRSlpoptimize(prob, std::ptr::null()) })
             .map_err(|rc| SolverError::SolverSpecific(format!("XPRSlpoptimize failed: {rc}")))?;
     }
 
     let solve_time = solve_started.elapsed().as_secs_f64();
 
-    // ---- 12. Check status ----
+    // ---- 11. Check status ----
     let (core_status, has_sol, status_str) = if has_integer {
         let raw = get_int_attrib(prob, ffi::XPRS_MIPSTATUS)?;
         (
@@ -552,7 +544,7 @@ fn solve_model(
         });
     }
 
-    // ---- 13. Extract solution ----
+    // ---- 12. Extract solution ----
     let objective_value = if has_integer {
         get_dbl_attrib(prob, ffi::XPRS_MIPOBJVAL)?
     } else {
@@ -564,15 +556,13 @@ fn solve_model(
     let mut constraint_duals = vec![0.0_f64; nrows];
     let mut row_values = vec![0.0_f64; nrows];
 
+    // SAFETY: prob is valid; all output arrays have the correct lengths.
     if has_integer {
-        // SAFETY: prob is valid; primal_values has length ncols,
-        // row_values has length nrows. MIP does not return duals.
         ffi::check_xprs(unsafe {
             ffi::XPRSgetmipsol(prob, primal_values.as_mut_ptr(), row_values.as_mut_ptr())
         })
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSgetmipsol failed: {rc}")))?;
     } else {
-        // SAFETY: prob is valid; all output arrays have the correct lengths.
         ffi::check_xprs(unsafe {
             ffi::XPRSgetlpsol(
                 prob,
@@ -614,9 +604,8 @@ fn solve_model(
 
 /// Xpress solver wrapper.
 ///
-/// Holds a reference to the arco [`Model`], the current [`SolverConfig`], and
-/// optional primal start hints. Use [`Solver::solve`] or
-/// [`Solver::solve_with_config`] to invoke the Xpress optimizer.
+/// Holds an arco [`Model`], the current [`SolverConfig`], and optional primal
+/// start hints.
 pub struct Solver {
     model: Model,
     config: SolverConfig,
@@ -754,9 +743,7 @@ impl Solve for Solver {
 // XpressBackend
 // ---------------------------------------------------------------------------
 
-/// Backend type for Xpress solver integration with `arco-solver`.
-///
-/// Zero-sized struct implementing [`SolverBackend`] for trait-based dispatch.
+/// Zero-sized backend for trait-based dispatch from the Python bindings.
 pub struct XpressBackend;
 
 impl SolverBackend for XpressBackend {
@@ -773,10 +760,6 @@ impl SolverBackend for XpressBackend {
 
     fn name(&self) -> &'static str {
         "Xpress"
-    }
-
-    fn supports_integer(&self) -> bool {
-        true
     }
 }
 

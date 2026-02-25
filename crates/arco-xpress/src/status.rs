@@ -1,8 +1,6 @@
 //! Xpress status to Arco status mapping.
-#![allow(dead_code)]
 
 use arco_core::solver::SolverStatus as CoreSolverStatus;
-use arco_solver::SolverStatus;
 
 // LP status constants (from Xpress C API)
 const XPRS_LP_UNSTARTED: i32 = 0;
@@ -43,10 +41,6 @@ pub(crate) fn mip_status_to_core(status: i32) -> CoreSolverStatus {
         XPRS_MIP_UNBOUNDED => CoreSolverStatus::Unbounded,
         _ => CoreSolverStatus::Unknown,
     }
-}
-
-pub(crate) fn core_to_generic(status: CoreSolverStatus) -> SolverStatus {
-    status.into()
 }
 
 pub(crate) fn lp_has_solution(status: i32) -> bool {

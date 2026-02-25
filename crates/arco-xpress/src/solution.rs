@@ -4,11 +4,10 @@ use arco_core::solver::{Solution as CoreSolution, SolverStatus as CoreSolverStat
 use arco_solver::{SolutionView, SolverStatus};
 use std::collections::BTreeMap;
 
-/// Represents a solution obtained from the Xpress solver.
+/// Solution obtained from the Xpress solver.
 ///
-/// Unlike IPOPT, Xpress handles maximize natively so no objective sign
-/// correction is needed. The solver status is stored as `CoreSolverStatus`
-/// directly (no Xpress-specific status enum).
+/// Xpress handles maximize natively, so no objective sign correction is
+/// needed. The solver status is stored as [`CoreSolverStatus`] directly.
 #[derive(Debug, Clone)]
 pub struct Solution {
     pub(crate) primal_values: Vec<f64>,
@@ -22,12 +21,12 @@ pub struct Solution {
 }
 
 impl Solution {
-    /// Get the objective value.
+    /// Objective function value.
     pub fn objective_value(&self) -> f64 {
         self.objective_value
     }
 
-    /// Get the core solver status.
+    /// Core solver status.
     pub fn core_status(&self) -> CoreSolverStatus {
         self.core_status
     }
@@ -37,47 +36,47 @@ impl Solution {
         self.is_mip
     }
 
-    /// Get all primal values.
+    /// All primal variable values.
     pub fn primal_values(&self) -> &[f64] {
         &self.primal_values
     }
 
-    /// Get all variable dual values (reduced costs).
+    /// Variable dual values (reduced costs).
     pub fn variable_duals(&self) -> &[f64] {
         &self.variable_duals
     }
 
-    /// Get all constraint dual values (shadow prices).
+    /// Constraint dual values (shadow prices).
     pub fn constraint_duals(&self) -> &[f64] {
         &self.constraint_duals
     }
 
-    /// Get solve time in seconds.
+    /// Solve wall-clock time in seconds.
     pub fn solve_time_seconds(&self) -> f64 {
         self.solve_time_seconds
     }
 
-    /// Get the primal value of a variable at the given index.
+    /// Primal value of variable at `index`, or `None` if out of bounds.
     pub fn get_primal(&self, index: usize) -> Option<f64> {
         self.primal_values.get(index).copied()
     }
 
-    /// Get the dual value (reduced cost) of a variable at the given index.
+    /// Reduced cost of variable at `index`, or `None` if out of bounds.
     pub fn get_variable_dual(&self, index: usize) -> Option<f64> {
         self.variable_duals.get(index).copied()
     }
 
-    /// Get the dual value (shadow price) of a constraint at the given index.
+    /// Shadow price of constraint at `index`, or `None` if out of bounds.
     pub fn get_constraint_dual(&self, index: usize) -> Option<f64> {
         self.constraint_duals.get(index).copied()
     }
 
-    /// Check if solution is optimal.
+    /// Whether the solution status is optimal.
     pub fn is_optimal(&self) -> bool {
         matches!(self.core_status, CoreSolverStatus::Optimal)
     }
 
-    /// Check if solution is feasible (includes optimal and limit-reached).
+    /// Whether the solver found a feasible solution (optimal or limit-reached).
     pub fn is_feasible(&self) -> bool {
         matches!(
             self.core_status,
@@ -87,12 +86,12 @@ impl Solution {
         )
     }
 
-    /// Check if solution is infeasible.
+    /// Whether the problem was proven infeasible.
     pub fn is_infeasible(&self) -> bool {
         matches!(self.core_status, CoreSolverStatus::Infeasible)
     }
 
-    /// Check if solution is unbounded.
+    /// Whether the problem was proven unbounded.
     pub fn is_unbounded(&self) -> bool {
         matches!(self.core_status, CoreSolverStatus::Unbounded)
     }
@@ -118,7 +117,7 @@ impl SolutionView for Solution {
     }
 
     fn status(&self) -> SolverStatus {
-        crate::status::core_to_generic(self.core_status)
+        self.core_status.into()
     }
 
     fn get_primal(&self, index: usize) -> Option<f64> {
