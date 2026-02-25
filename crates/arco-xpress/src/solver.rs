@@ -73,7 +73,7 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
 fn xprs_create_prob() -> Result<ProbGuard, SolverError> {
     let mut prob: ffi::XPRSprob = std::ptr::null_mut();
     // SAFETY: prob is a valid pointer-to-null that XPRScreateprob will fill.
-    ffi::check_xprs(unsafe { ffi::XPRScreateprob(&mut prob) })
+    ffi::check_xprs(unsafe { ffi::XPRScreateprob(&raw mut prob) })
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRScreateprob failed: {rc}")))?;
     Ok(ProbGuard(prob))
 }
@@ -105,9 +105,9 @@ fn set_dbl_control(prob: ffi::XPRSprob, control: c_int, value: f64) -> Result<()
 fn get_int_attrib(prob: ffi::XPRSprob, attrib: c_int) -> Result<c_int, SolverError> {
     let mut value: c_int = 0;
     // SAFETY: prob is a valid handle; value is a valid pointer to receive output.
-    ffi::check_xprs(unsafe { ffi::XPRSgetintattrib(prob, attrib, &mut value) }).map_err(|rc| {
-        SolverError::SolverSpecific(format!("XPRSgetintattrib({attrib}) failed: {rc}"))
-    })?;
+    ffi::check_xprs(unsafe { ffi::XPRSgetintattrib(prob, attrib, &raw mut value) }).map_err(
+        |rc| SolverError::SolverSpecific(format!("XPRSgetintattrib({attrib}) failed: {rc}")),
+    )?;
     Ok(value)
 }
 
@@ -116,9 +116,9 @@ fn get_int_attrib(prob: ffi::XPRSprob, attrib: c_int) -> Result<c_int, SolverErr
 fn get_dbl_attrib(prob: ffi::XPRSprob, attrib: c_int) -> Result<f64, SolverError> {
     let mut value: f64 = 0.0;
     // SAFETY: prob is a valid handle; value is a valid pointer to receive output.
-    ffi::check_xprs(unsafe { ffi::XPRSgetdblattrib(prob, attrib, &mut value) }).map_err(|rc| {
-        SolverError::SolverSpecific(format!("XPRSgetdblattrib({attrib}) failed: {rc}"))
-    })?;
+    ffi::check_xprs(unsafe { ffi::XPRSgetdblattrib(prob, attrib, &raw mut value) }).map_err(
+        |rc| SolverError::SolverSpecific(format!("XPRSgetdblattrib({attrib}) failed: {rc}")),
+    )?;
     Ok(value)
 }
 
@@ -242,11 +242,7 @@ fn apply_solver_config(prob: ffi::XPRSprob, config: &SolverConfig) -> Result<(),
     validate_solver_config(config)?;
 
     // Logging: off by default
-    let log_value = if config.log_to_console.unwrap_or(false) {
-        1
-    } else {
-        0
-    };
+    let log_value = i32::from(config.log_to_console.unwrap_or(false));
     set_int_control(prob, ffi::XPRS_OUTPUTLOG, log_value)?;
 
     if let Some(limit) = config.time_limit {
@@ -257,7 +253,7 @@ fn apply_solver_config(prob: ffi::XPRSprob, config: &SolverConfig) -> Result<(),
         set_dbl_control(prob, ffi::XPRS_MIPRELSTOP, gap)?;
     }
     if let Some(presolve) = config.presolve {
-        let val = if presolve { 1 } else { 0 };
+        let val = i32::from(presolve);
         set_int_control(prob, ffi::XPRS_PRESOLVE, val)?;
     }
     if let Some(threads) = config.threads {
@@ -372,7 +368,7 @@ fn solve_model(
         mstart.push(mrwind.len() as c_int);
 
         let var = model.get_variable(var_id).ok();
-        let is_active = var.map_or(false, |v| v.is_active);
+        let is_active = var.is_some_and(|v| v.is_active);
         if !is_active {
             continue;
         }
@@ -852,7 +848,7 @@ mod tests {
     #[test]
     fn test_clamp_bound_finite() {
         assert_eq!(clamp_bound(42.0), 42.0);
-        assert_eq!(clamp_bound(-3.14), -3.14);
+        assert_eq!(clamp_bound(-42.5), -42.5);
         assert_eq!(clamp_bound(0.0), 0.0);
     }
 
