@@ -570,3 +570,9 @@ bindings/python/licenses/
 
 # Hiding LLM plan
 docs/plan
+
+#
+artifacts/
+benchmarks/plots/
+benchmarks/results/
+benchmarks/output/
