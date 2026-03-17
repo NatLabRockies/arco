@@ -11,6 +11,10 @@ inputs:
   just-version:
     description: just version to install.
     required: true
+  rust-toolchain-version:
+    description: Rust toolchain version to install and use.
+    required: false
+    default: "1.85"
   install-uv:
     description: Whether to install uv and prime its cache.
     required: false
@@ -53,10 +57,13 @@ runs:
         enable-cache: false
 
     - name: Set up Rust
-      uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
-      with:
-        toolchain: "1.85"
-        components: rustfmt, clippy
+      shell: bash
+      env:
+        RUST_TOOLCHAIN_VERSION: ${{ inputs.rust-toolchain-version }}
+      run: |
+        rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
+        rustup component add rustfmt clippy --toolchain "$RUST_TOOLCHAIN_VERSION"
+        rustup default "$RUST_TOOLCHAIN_VERSION"
 
     - name: Cache Rust build artifacts
       uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2

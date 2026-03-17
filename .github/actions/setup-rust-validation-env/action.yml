@@ -11,6 +11,10 @@ inputs:
   just-version:
     description: just version passed through to build environment setup.
     required: true
+  rust-toolchain-version:
+    description: Rust toolchain version passed through to build environment setup.
+    required: false
+    default: "1.85"
 
 runs:
   using: composite
@@ -21,5 +25,6 @@ runs:
         python-version: ${{ inputs.python-version }}
         uv-version: ${{ inputs.uv-version }}
         just-version: ${{ inputs.just-version }}
+        rust-toolchain-version: ${{ inputs.rust-toolchain-version }}
         install-uv: "false"
         sync-python-licenses: "false"
