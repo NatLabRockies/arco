@@ -18,6 +18,7 @@ env:
   UV_VERSION: "0.9.4"
   JUST_VERSION: "1.5.0"
   PYTHON_LATEST: "3.12"
+  RUST_TOOLCHAIN_VERSION: "1.85"
 
 jobs:
   workflow-quality:
@@ -51,6 +52,7 @@ jobs:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
 
       - name: Run clippy (core)
         run: just clippy-core
@@ -80,6 +82,7 @@ jobs:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
 
       - name: Run clippy (${{ matrix.solver.package }})
         run: just clippy-solver ${{ matrix.solver.package }}
@@ -103,6 +106,7 @@ jobs:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
 
       - name: Run Rust tests (core)
         run: just test-core
@@ -132,6 +136,7 @@ jobs:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
 
       - name: Run Rust tests (${{ matrix.solver.package }})
         run: just test-solver ${{ matrix.solver.package }}
@@ -160,6 +165,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
           save-uv-cache: "false"
           save-rust-cache: "false"
 

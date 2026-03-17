@@ -1,5 +1,8 @@
 name: rust-fmt
 
+env:
+  RUST_TOOLCHAIN_VERSION: "1.85"
+
 on:
   pull_request:
   push:
@@ -24,10 +27,10 @@ jobs:
           persist-credentials: false
 
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
-        with:
-          toolchain: "1.85"
-          components: rustfmt
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
+          rustup component add rustfmt --toolchain "$RUST_TOOLCHAIN_VERSION"
+          rustup default "$RUST_TOOLCHAIN_VERSION"
 
       - name: Check Rust formatting
-        run: cargo fmt --all -- --check
+        run: cargo +"$RUST_TOOLCHAIN_VERSION" fmt --all -- --check

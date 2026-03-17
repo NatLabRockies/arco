@@ -16,6 +16,7 @@ permissions:
 env:
   UV_VERSION: "0.9.4"
   JUST_VERSION: "1.5.0"
+  RUST_TOOLCHAIN_VERSION: "1.85"
 
 jobs:
   release-please:
@@ -62,6 +63,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
 
       - name: Build wheel (Linux, PyPI-compatible)
         if: runner.os == 'Linux'
