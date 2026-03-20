@@ -1,0 +1,33 @@
+{
+  "case_id": "pcm",
+  "active_scenario": "BaseCase",
+  "sets": {
+    "assets": ["Thermal1", "Thermal2"],
+    "time": {
+      "steps": 24,
+      "resolution": "PT1H"
+    }
+  },
+  "parameters": {
+    "series": ["demand[t]", "lol_penalty[t]"],
+    "indexed": ["fuel_cost[a,t]"],
+    "asset": [
+      "initial_commitment[a]",
+      "p_max[a]",
+      "p_min[a]",
+      "ramp_down[a]",
+      "ramp_up[a]",
+      "startup_cost[a]"
+    ]
+  },
+  "variable_families": [
+    "commit[a,t]",
+    "generation[a,t]",
+    "shutdown[a,t]",
+    "start[a,t]",
+    "unserved_energy[t]"
+  ],
+  "chronology": {
+    "initial_commitment_boundary": "initial_commitment[a]"
+  }
+}

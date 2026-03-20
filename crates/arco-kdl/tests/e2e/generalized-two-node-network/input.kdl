@@ -1,0 +1,58 @@
+technology "Generator" {
+  control "dispatch"
+}
+
+technology "Line" {
+  control "flow"
+}
+
+operation "Dispatch" {
+  constraint "capacity_limit" {
+    dispatch[g,t] <= capacity_mw[g]
+  }
+}
+
+operation "Transmission" {
+  constraint "forward_limit" {
+    -thermal_limit_mw[l] <= flow[l,t] <= thermal_limit_mw[l]
+  }
+}
+
+rule "NodeBalance" {
+  constraint "balance" {
+    sum(dispatch[g,t] for g in generators if generator_node[g] == n)
+    + sum(flow[l,t] for l in incoming_lines if line_to[l] == n)
+    - sum(flow[l,t] for l in outgoing_lines if line_from[l] == n)
+    = demand[n,t]
+  }
+}
+
+expression "GenerationCost" {
+  sum(variable_cost[g] * dispatch[g,t] for g in generators for t in time)
+}
+
+expression "LossPenalty" {
+  sum(loss_penalty[n,t] for n in nodes for t in time)
+}
+
+minimize "TotalCost" {
+  GenerationCost + LossPenalty
+}
+
+scenario "TwoNodeDispatch" {
+  horizon steps=24 resolution="PT1H"
+  technology "Generator"
+  technology "Line"
+  operation "Dispatch"
+  operation "Transmission"
+  rule "NodeBalance"
+  data "demand" from="data/demand.csv"
+  data "generator_node" from="data/generator_node.csv"
+  data "line_from" from="data/line_from.csv"
+  data "line_to" from="data/line_to.csv"
+  data "variable_cost" from="data/variable_cost.csv"
+  data "capacity_mw" from="data/capacity_mw.csv"
+  data "thermal_limit_mw" from="data/thermal_limit_mw.csv"
+  data "loss_penalty" from="data/loss_penalty.csv"
+  minimize "TotalCost"
+}

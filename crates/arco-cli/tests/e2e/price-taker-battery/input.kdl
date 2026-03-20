@@ -1,0 +1,49 @@
+technology "Battery" {
+  control "charge"
+  control "discharge"
+  state "soc"
+}
+
+asset "Battery1" {
+  technology "Battery"
+  operation "PriceTakerBattery"
+  power_mw 100
+  energy_mwh 400
+  charge_efficiency 0.92
+  discharge_efficiency 0.92
+  initial_soc_mwh 200
+  terminal_soc_mwh 200
+}
+
+operation "PriceTakerBattery" {
+  constraint name="soc_balance" {
+    soc[a,t] = soc[a,t-1] + charge_efficiency[a] * charge[a,t] - discharge[a,t] / discharge_efficiency[a]
+  }
+  constraint "charge_limit" {
+    charge[a,t] <= power_mw[a]
+  }
+  constraint "discharge_limit" {
+    discharge[a,t] <= power_mw[a]
+  }
+  constraint "soc_bounds" {
+    0 <= soc[a,t] <= energy_mwh[a]
+  }
+}
+
+expression "ArbitrageRevenue" {
+  sum(prices[t] * (discharge[a,t] - charge[a,t]) for a in assets for t in time)
+}
+
+maximize "ArbitrageProfit" {
+  ArbitrageRevenue
+}
+
+scenario "BatteryArbitrageDay" {
+  horizon steps=24 resolution="PT1H"
+  technology "Battery"
+  operation "PriceTakerBattery"
+  data "prices" from="data/prices.csv"
+  asset "Battery1"
+  maximize "ArbitrageProfit"
+  report "ArbitrageRevenue"
+}

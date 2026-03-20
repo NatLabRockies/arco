@@ -49,14 +49,101 @@ impl Drop for ProbGuard {
     }
 }
 
-/// Initialize the Xpress environment, returning an RAII guard that frees it on
-/// drop.
+const ERRMSG_BUF_LEN: c_int = 512;
+
+/// Retrieve the current Xpress license error message.
+#[allow(unsafe_code)]
+fn xprs_lic_errmsg() -> String {
+    let mut buf = [0 as std::ffi::c_char; ERRMSG_BUF_LEN as usize];
+    // SAFETY: buf is a valid, zeroed buffer of the declared length.
+    unsafe { ffi::XPRSgetlicerrmsg(buf.as_mut_ptr(), ERRMSG_BUF_LEN) };
+    unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Initialize the Xpress environment, returning an RAII guard that frees it
+/// on drop.
+///
+/// Xpress SDK 9+ requires `XPRSlicense` before `XPRSinit`. Additionally,
+/// `XPRSinit` independently searches `XPRESSDIR/bin/xpauth.xpr` for a
+/// license file, ignoring whatever `XPRSlicense` loaded. The only way to
+/// override this is to set the `XPAUTH_PATH` env var before calling
+/// `XPRSinit`.
+///
+/// License candidates are tried in this order:
+/// 1. Explicit `XPAUTH_PATH` (if already set by the user)
+/// 2. `$XPRESSDIR/bin/community-xpauth.xpr` (community license)
+/// 3. `$XPRESSDIR/bin/xpauth.xpr` (commercial license)
+/// 4. `$XPRESSDIR/xpauth.xpr`
+///
+/// The community license (`hostid="any"`) is tried before the commercial
+/// one so that a stale commercial license for a different machine does not
+/// poison the Xpress init state.
 #[allow(unsafe_code)]
 fn xprs_init() -> Result<XpressGuard, SolverError> {
-    // SAFETY: XPRSinit with null starts default initialization; safe to call.
-    ffi::check_xprs(unsafe { ffi::XPRSinit(std::ptr::null()) })
-        .map_err(|rc| SolverError::SolverSpecific(format!("XPRSinit failed: {rc}")))?;
-    Ok(XpressGuard)
+    let xpress_dir = std::env::var("XPRESSDIR").ok();
+    let original_xpauth = std::env::var("XPAUTH_PATH").ok();
+
+    // Build candidate license file paths in priority order.
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(path) = &original_xpauth {
+        candidates.push(path.clone());
+    }
+    if let Some(dir) = &xpress_dir {
+        for suffix in &["bin/community-xpauth.xpr", "bin/xpauth.xpr", "xpauth.xpr"] {
+            candidates.push(format!("{dir}/{suffix}"));
+        }
+    }
+
+    // Try each candidate: call XPRSlicense to load the file, then set
+    // XPAUTH_PATH so XPRSinit uses it (instead of auto-discovering a
+    // different file in XPRESSDIR). Clean up with XPRSfree on failure so
+    // the next candidate can be tried.
+    for candidate in &candidates {
+        let Ok(c_path) = std::ffi::CString::new(candidate.as_str()) else {
+            continue;
+        };
+        let mut lic_status: std::ffi::c_int = 0;
+        // SAFETY: c_path is a valid, null-terminated C string.
+        if unsafe { ffi::XPRSlicense(&raw mut lic_status, c_path.as_ptr()) } != 0 {
+            continue;
+        }
+        // SAFETY: single-threaded init path; restored after attempt.
+        unsafe { std::env::set_var("XPAUTH_PATH", candidate) };
+        // SAFETY: XPRSlicense succeeded.
+        let init_rc = unsafe { ffi::XPRSinit(std::ptr::null()) };
+        if init_rc == 0 {
+            // Success — restore XPAUTH_PATH and return.
+            restore_env("XPAUTH_PATH", &original_xpauth);
+            return Ok(XpressGuard);
+        }
+        // Failed — clean up so the next candidate can be tried.
+        unsafe { ffi::XPRSfree() };
+    }
+
+    // All candidates exhausted — restore env and report failure.
+    restore_env("XPAUTH_PATH", &original_xpauth);
+    let dir_info = xpress_dir.as_deref().unwrap_or("(not set)");
+    let msg = xprs_lic_errmsg();
+    Err(SolverError::SolverSpecific(format!(
+        "Xpress license initialization failed: {msg} [XPRESSDIR={dir_info}]\n\
+         \n\
+         To use the Xpress community edition, download and install it from\n\
+         https://www.fico.com/en/products/fico-xpress-optimization\n\
+         The installer generates a machine-specific xpauth.xpr license file."
+    )))
+}
+
+/// Restore an environment variable to its original value, or remove it if it
+/// was originally unset.
+#[allow(unsafe_code)]
+fn restore_env(key: &str, original: &Option<String>) {
+    // SAFETY: called from single-threaded init/cleanup path.
+    match original {
+        Some(val) => unsafe { std::env::set_var(key, val) },
+        None => unsafe { std::env::remove_var(key) },
+    }
 }
 
 /// Create a new Xpress problem, returning an RAII guard that destroys it on
@@ -373,7 +460,7 @@ fn solve_model(
         let ngents = int_col_indices.len() as c_int;
         // SAFETY: prob is valid; all arrays have correct lengths per Xpress API.
         ffi::check_xprs(unsafe {
-            ffi::XPRSloadglobal(
+            ffi::XPRSloadmip(
                 prob,
                 std::ptr::null(),                // probname
                 ncols_i,                         // ncols
@@ -399,7 +486,7 @@ fn solve_model(
                 std::ptr::null(),                // dref
             )
         })
-        .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadglobal failed: {rc}")))?;
+        .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadmip failed: {rc}")))?;
     } else {
         // SAFETY: prob is valid; all arrays have correct lengths per Xpress API.
         ffi::check_xprs(unsafe {

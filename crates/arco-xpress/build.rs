@@ -10,15 +10,26 @@ fn main() {
         None
     });
 
-    if let Some(dir) = xpress_dir {
-        let lib_dir = format!("{dir}/lib");
-        println!("cargo:rustc-link-search=native={lib_dir}");
-        println!("cargo:rustc-link-lib=dylib=xprs");
-        println!("cargo:rustc-cfg=has_xpress");
-    } else {
-        println!(
-            "cargo:warning=XPRESSDIR not set and Xpress not found in default locations. \
-             FFI functions will not link. Set XPRESSDIR to your Xpress installation directory."
-        );
+    match xpress_dir {
+        Some(dir) => {
+            let lib_dir = format!("{dir}/lib");
+            println!("cargo:rustc-link-search=native={lib_dir}");
+            println!("cargo:rustc-link-lib=dylib=xprs");
+        }
+        None => {
+            panic!(
+                "XPRESSDIR not set and Xpress SDK not found in default locations.\n\
+                 Set XPRESSDIR to your FICO Xpress installation directory.\n\
+                 \n\
+                 On macOS (DMG install):\n\
+                     export XPRESSDIR=\"/Applications/FICO Xpress/xpressmp\"\n\
+                 \n\
+                 On Linux:\n\
+                     export XPRESSDIR=\"/opt/xpressmp\"\n\
+                 \n\
+                 To use HiGHS instead (no extra dependencies):\n\
+                     cargo build without the xpress feature"
+            );
+        }
     }
 }

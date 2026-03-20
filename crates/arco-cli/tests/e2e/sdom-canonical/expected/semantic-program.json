@@ -1,0 +1,47 @@
+{
+  "case_id": "sdom-canonical",
+  "active_scenario": "SDOMCanonical",
+  "sets": {
+    "assets": [
+      "DispatchableHydro",
+      "GasCT",
+      "LiIon",
+      "PV_North",
+      "PV_South",
+      "TradeNode",
+      "Wind_East"
+    ],
+    "candidate_assets": [],
+    "time": {
+      "steps": 24,
+      "resolution": "PT1H"
+    }
+  },
+  "parameters": {
+    "series": [],
+    "indexed": [],
+    "asset": []
+  },
+  "variable_families": [
+    "pv_fraction[p]",
+    "wind_fraction[w]",
+    "bal_capacity[k]",
+    "power_charge[j]",
+    "power_discharge[j]",
+    "energy_cap[j]",
+    "pv_dispatch[p,t]",
+    "wind_dispatch[w,t]",
+    "bal_dispatch[k,t]",
+    "charge[j,t]",
+    "discharge[j,t]",
+    "charge_indicator[j,t]",
+    "soc[j,t]",
+    "dispatch[h,t]",
+    "imports[n,t]",
+    "exports[n,t]"
+  ],
+  "chronology": {
+    "initial_boundary": "initial_soc_mwh"
+  },
+  "lowering_rules": []
+}

@@ -1,0 +1,78 @@
+{
+  "case_id": "sdom",
+  "active_scenario": "SDOMCase",
+  "sets": {
+    "assets": [
+      "DispatchableHydro",
+      "GasCT",
+      "LiIon",
+      "PV_North",
+      "PV_South",
+      "TradeNode",
+      "Wind_East"
+    ],
+    "candidate_assets": [],
+    "time": {
+      "steps": 24,
+      "resolution": "PT1H"
+    }
+  },
+  "parameters": {
+    "series": [
+      "demand[t]",
+      "export_price[t]",
+      "import_price[t]",
+      "nuclear_gen[t]"
+    ],
+    "indexed": [
+      "hydro_max[a,t]",
+      "hydro_min[a,t]",
+      "solar_cf[a,t]",
+      "wind_cf[a,t]"
+    ],
+    "asset": [
+      "annualized_bal_invest[a]",
+      "annualized_energy_cost[a]",
+      "annualized_max_cycles[a]",
+      "annualized_power_cost[a]",
+      "annualized_pv_cost[a]",
+      "annualized_wind_cost[a]",
+      "cost_ratio[a]",
+      "initial_soc_mwh[a]",
+      "marginal_cost[a]",
+      "max_bal_cap[a]",
+      "max_dur[a]",
+      "max_export[a]",
+      "max_import[a]",
+      "max_stor_power[a]",
+      "min_bal_cap[a]",
+      "min_dur[a]",
+      "pv_max_cap[a]",
+      "roundtrip_eff[a]",
+      "vom_stor[a]",
+      "wind_max_cap[a]"
+    ]
+  },
+  "variable_families": [
+    "bal_capacity[a]",
+    "bal_dispatch[a,t]",
+    "charge[a,t]",
+    "charge_indicator[a,t]",
+    "discharge[a,t]",
+    "dispatch[a,t]",
+    "energy_cap[a]",
+    "exports[a,t]",
+    "imports[a,t]",
+    "power_charge[a]",
+    "power_discharge[a]",
+    "pv_dispatch[a,t]",
+    "pv_fraction[a]",
+    "soc[a,t]",
+    "wind_dispatch[a,t]",
+    "wind_fraction[a]"
+  ],
+  "chronology": {
+    "initial_boundary": "initial_soc_mwh[a]"
+  },
+  "lowering_rules": []
+}

@@ -62,7 +62,7 @@ unsafe extern "C" {
         dub: *const c_double,
     ) -> c_int;
 
-    pub fn XPRSloadglobal(
+    pub fn XPRSloadmip(
         prob: XPRSprob,
         probname: *const c_char,
         ncols: c_int,
@@ -134,6 +134,10 @@ unsafe extern "C" {
     // Attributes
     pub fn XPRSgetintattrib(prob: XPRSprob, ipar: c_int, p_value: *mut c_int) -> c_int;
     pub fn XPRSgetdblattrib(prob: XPRSprob, ipar: c_int, p_value: *mut c_double) -> c_int;
+
+    // Licensing (required before XPRSinit on newer SDK versions)
+    pub fn XPRSlicense(lic: *mut c_int, path: *const c_char) -> c_int;
+    pub fn XPRSgetlicerrmsg(msg: *mut c_char, len: c_int) -> c_int;
 
     // Version
     /// Caller must provide a buffer of at least 16 bytes.
