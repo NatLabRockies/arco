@@ -1,0 +1,12 @@
+{
+  "case_id": "simple-electricity-market-storage",
+  "expect_parse_success": true,
+  "expect_semantic_validation_success": true,
+  "expect_lowering_success": true,
+  "expect_solve_success": true,
+  "objective": {
+    "name": "TotalSystemCost",
+    "sense": "minimize"
+  },
+  "reports": ["DispatchCost"]
+}

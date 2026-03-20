@@ -1,6 +1,18 @@
 [workspace]
 members = ["crates/*", "bindings/python"]
-exclude=["scripts"]
+exclude = ["scripts"]
+default-members = [
+    "crates/arco-bench",
+    "crates/arco-blocks",
+    "crates/arco-cli",
+    "crates/arco-core",
+    "crates/arco-expr",
+    "crates/arco-highs",
+    "crates/arco-kdl",
+    "crates/arco-solver",
+    "crates/arco-tools",
+    "crates/arco-xpress",
+]
 resolver = "3"
 
 [workspace.dependencies]
@@ -18,6 +30,8 @@ arco-ipopt = { path = "crates/arco-ipopt" }
 arco-xpress = { path = "crates/arco-xpress" }
 arco-tools = { path = "crates/arco-tools" }
 arco-blocks = { path = "crates/arco-blocks" }
+arco-kdl = { path = "crates/arco-kdl" }
+arco-cli = { path = "crates/arco-cli" }
 
 [workspace.package]
 version = "0.2.0"
