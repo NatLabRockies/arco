@@ -91,11 +91,7 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
         candidates.push(path.clone());
     }
     if let Some(dir) = &xpress_dir {
-        for suffix in &[
-            "bin/community-xpauth.xpr",
-            "bin/xpauth.xpr",
-            "xpauth.xpr",
-        ] {
+        for suffix in &["bin/community-xpauth.xpr", "bin/xpauth.xpr", "xpauth.xpr"] {
             candidates.push(format!("{dir}/{suffix}"));
         }
     }
