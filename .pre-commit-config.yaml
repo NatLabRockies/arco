@@ -50,3 +50,14 @@ repos:
         language: node
         additional_dependencies: ["prettier@3"]
         types_or: [yaml, json5]
+
+  - repo: local
+    hooks:
+      - id: zizmor
+        name: zizmor
+        entry: uvx zizmor .github
+        language: system
+        types: [yaml]
+        files: ^\.github/workflows/.*\.yaml$
+        pass_filenames: false
+        stages: [pre-push]

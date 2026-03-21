@@ -132,9 +132,9 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@a54c7afa936fefeb4456b2dd8068181cee6b0c6d # stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
+        run: |
+          rustup toolchain install ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rustup default ${{ env.RUST_TOOLCHAIN_VERSION }}
 
       - name: Install cargo-dist
         run: cargo install cargo-dist
