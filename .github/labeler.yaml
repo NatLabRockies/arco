@@ -17,3 +17,33 @@ release:
 tests:
   - changed-files:
       - any-glob-to-any-file: "docs/**"
+
+solver:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/arco-solver/**"
+          - "crates/arco-highs/**"
+          - "crates/arco-ipopt/**"
+          - "crates/arco-xpress/**"
+
+solver_highs:
+  - changed-files:
+      - any-glob-to-any-file: "crates/arco-highs/**"
+
+solver_ipopt:
+  - changed-files:
+      - any-glob-to-any-file: "crates/arco-ipopt/**"
+
+solver_xpress:
+  - changed-files:
+      - any-glob-to-any-file: "crates/arco-xpress/**"
+
+dsl:
+  - changed-files:
+      - any-glob-to-any-file: "crates/arco-dsl/**"
+
+kdl:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "crates/arco-kdl/**"
+          - "**/*.kdl"

@@ -375,14 +375,6 @@ impl HighsModel {
     /// number of columns in the model.
     pub fn set_primal_start(&mut self, cols: Vec<f64>) -> Result<(), HighsModelError> {
         if cols.len() != self.columns.len() {
-            warn!(
-                component = "solver",
-                operation = "set_primal_start",
-                status = "error",
-                expected = self.columns.len(),
-                got = cols.len(),
-                "Primal start length mismatch"
-            );
             return Err(HighsModelError::PrimalStartLengthMismatch {
                 expected: self.columns.len(),
                 got: cols.len(),

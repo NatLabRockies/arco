@@ -15,6 +15,10 @@ inputs:
     description: Rust toolchain version passed through to build environment setup.
     required: false
     default: "1.85"
+  rust-cache-shared-key:
+    description: Shared key for Swatinem/rust-cache to avoid cache thrashing between jobs.
+    required: false
+    default: "rust-workspace"
 
 runs:
   using: composite
@@ -28,3 +32,4 @@ runs:
         rust-toolchain-version: ${{ inputs.rust-toolchain-version }}
         install-uv: "false"
         sync-python-licenses: "false"
+        rust-cache-shared-key: ${{ inputs.rust-cache-shared-key }}
