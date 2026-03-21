@@ -69,28 +69,6 @@ a tighter variant for quick validation without duplicating every setting.
 0.01
 ```
 
-## Solver settings reference
-
-All settings return `None` when not explicitly set, in which case the solver
-backend uses its own default.
-
-| Setting          | Type    | Description                                                       |
-| ---------------- | ------- | ----------------------------------------------------------------- |
-| `presolve`       | `bool`  | Enable or disable the presolve phase.                             |
-| `threads`        | `int`   | Number of threads the solver may use.                             |
-| `tolerance`      | `float` | Feasibility tolerance for primal and dual values.                 |
-| `time_limit`     | `float` | Maximum wall-clock seconds the solver may run.                    |
-| `mip_gap`        | `float` | Relative MIP optimality gap at which the solver stops.            |
-| `verbosity`      | `int`   | Solver output verbosity level (backend-specific scale).           |
-| `log_to_console` | `bool`  | Whether the solver prints progress to the console during a solve. |
-
-> [!NOTE]
-> Not every backend interprets every setting. If a setting does not apply to the
-> chosen backend it is silently ignored.
->
-> `time_limit`, `mip_gap`, and `tolerance` must be finite and non-negative.
-> `threads` must be at least `1`.
-
 ## Pass settings directly to solve
 
 When you only need solver settings for a single call and do not plan to reuse
@@ -114,19 +92,63 @@ SolutionStatus.OPTIMAL
 This is equivalent to constructing an `arco.HiGHS(...)` and passing it via the
 `solver` keyword, but more concise for one-off solves.
 
+## Solver settings reference
+
+All settings return `None` when not explicitly set, in which case the solver
+backend uses its own default.
+
+| Setting          | Type    | Description                                                       |
+| ---------------- | ------- | ----------------------------------------------------------------- |
+| `presolve`       | `bool`  | Enable or disable the presolve phase.                             |
+| `threads`        | `int`   | Number of threads the solver may use.                             |
+| `tolerance`      | `float` | Feasibility tolerance for primal and dual values.                 |
+| `time_limit`     | `float` | Maximum wall-clock seconds the solver may run.                    |
+| `mip_gap`        | `float` | Relative MIP optimality gap at which the solver stops.            |
+| `verbosity`      | `int`   | Solver output verbosity level (backend-specific scale).           |
+| `log_to_console` | `bool`  | Whether the solver prints progress to the console during a solve. |
+
+> [!NOTE]
+> Not every backend interprets every setting. If a setting does not apply to the
+> chosen backend it is silently ignored.
+>
+> `time_limit`, `mip_gap`, and `tolerance` must be finite and non-negative.
+> `threads` must be at least `1`.
+
 ## Xpress (LP / MIP solver)
 
 The Xpress backend is available when Arco is built with the `xpress` feature flag.
-Xpress supports LP, MIP, and QP problems. A FICO Xpress license is required.
+Xpress supports LP, MIP, and QP problems.
 
 > [!IMPORTANT]
-> Building with Xpress requires the FICO Xpress Optimizer library to be
-> installed on the system. Set the `XPRESSDIR` environment variable to your
-> Xpress installation directory (e.g. `/opt/xpressmp`).
+> Building with Xpress requires the FICO Xpress Optimizer SDK to be installed
+> on the system. Set the `XPRESSDIR` environment variable to your Xpress
+> installation directory before building.
+
+### Install Xpress
+
+Download the FICO Xpress Community Edition from
+[fico.com](https://www.fico.com/en/products/fico-xpress-optimization). The
+community edition is free and supports models up to ~5000 variables/constraints.
+
+| Platform | Typical `XPRESSDIR`                                   |
+| -------- | ----------------------------------------------------- |
+| macOS    | `~/User Apps/FICO Xpress/xpressmp` or `/Applications/FICO Xpress/xpressmp` |
+| Linux    | `/opt/xpressmp`                                       |
+
+The installer generates two license files in `$XPRESSDIR/bin/`:
+
+- `community-xpauth.xpr` — community license (`hostid="any"`, works on any machine)
+- `xpauth.xpr` — commercial license (tied to a specific machine)
+
+Arco tries the community license first, then falls back to the commercial one.
+If you have a commercial license and want to force it, set `XPAUTH_PATH` to its
+full path.
 
 ### Build with Xpress support
 
 ```bash
+export XPRESSDIR="$HOME/User Apps/FICO Xpress/xpressmp"  # adjust to your install
+
 # Rust crate
 cargo build --features xpress
 
