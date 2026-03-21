@@ -31,6 +31,10 @@ inputs:
     description: Whether to save Rust cache updates.
     required: false
     default: "true"
+  rust-cache-shared-key:
+    description: Shared key for Swatinem/rust-cache to avoid cache thrashing between jobs.
+    required: false
+    default: "rust-workspace"
 
 runs:
   using: composite
@@ -68,7 +72,7 @@ runs:
     - name: Cache Rust build artifacts
       uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
       with:
-        shared-key: rust-workspace
+        shared-key: ${{ inputs.rust-cache-shared-key }}
         cache-targets: true
         cache-workspace-crates: true
         save-if: ${{ inputs.save-rust-cache == 'true' }}
