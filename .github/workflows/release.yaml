@@ -90,7 +90,7 @@ jobs:
         uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
         with:
           target: x86_64
-          manylinux: 2_28
+          manylinux: "2_28"
           before-script-linux: |
             set -euo pipefail
             if command -v dnf >/dev/null 2>&1; then
@@ -98,7 +98,7 @@ jobs:
             else
               yum install -y clang llvm-devel
             fi
-            export LIBCLANG_PATH=/usr/lib64/llvm
+            export LIBCLANG_PATH="$(llvm-config --libdir)"
             ls "$LIBCLANG_PATH"/libclang.so*
           args: >-
             --release
