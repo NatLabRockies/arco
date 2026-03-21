@@ -91,6 +91,15 @@ jobs:
         with:
           target: x86_64
           manylinux: auto
+          before-script-linux: |
+            set -euo pipefail
+            if command -v dnf >/dev/null 2>&1; then
+              dnf install -y clang llvm-devel
+            else
+              yum install -y clang llvm-devel
+            fi
+            export LIBCLANG_PATH=/usr/lib64
+            ls "$LIBCLANG_PATH"/libclang.so*
           args: >-
             --release
             --manifest-path bindings/python/Cargo.toml
@@ -137,7 +146,7 @@ jobs:
           rustup default ${{ env.RUST_TOOLCHAIN_VERSION }}
 
       - name: Install cargo-dist
-        run: cargo install cargo-dist
+        run: cargo install cargo-dist --locked
 
       - name: Build CLI artifacts with cargo-dist
         id: dist
