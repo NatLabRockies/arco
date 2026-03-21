@@ -145,6 +145,7 @@ jobs:
       - name: Validate distributions
         run: uvx twine check dist/*
 
+
   build-cli-dist:
     name: Build CLI artifacts (cargo-dist)
     needs: release-please
@@ -203,7 +204,7 @@ jobs:
   # PHASE 3: Publish Phase - PyPI and GitHub Release
   # ===========================================================================
   publish-pypi:
-    name: Publish to PyPI
+    name: Publish to ${{ github.event.inputs.staging == 'true' && 'TestPyPI' || 'PyPI' }}
     needs:
       - release-please
       - build-wheels
@@ -215,8 +216,8 @@ jobs:
       contents: read
       id-token: write # Required for PyPI Trusted Publishing (OIDC).
     environment:
-      name: pypi
-      url: https://pypi.org/p/arco
+      name: ${{ github.event.inputs.staging == 'true' && 'testpypi' || 'pypi' }}
+      url: ${{ github.event.inputs.staging == 'true' && 'https://test.pypi.org/p/arco' || 'https://pypi.org/p/arco' }}
     steps:
       - name: Download wheel artifacts
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
@@ -224,10 +225,12 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Publish distribution to PyPI
+      - name: Publish distribution to ${{ github.event.inputs.staging == 'true' && 'TestPyPI' || 'PyPI' }}
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
         with:
           packages-dir: dist
+          repository-url: ${{ github.event.inputs.staging == 'true' && 'https://test.pypi.org/legacy/' || 'https://pypi.org/legacy/' }}
+          skip-existing: ${{ github.event.inputs.staging == 'true' }}
 
   # ===========================================================================
   # PHASE 3b: Assemble Unified Release Notes
