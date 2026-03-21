@@ -1,48 +1,38 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "changelog-type": "default",
-  "draft": false,
-  "pull-request-title-pattern": "chore${scope}: release${component} v${version}",
+  "pull-request-title-pattern": "chore: release ${component} v${version}",
   "packages": {
     ".": {
       "release-type": "simple",
       "bump-minor-pre-major": true,
       "component": "arco",
-      "prerelease": false,
       "include-component-in-tag": true,
       "changelog-sections": [
         {
-          "hidden": false,
           "section": "Features",
           "type": "feat"
         },
         {
-          "hidden": false,
           "section": "Bug Fixes",
           "type": "fix"
         },
         {
-          "hidden": false,
           "section": "Performance",
           "type": "perf"
         },
         {
-          "hidden": false,
           "section": "Refactoring",
           "type": "refactor"
         },
         {
-          "hidden": false,
           "section": "Documentation",
           "type": "docs"
         },
         {
-          "hidden": false,
           "section": "CI",
           "type": "ci"
         },
         {
-          "hidden": false,
           "section": "Build",
           "type": "build"
         },
@@ -52,7 +42,6 @@
           "type": "chore"
         },
         {
-          "hidden": false,
           "section": "Tests",
           "type": "test"
         }

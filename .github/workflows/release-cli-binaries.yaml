@@ -6,6 +6,9 @@ on:
       release-sha:
         required: true
         type: string
+      release-version:
+        required: true
+        type: string
       uv-version:
         required: true
         type: string
@@ -23,6 +26,8 @@ jobs:
   build-cli-binaries:
     name: Build CLI binary ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_VERSION: ${{ inputs.release-version }}
     strategy:
       fail-fast: true
       matrix:
@@ -43,16 +48,16 @@ jobs:
           rust-toolchain-version: ${{ inputs.rust-toolchain-version }}
 
       - name: Build arco CLI binary
-        run: cargo build -p arco-cli --release --locked
+        run: cargo build -p arco-cli --release --locked --target-dir dist
 
       - name: Smoke test CLI (Unix)
         if: runner.os != 'Windows'
-        run: ./target/release/arco --help
+        run: ./dist/release/arco --help
 
       - name: Smoke test CLI (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./target/release/arco.exe --help
+        run: ./dist/release/arco.exe --help
 
       - name: Prepare CLI artifact (Unix)
         if: runner.os != 'Windows'
@@ -60,7 +65,7 @@ jobs:
           set -euo pipefail
           target_triple="$(rustc -vV | awk '/^host:/ {print $2}')"
           mkdir -p dist
-          cp target/release/arco "dist/arco-cli-${target_triple}"
+          cp dist/release/arco "dist/arco-cli-v${RELEASE_VERSION}-${target_triple}"
 
       - name: Prepare CLI artifact (Windows)
         if: runner.os == 'Windows'
@@ -68,11 +73,11 @@ jobs:
         run: |
           $targetTriple = ((rustc -vV | Select-String '^host:').ToString().Split()[1])
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "target/release/arco.exe" "dist/arco-cli-$targetTriple.exe"
+          Copy-Item "dist/release/arco.exe" "dist/arco-cli-v$env:RELEASE_VERSION-$targetTriple.exe"
 
       - name: Upload CLI artifact
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: cli-${{ matrix.os }}
-          path: dist/arco-cli-*
+          path: dist/arco-cli-v*
           compression-level: 0
