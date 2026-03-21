@@ -42,7 +42,7 @@ runs:
     - name: Restore uv cache
       if: ${{ inputs.install-uv == 'true' }}
       id: uv-cache-restore
-      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ${{ github.workspace }}/.uv-cache
         key: ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{ inputs.python-version }}-${{ hashFiles('bindings/python/uv.lock') }}
@@ -70,7 +70,7 @@ runs:
         rustup default "$RUST_TOOLCHAIN_VERSION"
 
     - name: Cache Rust build artifacts
-      uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2
+      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
       with:
         shared-key: ${{ inputs.rust-cache-shared-key }}
         cache-targets: true
@@ -78,13 +78,13 @@ runs:
         save-if: ${{ inputs.save-rust-cache == 'true' }}
 
     - name: Cache just toolcache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ${{ runner.tool_cache }}/just
         key: ${{ runner.os }}-just-${{ inputs.just-version }}
 
     - name: Install just
-      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+      uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
       with:
         just-version: ${{ inputs.just-version }}
 
@@ -97,7 +97,7 @@ runs:
 
     - name: Save uv cache
       if: ${{ inputs.install-uv == 'true' && inputs.save-uv-cache == 'true' && steps.uv-cache-restore.outputs.cache-hit != 'true' }}
-      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ${{ github.workspace }}/.uv-cache
         key: ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{ inputs.python-version }}-${{ hashFiles('bindings/python/uv.lock') }}
