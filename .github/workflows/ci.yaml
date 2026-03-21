@@ -65,47 +65,35 @@ jobs:
       - name: Run workflow quality checks
         run: uvx zizmor .github
 
-  rust-clippy-core:
-    name: Rust clippy (core)
-    needs: [rust-fmt]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Set up build environment
-        uses: ./.github/actions/setup-rust-validation-env
-        with:
-          python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
-          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-
-      - name: Run clippy (core)
-        run: just clippy-core
-
-  rust-clippy-solvers:
-    name: Rust clippy (${{ matrix.solver.package }})
+  rust-clippy:
+    name: Rust clippy (${{ matrix.target.name }})
     needs: [rust-fmt]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        solver:
-          - package: arco-ipopt
+        target:
+          - name: core
+            command: just clippy-core
+            apt-deps: ""
+            fflags: ""
+          - name: arco-ipopt
+            command: just clippy-solver arco-ipopt
             # Build IPOPT from source via ipopt-sys; the Ubuntu 24.04 system
             # package (3.11.9) has a memory corruption bug with MUMPS >= 5.1.0.
             apt-deps: liblapack-dev libopenblas-dev gfortran
+            # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
+            # GCC 14 rejects by default (-fallow-argument-mismatch).
+            fflags: "-fallow-argument-mismatch"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
-      - name: Install solver system dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
+      - name: Install system dependencies
+        if: matrix.target.apt-deps != ''
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.target.apt-deps }}
 
       - name: Set up build environment
         uses: ./.github/actions/setup-rust-validation-env
@@ -115,55 +103,41 @@ jobs:
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
 
-      - name: Run clippy (${{ matrix.solver.package }})
-        run: just clippy-solver ${{ matrix.solver.package }}
+      - name: Run clippy (${{ matrix.target.name }})
+        run: ${{ matrix.target.command }}
         env:
-          # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
-          # GCC 14 rejects by default (-fallow-argument-mismatch).
-          FFLAGS: "-fallow-argument-mismatch"
-          FCFLAGS: "-fallow-argument-mismatch"
+          FFLAGS: ${{ matrix.target.fflags }}
+          FCFLAGS: ${{ matrix.target.fflags }}
 
-  rust-test-core:
-    name: Rust tests (core)
-    needs: [rust-clippy-core]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Set up build environment
-        uses: ./.github/actions/setup-rust-validation-env
-        with:
-          python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
-          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-
-      - name: Run Rust tests (core)
-        run: just test-core
-
-  rust-test-solvers:
-    name: Rust tests (${{ matrix.solver.package }})
-    needs: [rust-clippy-solvers]
+  rust-test:
+    name: Rust tests (${{ matrix.target.name }})
+    needs: [rust-clippy]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        solver:
-          - package: arco-ipopt
+        target:
+          - name: core
+            command: just test-core
+            apt-deps: ""
+            fflags: ""
+          - name: arco-ipopt
+            command: just test-solver arco-ipopt
             # Build IPOPT from source via ipopt-sys; the Ubuntu 24.04 system
             # package (3.11.9) has a memory corruption bug with MUMPS >= 5.1.0.
             apt-deps: liblapack-dev libopenblas-dev gfortran
+            # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
+            # GCC 14 rejects by default (-fallow-argument-mismatch).
+            fflags: "-fallow-argument-mismatch"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
-      - name: Install solver system dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.solver.apt-deps }}
+      - name: Install system dependencies
+        if: matrix.target.apt-deps != ''
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.target.apt-deps }}
 
       - name: Set up build environment
         uses: ./.github/actions/setup-rust-validation-env
@@ -173,17 +147,15 @@ jobs:
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
 
-      - name: Run Rust tests (${{ matrix.solver.package }})
-        run: just test-solver ${{ matrix.solver.package }}
+      - name: Run tests (${{ matrix.target.name }})
+        run: ${{ matrix.target.command }}
         env:
-          # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
-          # GCC 14 rejects by default (-fallow-argument-mismatch).
-          FFLAGS: "-fallow-argument-mismatch"
-          FCFLAGS: "-fallow-argument-mismatch"
+          FFLAGS: ${{ matrix.target.fflags }}
+          FCFLAGS: ${{ matrix.target.fflags }}
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
-    needs: [rust-test-core]
+    needs: [rust-test]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
