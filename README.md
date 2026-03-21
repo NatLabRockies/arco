@@ -77,6 +77,8 @@ max while staying memory disciplined.
 
 ## Quickstart
 
+### Python Library
+
 Use `uv` to install and run Arco from Python.
 
 ```bash
@@ -93,6 +95,25 @@ python -m pip install --upgrade pip
 python -m pip install arco
 python -c "import arco; print(arco.__name__)"
 ```
+
+### CLI Tool
+
+The `arco` CLI is available as a standalone binary from GitHub Releases. Install
+via the shell installer:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/pesap/arco/releases/latest/download/arco-cli-installer.sh | sh
+```
+
+Or on Windows via PowerShell:
+
+```powershell
+powershell -c "irm https://github.com/pesap/arco/releases/latest/download/arco-cli-installer.ps1 | iex"
+```
+
+For specific versions or manual installation, download the appropriate binary for
+your platform from the [GitHub Releases](https://github.com/pesap/arco/releases)
+page.
 
 ## API comparison
 

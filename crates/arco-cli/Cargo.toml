@@ -12,6 +12,12 @@ publish = false
 autobins = false
 default-run = "arco"
 
+[package.metadata.dist]
+# This is the main distributable artifact
+dist = true
+# The name of the binary to install
+binaries = ["arco"]
+
 [[bin]]
 name = "arco"
 path = "src/main.rs"
