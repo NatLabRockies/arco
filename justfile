@@ -1,108 +1,10 @@
-# Quick reference:
-#   just              — type-check workspace (default)
-#   just fmt          — format Rust code
-#   just test         — run Rust tests
-#   just py-test      — build extension + run docs doctests
-#   just ci           — full CI pipeline
-#   just --list       — show all recipes
-#
-# Benchmarks:
-#   just bench-run                              — run benchmarks
-#   just bench-report results.jsonl             — print report
-#   just bench-compare base.jsonl new.jsonl     — compare two runs
-#   just bench-gate base.jsonl new.jsonl        — CI gate (10% threshold)
-#   just bench-gate base.jsonl new.jsonl 5 5    — CI gate (5% threshold)
-
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 export UV_CACHE_DIR := justfile_directory() / ".uv-cache"
 
 maturin := "uv run --with maturin maturin"
-
-# Core crates that do not require system solver libraries
+prek := "uvx --from prek==0.3.6 prek"
 core-packages := "-p arco-core -p arco-expr -p arco-solver -p arco-tools -p arco-blocks -p arco-highs -p arco-bench"
-
-default: check
-
-fmt:
-    cargo fmt --all
-
-fmt-check:
-    cargo fmt --all -- --check
-
-check:
-    cargo check --workspace --all-features --tests --benches --examples
-
-check-lib:
-    cargo check --workspace --all-features
-
-clippy:
-    cargo clippy --all --benches --tests --examples --all-features -- -D warnings
-
-clippy-core:
-    cargo clippy {{ core-packages }} --benches --tests --examples --all-features -- -D warnings
-
-clippy-solver package:
-    cargo clippy -p {{ package }} --benches --tests --examples --all-features -- -D warnings
-
-test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test --workspace --all-features --exclude arco-python
-
-test-core:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ core-packages }} --all-features
-
-# Run single-threaded: MUMPS (IPOPT's linear solver) uses non-thread-safe global state
-test-solver package:
-    cargo test -p {{ package }} --all-features -- --test-threads=1
-
-doc:
-    cargo doc --workspace --no-deps
-
-py-sync:
-    cd bindings/python && uv sync
-
-py-fmt:
-    cd bindings/python && uv run ruff format --verbose
-
-py-lint:
-    cd bindings/python && uv run ruff check --fix --config=pyproject.toml
-
-py-type:
-    cd bindings/python && uv run ty check src/
-
-py-licenses:
-    uv run python scripts/sync_python_licenses.py
-
-py-dev: py-licenses
-    cd bindings/python && {{ maturin }} develop
-
-py-build: py-licenses
-    cd bindings/python && {{ maturin }} build --release
-
-py-build-ci:
-    uv run --with build python -m build bindings/python --wheel --outdir dist
-
-py-smoke-wheel artifact_glob="dist/*.whl":
-    uv run python scripts/python_package_smoke.py --artifact-glob "{{ artifact_glob }}"
-
-py-doctest-ci:
-    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py
-
-py-test: py-dev
-    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py
-
-docs-test: py-dev
-    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py -v
-
-py-shell: py-dev
-    cd bindings/python && uv run --with numpy ipython
-
-
-bench-run:
-    cargo run -p arco-bench -- run
-
-bench-report path:
-    cargo run -p arco-bench -- report --input {{ path }}
 
 bench-compare baseline candidate:
     cargo run -p arco-bench -- compare \
@@ -123,7 +25,94 @@ bench-gate baseline candidate duration_threshold="10" memory_threshold="10":
             --format table
     done
 
-workflow-quality:
-    uvx zizmor .github
+bench-report path:
+    cargo run -p arco-bench -- report --input {{ path }}
+
+bench-run:
+    cargo run -p arco-bench -- run
+
+check:
+    cargo check --workspace --all-features --tests --benches --examples
+
+check-lib:
+    cargo check --workspace --all-features
 
 ci: fmt-check clippy test docs-test
+
+clippy:
+    cargo clippy --all --benches --tests --examples --all-features -- -D warnings
+
+clippy-core:
+    cargo clippy {{ core-packages }} --benches --tests --examples --all-features -- -D warnings
+
+clippy-solver package:
+    cargo clippy -p {{ package }} --benches --tests --examples --all-features -- -D warnings
+
+default: check
+
+doc:
+    cargo doc --workspace --no-deps
+
+docs-test: py-dev
+    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py -v
+
+fmt:
+    cargo fmt --all
+
+fmt-check:
+    cargo fmt --all -- --check
+
+pre-commit:
+    test -x ./scripts/setup-dev-env.sh
+    {{prek}} run --all-files
+
+py-build: py-licenses
+    cd bindings/python && {{ maturin }} build --release
+
+py-build-ci:
+    uv run --with build python -m build bindings/python --wheel --outdir dist
+
+py-dev: py-licenses
+    cd bindings/python && {{ maturin }} develop
+
+py-doctest-ci:
+    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py
+
+py-fmt:
+    cd bindings/python && uv run ruff format --verbose
+
+py-licenses:
+    uv run python scripts/sync_python_licenses.py
+
+py-lint:
+    cd bindings/python && uv run ruff check --fix --config=pyproject.toml
+
+py-shell: py-dev
+    cd bindings/python && uv run --with numpy ipython
+
+py-smoke-wheel artifact_glob="dist/*.whl":
+    uv run python scripts/python_package_smoke.py --artifact-glob "{{ artifact_glob }}"
+
+py-sync:
+    cd bindings/python && uv sync
+
+py-test: py-dev
+    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py
+
+py-type:
+    cd bindings/python && uv run ty check src/
+
+setup:
+    ./scripts/setup-dev-env.sh
+
+test:
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test --workspace --all-features --exclude arco-python
+
+test-core:
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ core-packages }} --all-features
+
+test-solver package:
+    cargo test -p {{ package }} --all-features -- --test-threads=1
+
+workflow-quality:
+    uvx zizmor .github
