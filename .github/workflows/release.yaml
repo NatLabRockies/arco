@@ -90,7 +90,7 @@ jobs:
         uses: PyO3/maturin-action@04ac600d27cdf7a9a280dadf7147097c42b757ad # v1
         with:
           target: x86_64
-          manylinux: auto
+          manylinux: 2_28
           before-script-linux: |
             set -euo pipefail
             if command -v dnf >/dev/null 2>&1; then
@@ -156,7 +156,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Generate dist artifacts locally (no publishing)
-          cargo dist build --artifacts=global
+          dist build --artifacts=global
 
           # Capture manifest info
           echo "manifest=dist-manifest.json" >> "$GITHUB_OUTPUT"
