@@ -2,6 +2,14 @@ name: CI
 
 on:
   pull_request:
+    paths:
+      - "crates/**"
+      - "bindings/python/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - ".github/workflows/ci.yaml"
+      - ".github/actions/**"
   push:
     branches:
       - main
@@ -21,9 +29,28 @@ env:
   RUST_TOOLCHAIN_VERSION: "1.85"
 
 jobs:
+  rust-fmt:
+    name: Rust formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
+          rustup component add rustfmt --toolchain "$RUST_TOOLCHAIN_VERSION"
+          rustup default "$RUST_TOOLCHAIN_VERSION"
+
+      - name: Check Rust formatting
+        run: cargo +"$RUST_TOOLCHAIN_VERSION" fmt --all -- --check
+
   workflow-quality:
     name: Workflow quality
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -40,7 +67,9 @@ jobs:
 
   rust-clippy-core:
     name: Rust clippy (core)
+    needs: [rust-fmt]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -59,7 +88,9 @@ jobs:
 
   rust-clippy-solvers:
     name: Rust clippy (${{ matrix.solver.package }})
+    needs: [rust-fmt]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -94,7 +125,9 @@ jobs:
 
   rust-test-core:
     name: Rust tests (core)
+    needs: [rust-clippy-core]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -113,7 +146,9 @@ jobs:
 
   rust-test-solvers:
     name: Rust tests (${{ matrix.solver.package }})
+    needs: [rust-clippy-solvers]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -150,6 +185,7 @@ jobs:
     name: Python validation (py${{ matrix.python-version }})
     needs: [rust-test-core]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: true
       matrix:

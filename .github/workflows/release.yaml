@@ -22,6 +22,7 @@ jobs:
   release-please:
     name: Release Please
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write # Required for release-please to update release manifests, tags, and releases.
       pull-requests: write # Required for release-please to open and maintain release PRs.
@@ -45,6 +46,7 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: true
       matrix:
@@ -90,6 +92,7 @@ jobs:
           name: wheel-${{ matrix.os }}-py${{ matrix.python-version }}
           path: dist/*.whl
           compression-level: 0
+          retention-days: 3
 
   build-cli-binaries:
     name: Build CLI binaries
@@ -111,6 +114,7 @@ jobs:
       - build-cli-binaries
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write # Required for PyPI Trusted Publishing (OIDC).
@@ -138,6 +142,7 @@ jobs:
       - publish-pypi
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write # Required to upload artifacts and publish/edit the GitHub release.
     steps:

@@ -26,6 +26,7 @@ jobs:
   build-cli-binaries:
     name: Build CLI binary ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     env:
       RELEASE_VERSION: ${{ inputs.release-version }}
     strategy:
@@ -81,3 +82,4 @@ jobs:
           name: cli-${{ matrix.os }}
           path: dist/arco-cli-v*
           compression-level: 0
+          retention-days: 3
