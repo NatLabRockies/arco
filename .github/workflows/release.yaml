@@ -254,10 +254,15 @@ jobs:
           # Create temp directory for assembly
           mkdir -p release-notes
 
+          DISPLAY_TAG="$RELEASE_TAG"
+          if [[ -z "$DISPLAY_TAG" ]]; then
+            DISPLAY_TAG="<release-tag>"
+          fi
+
           # Fetch current release body from release-please
           if [[ "$IS_DRY_RUN" == "true" ]]; then
             # In dry-run mode, generate placeholder
-            echo "# Release Notes (Draft - $RELEASE_TAG)" > release-notes/original.md
+            echo "# Release Notes (Draft - $DISPLAY_TAG)" > release-notes/original.md
             echo "" >> release-notes/original.md
             echo "This is a test release for validation purposes." >> release-notes/original.md
           else
@@ -271,10 +276,10 @@ jobs:
           # Build Python install section
           PYTHON_SECTION="## Python Package\n\nInstall via pip:\n\n\`\`\`bash\npip install arco\n\`\`\`\n\nOr with uv:\n\n\`\`\`bash\nuv add arco\n\`\`\`\n"
 
-          CLI_SECTION="## CLI Installation\n\nInstall on macOS/Linux:\n\n\`\`\`bash\ncurl --proto '=https' --tlsv1.2 -LsSf https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/arco-cli-installer.sh | sh\n\`\`\`\n\nInstall on Windows (PowerShell):\n\n\`\`\`powershell\nirm https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/arco-cli-installer.ps1 | iex\n\`\`\`\n"
+          CLI_SECTION="## CLI Installation\n\nInstall on macOS/Linux:\n\n\`\`\`bash\ncurl --proto '=https' --tlsv1.2 -LsSf https://github.com/${GH_REPO}/releases/download/${DISPLAY_TAG}/arco-cli-installer.sh | sh\n\`\`\`\n\nInstall on Windows (PowerShell):\n\n\`\`\`powershell\nirm https://github.com/${GH_REPO}/releases/download/${DISPLAY_TAG}/arco-cli-installer.ps1 | iex\n\`\`\`\n"
 
           # Assemble final body
-          echo "# Release ${RELEASE_TAG}" > release-notes/final.md
+          echo "# Release ${DISPLAY_TAG}" > release-notes/final.md
           echo "" >> release-notes/final.md
 
           # Add Python install section first
