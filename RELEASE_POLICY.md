@@ -67,6 +67,7 @@ The workflow supports safe testing via `workflow_dispatch` input:
 - **Dry Run Mode** (`dry_run: true`):
   - Builds all artifacts without publishing
   - Runs centralized artifact validation (`twine check`) without publishing
+  - Assembles unified release notes for preview/validation
   - Uploads artifacts as workflow artifacts for inspection
   - Skips PyPI and GitHub release publication
   - Useful for validating the build pipeline
