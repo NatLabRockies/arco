@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.1](https://github.com/NatLabRockies/arco/compare/arco-v0.2.0...arco-v0.2.1) (2026-03-22)
+
+
+### Bug Fixes
+
+* **ci:** stabilize unified python+cli release workflow ([#56](https://github.com/NatLabRockies/arco/issues/56)) ([f22f07c](https://github.com/NatLabRockies/arco/commit/f22f07c8ea441436640fabc9c93d1271364b4565))
+* **xpress:** update FFI bindings and licensing for Xpress SDK 9+ ([#52](https://github.com/NatLabRockies/arco/issues/52)) ([a4859b3](https://github.com/NatLabRockies/arco/commit/a4859b3017908f6bea8ef2d8b63da7be6a382b63))
+
+
+### Documentation
+
+* adding full eexplaination of sdom and solver configuration. ([#53](https://github.com/NatLabRockies/arco/issues/53)) ([b382d39](https://github.com/NatLabRockies/arco/commit/b382d39f07e51311691c4ad62e44e4f2dc93083c))
+
+
+### Build
+
+* **deps:** bump actions/download-artifact from 7.0.0 to 8.0.0 ([#47](https://github.com/NatLabRockies/arco/issues/47)) ([6983021](https://github.com/NatLabRockies/arco/commit/6983021af8ba8b0b1a04f34ce3590a31c166a863))
+* **deps:** bump actions/upload-artifact from 6.0.0 to 7.0.0 ([#49](https://github.com/NatLabRockies/arco/issues/49)) ([28c0dd5](https://github.com/NatLabRockies/arco/commit/28c0dd5e30dd0473bdb735989e88c52a505d9538))
+* **deps:** bump PyO3/maturin-action from 1.50.0 to 1.50.1 ([#48](https://github.com/NatLabRockies/arco/issues/48)) ([4e498c8](https://github.com/NatLabRockies/arco/commit/4e498c8a7dd935352f621e43b106790c1fcd8d8a))
+
 ## [0.2.0](https://github.com/NatLabRockies/arco/compare/arco-v0.1.7...arco-v0.2.0) (2026-02-25)
 
 
