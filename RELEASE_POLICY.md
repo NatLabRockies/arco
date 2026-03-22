@@ -52,6 +52,7 @@ The release workflow coordinates both Python and CLI distributions:
   - CLI binaries built via `cargo-dist` with shell and PowerShell installers
 - **Phase 3**: Publishing with gating
   - Downloaded wheel artifacts are validated centrally via `twine check`
+  - PyPI publish waits on successful CLI artifact generation
   - PyPI publish must succeed before final release
   - CLI artifact generation must succeed before final release
   - Either failure blocks the final GitHub release publication

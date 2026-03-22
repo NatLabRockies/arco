@@ -193,8 +193,12 @@ jobs:
     needs:
       - release-please
       - build-wheels
+      - build-cli-dist
       - validate-python-artifacts
-    if: needs.release-please.outputs.release_created == 'true' && github.event.inputs.dry_run != 'true'
+    if: |
+      needs.release-please.outputs.release_created == 'true' &&
+      github.event.inputs.dry_run != 'true' &&
+      needs.build-cli-dist.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
