@@ -154,9 +154,6 @@ jobs:
     timeout-minutes: 30
     env:
       DIST_RUST_TOOLCHAIN_VERSION: "1.88"
-    outputs:
-      dist_manifest: ${{ steps.dist.outputs.manifest }}
-      has_artifacts: ${{ steps.dist.outputs.has_artifacts }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -173,31 +170,19 @@ jobs:
         run: cargo install cargo-dist --locked
 
       - name: Build CLI artifacts with cargo-dist
-        id: dist
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Generate dist artifacts locally (no publishing)
           dist build --artifacts=global --allow-dirty
 
-          # Capture manifest info
-          echo "manifest=dist-manifest.json" >> "$GITHUB_OUTPUT"
-          echo "has_artifacts=true" >> "$GITHUB_OUTPUT"
-
       - name: Upload dist artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: cli-dist-artifacts
-          path: target/dist/
+          path: target/distrib/
+          if-no-files-found: error
           compression-level: 6
-          retention-days: 3
-
-      - name: Upload dist manifest
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: cli-dist-manifest
-          path: dist-manifest.json
-          compression-level: 0
           retention-days: 3
 
   # ===========================================================================
@@ -252,16 +237,11 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Download dist manifest
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
-        with:
-          name: cli-dist-manifest
-          path: dist-manifest
-
       - name: Assemble release body
         id: assemble
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.release-please.outputs.release_tag }}
           IS_DRY_RUN: ${{ github.event.inputs.dry_run == 'true' }}
         run: |
@@ -284,15 +264,10 @@ jobs:
           # Extract the changelog section (everything after the first heading)
           cat release-notes/original.md > release-notes/changelog.md
 
-          # Read dist-generated installer snippet if available
-          INSTALLER_SECTION=""
-          if [[ -f "dist-manifest/dist-manifest.json" ]]; then
-            # Parse dist manifest for install hints
-            INSTALLER_SECTION=$(cat dist-manifest/dist-manifest.json | jq -r '.install_hints // empty' 2>/dev/null || echo "")
-          fi
-
           # Build Python install section
           PYTHON_SECTION="## Python Package\n\nInstall via pip:\n\n\`\`\`bash\npip install arco\n\`\`\`\n\nOr with uv:\n\n\`\`\`bash\nuv add arco\n\`\`\`\n"
+
+          CLI_SECTION="## CLI Installation\n\nInstall on macOS/Linux:\n\n\`\`\`bash\ncurl --proto '=https' --tlsv1.2 -LsSf https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/arco-cli-installer.sh | sh\n\`\`\`\n\nInstall on Windows (PowerShell):\n\n\`\`\`powershell\nirm https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/arco-cli-installer.ps1 | iex\n\`\`\`\n"
 
           # Assemble final body
           echo "# Release ${RELEASE_TAG}" > release-notes/final.md
@@ -302,18 +277,8 @@ jobs:
           echo -e "$PYTHON_SECTION" >> release-notes/final.md
           echo "" >> release-notes/final.md
 
-          # Add CLI installer section if available
-          if [[ -n "$INSTALLER_SECTION" ]]; then
-            echo "## CLI Installation" >> release-notes/final.md
-            echo "" >> release-notes/final.md
-            echo -e "$INSTALLER_SECTION" >> release-notes/final.md
-            echo "" >> release-notes/final.md
-          else
-            echo "## CLI Installation" >> release-notes/final.md
-            echo "" >> release-notes/final.md
-            echo "Download the appropriate binary for your platform from the assets below." >> release-notes/final.md
-            echo "" >> release-notes/final.md
-          fi
+          echo -e "$CLI_SECTION" >> release-notes/final.md
+          echo "" >> release-notes/final.md
 
           # Append original changelog
           cat release-notes/changelog.md >> release-notes/final.md
