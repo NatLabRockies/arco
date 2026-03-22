@@ -569,7 +569,7 @@ bindings/python/licenses/
 .worktrees/
 
 # Hiding LLM plan
-docs/plan
+docs/plan*
 
 #
 artifacts/
