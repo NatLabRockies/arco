@@ -11,11 +11,6 @@ on:
         required: false
         default: false
         type: boolean
-      staging:
-        description: "Staging mode - publish to TestPyPI and create draft release"
-        required: false
-        default: false
-        type: boolean
 
 concurrency:
   group: release-please
@@ -41,14 +36,14 @@ jobs:
       contents: write # Required for release-please to update release manifests, tags, and releases.
       pull-requests: write # Required for release-please to open and maintain release PRs.
     outputs:
-      release_created: ${{ steps.release.outputs.release_created || github.event.inputs.dry_run == 'true' || github.event.inputs.staging == 'true' }}
+      release_created: ${{ steps.release.outputs.release_created || github.event.inputs.dry_run == 'true' }}
       release_tag: ${{ steps.release.outputs.tag_name }}
       release_version: ${{ steps.release.outputs.version }}
       release_sha: ${{ steps.release.outputs.sha || github.sha }}
     steps:
       - name: Run release-please
         id: release
-        if: github.event.inputs.dry_run != 'true' && github.event.inputs.staging != 'true'
+        if: github.event.inputs.dry_run != 'true'
         uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -124,6 +119,32 @@ jobs:
   # ===========================================================================
   # PHASE 2b: Build CLI Artifacts via cargo-dist
   # ===========================================================================
+  validate-python-artifacts:
+    name: Validate Python artifacts
+    needs:
+      - release-please
+      - build-wheels
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download wheel artifacts
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+          enable-cache: false
+
+      - name: Validate distributions
+        run: uvx twine check dist/*
+
   build-cli-dist:
     name: Build CLI artifacts (cargo-dist)
     needs: release-please
@@ -156,7 +177,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Generate dist artifacts locally (no publishing)
-          dist build --artifacts=global
+          dist build --artifacts=global --allow-dirty
 
           # Capture manifest info
           echo "manifest=dist-manifest.json" >> "$GITHUB_OUTPUT"
@@ -182,19 +203,20 @@ jobs:
   # PHASE 3: Publish Phase - PyPI and GitHub Release
   # ===========================================================================
   publish-pypi:
-    name: Publish to ${{ github.event.inputs.staging == 'true' && 'TestPyPI' || 'PyPI' }}
+    name: Publish to PyPI
     needs:
       - release-please
       - build-wheels
-    if: needs.release-please.outputs.release_created == 'true'
+      - validate-python-artifacts
+    if: needs.release-please.outputs.release_created == 'true' && github.event.inputs.dry_run != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
       id-token: write # Required for PyPI Trusted Publishing (OIDC).
     environment:
-      name: ${{ github.event.inputs.staging == 'true' && 'testpypi' || 'pypi' }}
-      url: ${{ github.event.inputs.staging == 'true' && 'https://test.pypi.org/p/arco' || 'https://pypi.org/p/arco' }}
+      name: pypi
+      url: https://pypi.org/p/arco
     steps:
       - name: Download wheel artifacts
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
@@ -202,12 +224,10 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Publish distribution to ${{ github.event.inputs.staging == 'true' && 'TestPyPI' || 'PyPI' }}
+      - name: Publish distribution to PyPI
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
         with:
           packages-dir: dist
-          repository-url: ${{ github.event.inputs.staging == 'true' && 'https://test.pypi.org/legacy/' || 'https://pypi.org/legacy/' }}
-          skip-existing: ${{ github.event.inputs.staging == 'true' }}
 
   # ===========================================================================
   # PHASE 3b: Assemble Unified Release Notes
@@ -242,7 +262,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ needs.release-please.outputs.release_tag }}
-          IS_STAGING: ${{ github.event.inputs.staging == 'true' }}
           IS_DRY_RUN: ${{ github.event.inputs.dry_run == 'true' }}
         run: |
           set -euo pipefail
@@ -251,8 +270,8 @@ jobs:
           mkdir -p release-notes
 
           # Fetch current release body from release-please
-          if [[ "$IS_DRY_RUN" == "true" || "$IS_STAGING" == "true" ]]; then
-            # In dry-run/staging mode, generate placeholder
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
+            # In dry-run mode, generate placeholder
             echo "# Release Notes (Draft - $RELEASE_TAG)" > release-notes/original.md
             echo "" >> release-notes/original.md
             echo "This is a test release for validation purposes." >> release-notes/original.md
@@ -350,7 +369,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.release-please.outputs.release_tag }}
-          IS_STAGING: ${{ github.event.inputs.staging == 'true' }}
           IS_DRY_RUN: ${{ github.event.inputs.dry_run == 'true' }}
         run: |
           set -euo pipefail
@@ -372,7 +390,7 @@ jobs:
 
           # Determine release flags
           DRAFT_FLAG=""
-          if [[ "$IS_STAGING" == "true" || "$IS_DRY_RUN" == "true" ]]; then
+          if [[ "$IS_DRY_RUN" == "true" ]]; then
             DRAFT_FLAG="--draft"
           fi
 
@@ -389,7 +407,7 @@ jobs:
             # Upload artifacts to release
             gh release upload "$RELEASE_TAG" upload-artifacts/* --repo "$GH_REPO" --clobber || true
 
-            # Update release notes and mark as final (or draft in staging)
+            # Update release notes and mark as final
             gh release edit "$RELEASE_TAG" \
               --repo "$GH_REPO" \
               --notes-file release-notes/final.md \

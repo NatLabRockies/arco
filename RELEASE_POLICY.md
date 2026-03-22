@@ -36,10 +36,11 @@ version.
   1. `release-please` creates a draft GitHub release and tag.
   2. CI builds Python wheels in parallel across platforms and Python versions.
   3. CI builds CLI binaries via `cargo-dist` in parallel.
-  4. CI publishes Python wheels to PyPI (or TestPyPI in staging mode).
-  5. CI assembles unified release notes combining Python install instructions,
+  4. CI validates downloaded wheel metadata in one place with `twine check`.
+  5. CI publishes Python wheels to PyPI.
+  6. CI assembles unified release notes combining Python install instructions,
      CLI install snippets from cargo-dist, and the changelog.
-  6. CI uploads all artifacts and marks the GitHub release as final.
+  7. CI uploads all artifacts and marks the GitHub release as final.
 
 ## Unified Release Flow
 
@@ -50,29 +51,25 @@ The release workflow coordinates both Python and CLI distributions:
   - Python wheels built via `maturin` for Linux, macOS, Windows
   - CLI binaries built via `cargo-dist` with shell and PowerShell installers
 - **Phase 3**: Publishing with gating
+  - Downloaded wheel artifacts are validated centrally via `twine check`
   - PyPI publish must succeed before final release
   - CLI artifact generation must succeed before final release
   - Either failure blocks the final GitHub release publication
 - **Phase 4**: Final assembly
   - Merged release notes with Python and CLI install sections
   - All artifacts uploaded to the GitHub release
-  - Release marked as final (or kept as draft in staging mode)
+  - Release marked as final
 
-## Dry-Run and Staging Modes
+## Dry-Run Mode
 
-The workflow supports safe testing via `workflow_dispatch` inputs:
+The workflow supports safe testing via `workflow_dispatch` input:
 
 - **Dry Run Mode** (`dry_run: true`):
   - Builds all artifacts without publishing
+  - Runs centralized artifact validation (`twine check`) without publishing
   - Uploads artifacts as workflow artifacts for inspection
   - Skips PyPI and GitHub release publication
   - Useful for validating the build pipeline
-
-- **Staging Mode** (`staging: true`):
-  - Publishes Python wheels to TestPyPI instead of PyPI
-  - Creates GitHub release as a draft (not marked as latest)
-  - Full integration test of the entire pipeline
-  - Safe for pre-release validation
 
 ## Failure Handling
 

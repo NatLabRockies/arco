@@ -69,6 +69,8 @@ install-path = "CARGO_HOME"
 # Whether to install an updater program
 # See: https://opensource.axo.dev/cargo-dist/book/reference/config.html#auto-updater
 auto-updater = true
+# The preferred dist version to use in CI
+cargo-dist-version = "0.31.0"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -115,3 +117,7 @@ dbg_macro = "deny"
 # No incomplete code markers
 todo = "deny"
 unimplemented = "deny"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
