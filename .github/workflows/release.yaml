@@ -267,7 +267,7 @@ jobs:
           # Build Python install section
           PYTHON_SECTION="## Python Package\n\nInstall via pip:\n\n\`\`\`bash\npip install arco\n\`\`\`\n\nOr with uv:\n\n\`\`\`bash\nuv add arco\n\`\`\`\n"
 
-          CLI_SECTION="## CLI Installation\n\nThis repository is private, so authenticate with GitHub before downloading release assets.\n\nmacOS/Linux:\n\n\`\`\`bash\ngh release download ${RELEASE_TAG} --repo ${GH_REPO} --pattern arco-cli-installer.sh\nsh ./arco-cli-installer.sh\n\`\`\`\n\nWindows (PowerShell):\n\n\`\`\`powershell\ngh release download ${RELEASE_TAG} --repo ${GH_REPO} --pattern arco-cli-installer.ps1\npowershell -ExecutionPolicy Bypass -File .\\arco-cli-installer.ps1\n\`\`\`\n\nOr download the installer asset from the authenticated release page:\nhttps://github.com/${GH_REPO}/releases/tag/${RELEASE_TAG}\n"
+          CLI_SECTION="## CLI Installation\n\nInstall on macOS/Linux:\n\n\`\`\`bash\ncurl --proto '=https' --tlsv1.2 -LsSf https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/arco-cli-installer.sh | sh\n\`\`\`\n\nInstall on Windows (PowerShell):\n\n\`\`\`powershell\nirm https://github.com/${GH_REPO}/releases/download/${RELEASE_TAG}/arco-cli-installer.ps1 | iex\n\`\`\`\n"
 
           # Assemble final body
           echo "# Release ${RELEASE_TAG}" > release-notes/final.md
