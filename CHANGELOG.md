@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/NatLabRockies/arco/compare/arco-v0.2.2...arco-v0.2.3) (2026-03-23)
+
+
+### Bug Fixes
+
+* **ci:** dispatch release workflows and fix CLI build quoting ([#59](https://github.com/NatLabRockies/arco/issues/59)) ([9e8838c](https://github.com/NatLabRockies/arco/commit/9e8838cb69fddb530f46c7149f57d13a70b75b49))
+
 ## [0.2.2](https://github.com/NatLabRockies/arco/compare/arco-v0.2.1...arco-v0.2.2) (2026-03-23)
 
 
