@@ -96,12 +96,14 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.target.apt-deps }}
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-rust-validation-env
+        uses: ./.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "false"
+          sync-python-licenses: "false"
           rust-cache-shared-key: rust-clippy
 
       - name: Run clippy (${{ matrix.target.name }})
@@ -141,12 +143,14 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.target.apt-deps }}
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-rust-validation-env
+        uses: ./.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "false"
+          sync-python-licenses: "false"
           rust-cache-shared-key: rust-test
 
       - name: Run tests (${{ matrix.target.name }})
