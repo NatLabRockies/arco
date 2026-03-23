@@ -47,11 +47,12 @@ jobs:
       - name: Trigger release-cli workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           gh workflow run release-cli.yaml \
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
-            -f tag="${{ needs.release-please.outputs.tag_name }}"
+            -f tag="$RELEASE_TAG"
 
   dispatch-release-python:
     name: Dispatch Python release
@@ -65,7 +66,8 @@ jobs:
       - name: Trigger release-python workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           gh workflow run release-python.yaml \
             --repo "$GITHUB_REPOSITORY" \
-            --ref "${{ needs.release-please.outputs.tag_name }}"
+            --ref "$RELEASE_TAG"
