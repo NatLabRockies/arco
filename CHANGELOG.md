@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/NatLabRockies/arco/compare/arco-v0.2.1...arco-v0.2.2) (2026-03-23)
+
+
+### Bug Fixes
+
+* unified cli releases ([#57](https://github.com/NatLabRockies/arco/issues/57)) ([6cbf8a1](https://github.com/NatLabRockies/arco/commit/6cbf8a1783fb292743f9e45e7db0bab62c2816ad))
+
 ## [0.2.1](https://github.com/NatLabRockies/arco/compare/arco-v0.2.0...arco-v0.2.1) (2026-03-22)
 
 
