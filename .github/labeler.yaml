@@ -16,7 +16,9 @@ release:
 
 tests:
   - changed-files:
-      - any-glob-to-any-file: "docs/**"
+      - any-glob-to-any-file:
+          - "**/tests/**"
+          - "scripts/test_*"
 
 solver:
   - changed-files:

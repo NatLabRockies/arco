@@ -1,14 +1,18 @@
 # Release Policy
 
-This repository publishes the Python package (`arco`) from a single platform
-version stream. Rust crates and bindings evolve together under one release
-version.
+This repository publishes two products from a single platform version stream:
+
+- **Python package** (`arco` on PyPI)
+- **CLI binary** (`arco` via GitHub Releases, powered by `cargo-dist`)
+
+Rust crates and bindings evolve together under one release version.
 
 ## Goals
 
 - Keep user-facing releases predictable.
 - Keep Python and Rust behavior aligned in every published version.
 - Keep release operations simple and hard to misuse.
+- Allow each product to ship independently — one failure does not block the other.
 
 ## Versioning Model
 
@@ -25,64 +29,88 @@ version.
 - Notes are generated with the default changelog strategy so commit categories
   are preserved.
 
+## Workflow Structure
+
+Three independent workflows handle the release lifecycle:
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `release-please.yaml` | Push to `main` | Version management — creates release PR, tag, GitHub Release |
+| `release-python.yaml` | Tag `arco-v*` or `workflow_dispatch` | Builds wheels, publishes to PyPI, uploads to release |
+| `release-cli.yaml` | Tag `arco-v*` or `workflow_dispatch` | Builds CLI binaries via `cargo-dist`, uploads to release |
+
 ## Publishing Behavior
 
-- `arco` is the published package (PyPI + GitHub release artifacts).
+- `arco` is the published Python package (PyPI + GitHub Release wheel artifacts).
 - The `arco` CLI binary is distributed via GitHub Releases with auto-generated
-  installers powered by `cargo-dist`.
+  shell and PowerShell installers powered by `cargo-dist`.
 - Rust crates are internal implementation units and are not independently
   published from this repository.
-- Release order is:
-  1. `release-please` creates a draft GitHub release and tag.
-  2. CI builds Python wheels in parallel across platforms and Python versions.
-  3. CI builds CLI binaries via `cargo-dist` in parallel.
-  4. CI validates downloaded wheel metadata in one place with `twine check`.
-  5. CI publishes Python wheels to PyPI.
-  6. CI assembles unified release notes combining Python install instructions,
-     CLI install snippets from cargo-dist, and the changelog.
-  7. CI uploads all artifacts and marks the GitHub release as final.
 
-## Unified Release Flow
+## Independent Release Pipelines
 
-The release workflow coordinates both Python and CLI distributions:
+Both product pipelines are triggered by the same `arco-v*` tag and run
+independently in parallel:
 
-- **Phase 1**: `release-please` produces the version, tag, and initial draft release
-- **Phase 2**: Parallel builds for Python wheels and CLI artifacts
-  - Python wheels built via `maturin` for Linux, macOS, Windows
-  - CLI binaries built via `cargo-dist` with shell and PowerShell installers
-- **Phase 3**: Publishing with gating
-  - Downloaded wheel artifacts are validated centrally via `twine check`
-  - PyPI publish must succeed before final release
-  - CLI artifact generation must succeed before final release
-  - Either failure blocks the final GitHub release publication
-- **Phase 4**: Final assembly
-  - Merged release notes with Python and CLI install sections
-  - All artifacts uploaded to the GitHub release
-  - Release marked as final
+### Phase 1: Version and Tag (release-please)
+
+- `release-please` creates a release PR with version bumps.
+- Merging the PR creates the `arco-v*` tag and a GitHub Release with the
+  changelog body.
+
+### Phase 2a: Python Pipeline (release-python.yaml)
+
+1. Extracts version from the tag.
+2. Builds Python wheels (3 platforms × 5 Python versions) via `maturin`.
+3. Validates wheels with `twine check`.
+4. Publishes to PyPI via OIDC Trusted Publishing.
+5. Uploads `.whl` files to the GitHub Release.
+6. Adds Python install instructions to the release notes.
+
+### Phase 2b: CLI Pipeline (release-cli.yaml)
+
+1. Runs `dist plan` to determine the per-platform build matrix.
+2. Builds CLI binaries on native runners (macOS, Linux, Windows, ARM).
+3. Builds global artifacts (shell + PowerShell installer scripts).
+4. Uploads all CLI artifacts to the GitHub Release.
+5. Adds CLI install instructions to the release notes.
+
+### Independence
+
+- Python failure does not block CLI release and vice versa.
+- Partial releases are possible — if one pipeline fails, the other's artifacts
+  are still published.
+- Each pipeline's release note section uses HTML comment markers for
+  idempotency (`<!-- python-install -->`, `<!-- cli-install -->`).
 
 ## Dry-Run Mode
 
-The workflow supports safe testing via `workflow_dispatch` input:
+Both product workflows support safe testing via `workflow_dispatch`:
 
-- **Dry Run Mode** (`dry_run: true`):
-  - Builds all artifacts without publishing
-  - Runs centralized artifact validation (`twine check`) without publishing
-  - Uploads artifacts as workflow artifacts for inspection
-  - Skips PyPI and GitHub release publication
-  - Useful for validating the build pipeline
+- **Python dry-run** (`dry_run: true`): Builds and validates wheels without
+  publishing to PyPI or uploading to a GitHub Release.
+- **CLI dry-run** (tag input `dry-run`): Runs `dist plan` and builds all
+  platform artifacts without uploading to a GitHub Release.
 
 ## Failure Handling
 
-The final release publication is gated on successful completion of both:
+If a pipeline fails:
 
-- Python wheel publishing (PyPI)
-- CLI artifact generation (cargo-dist)
+- Artifacts from successful build jobs remain available as workflow artifacts.
+- The GitHub Release may have partial artifacts from the successful pipeline.
+- The failed pipeline can be re-triggered via `workflow_dispatch` with the
+  release tag.
 
-If either path fails:
+## cargo-dist Configuration
 
-- Artifacts from successful builds remain available as workflow artifacts
-- The GitHub release remains in draft state (or is not created in dry-run mode)
-- The failure must be investigated and the release manually retried or fixed
+CLI binary builds are configured in `[workspace.metadata.dist]` in `Cargo.toml`:
+
+- `dispatch-releases = true` — the workflow uses `workflow_dispatch` and tag
+  push instead of cargo-dist's default tag-only trigger.
+- `allow-dirty = ["ci"]` — protects hand-edits to the generated workflow from
+  being overwritten by `dist generate-ci`.
+- Tag format: release-please creates `arco-v*` tags; the workflow strips the
+  `arco-` prefix to produce `v*` tags that `dist` can parse.
 
 ## How To Read Release PRs
 
