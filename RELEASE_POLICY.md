@@ -35,9 +35,13 @@ Three independent workflows handle the release lifecycle:
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `release-please.yaml` | Push to `main` | Version management — creates release PR, tag, GitHub Release |
-| `release-python.yaml` | Tag `arco-v*` or `workflow_dispatch` | Builds wheels, publishes to PyPI, uploads to release |
-| `release-cli.yaml` | Tag `arco-v*` or `workflow_dispatch` | Builds CLI binaries via `cargo-dist`, uploads to release |
+| `release-please.yaml` | Push to `main` | Version management — creates release PR, tag, GitHub Release; dispatches both release workflows |
+| `release-python.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds wheels, publishes to PyPI, uploads to release |
+| `release-cli.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds CLI binaries via `cargo-dist`, uploads to release |
+
+> **Note:** Tags created by `GITHUB_TOKEN` do not trigger `on.push.tags` workflows
+> (GitHub restriction). `release-please.yaml` explicitly dispatches both release
+> workflows after creating a release to work around this.
 
 ## Publishing Behavior
 
@@ -49,14 +53,16 @@ Three independent workflows handle the release lifecycle:
 
 ## Independent Release Pipelines
 
-Both product pipelines are triggered by the same `arco-v*` tag and run
-independently in parallel:
+Both product pipelines are dispatched by `release-please.yaml` after a release
+is created and run independently in parallel:
 
 ### Phase 1: Version and Tag (release-please)
 
 - `release-please` creates a release PR with version bumps.
 - Merging the PR creates the `arco-v*` tag and a GitHub Release with the
   changelog body.
+- `release-please.yaml` then dispatches `release-cli.yaml` and
+  `release-python.yaml` via `workflow_dispatch`.
 
 ### Phase 2a: Python Pipeline (release-python.yaml)
 
