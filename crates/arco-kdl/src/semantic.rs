@@ -1179,14 +1179,13 @@ fn asset_name_rows_unique(
 ) -> Result<(), SemanticError> {
     let mut seen = BTreeSet::new();
     for row in rows {
-        if let Some(asset_name) = row.get("asset_name")
-            && !seen.insert(asset_name.clone())
-            && !row.contains_key("t")
-        {
-            return Err(SemanticError::DuplicateAsset {
-                asset: asset_name.clone(),
-                path: path.to_path_buf(),
-            });
+        if let Some(asset_name) = row.get("asset_name") {
+            if !seen.insert(asset_name.clone()) && !row.contains_key("t") {
+                return Err(SemanticError::DuplicateAsset {
+                    asset: asset_name.clone(),
+                    path: path.to_path_buf(),
+                });
+            }
         }
     }
     Ok(())
@@ -1361,16 +1360,16 @@ fn collect_all_targets_from_expr(
 ) {
     match expr {
         Expr::Identifier(name) => {
-            if visited.insert(name.clone())
-                && let Some(expression) = program.expression(name)
-            {
-                collect_indexed_targets_from_expr(&expression.parsed_formula, targets);
-                collect_all_targets_from_expr(
-                    &expression.parsed_formula,
-                    program,
-                    targets,
-                    visited,
-                );
+            if visited.insert(name.clone()) {
+                if let Some(expression) = program.expression(name) {
+                    collect_indexed_targets_from_expr(&expression.parsed_formula, targets);
+                    collect_all_targets_from_expr(
+                        &expression.parsed_formula,
+                        program,
+                        targets,
+                        visited,
+                    );
+                }
             }
         }
         Expr::Indexed { indices, .. } => {
