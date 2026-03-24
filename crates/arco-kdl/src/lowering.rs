@@ -1365,15 +1365,15 @@ fn variable_domain_policy(
                 VariableKindDecl::Binary => VariableKind::Binary,
             };
         }
-        if let Some(bound) = &overrides.lower
-            && let Some(value) = literal_bound_to_f64(bound, path)?
-        {
-            lower = value;
+        if let Some(bound) = &overrides.lower {
+            if let Some(value) = literal_bound_to_f64(bound, path)? {
+                lower = value;
+            }
         }
-        if let Some(bound) = &overrides.upper
-            && let Some(value) = literal_bound_to_f64(bound, path)?
-        {
-            upper = Some(value);
+        if let Some(bound) = &overrides.upper {
+            if let Some(value) = literal_bound_to_f64(bound, path)? {
+                upper = Some(value);
+            }
         }
     }
 
@@ -1404,16 +1404,16 @@ fn lower_constraint_instances(
             {
                 let asset = bindings_asset(&bindings, inputs);
                 let time = bindings_time(&bindings, entrypoint)?;
-                if let Some(filter) = &constraint.generation_filter
-                    && !evaluate_constraint_filter(
+                if let Some(filter) = &constraint.generation_filter {
+                    if !evaluate_constraint_filter(
                         filter,
                         constraint,
                         FilterScope { asset, time },
                         inputs,
                         entrypoint,
-                    )?
-                {
-                    continue;
+                    )? {
+                        continue;
+                    }
                 }
                 constraints.extend(linearize_constraint_body(
                     constraint,
@@ -1434,8 +1434,8 @@ fn lower_constraint_instances(
                 entrypoint,
             )?;
             for scope in generation_scopes {
-                if let Some(filter) = &constraint.generation_filter
-                    && !evaluate_reduction_filter(
+                if let Some(filter) = &constraint.generation_filter {
+                    if !evaluate_reduction_filter(
                         filter,
                         &scope,
                         program,
@@ -1444,9 +1444,9 @@ fn lower_constraint_instances(
                         variable_signatures,
                         instantiated_names,
                         entrypoint,
-                    )?
-                {
-                    continue;
+                    )? {
+                        continue;
+                    }
                 }
                 constraints.extend(linearize_constraint_body(
                     constraint,

@@ -796,11 +796,11 @@ impl<'a> Parser<'a> {
     }
 
     fn matches(&mut self, predicate: impl FnOnce(&TokenKind) -> bool) -> bool {
-        if let Some(token) = self.tokens.get(self.index)
-            && predicate(&token.kind)
-        {
-            self.index += 1;
-            return true;
+        if let Some(token) = self.tokens.get(self.index) {
+            if predicate(&token.kind) {
+                self.index += 1;
+                return true;
+            }
         }
         false
     }

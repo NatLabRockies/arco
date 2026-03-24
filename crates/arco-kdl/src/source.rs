@@ -877,10 +877,10 @@ fn parse_custom_set_members(node: &KdlNode) -> Vec<String> {
     }
     // Also check for inline string arguments on the node itself
     for entry in node.entries() {
-        if entry.name().is_none()
-            && let Some(s) = entry.value().as_string()
-        {
-            members.push(s.to_string());
+        if entry.name().is_none() {
+            if let Some(s) = entry.value().as_string() {
+                members.push(s.to_string());
+            }
         }
     }
     members
