@@ -33,12 +33,12 @@ Rust crates and bindings evolve together under one release version.
 
 Three independent workflows handle the release lifecycle:
 
-| Workflow              | Trigger                                                        | Purpose                                                                                         |
-| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `release-smoke.yaml`  | Pull requests matching release-please PR shape                 | Pre-merge smoke checks for CLI + Python release paths without publishing                        |
-| `release-please.yaml` | Push to `main`                                                 | Version management — creates release PR, tag, GitHub Release; dispatches both release workflows |
-| `release-python.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds wheels, publishes to PyPI, uploads to release                                            |
-| `release-cli.yaml`    | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds CLI binaries via `cargo-dist`, uploads to release                                        |
+| Workflow              | Trigger                                                                                | Purpose                                                                                         |
+| --------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `release-smoke.yaml`  | Pull requests matching release-please PR shape, or dispatched by `release-please.yaml` | Pre-merge smoke checks for CLI + Python release paths without publishing                        |
+| `release-please.yaml` | Push to `main`                                                                         | Version management — creates release PR, tag, GitHub Release; dispatches both release workflows |
+| `release-python.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch`                         | Builds wheels, publishes to PyPI, uploads to release                                            |
+| `release-cli.yaml`    | Dispatched by release-please, tag push, or `workflow_dispatch`                         | Builds CLI binaries via `cargo-dist`, uploads to release                                        |
 
 > **Note:** Tags created by `GITHUB_TOKEN` do not trigger `on.push.tags` workflows
 > (GitHub restriction). `release-please.yaml` explicitly dispatches both release
@@ -103,6 +103,9 @@ Both product workflows support safe testing via `workflow_dispatch`:
 
 - `release-smoke.yaml` runs automatically on release-please PRs
   (`release-please--*` branch names or `chore: release arco v*` titles).
+- `release-please.yaml` also dispatches `release-smoke.yaml` when it creates or
+  updates a release PR, so smoke checks still run even though PR events created
+  by `GITHUB_TOKEN` do not trigger downstream workflows.
 - It validates release readiness before merge by running:
   - CLI smoke: single-target `dist build` for the release tag
   - Python smoke: wheel build + install/import smoke + `twine check`
