@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.4](https://github.com/NatLabRockies/arco/compare/arco-v0.2.3...arco-v0.2.4) (2026-03-24)
+
+
+### Bug Fixes
+
+* **ci:** isolate cargo-dist CLI release builds from workspace crates ([#61](https://github.com/NatLabRockies/arco/issues/61)) ([5c6ae65](https://github.com/NatLabRockies/arco/commit/5c6ae659c7f1426a79dfa7c74d3ecb3c4e15a065))
+* **ci:** trigger release smoke for release-please PRs ([#63](https://github.com/NatLabRockies/arco/issues/63)) ([28b876a](https://github.com/NatLabRockies/arco/commit/28b876ab74479744df7084a55ec065405e31e2b5))
+* **kdl:** replace let-chains for Rust 1.85 compatibility ([#64](https://github.com/NatLabRockies/arco/issues/64)) ([ceb558a](https://github.com/NatLabRockies/arco/commit/ceb558a7624818dae2380c7ac1a6e7eb48306c51))
+
 ## [0.2.3](https://github.com/NatLabRockies/arco/compare/arco-v0.2.2...arco-v0.2.3) (2026-03-23)
 
 
