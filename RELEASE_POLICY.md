@@ -33,11 +33,12 @@ Rust crates and bindings evolve together under one release version.
 
 Three independent workflows handle the release lifecycle:
 
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `release-please.yaml` | Push to `main` | Version management — creates release PR, tag, GitHub Release; dispatches both release workflows |
-| `release-python.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds wheels, publishes to PyPI, uploads to release |
-| `release-cli.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds CLI binaries via `cargo-dist`, uploads to release |
+| Workflow              | Trigger                                                        | Purpose                                                                                         |
+| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `release-smoke.yaml`  | Pull requests matching release-please PR shape                 | Pre-merge smoke checks for CLI + Python release paths without publishing                        |
+| `release-please.yaml` | Push to `main`                                                 | Version management — creates release PR, tag, GitHub Release; dispatches both release workflows |
+| `release-python.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds wheels, publishes to PyPI, uploads to release                                            |
+| `release-cli.yaml`    | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds CLI binaries via `cargo-dist`, uploads to release                                        |
 
 > **Note:** Tags created by `GITHUB_TOKEN` do not trigger `on.push.tags` workflows
 > (GitHub restriction). `release-please.yaml` explicitly dispatches both release
@@ -98,6 +99,15 @@ Both product workflows support safe testing via `workflow_dispatch`:
 - **CLI dry-run** (tag input `dry-run`): Runs `dist plan` and builds all
   platform artifacts without uploading to a GitHub Release.
 
+## Automatic Pre-Merge Release Smoke Checks
+
+- `release-smoke.yaml` runs automatically on release-please PRs
+  (`release-please--*` branch names or `chore: release arco v*` titles).
+- It validates release readiness before merge by running:
+  - CLI smoke: single-target `dist build` for the release tag
+  - Python smoke: wheel build + install/import smoke + `twine check`
+- It never publishes to PyPI or GitHub Releases.
+
 ## Failure Handling
 
 If a pipeline fails:
@@ -113,6 +123,11 @@ CLI binary builds are configured in `[workspace.metadata.dist]` in `Cargo.toml`:
 
 - `dispatch-releases = true` — the workflow uses `workflow_dispatch` and tag
   push instead of cargo-dist's default tag-only trigger.
+- `packages = ["arco-cli"]` — release scope is explicitly limited to the CLI
+  package.
+- `precise-builds = true` — builds CLI artifacts package-by-package instead of
+  `--workspace`, so non-release crates (for example Python-only optional
+  backends) do not break CLI releases.
 - `allow-dirty = ["ci"]` — protects hand-edits to the generated workflow from
   being overwritten by `dist generate-ci`.
 - Tag format: release-please creates `arco-v*` tags; the workflow strips the

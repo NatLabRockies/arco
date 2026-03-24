@@ -48,6 +48,8 @@ repository = "https://github.com/pesap/arco"
 [workspace.metadata.dist]
 # The preferred dist version to use in CI
 cargo-dist-version = "0.31.0"
+# Explicitly release only the CLI package from this workspace.
+packages = ["arco-cli"]
 # The preferred Rust toolchain to use in CI (Rustup must be able to install it)
 rust-toolchain-version = "1.85"
 # CI backends to support
@@ -65,6 +67,8 @@ auto-updater = true
 # Use workflow_dispatch instead of tag-push triggers.
 # release-please owns tag/release creation; dist builds and uploads artifacts.
 dispatch-releases = true
+# Build per package instead of `--workspace` to avoid compiling non-release crates.
+precise-builds = true
 # Protect hand-edits to generated CI workflow from being overwritten.
 allow-dirty = ["ci"]
 
