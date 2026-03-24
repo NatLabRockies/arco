@@ -31,7 +31,7 @@ Rust crates and bindings evolve together under one release version.
 
 ## Workflow Structure
 
-Three independent workflows handle the release lifecycle:
+Four independent workflows handle the release lifecycle:
 
 | Workflow              | Trigger                                                                                | Purpose                                                                                         |
 | --------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
