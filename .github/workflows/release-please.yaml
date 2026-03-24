@@ -23,6 +23,8 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      prs_created: ${{ steps.release.outputs.prs_created }}
+      pr: ${{ steps.release.outputs.pr }}
     steps:
       - name: Run release-please
         id: release
@@ -35,6 +37,40 @@ jobs:
 
   # Tags created by GITHUB_TOKEN don't trigger on.push.tags workflows.
   # Dispatch the release workflows explicitly after release-please creates a release.
+  dispatch-release-smoke:
+    name: Dispatch release smoke
+    needs: release-please
+    if: needs.release-please.outputs.prs_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Resolve release PR branch
+        id: pr
+        env:
+          PR_JSON: ${{ needs.release-please.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          PR_BRANCH=$(jq -r '.headBranchName // empty' <<< "$PR_JSON")
+
+          if [[ -z "$PR_BRANCH" ]]; then
+            echo "::error::Could not resolve release-please PR branch from action output"
+            exit 1
+          fi
+
+          echo "branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger release-smoke workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          gh workflow run release-smoke.yaml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$PR_BRANCH"
+
   dispatch-release-cli:
     name: Dispatch CLI release
     needs: release-please
