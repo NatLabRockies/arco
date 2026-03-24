@@ -17,36 +17,19 @@ env:
   RUST_TOOLCHAIN_VERSION: "1.85"
 
 jobs:
-  detect-release-pr:
-    name: Detect release-please PR
+  cli-smoke:
+    name: CLI smoke (dist build)
+    if: "${{ startsWith(github.head_ref, 'release-please--') || startsWith(github.event.pull_request.title, 'chore: release arco v') }}"
     runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.detect.outputs.should_run }}
-      dist_tag: ${{ steps.version.outputs.dist_tag }}
+    timeout-minutes: 30
     steps:
-      - name: Detect release-please PR shape
-        id: detect
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$HEAD_REF" == release-please--* ]] || [[ "$PR_TITLE" == chore:\ release\ arco\ v* ]]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        if: steps.detect.outputs.should_run == 'true'
         with:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Resolve release tag from versions
+      - name: Resolve dist tag from versions
         id: version
-        if: steps.detect.outputs.should_run == 'true'
         run: |
           set -euo pipefail
 
@@ -69,44 +52,23 @@ jobs:
 
           echo "dist_tag=v$CARGO_VERSION" >> "$GITHUB_OUTPUT"
 
-  cli-smoke:
-    name: CLI smoke (dist build)
-    needs: detect-release-pr
-    if: needs.detect-release-pr.outputs.should_run == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 1
-          persist-credentials: false
-
       - name: Install Rust
-        run: rustup update "1.85" --no-self-update && rustup default "1.85"
+        run: rustup update "$RUST_TOOLCHAIN_VERSION" --no-self-update && rustup default "$RUST_TOOLCHAIN_VERSION"
 
       - name: Install dist
         shell: bash
         run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh"
 
-      - name: Plan release artifacts
-        env:
-          DIST_TAG: ${{ needs.detect-release-pr.outputs.dist_tag }}
-        run: |
-          set -euo pipefail
-          dist plan --tag="$DIST_TAG" --output-format=json > plan-dist-manifest.json
-          jq -e '.releases[] | select(.app_name == "arco-cli")' plan-dist-manifest.json > /dev/null
-
       - name: Build one CLI release target
         env:
-          DIST_TAG: ${{ needs.detect-release-pr.outputs.dist_tag }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
         run: |
           set -euo pipefail
           dist build --tag="$DIST_TAG" --artifacts=local --target=x86_64-unknown-linux-gnu --print=linkage --output-format=human
 
   python-smoke:
     name: Python smoke (wheel build)
-    needs: detect-release-pr
-    if: needs.detect-release-pr.outputs.should_run == 'true'
+    if: "${{ startsWith(github.head_ref, 'release-please--') || startsWith(github.event.pull_request.title, 'chore: release arco v') }}"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

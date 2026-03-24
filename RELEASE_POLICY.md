@@ -104,7 +104,7 @@ Both product workflows support safe testing via `workflow_dispatch`:
 - `release-smoke.yaml` runs automatically on release-please PRs
   (`release-please--*` branch names or `chore: release arco v*` titles).
 - It validates release readiness before merge by running:
-  - CLI smoke: `dist plan` + single-target `dist build` for the release tag
+  - CLI smoke: single-target `dist build` for the release tag
   - Python smoke: wheel build + install/import smoke + `twine check`
 - It never publishes to PyPI or GitHub Releases.
 
