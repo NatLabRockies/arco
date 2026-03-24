@@ -33,11 +33,11 @@ Rust crates and bindings evolve together under one release version.
 
 Three independent workflows handle the release lifecycle:
 
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `release-please.yaml` | Push to `main` | Version management — creates release PR, tag, GitHub Release; dispatches both release workflows |
-| `release-python.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds wheels, publishes to PyPI, uploads to release |
-| `release-cli.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds CLI binaries via `cargo-dist`, uploads to release |
+| Workflow              | Trigger                                                        | Purpose                                                                                         |
+| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `release-please.yaml` | Push to `main`                                                 | Version management — creates release PR, tag, GitHub Release; dispatches both release workflows |
+| `release-python.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds wheels, publishes to PyPI, uploads to release                                            |
+| `release-cli.yaml`    | Dispatched by release-please, tag push, or `workflow_dispatch` | Builds CLI binaries via `cargo-dist`, uploads to release                                        |
 
 > **Note:** Tags created by `GITHUB_TOKEN` do not trigger `on.push.tags` workflows
 > (GitHub restriction). `release-please.yaml` explicitly dispatches both release
@@ -113,6 +113,11 @@ CLI binary builds are configured in `[workspace.metadata.dist]` in `Cargo.toml`:
 
 - `dispatch-releases = true` — the workflow uses `workflow_dispatch` and tag
   push instead of cargo-dist's default tag-only trigger.
+- `packages = ["arco-cli"]` — release scope is explicitly limited to the CLI
+  package.
+- `precise-builds = true` — builds CLI artifacts package-by-package instead of
+  `--workspace`, so non-release crates (for example Python-only optional
+  backends) do not break CLI releases.
 - `allow-dirty = ["ci"]` — protects hand-edits to the generated workflow from
   being overwritten by `dist generate-ci`.
 - Tag format: release-please creates `arco-v*` tags; the workflow strips the
