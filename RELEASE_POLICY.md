@@ -1,183 +1,123 @@
 # Release Policy
 
-This repository publishes two products from a single platform version stream:
+Arco ships as one product snapshot with one shared semantic version.
 
-- **Python package** (`arco` on PyPI)
-- **CLI binary** (`arco` via GitHub Releases, powered by `cargo-dist`)
+Every release version is shared across:
 
-Rust crates and bindings evolve together under one release version.
+- `Cargo.toml` workspace version
+- `bindings/python/pyproject.toml` project version
+- `bindings/python/uv.lock` package entry for `arco`
+- GitHub tag (`vX.Y.Z`)
+- GitHub Release
 
 ## Goals
 
-- Keep user-facing releases predictable.
-- Keep Python and Rust behavior aligned in every published version.
-- Keep release operations simple and hard to misuse.
-- Allow each product to ship independently — one failure does not block the other.
+- Keep release identity simple, one product version everywhere.
+- Build once, publish the exact built artifacts.
+- Keep release automation retryable and safe when failures happen.
+- Ship everything together or nothing: GitHub Release and PyPI publish atomically.
 
-## Versioning Model
+## Release Ownership
 
-- We use one shared semantic version across:
-  - `Cargo.toml` workspace version
-  - `bindings/python/pyproject.toml` project version
-  - `bindings/python/uv.lock` package entry for `arco`
-- `release-please` manages version bumps and opens a single release PR for the
-  repository.
+- `release-please` owns changelog generation, version bump PRs (across
+  `Cargo.toml`, `pyproject.toml`, and `uv.lock`), tag creation, and draft
+  GitHub Release creation (bookkeeping only — invisible to users).
+- `cargo-dist` owns cross-platform CLI binaries, installers, checksums, dist
+  manifests, and publishing the GitHub Release (uploads artifacts to the draft
+  and undrafts it).
+- `ci.yaml` owns pre-merge validation: version consistency checks, code
+  quality, and tests. cargo-dist also validates artifact builds on PRs via
+  `pr-run-mode`.
 
-## Release PR Structure
+## Workflow Topology
 
-- `release-please` opens one release PR (`arco` component).
-- Notes are generated with the default changelog strategy so commit categories
-  are preserved.
+| Workflow               | Trigger                                                                              | Purpose                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `release-please.yaml`  | `push` to `main`                                                                     | Maintains release PRs, creates tag + draft release, dispatches `cargo-dist-release.yml`, then builds and publishes Python package to PyPI |
+| `cargo-dist-release.yml` | `workflow_dispatch` from `release-please.yaml` (with tag) or `pull_request` (dry-run) | Builds CLI artifacts via cargo-dist, uploads them to the draft release, and publishes it                   |
 
-## Workflow Structure
+### Reusable workflow call
 
-Four independent workflows handle the release lifecycle:
+`release-please.yaml` calls `cargo-dist-release.yml` as a reusable workflow
+(`workflow_call`) because tags created with `GITHUB_TOKEN` do not trigger tag
+workflows. The call passes the release tag as an input and GitHub Actions
+natively waits for the called workflow to complete.
 
-| Workflow              | Trigger                                                                                | Purpose                                                                                         |
-| --------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `release-smoke.yaml`  | Pull requests matching release-please PR shape, or dispatched by `release-please.yaml` | Pre-merge smoke checks for CLI + Python release paths without publishing                        |
-| `release-please.yaml` | Push to `main`                                                                         | Version management — creates release PR, tag, GitHub Release; dispatches both release workflows |
-| `release-python.yaml` | Dispatched by release-please, tag push, or `workflow_dispatch`                         | Builds wheels, publishes to PyPI, uploads to release                                            |
-| `release-cli.yaml`    | Dispatched by release-please, tag push, or `workflow_dispatch`                         | Builds CLI binaries via `cargo-dist`, uploads to release                                        |
+### cargo-dist-release.yml job graph
 
-> **Note:** Tags created by `GITHUB_TOKEN` do not trigger `on.push.tags` workflows
-> (GitHub restriction). `release-please.yaml` explicitly dispatches both release
-> workflows after creating a release to work around this.
+`cargo-dist-release.yml` is generated by cargo-dist. When called with a tag
+(publishing mode), it runs these jobs in order:
 
-## Publishing Behavior
+```text
+plan
+  -> build-local-artifacts (matrix across target platforms)
+  -> build-global-artifacts (installers, checksums)
+  -> host (upload artifacts to draft + undraft with gh release edit)
+  -> announce
+```
 
-- `arco` is the published Python package (PyPI + GitHub Release wheel artifacts).
-- The `arco` CLI binary is distributed via GitHub Releases with auto-generated
-  shell and PowerShell installers powered by `cargo-dist`.
-- Rust crates are internal implementation units and are not independently
-  published from this repository.
+On `pull_request` triggers the workflow runs in dry-run mode: it plans and
+builds artifacts but does not upload or create a release.
 
-## Independent Release Pipelines
+### Release atomicity
 
-Both product pipelines are dispatched by `release-please.yaml` after a release
-is created and run independently in parallel:
+The `py-build` and `publish-pypi` jobs in `release-please.yaml` depend on the
+`cargo-dist` job. This ensures the Python package is only published to
+PyPI after cargo-dist has successfully published the GitHub Release. If
+cargo-dist fails, nothing is published.
 
-### Phase 1: Version and Tag (release-please)
+## Release Notes
 
-- `release-please` creates a release PR with version bumps.
-- Merging the PR creates the `arco-v*` tag and a GitHub Release with the
-  changelog body.
-- `release-please.yaml` then dispatches `release-cli.yaml` and
-  `release-python.yaml` via `workflow_dispatch`.
-
-### Phase 2a: Python Pipeline (release-python.yaml)
-
-1. Extracts version from the tag.
-2. Builds Python wheels (3 platforms × 5 Python versions) via `maturin`.
-3. Validates wheels with `twine check`.
-4. Publishes to PyPI via OIDC Trusted Publishing.
-5. Uploads `.whl` files to the GitHub Release.
-6. Adds Python install instructions to the release notes.
-
-### Phase 2b: CLI Pipeline (release-cli.yaml)
-
-1. Runs `dist plan` to determine the per-platform build matrix.
-2. Builds CLI binaries on native runners (macOS, Linux, Windows, ARM).
-3. Builds global artifacts (shell + PowerShell installer scripts).
-4. Uploads all CLI artifacts to the GitHub Release.
-5. Adds CLI install instructions to the release notes.
-
-### Independence
-
-- Python failure does not block CLI release and vice versa.
-- Partial releases are possible — if one pipeline fails, the other's artifacts
-  are still published.
-- Each pipeline's release note section uses HTML comment markers for
-  idempotency (`<!-- python-install -->`, `<!-- cli-install -->`).
-
-## Dry-Run Mode
-
-Both product workflows support safe testing via `workflow_dispatch`:
-
-- **Python dry-run** (`dry_run: true`): Builds and validates wheels without
-  publishing to PyPI or uploading to a GitHub Release.
-- **CLI dry-run** (tag input `dry-run`): Runs `dist plan` and builds all
-  platform artifacts without uploading to a GitHub Release.
-
-## Automatic Pre-Merge Release Smoke Checks
-
-- `release-smoke.yaml` runs automatically on release-please PRs
-  (`release-please--*` branch names or `chore: release arco v*` titles).
-- `release-please.yaml` also dispatches `release-smoke.yaml` when it creates or
-  updates a release PR, so smoke checks still run even though PR events created
-  by `GITHUB_TOKEN` do not trigger downstream workflows.
-- It validates release readiness before merge by running:
-  - CLI smoke: single-target `dist build` for the release tag
-  - Python smoke: wheel build + install/import smoke + `twine check`
-- It never publishes to PyPI or GitHub Releases.
+`release-please` is the source of truth for release notes and changelog content.
+Changelog sections are configured in `.release-please-config.json`.
 
 ## Failure Handling
 
-If a pipeline fails:
+On any failure in `cargo-dist-release.yml`:
 
-- Artifacts from successful build jobs remain available as workflow artifacts.
-- The GitHub Release may have partial artifacts from the successful pipeline.
-- The failed pipeline can be re-triggered via `workflow_dispatch` with the
-  release tag.
+- The GitHub Release stays as a draft (invisible to users).
+- Workflow artifacts are preserved for inspection and retries.
+- No downstream jobs run after the failed step.
+- Python package is not published to PyPI.
 
-## cargo-dist Configuration
+Retries rerun the workflow dispatch with the same tag. `gh release upload
+--clobber` ensures artifact uploads are idempotent.
 
-CLI binary builds are configured in `[workspace.metadata.dist]` in `Cargo.toml`:
+## Maintenance Notes
 
-- `dispatch-releases = true` — the workflow uses `workflow_dispatch` and tag
-  push instead of cargo-dist's default tag-only trigger.
-- `packages = ["arco-cli"]` — release scope is explicitly limited to the CLI
-  package.
-- `precise-builds = true` — builds CLI artifacts package-by-package instead of
-  `--workspace`, so non-release crates (for example Python-only optional
-  backends) do not break CLI releases.
-- `allow-dirty = ["ci"]` — protects hand-edits to the generated workflow from
-  being overwritten by `dist generate-ci`.
-- Tag format: release-please creates `arco-v*` tags; the workflow strips the
-  `arco-` prefix to produce `v*` tags that `dist` can parse.
+`cargo-dist-release.yml` is auto-generated by `cargo dist init`. After
+regeneration, manually re-apply:
 
-## How To Read Release PRs
+1. The `workflow_call` trigger with `inputs.tag` (required for reusable workflow
+   call from `release-please.yaml`).
+2. The `timeout-minutes` values on all jobs.
+3. The `paths` filter on the `pull_request` trigger.
+4. The host job patch: replace `gh release create` with `gh release upload` +
+   `gh release edit --draft=false`. Look for the `# MODIFIED:` comment.
 
-- Rust-only change:
-  - It still creates a new `arco` release, because backend behavior affects the
-    shipped Python wheel.
-- Python-only change:
-  - It creates a new `arco` release.
-- Mixed change:
-  - It creates a new `arco` release.
-- Use commit scopes (`rust`, `python`, etc.) to make source of change explicit
-  in release notes.
+## Future First-Party Bindings
 
-## Future Bindings
+New first-party bindings should join the shared product version stream unless
+explicitly declared as a separate product line.
 
-- New language bindings should follow the same platform version stream.
-- Backend changes are considered cross-binding changes and should advance the
-  shared version.
+If they join the stream, their build and publish steps should be added to the
+release workflow before the release is made public.
 
 ## Commit Conventions
 
-- Use Conventional Commits (`feat:`, `fix:`, `perf:`, `chore:`, etc.).
-- Non-conventional commit messages may be skipped or poorly classified in
-  release notes.
+- Use Conventional Commits (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`,
+  `build:`, `ci:`).
+- Non-conventional commits may be omitted or misclassified in release notes.
 
-## Forcing A Release PR
+## Forcing A Release Version
 
-If you need to force a release:
-
-1. Create a conventional commit that touches release-tracked paths.
-2. Add a `Release-As` trailer to set the target version explicitly.
-
-Example:
+Use `Release-As` only when an explicit one-off version override is necessary:
 
 ```text
-chore(release): force 0.2.1
+chore(release): force 0.3.0
 
-Release-As: 0.2.1
+Release-As: 0.3.0
 ```
 
-Forced versions apply to the single platform release and propagate to all
-tracked version files.
-
-Use `Release-As` only for one-off overrides. If a stale release PR resurfaces
-an old forced version, close the stale PR and remove any stale draft release for
-that tag before rerunning release automation.
+Close stale release PRs and remove stale draft releases for old forced tags
+before rerunning automation.

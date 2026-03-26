@@ -13,6 +13,14 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "crates/**"
+      - "bindings/python/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - ".github/workflows/ci.yaml"
+      - ".github/actions/**"
   workflow_dispatch:
 
 concurrency:
@@ -29,6 +37,36 @@ env:
   RUST_TOOLCHAIN_VERSION: "1.85"
 
 jobs:
+  version-consistency:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate Cargo.toml and pyproject.toml versions match
+        run: |
+          set -euo pipefail
+
+          cargo_version="$(awk -F '"' '
+            /^\[workspace\.package\]$/ { in_ws = 1; next }
+            /^\[/ && in_ws { in_ws = 0 }
+            in_ws && /^version = / { print $2; exit }
+          ' Cargo.toml)"
+
+          pyproject_version="$(awk -F '"' '
+            /^\[project\]$/ { in_proj = 1; next }
+            /^\[/ && in_proj { in_proj = 0 }
+            in_proj && /^version = / { print $2; exit }
+          ' bindings/python/pyproject.toml)"
+
+          [[ -n "$cargo_version" ]] || { echo "::error::Could not read workspace version from Cargo.toml"; exit 1; }
+          [[ -n "$pyproject_version" ]] || { echo "::error::Could not read version from pyproject.toml"; exit 1; }
+          [[ "$cargo_version" == "$pyproject_version" ]] || { echo "::error::Version mismatch: Cargo.toml=$cargo_version pyproject.toml=$pyproject_version"; exit 1; }
+          echo "Versions match: $cargo_version"
+
   rust-fmt:
     name: Rust formatting
     runs-on: ubuntu-latest
@@ -67,7 +105,6 @@ jobs:
 
   rust-clippy:
     name: Rust clippy (${{ matrix.target.name }})
-    needs: [rust-fmt]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -114,7 +151,6 @@ jobs:
 
   rust-test:
     name: Rust tests (${{ matrix.target.name }})
-    needs: [rust-fmt]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -161,11 +197,10 @@ jobs:
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
-    needs: [rust-fmt]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:

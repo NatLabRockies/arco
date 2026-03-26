@@ -16,6 +16,12 @@ default-run = "arco"
 # This is the main distributable artifact
 dist = true
 
+[package.metadata.wix]
+upgrade-guid = "7924A5C1-504F-4FA6-B082-45D003C9FE07"
+path-guid = "B7F04BFA-741F-4FEE-93A6-A5071B74EEA0"
+license = false
+eula = false
+
 [[bin]]
 name = "arco"
 path = "src/main.rs"

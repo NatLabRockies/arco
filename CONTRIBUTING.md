@@ -37,10 +37,10 @@ The repository ships GitHub Actions for package validation and release:
 
 - `CI` runs install/import smoke tests for built wheels across Python 3.10-3.14,
   validates source-distribution installation, and runs docs doctests.
-- `Release and Publish` runs `release-please` automatically on `main`; when a
-  release is created it first creates a draft GitHub release, then builds
-  wheels/sdist, uploads those artifacts, publishes to PyPI, and finally marks
-  the GitHub release as published.
+- `release-please` runs on `main`, manages release PRs, creates tags and draft
+  GitHub Releases, then dispatches `cargo-dist-release.yml` and publishes to PyPI.
+- `cargo-dist-release.yml` builds CLI binaries and installers, uploads them to
+  the draft GitHub Release, and publishes it.
 - Releases follow one platform version stream (`arco`) that updates workspace
   and Python package versions together.
 - `arco` publishes artifacts and releases; Rust crates are internal and
