@@ -105,6 +105,7 @@ jobs:
 
   rust-clippy:
     name: Rust clippy (${{ matrix.target.name }})
+    needs: [rust-fmt, version-consistency, workflow-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -151,6 +152,7 @@ jobs:
 
   rust-test:
     name: Rust tests (${{ matrix.target.name }})
+    needs: [rust-fmt, version-consistency, workflow-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -197,6 +199,7 @@ jobs:
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
+    needs: [version-consistency]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
