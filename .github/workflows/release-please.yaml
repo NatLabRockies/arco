@@ -35,75 +35,62 @@ jobs:
           manifest-file: .release-please-manifest.json
           target-branch: main
 
-  # Tags created by GITHUB_TOKEN don't trigger on.push.tags workflows.
-  # Dispatch the release workflows explicitly after release-please creates a release.
-  dispatch-release-smoke:
-    name: Dispatch release smoke
+  cargo-dist:
+    name: Build and publish release
     needs: release-please
-    if: needs.release-please.outputs.prs_created == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/cargo-dist-release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+
+  py-build:
+    name: Python Build Artifacts
+    timeout-minutes: 15
     permissions:
-      actions: write
-    steps:
-      - name: Resolve release PR branch
-        id: pr
-        env:
-          PR_JSON: ${{ needs.release-please.outputs.pr }}
-        run: |
-          set -euo pipefail
-
-          PR_BRANCH=$(jq -r '.headBranchName // empty' <<< "$PR_JSON")
-
-          if [[ -z "$PR_BRANCH" ]]; then
-            echo "::error::Could not resolve release-please PR branch from action output"
-            exit 1
-          fi
-
-          echo "branch=$PR_BRANCH" >> "$GITHUB_OUTPUT"
-
-      - name: Trigger release-smoke workflow
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_BRANCH: ${{ steps.pr.outputs.branch }}
-        run: |
-          gh workflow run release-smoke.yaml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$PR_BRANCH"
-
-  dispatch-release-cli:
-    name: Dispatch CLI release
+      contents: read
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
     steps:
-      - name: Trigger release-cli workflow
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: |
-          gh workflow run release-cli.yaml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$RELEASE_TAG" \
-            -f tag="$RELEASE_TAG"
+      - name: Checkout release commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          fetch-depth: 1
+          persist-credentials: false
 
-  dispatch-release-python:
-    name: Dispatch Python release
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
+
+      - name: Build package
+        run: uv build
+
+      - name: Store the distribution packages
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: python-package-distributions
+          path: dist/
+          retention-days: 3
+
+  publish-pypi:
+    timeout-minutes: 10
     permissions:
-      actions: write
+      id-token: write
+    needs:
+      - py-build
+      - cargo-dist
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/arco
     steps:
-      - name: Trigger release-python workflow
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: |
-          gh workflow run release-python.yaml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$RELEASE_TAG"
+      - name: Download all the dists
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@106e0b0b7c337fa67ed433972f777c6357f78598 # v1.13.0
