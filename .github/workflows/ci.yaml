@@ -105,6 +105,7 @@ jobs:
 
   rust-clippy:
     name: Rust clippy (${{ matrix.target.name }})
+    needs: [rust-fmt, version-consistency, workflow-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -151,6 +152,7 @@ jobs:
 
   rust-test:
     name: Rust tests (${{ matrix.target.name }})
+    needs: [rust-fmt, version-consistency, workflow-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -187,7 +189,8 @@ jobs:
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
           install-uv: "false"
           sync-python-licenses: "false"
-          rust-cache-shared-key: rust-test
+          rust-cache-shared-key: rust-clippy
+          save-rust-cache: "false"
 
       - name: Run tests (${{ matrix.target.name }})
         run: ${{ matrix.target.command }}
@@ -197,6 +200,7 @@ jobs:
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
+    needs: [version-consistency]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -215,6 +219,7 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-cache-shared-key: rust-clippy
           save-uv-cache: "false"
           save-rust-cache: "false"
 

@@ -13,15 +13,12 @@
 # Note that the GitHub Release will be created with a generated
 # title/body based on your changelogs.
 
-name: Release
+name: Cargo Dist
 permissions:
   "contents": "read"
 
 # This task will run whenever you workflow_dispatch with a tag that looks like a version
-# like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
-# Various formats will be parsed into a VERSION and an optional PACKAGE_NAME, where
-# PACKAGE_NAME must be the name of a Cargo package in your workspace, and VERSION
-# must be a Cargo-style SemVer Version (must have at least major.minor.patch).
+# like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc. Various formats will be parsed into a VERSION and an optional PACKAGE_NAME, where PACKAGE_NAME must be the name of a Cargo package in your workspace, and VERSION must be a Cargo-style SemVer Version (must have at least major.minor.patch).
 #
 # If PACKAGE_NAME is specified, then the announcement will be for that
 # package (erroring out if it doesn't have the given version or isn't dist-able).
