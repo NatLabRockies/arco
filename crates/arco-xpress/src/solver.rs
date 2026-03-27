@@ -115,7 +115,7 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
         let init_rc = unsafe { ffi::XPRSinit(std::ptr::null()) };
         if init_rc == 0 {
             // Success — restore XPAUTH_PATH and return.
-            restore_env("XPAUTH_PATH", &original_xpauth);
+            restore_env("XPAUTH_PATH", original_xpauth.as_deref());
             return Ok(XpressGuard);
         }
         // Failed — clean up so the next candidate can be tried.
@@ -123,7 +123,7 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
     }
 
     // All candidates exhausted — restore env and report failure.
-    restore_env("XPAUTH_PATH", &original_xpauth);
+    restore_env("XPAUTH_PATH", original_xpauth.as_deref());
     let dir_info = xpress_dir.as_deref().unwrap_or("(not set)");
     let msg = xprs_lic_errmsg();
     Err(SolverError::SolverSpecific(format!(
@@ -138,7 +138,7 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
 /// Restore an environment variable to its original value, or remove it if it
 /// was originally unset.
 #[allow(unsafe_code)]
-fn restore_env(key: &str, original: &Option<String>) {
+fn restore_env(key: &str, original: Option<&str>) {
     // SAFETY: called from single-threaded init/cleanup path.
     match original {
         Some(val) => unsafe { std::env::set_var(key, val) },
