@@ -52,7 +52,9 @@ def _extract_doctest_blocks(*, file_path: Path) -> list[DoctestBlock]:
     in_doctest_block = False
     block_start_line = 0
 
-    for line_number, line in enumerate(file_path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, line in enumerate(
+        file_path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         if not in_doctest_block:
             if DOCTEST_FENCE_PATTERN.match(line.strip()) is None:
                 continue

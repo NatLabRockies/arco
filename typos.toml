@@ -1,0 +1,9 @@
+[default.extend-words]
+# Fixed Operations & Maintenance — standard energy-sector abbreviation
+FOM = "FOM"
+
+[files]
+extend-exclude = [
+    "CHANGELOG.md",   # auto-generated, full of commit SHA fragments
+    ".gitignore",     # glob patterns like [Ss]cripts trigger false positives
+]

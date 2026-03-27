@@ -32,7 +32,9 @@ def _resolve_artifacts(*, pattern: str) -> list[Path]:
     return sorted(artifacts)
 
 
-def _run_uv_smoke(*, python_executable: Path, artifacts: Sequence[Path], import_name: str) -> None:
+def _run_uv_smoke(
+    *, python_executable: Path, artifacts: Sequence[Path], import_name: str
+) -> None:
     command = [
         "uv",
         "run",
