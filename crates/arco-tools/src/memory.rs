@@ -4,6 +4,7 @@
 //! across different stages of the optimization process.
 
 use std::time::{Duration, Instant};
+#[cfg(not(target_os = "linux"))]
 use sysinfo::System;
 
 /// A snapshot of memory state at a specific point in time.
@@ -26,6 +27,8 @@ pub enum MemoryError {
     ///
     /// `pid` is the OS process identifier that could not be resolved.
     ProcessNotFound { pid: u32 },
+    /// RSS could not be read or parsed for the current process.
+    RssReadFailed { details: String },
 }
 
 impl std::fmt::Display for MemoryError {
@@ -34,12 +37,27 @@ impl std::fmt::Display for MemoryError {
             MemoryError::ProcessNotFound { pid } => {
                 write!(f, "failed to locate process {}", pid)
             }
+            MemoryError::RssReadFailed { details } => write!(f, "failed to read RSS: {details}"),
         }
     }
 }
 
 impl std::error::Error for MemoryError {}
 
+#[cfg(target_os = "linux")]
+fn read_process_rss_bytes() -> Result<u64, MemoryError> {
+    let status = std::fs::read_to_string("/proc/self/status").map_err(|source| {
+        MemoryError::RssReadFailed {
+            details: source.to_string(),
+        }
+    })?;
+
+    parse_linux_vm_rss_bytes(&status).ok_or_else(|| MemoryError::RssReadFailed {
+        details: "missing or invalid VmRSS line in /proc/self/status".to_string(),
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
 fn read_process_rss_bytes() -> Result<u64, MemoryError> {
     let pid = sysinfo::Pid::from(std::process::id() as usize);
 
@@ -57,6 +75,21 @@ fn read_process_rss_bytes() -> Result<u64, MemoryError> {
 
     // sysinfo 0.33+ returns memory in bytes directly.
     Ok(process.memory())
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_vm_rss_bytes(status: &str) -> Option<u64> {
+    let vm_rss_line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
+    let mut parts = vm_rss_line.split_whitespace();
+    let _label = parts.next()?;
+    let kb_text = parts.next()?;
+    let unit = parts.next()?;
+    if unit != "kB" {
+        return None;
+    }
+
+    let kb = kb_text.parse::<u64>().ok()?;
+    kb.checked_mul(1024)
 }
 
 impl MemorySnapshot {
@@ -213,6 +246,8 @@ impl Default for MemoryProbe {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    use crate::memory::parse_linux_vm_rss_bytes;
     use crate::memory::{
         MeasurementRecorder, MemoryProbe, MemorySnapshot, capture_rss_bytes, rss_delta,
     };
@@ -284,5 +319,21 @@ mod tests {
         assert_eq!(recorder.stages().len(), 1);
         assert_eq!(recorder.stages()[0].stage, "stage_a");
         assert!(recorder.stages()[0].duration.as_nanos() > 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_parse_linux_vm_rss_bytes() {
+        let input = "Name:\ttest\nVmRSS:\t   12345 kB\nThreads:\t1\n";
+        let parsed = parse_linux_vm_rss_bytes(input);
+        assert_eq!(parsed, Some(12_641_280));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_parse_linux_vm_rss_bytes_rejects_invalid_unit() {
+        let input = "VmRSS:\t   12345 MB\n";
+        let parsed = parse_linux_vm_rss_bytes(input);
+        assert_eq!(parsed, None);
     }
 }
