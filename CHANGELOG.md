@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.6](https://github.com/NatLabRockies/arco/compare/v0.2.5...v0.2.6) (2026-03-27)
+
+
+### CI
+
+* **release:** append install instructions and fix repo URLs ([#77](https://github.com/NatLabRockies/arco/issues/77)) ([6109c23](https://github.com/NatLabRockies/arco/commit/6109c2361cb82025d303cc85218312dc0b0ca8ba))
+
+
+### Build
+
+* **deps:** bump actions/download-artifact from 8.0.0 to 8.0.1 ([#66](https://github.com/NatLabRockies/arco/issues/66)) ([ae9bf42](https://github.com/NatLabRockies/arco/commit/ae9bf4226cd04ead0c7bf75de40afc0d46be5e99))
+* **deps:** bump astral-sh/setup-uv from 7.3.0 to 7.6.0 ([#65](https://github.com/NatLabRockies/arco/issues/65)) ([353f9e5](https://github.com/NatLabRockies/arco/commit/353f9e5949c5b57f1e0cfd6edd3185663b1f34f3))
+
 ## [0.2.5](https://github.com/NatLabRockies/arco/compare/v0.2.5...v0.2.5) (2026-03-27)
 
 
