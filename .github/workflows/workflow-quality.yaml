@@ -1,4 +1,4 @@
-name: zizmor
+name: GitHub CI Quality
 
 on:
   pull_request:

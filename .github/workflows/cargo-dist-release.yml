@@ -164,7 +164,7 @@ jobs:
         run: |
           if ! command -v cargo > /dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
       - name: Use rustup to set correct Rust version
         run: rustup update "1.85" --no-self-update && rustup default "1.85"
@@ -209,6 +209,7 @@ jobs:
           set -euo pipefail
           read -r -a dist_args_array <<< "${DIST_ARGS}"
           # Actually do builds and make zips and whatnot
+          # shellcheck disable=SC2086
           dist build --allow-dirty ${PLAN_TAG_FLAG} --print=linkage --output-format=json "${dist_args_array[@]}" > dist-manifest.json
           echo "dist ran successfully"
       - id: cargo-dist
@@ -219,9 +220,11 @@ jobs:
         shell: bash
         run: |
           # Parse out what we just built and upload it to scratch storage
-          echo "paths<<EOF" >> "$GITHUB_OUTPUT"
-          dist print-upload-files-from-manifest --allow-dirty --manifest dist-manifest.json >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "paths<<EOF"
+            dist print-upload-files-from-manifest --allow-dirty --manifest dist-manifest.json
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
           cp dist-manifest.json "$BUILD_MANIFEST_NAME"
       - name: "Upload artifacts"
@@ -265,13 +268,16 @@ jobs:
       - id: cargo-dist
         shell: bash
         run: |
+          # shellcheck disable=SC2086
           dist build --allow-dirty ${NEEDS_PLAN_OUTPUTS_TAG_FLAG} --output-format=json "--artifacts=global" > dist-manifest.json
           echo "dist ran successfully"
 
           # Parse out what we just built and upload it to scratch storage
-          echo "paths<<EOF" >> "$GITHUB_OUTPUT"
-          jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "paths<<EOF"
+            jq --raw-output ".upload_files[]" dist-manifest.json
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
           cp dist-manifest.json "$BUILD_MANIFEST_NAME"
         env:
@@ -327,6 +333,7 @@ jobs:
       - id: host
         shell: bash
         run: |
+          # shellcheck disable=SC2086
           dist host --allow-dirty ${NEEDS_PLAN_OUTPUTS_TAG_FLAG} --steps=upload --steps=release --output-format=json > dist-manifest.json
           echo "artifacts uploaded and released successfully"
           cat dist-manifest.json
@@ -363,6 +370,7 @@ jobs:
           gh release upload "${NEEDS_PLAN_OUTPUTS_TAG}" artifacts/* --clobber
 
           # Publish the release (undraft)
+          # shellcheck disable=SC2086
           gh release edit "${NEEDS_PLAN_OUTPUTS_TAG}" --draft=false ${PRERELEASE_FLAG}
 
   announce:
