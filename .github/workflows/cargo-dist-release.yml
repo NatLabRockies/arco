@@ -44,6 +44,7 @@ on:
       - "Cargo.lock"
       - "dist-workspace.toml"
       - ".github/workflows/cargo-dist-release.yml"
+      - ".github/workflows/release-please.yaml"
   workflow_call:
     inputs:
       tag:
