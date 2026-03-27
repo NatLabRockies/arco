@@ -643,7 +643,6 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
         problem.algebra.variable_instances.len(),
         problem.algebra.constraints.len(),
     );
-    let mut variable_indices = BTreeMap::new();
     let mut variable_ids = BTreeMap::new();
 
     for variable in &problem.algebra.variable_instances {
@@ -668,7 +667,6 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
                 lowered_name: variable.name.clone(),
                 source,
             })?;
-        variable_indices.insert(variable.name.clone(), variable_id.inner() as usize);
         variable_ids.insert(variable.name.clone(), variable_id);
     }
 
@@ -742,6 +740,11 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
             lowered_name: problem.algebra.objective.name.clone(),
             source,
         })?;
+
+    let variable_indices = variable_ids
+        .iter()
+        .map(|(name, id)| (name.clone(), id.inner() as usize))
+        .collect();
 
     Ok(BuiltModel {
         model,

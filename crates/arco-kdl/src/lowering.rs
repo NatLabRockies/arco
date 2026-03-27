@@ -938,10 +938,10 @@ fn load_inputs(
                 values.insert(time, value);
             }
             series.insert(binding.name.clone(), values);
+        } else {
+            let table = load_generic_data_table(program, &binding.name, &rows, &csv_path)?;
+            generic_data.insert(binding.name.clone(), table);
         }
-
-        let table = load_generic_data_table(program, &binding.name, &rows, &csv_path)?;
-        generic_data.insert(binding.name.clone(), table);
     }
 
     Ok(ScenarioInputs {
@@ -2645,61 +2645,23 @@ fn infer_data_key_columns(
     headers: &[String],
     value_column: Option<&str>,
 ) -> Vec<String> {
-    let candidate_columns = headers
+    let candidate_columns: Vec<String> = headers
         .iter()
         .filter(|column| value_column != Some(column.as_str()))
         .cloned()
-        .collect::<Vec<_>>();
+        .collect();
 
-    if candidate_columns.iter().any(|column| column == "g")
-        && candidate_columns.iter().any(|column| column == "n")
-    {
-        return vec!["g".to_string(), "n".to_string()];
-    }
-    if candidate_columns.iter().any(|column| column == "g")
-        && candidate_columns.iter().any(|column| column == "t")
-    {
-        return vec!["g".to_string(), "t".to_string()];
-    }
-    if candidate_columns.iter().any(|column| column == "n")
-        && candidate_columns.iter().any(|column| column == "t")
-    {
-        return vec!["n".to_string(), "t".to_string()];
-    }
-    for preferred in [
-        "asset_name",
-        "sc_point_gid",
-        "node_id",
-        "site_id",
-        "g",
-        "n",
-        "t",
-    ] {
-        if candidate_columns.iter().any(|column| column == preferred) {
-            return vec![preferred.to_string()];
-        }
-    }
-
-    let membership_columns = candidate_columns
+    // Use columns whose values match a declared set as key columns.
+    let membership_columns: Vec<String> = candidate_columns
         .iter()
         .filter(|column| data_column_matches_any_set(program, rows, column))
         .cloned()
-        .collect::<Vec<_>>();
+        .collect();
     if !membership_columns.is_empty() {
         return membership_columns;
     }
-    if candidate_columns
-        .iter()
-        .any(|column| column == "asset_name")
-    {
-        return vec!["asset_name".to_string()];
-    }
-    if candidate_columns.iter().any(|column| column == "t") {
-        return vec!["t".to_string()];
-    }
-    if candidate_columns.is_empty() {
-        return Vec::new();
-    }
+
+    // Fallback: treat every non-value column as a key column.
     candidate_columns
 }
 
@@ -2713,15 +2675,16 @@ fn data_column_matches_any_set(
         let Some(value) = row.get(column) else {
             return false;
         };
-        column_values.insert(value.clone());
+        column_values.insert(value.as_str());
     }
     if column_values.is_empty() {
         return false;
     }
 
     program.set_registry.values().any(|set| {
-        let set_values = set.values.iter().cloned().collect::<BTreeSet<_>>();
-        column_values.is_subset(&set_values)
+        column_values
+            .iter()
+            .all(|v| set.values.iter().any(|s| s == v))
     })
 }
 
