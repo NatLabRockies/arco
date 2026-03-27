@@ -1,4 +1,4 @@
-name: CI
+name: Continuous Integration
 
 on:
   pull_request:
@@ -113,7 +113,8 @@ jobs:
 
       - name: Install system dependencies
         if: matrix.target.apt-deps != ''
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.target.apt-deps }}
+        run: sudo apt-get update -qq && sudo apt-get install -y
+          --no-install-recommends ${{ matrix.target.apt-deps }}
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -160,7 +161,8 @@ jobs:
 
       - name: Install system dependencies
         if: matrix.target.apt-deps != ''
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ${{ matrix.target.apt-deps }}
+        run: sudo apt-get update -qq && sudo apt-get install -y
+          --no-install-recommends ${{ matrix.target.apt-deps }}
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
