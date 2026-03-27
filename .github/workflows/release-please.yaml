@@ -100,12 +100,13 @@ jobs:
 
       - name: Build package
         run: uv build
+        working-directory: bindings/python
 
       - name: Store the distribution packages
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: python-package-distributions
-          path: dist/
+          path: bindings/python/dist/
           retention-days: 3
 
   publish-pypi:
