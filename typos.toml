@@ -1,0 +1,12 @@
+[default.extend-words]
+# Energy-sector abbreviations
+FOM = "FOM"    # Fixed Operations & Maintenance
+CAES = "CAES"  # Compressed Air Energy Storage
+# Code identifiers
+arange = "arange"  # numpy.arange
+
+[files]
+extend-exclude = [
+    "CHANGELOG.md",   # auto-generated, full of commit SHA fragments
+    ".gitignore",     # glob patterns like [Ss]cripts trigger false positives
+]

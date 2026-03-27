@@ -31,7 +31,7 @@ jobs:
           version: ${{ env.UV_VERSION }}
 
       - name: Run prek
-        run: uvx --from prek==${{ env.PREK_VERSION }} prek run --all-files
+        run: uvx --from prek==${{ env.PREK_VERSION }} prek run --all-files --show-diff-on-failure --color always
 
   lint-commit-messages:
     name: lint commit message
