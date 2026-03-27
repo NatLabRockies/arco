@@ -11,7 +11,7 @@ use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolv
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
 use std::time::Instant;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 /// Re-export of arco_core::SolverError for backward compatibility.
 pub type SolverError = CoreSolverError;
@@ -592,8 +592,17 @@ fn solve_model(
     }
 
     // Solve
+    info!(
+        "HiGHS solve started (rows={}, cols={})",
+        model.num_constraints(),
+        model.num_variables()
+    );
     let status = highs_model.solve();
     let solve_ms = solve_started.elapsed().as_secs_f64() * 1000.0;
+    info!(
+        "HiGHS solve completed in {:.2} ms with status {:?}",
+        solve_ms, status
+    );
     let rss_after = capture_rss_bytes("solve_end");
     let rss_delta = match (rss_before, rss_after) {
         (Some(before), Some(after)) => Some(after as i64 - before as i64),
