@@ -1,6 +1,7 @@
 [default.extend-words]
-# Fixed Operations & Maintenance — standard energy-sector abbreviation
-FOM = "FOM"
+# Energy-sector abbreviations
+FOM = "FOM"    # Fixed Operations & Maintenance
+CAES = "CAES"  # Compressed Air Energy Storage
 
 [files]
 extend-exclude = [
