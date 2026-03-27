@@ -37,10 +37,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pesap/arco"
-Repository = "https://github.com/pesap/arco"
-Issues = "https://github.com/pesap/arco/issues"
-Changelog = "https://github.com/pesap/arco/releases"
+Homepage = "https://github.com/NatLabRockies/arco"
+Repository = "https://github.com/NatLabRockies/arco"
+Issues = "https://github.com/NatLabRockies/arco/issues"
+Changelog = "https://github.com/NatLabRockies/arco/releases"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

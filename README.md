@@ -102,17 +102,17 @@ The `arco` CLI is available as a standalone binary from GitHub Releases. Install
 via the shell installer:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/pesap/arco/releases/latest/download/arco-cli-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.sh | sh
 ```
 
 Or on Windows via PowerShell:
 
 ```powershell
-powershell -c "irm https://github.com/pesap/arco/releases/latest/download/arco-cli-installer.ps1 | iex"
+powershell -c "irm https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.ps1 | iex"
 ```
 
 For specific versions or manual installation, download the appropriate binary for
-your platform from the [GitHub Releases](https://github.com/pesap/arco/releases)
+your platform from the [GitHub Releases](https://github.com/NatLabRockies/arco/releases)
 page.
 
 ## API comparison

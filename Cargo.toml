@@ -42,8 +42,8 @@ authors = [
     "pesap <pesap@users.noreply.github.com>",
 ]
 description = "Workspace for the Arco multi-language bindings"
-homepage = "https://github.com/pesap/arco"
-repository = "https://github.com/pesap/arco"
+homepage = "https://github.com/NatLabRockies/arco"
+repository = "https://github.com/NatLabRockies/arco"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
