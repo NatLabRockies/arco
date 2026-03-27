@@ -1,0 +1,97 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - ".github/workflows/benchmarks.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - ".github/workflows/benchmarks.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Keep in sync with ci.yaml
+env:
+  UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.5.0"
+  PYTHON_LATEST: "3.12"
+  RUST_TOOLCHAIN_VERSION: "1.85"
+
+jobs:
+  benchmark:
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "true"
+          sync-python-licenses: "false"
+          save-rust-cache: "false"
+          rust-cache-shared-key: rust-bench
+
+      - name: Run arco-bench
+        timeout-minutes: 20
+        run: |
+          cargo run --release -p arco-bench -- run \
+            --scenario model-build \
+            --cases 100,1000,10000,100000 \
+            --repetitions 3 \
+            --output bench-results.jsonl
+
+      - name: Convert results to benchmark action format
+        run: uv run scripts/convert_bench_to_github.py bench-results.jsonl benchmark-results.json
+
+      - name: Restore previous benchmark data
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: ./cache
+          key: ${{ runner.os }}-benchmark
+          restore-keys: ${{ runner.os }}-benchmark
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@a7bc2366eda11037936ea57d811a43b3418d3073 # v1.21.0
+        with:
+          tool: customSmallerIsBetter
+          output-file-path: benchmark-results.json
+          external-data-json-path: ./cache/benchmark-data.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          summary-always: true
+          comment-on-alert: true
+          alert-threshold: "115%"
+          fail-on-alert: false
+
+      - name: Save benchmark data
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: ./cache
+          key: ${{ runner.os }}-benchmark
