@@ -9,6 +9,7 @@ use arco_kdl::lowering::{
 #[cfg(feature = "xpress")]
 use arco_xpress::Solver as XpressSolver;
 use std::collections::BTreeMap;
+use std::time::Instant;
 use thiserror::Error;
 use tracing::info;
 
@@ -273,10 +274,17 @@ impl OptimizationAdapter for RustArcoAdapter {
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
         info!("solving with {}", backend);
+        info!("translating lowered algebra into solver model");
+        let build_started = Instant::now();
         let BuiltModel {
             model,
             variable_indices,
         } = build_model(problem, &backend)?;
+        info!(
+            "solver model translation completed in {:.2} ms",
+            build_started.elapsed().as_secs_f64() * 1000.0,
+        );
+        info!("initializing solver backend instance");
         let mut solver =
             HighsSolver::new(model).map_err(|source| ExecutionError::SolverInitialization {
                 backend: backend.clone(),
@@ -284,10 +292,17 @@ impl OptimizationAdapter for RustArcoAdapter {
             })?;
         solver.set_log_to_console(self.log_to_console);
 
+        info!("starting solver backend run: {}", backend);
+        let solver_started = Instant::now();
         let solution = solver.solve().map_err(|source| ExecutionError::Solve {
             backend: backend.clone(),
             source,
         })?;
+        info!(
+            "solver backend run completed in {:.2} ms: {}",
+            solver_started.elapsed().as_secs_f64() * 1000.0,
+            backend
+        );
         info!("solve status: {}", solution.status_string());
         if !solution.is_feasible() {
             return Err(ExecutionError::NoFeasibleSolution {
@@ -401,10 +416,17 @@ impl OptimizationAdapter for XpressArcoAdapter {
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
         info!("solving with {}", backend);
+        info!("translating lowered algebra into solver model");
+        let build_started = Instant::now();
         let BuiltModel {
             model,
             variable_indices,
         } = build_model(problem, &backend)?;
+        info!(
+            "solver model translation completed in {:.2} ms",
+            build_started.elapsed().as_secs_f64() * 1000.0
+        );
+        info!("initializing solver backend instance");
         let mut solver =
             XpressSolver::new(model).map_err(|source| ExecutionError::SolverInitialization {
                 backend: backend.clone(),
@@ -412,10 +434,17 @@ impl OptimizationAdapter for XpressArcoAdapter {
             })?;
         solver.set_log_to_console(self.log_to_console);
 
+        info!("starting solver backend run: {}", backend);
+        let solver_started = Instant::now();
         let solution = solver.solve().map_err(|source| ExecutionError::Solve {
             backend: backend.clone(),
             source,
         })?;
+        info!(
+            "solver backend run completed in {:.2} ms: {}",
+            solver_started.elapsed().as_secs_f64() * 1000.0,
+            backend
+        );
         info!("solve status: {:?}", solution.core_status());
         if !solution.is_feasible() {
             return Err(ExecutionError::NoFeasibleSolution {
@@ -614,7 +643,7 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
         problem.algebra.variable_instances.len(),
         problem.algebra.constraints.len(),
     );
-    let mut variable_indices = BTreeMap::new();
+    let mut variable_ids = BTreeMap::new();
 
     for variable in &problem.algebra.variable_instances {
         let upper = variable.upper.unwrap_or(f64::INFINITY);
@@ -638,7 +667,7 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
                 lowered_name: variable.name.clone(),
                 source,
             })?;
-        variable_indices.insert(variable.name.clone(), variable_id.inner() as usize);
+        variable_ids.insert(variable.name.clone(), variable_id);
     }
 
     for constraint in &problem.algebra.constraints {
@@ -660,8 +689,9 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
             })?;
 
         for term in &constraint.terms {
-            let variable_id = model
-                .get_variable_by_name(&term.variable_name)
+            let variable_id = variable_ids
+                .get(&term.variable_name)
+                .copied()
                 .ok_or_else(|| ExecutionError::UnknownLoweredVariable {
                     backend: backend.to_string(),
                     lowered_name: term.variable_name.clone(),
@@ -682,8 +712,9 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
         .terms
         .iter()
         .map(|term| {
-            let variable_id = model
-                .get_variable_by_name(&term.variable_name)
+            let variable_id = variable_ids
+                .get(&term.variable_name)
+                .copied()
                 .ok_or_else(|| ExecutionError::UnknownLoweredVariable {
                     backend: backend.to_string(),
                     lowered_name: term.variable_name.clone(),
@@ -709,6 +740,11 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
             lowered_name: problem.algebra.objective.name.clone(),
             source,
         })?;
+
+    let variable_indices = variable_ids
+        .iter()
+        .map(|(name, id)| (name.clone(), id.inner() as usize))
+        .collect();
 
     Ok(BuiltModel {
         model,

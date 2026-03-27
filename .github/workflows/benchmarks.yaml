@@ -87,7 +87,7 @@ jobs:
           summary-always: true
           comment-on-alert: true
           alert-threshold: "115%"
-          fail-on-alert: false
+          fail-on-alert: true
 
       - name: Save benchmark data
         if: github.ref == 'refs/heads/main'

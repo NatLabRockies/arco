@@ -946,9 +946,11 @@ struct SetCsvData {
     params: BTreeMap<String, BTreeMap<String, f64>>,
 }
 
-/// Load a CSV file that defines a set. The first column must be `name` and
-/// contains the member identifiers. Remaining columns are numeric parameters
-/// keyed by member name.
+/// Load a CSV file that defines a set. If a `name` column exists, it is used
+/// as the member identifier. Otherwise, the first column is used.
+///
+/// Remaining columns are treated as optional numeric parameters keyed by
+/// member name; non-numeric columns are ignored.
 fn load_set_csv(path: &Path) -> Result<SetCsvData, SemanticError> {
     let mut reader = csv::Reader::from_path(path).map_err(|source| SemanticError::Csv {
         path: path.to_path_buf(),
@@ -962,14 +964,7 @@ fn load_set_csv(path: &Path) -> Result<SetCsvData, SemanticError> {
         })?
         .clone();
 
-    let name_index =
-        headers
-            .iter()
-            .position(|h| h == "name")
-            .ok_or_else(|| SemanticError::MissingColumn {
-                column: "name".to_string(),
-                path: path.to_path_buf(),
-            })?;
+    let name_index = headers.iter().position(|h| h == "name").unwrap_or(0);
 
     let param_columns: Vec<(usize, String)> = headers
         .iter()
@@ -998,20 +993,11 @@ fn load_set_csv(path: &Path) -> Result<SetCsvData, SemanticError> {
 
         let mut params = BTreeMap::new();
         for (col_index, col_name) in &param_columns {
-            let raw = record
-                .get(*col_index)
-                .filter(|v| !v.is_empty())
-                .ok_or_else(|| SemanticError::MissingCell {
-                    column: col_name.clone(),
-                    row: row_index + 1,
-                    path: path.to_path_buf(),
-                })?;
-            let value = raw.parse::<f64>().map_err(|_| SemanticError::MissingCell {
-                column: col_name.clone(),
-                row: row_index + 1,
-                path: path.to_path_buf(),
-            })?;
-            params.insert(col_name.clone(), value);
+            if let Some(raw) = record.get(*col_index).filter(|v| !v.is_empty())
+                && let Ok(value) = raw.parse::<f64>()
+            {
+                params.insert(col_name.clone(), value);
+            }
         }
         members.push(member_name.clone());
         member_params.insert(member_name, params);
@@ -1167,8 +1153,17 @@ fn classify_data_binding(
         return Ok(());
     }
 
+    // Generic indexed table fallback:
+    // - explicit value column matching binding name, or
+    // - explicit "value" column, or
+    // - sparse indicator-style table with >= 2 columns where row presence
+    //   implies value=1 for the indexed key.
+    if headers.contains(&binding.name) || headers.contains("value") || headers.len() >= 2 {
+        return Ok(());
+    }
+
     Err(SemanticError::MissingColumn {
-        column: "asset_name or t".to_string(),
+        column: format!("asset_name, t, {}, or value", binding.name),
         path: path.to_path_buf(),
     })
 }

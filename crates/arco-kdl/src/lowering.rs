@@ -140,6 +140,7 @@ struct ScenarioInputs {
     series: BTreeMap<String, BTreeMap<usize, f64>>,
     indexed: BTreeMap<String, BTreeMap<(String, usize), f64>>,
     asset_data: BTreeMap<String, BTreeMap<String, f64>>,
+    generic_data: BTreeMap<String, GenericDataTable>,
     set_params: BTreeMap<String, BTreeMap<String, f64>>,
 }
 
@@ -150,6 +151,12 @@ struct AssetInputs {
     families: BTreeSet<String>,
     parameters: BTreeMap<String, f64>,
     candidate: bool,
+}
+
+#[derive(Debug, Default)]
+struct GenericDataTable {
+    values: BTreeMap<Vec<String>, f64>,
+    default_missing: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -883,6 +890,7 @@ fn load_inputs(
     let mut series = BTreeMap::new();
     let mut indexed = BTreeMap::new();
     let mut asset_data = BTreeMap::new();
+    let mut generic_data = BTreeMap::new();
     for binding in &scenario.data {
         let csv_path = entry_dir.join(&binding.source);
         let rows = read_csv_rows(&csv_path)?;
@@ -931,10 +939,8 @@ fn load_inputs(
             }
             series.insert(binding.name.clone(), values);
         } else {
-            return Err(LoweringError::MissingData {
-                name: binding.name.clone(),
-                path: csv_path,
-            });
+            let table = load_generic_data_table(program, &binding.name, &rows, &csv_path)?;
+            generic_data.insert(binding.name.clone(), table);
         }
     }
 
@@ -943,6 +949,7 @@ fn load_inputs(
         series,
         indexed,
         asset_data,
+        generic_data,
         set_params: BTreeMap::new(),
     })
 }
@@ -1854,10 +1861,20 @@ fn evaluate_reduction_filter(
                 ComparisonOp::GreaterEqual => left_value >= right_value,
             })
         }
-        _ => Err(LoweringError::InvalidFormulation {
-            message: "reduction filter must be a comparison expression".to_string(),
-            path: entrypoint.to_path_buf(),
-        }),
+        _ => {
+            let value = linearize_value_expr(
+                filter,
+                bindings,
+                program,
+                inputs,
+                named_expressions,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            )?
+            .as_scalar(entrypoint, "reduction filter expression")?;
+            Ok(value.abs() >= 1e-12)
+        }
     }
 }
 
@@ -2082,6 +2099,10 @@ fn parameter_reference_expr(
     inputs: &ScenarioInputs,
     entrypoint: &Path,
 ) -> Result<AffineExpr, LoweringError> {
+    if let Some(value) = generic_data_value(&inputs.generic_data, target, resolved, entrypoint)? {
+        return Ok(AffineExpr::constant(value));
+    }
+
     let value = match resolved {
         [index] => {
             if let FilterValue::String(name) = index {
@@ -2108,11 +2129,20 @@ fn parameter_reference_expr(
                 series_value(&inputs.series, target, time, entrypoint)?
             }
         }
-        [asset_name, time] => {
-            let asset_name =
-                string_filter_value(asset_name, &synthetic_constraint(target), entrypoint)?;
-            let time = integer_time_index(time, entrypoint)? as usize;
-            indexed_value(&inputs.indexed, target, &asset_name, time, entrypoint)?
+        [FilterValue::String(asset_name), FilterValue::Number(time)] => {
+            if time.fract() != 0.0 || *time < 0.0 {
+                return Err(LoweringError::InvalidFormulation {
+                    message: format!("time index `{time}` must be a non-negative integer"),
+                    path: entrypoint.to_path_buf(),
+                });
+            }
+            indexed_value(
+                &inputs.indexed,
+                target,
+                asset_name,
+                *time as usize,
+                entrypoint,
+            )?
         }
         _ => {
             return Err(LoweringError::InvalidFormulation {
@@ -2368,14 +2398,29 @@ fn constraint_binding_suffix(
 }
 
 fn integer_time_index(value: &FilterValue, entrypoint: &Path) -> Result<i64, LoweringError> {
-    let number = numeric_filter_value(value, &synthetic_constraint("time"), entrypoint)?;
-    if number.fract() == 0.0 {
-        Ok(number as i64)
-    } else {
-        Err(LoweringError::InvalidFormulation {
-            message: format!("time index `{number}` must be integral"),
+    match value {
+        FilterValue::Number(number) => {
+            if number.fract() == 0.0 {
+                Ok(*number as i64)
+            } else {
+                Err(LoweringError::InvalidFormulation {
+                    message: format!("time index `{number}` must be integral"),
+                    path: entrypoint.to_path_buf(),
+                })
+            }
+        }
+        FilterValue::String(value) => {
+            value
+                .parse::<i64>()
+                .map_err(|_| LoweringError::InvalidFormulation {
+                    message: format!("time index `{value}` must be integral"),
+                    path: entrypoint.to_path_buf(),
+                })
+        }
+        FilterValue::Boolean(value) => Err(LoweringError::InvalidFormulation {
+            message: format!("time index `{value}` must be numeric"),
             path: entrypoint.to_path_buf(),
-        })
+        }),
     }
 }
 
@@ -2518,6 +2563,7 @@ fn parse_data_value(
     let raw = row
         .get(name)
         .cloned()
+        .or_else(|| row.get("value").cloned())
         .ok_or_else(|| LoweringError::MissingColumn {
             column: name.to_string(),
             path: path.to_path_buf(),
@@ -2528,6 +2574,166 @@ fn parse_data_value(
             field: name.to_string(),
             path: path.to_path_buf(),
         })
+}
+
+fn load_generic_data_table(
+    program: &SemanticProgram,
+    binding_name: &str,
+    rows: &[HashMap<String, String>],
+    path: &Path,
+) -> Result<GenericDataTable, LoweringError> {
+    let Some(first_row) = rows.first() else {
+        return Err(LoweringError::MissingData {
+            name: binding_name.to_string(),
+            path: path.to_path_buf(),
+        });
+    };
+    let mut headers = first_row.keys().cloned().collect::<Vec<_>>();
+    headers.sort();
+    let value_column = if headers.iter().any(|h| h == binding_name) {
+        Some(binding_name.to_string())
+    } else if headers.iter().any(|h| h == "value") {
+        Some("value".to_string())
+    } else {
+        None
+    };
+
+    let key_columns = infer_data_key_columns(program, rows, &headers, value_column.as_deref());
+    let mut values = BTreeMap::new();
+    for row in rows {
+        let key = key_columns
+            .iter()
+            .map(|column| {
+                row.get(column)
+                    .cloned()
+                    .ok_or_else(|| LoweringError::MissingColumn {
+                        column: column.clone(),
+                        path: path.to_path_buf(),
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let value = if let Some(column) = &value_column {
+            let raw = row
+                .get(column)
+                .cloned()
+                .ok_or_else(|| LoweringError::MissingColumn {
+                    column: column.clone(),
+                    path: path.to_path_buf(),
+                })?;
+            raw.parse::<f64>()
+                .map_err(|_| LoweringError::InvalidNumber {
+                    value: raw,
+                    field: column.clone(),
+                    path: path.to_path_buf(),
+                })?
+        } else {
+            1.0
+        };
+        values.insert(key, value);
+    }
+
+    Ok(GenericDataTable {
+        values,
+        default_missing: value_column.is_none().then_some(0.0),
+    })
+}
+
+fn infer_data_key_columns(
+    program: &SemanticProgram,
+    rows: &[HashMap<String, String>],
+    headers: &[String],
+    value_column: Option<&str>,
+) -> Vec<String> {
+    let candidate_columns: Vec<String> = headers
+        .iter()
+        .filter(|column| value_column != Some(column.as_str()))
+        .cloned()
+        .collect();
+
+    // Use columns whose values match a declared set as key columns.
+    let membership_columns: Vec<String> = candidate_columns
+        .iter()
+        .filter(|column| data_column_matches_any_set(program, rows, column))
+        .cloned()
+        .collect();
+    if !membership_columns.is_empty() {
+        return membership_columns;
+    }
+
+    // Fallback: treat every non-value column as a key column.
+    candidate_columns
+}
+
+fn data_column_matches_any_set(
+    program: &SemanticProgram,
+    rows: &[HashMap<String, String>],
+    column: &str,
+) -> bool {
+    let mut column_values = BTreeSet::new();
+    for row in rows {
+        let Some(value) = row.get(column) else {
+            return false;
+        };
+        column_values.insert(value.as_str());
+    }
+    if column_values.is_empty() {
+        return false;
+    }
+
+    program.set_registry.values().any(|set| {
+        column_values
+            .iter()
+            .all(|v| set.values.iter().any(|s| s == v))
+    })
+}
+
+fn generic_data_value(
+    generic_data: &BTreeMap<String, GenericDataTable>,
+    target: &str,
+    resolved: &[FilterValue],
+    entrypoint: &Path,
+) -> Result<Option<f64>, LoweringError> {
+    let Some(table) = generic_data.get(target) else {
+        return Ok(None);
+    };
+
+    let key = resolved
+        .iter()
+        .map(|value| filter_value_to_key_component(value, entrypoint))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if let Some(value) = table.values.get(&key).copied() {
+        return Ok(Some(value));
+    }
+
+    for prefix_len in (1..key.len()).rev() {
+        if let Some(value) = table.values.get(&key[..prefix_len]).copied() {
+            return Ok(Some(value));
+        }
+    }
+
+    Ok(table.default_missing)
+}
+
+fn filter_value_to_key_component(
+    value: &FilterValue,
+    entrypoint: &Path,
+) -> Result<String, LoweringError> {
+    match value {
+        FilterValue::String(value) => Ok(value.clone()),
+        FilterValue::Number(value) => {
+            if value.fract() == 0.0 {
+                Ok((*value as i64).to_string())
+            } else {
+                Ok(value.to_string())
+            }
+        }
+        FilterValue::Boolean(_) => Err(LoweringError::InvalidFormulation {
+            message: "boolean indices are not supported for data lookups".to_string(),
+            path: entrypoint.to_path_buf(),
+        }),
+    }
 }
 
 /// Convert a `BoundExpr::Literal` to `f64`. Returns `None` for

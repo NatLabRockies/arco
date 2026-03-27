@@ -12,6 +12,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use thiserror::Error;
+use tracing::{debug, info};
 
 const DEFAULT_BACKEND: SolverBackend = SolverBackend::Highs;
 
@@ -150,9 +151,25 @@ pub fn run_file_with_options_and_backend(
 ) -> Result<RunSummary, DriverError> {
     let total_start = Instant::now();
     let compiled = compile_file(path)?;
+    debug!(
+        "compile timings: parse={:.2} ms validate={:.2} ms lower={:.2} ms",
+        compiled.timing.parse.as_secs_f64() * 1000.0,
+        compiled.timing.validate.as_secs_f64() * 1000.0,
+        compiled.timing.lower.as_secs_f64() * 1000.0
+    );
+    debug!(
+        "lowered problem size: {} variable instances, {} constraint rows",
+        compiled.lowered_problem.algebra.variable_instances.len(),
+        compiled.lowered_problem.algebra.constraints.len()
+    );
 
     let solve_start = Instant::now();
     let include_variable_values = !(options.compact && options.filter_asset.is_none());
+    debug!(
+        "starting backend solve phase (backend={}, include_variable_values={})",
+        backend.as_str(),
+        include_variable_values
+    );
     let execution_result = match backend {
         SolverBackend::Highs => execute_problem_with_options(
             &compiled.lowered_problem,
@@ -173,6 +190,10 @@ pub fn run_file_with_options_and_backend(
         }
     };
     let solve = solve_start.elapsed();
+    info!(
+        "backend solve phase completed in {:.2} ms",
+        solve.as_secs_f64() * 1000.0
+    );
     let total = total_start.elapsed();
 
     let variables = summarize_variables(&execution_result.variables, options);
