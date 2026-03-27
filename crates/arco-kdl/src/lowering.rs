@@ -1826,55 +1826,52 @@ fn evaluate_reduction_filter(
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<bool, LoweringError> {
-    match filter {
-        Expr::Comparison { op, left, right } => {
-            let left_affine = linearize_value_expr(
-                left,
-                bindings,
-                program,
-                inputs,
-                named_expressions,
-                variable_signatures,
-                instantiated_names,
-                entrypoint,
-            )?;
-            let right_affine = linearize_value_expr(
-                right,
-                bindings,
-                program,
-                inputs,
-                named_expressions,
-                variable_signatures,
-                instantiated_names,
-                entrypoint,
-            )?;
-            let left_value = left_affine.as_scalar(entrypoint, "reduction filter operand")?;
-            let right_value = right_affine.as_scalar(entrypoint, "reduction filter operand")?;
-            Ok(match op {
-                ComparisonOp::Equal | ComparisonOp::DoubleEqual => {
-                    (left_value - right_value).abs() < 1e-12
-                }
-                ComparisonOp::NotEqual => (left_value - right_value).abs() >= 1e-12,
-                ComparisonOp::Less => left_value < right_value,
-                ComparisonOp::LessEqual => left_value <= right_value,
-                ComparisonOp::Greater => left_value > right_value,
-                ComparisonOp::GreaterEqual => left_value >= right_value,
-            })
-        }
-        _ => {
-            let value = linearize_value_expr(
-                filter,
-                bindings,
-                program,
-                inputs,
-                named_expressions,
-                variable_signatures,
-                instantiated_names,
-                entrypoint,
-            )?
-            .as_scalar(entrypoint, "reduction filter expression")?;
-            Ok(value.abs() >= 1e-12)
-        }
+    if let Expr::Comparison { op, left, right } = filter {
+        let left_affine = linearize_value_expr(
+            left,
+            bindings,
+            program,
+            inputs,
+            named_expressions,
+            variable_signatures,
+            instantiated_names,
+            entrypoint,
+        )?;
+        let right_affine = linearize_value_expr(
+            right,
+            bindings,
+            program,
+            inputs,
+            named_expressions,
+            variable_signatures,
+            instantiated_names,
+            entrypoint,
+        )?;
+        let left_value = left_affine.as_scalar(entrypoint, "reduction filter operand")?;
+        let right_value = right_affine.as_scalar(entrypoint, "reduction filter operand")?;
+        Ok(match op {
+            ComparisonOp::Equal | ComparisonOp::DoubleEqual => {
+                (left_value - right_value).abs() < 1e-12
+            }
+            ComparisonOp::NotEqual => (left_value - right_value).abs() >= 1e-12,
+            ComparisonOp::Less => left_value < right_value,
+            ComparisonOp::LessEqual => left_value <= right_value,
+            ComparisonOp::Greater => left_value > right_value,
+            ComparisonOp::GreaterEqual => left_value >= right_value,
+        })
+    } else {
+        let value = linearize_value_expr(
+            filter,
+            bindings,
+            program,
+            inputs,
+            named_expressions,
+            variable_signatures,
+            instantiated_names,
+            entrypoint,
+        )?
+        .as_scalar(entrypoint, "reduction filter expression")?;
+        Ok(value.abs() >= 1e-12)
     }
 }
 
