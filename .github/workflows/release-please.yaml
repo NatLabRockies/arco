@@ -15,7 +15,7 @@ permissions:
 # Keep in sync with ci.yaml
 env:
   UV_VERSION: "0.9.4"
-  JUST_VERSION: "1.5.0"
+  JUST_VERSION: "1.43.0"
   PYTHON_LATEST: "3.12"
   RUST_TOOLCHAIN_VERSION: "1.85"
 

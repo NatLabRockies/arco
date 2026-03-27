@@ -1,18 +1,22 @@
+#!/usr/bin/env -S just --justfile
+
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 export UV_CACHE_DIR := justfile_directory() / ".uv-cache"
 
-maturin := "uv run --with maturin maturin"
-prek := "uvx --from prek==0.3.6 prek"
-core-packages := "-p arco-core -p arco-expr -p arco-solver -p arco-tools -p arco-blocks -p arco-highs -p arco-bench"
-workspace-packages := "-p arco-core -p arco-expr -p arco-solver -p arco-tools -p arco-blocks -p arco-highs -p arco-bench -p arco-kdl -p arco-cli -p arco-xpress"
-test-packages := "-p arco-core -p arco-expr -p arco-solver -p arco-tools -p arco-blocks -p arco-highs -p arco-bench"
+alias t := test
+alias qc := step-quality
 
+# Rust package group (all workspace crates except python and ipopt bindings)
+rust-packages := "--workspace --exclude arco-python --exclude arco-ipopt"
+
+[group: 'bench']
 bench-compare baseline candidate:
     cargo run -p arco-bench -- compare \
         --baseline {{ baseline }} \
         --candidate {{ candidate }}
 
+[group: 'bench']
 bench-gate baseline candidate duration_threshold="10" memory_threshold="10":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -27,94 +31,184 @@ bench-gate baseline candidate duration_threshold="10" memory_threshold="10":
             --format table
     done
 
+[group: 'bench']
 bench-report path:
     cargo run -p arco-bench -- report --input {{ path }}
 
+[group: 'bench']
 bench-run:
     cargo run -p arco-bench -- run
 
+[group: 'rust']
 check:
-    cargo check {{ workspace-packages }} --all-features --tests --benches --examples
+    cargo check {{ rust-packages }} --all-features --tests --benches --examples
 
-check-lib:
-    cargo check {{ workspace-packages }} --all-features
+[group: 'rust']
+check-dev:
+    cargo check --all-features --tests --benches --examples
 
-ci: fmt-check clippy test docs-test
+[group: 'ci']
+ci: fmt-check clippy-all test-core docs-test
 
+[group: 'rust']
 clippy:
-    cargo clippy {{ workspace-packages }} --benches --tests --examples --all-features -- -D warnings
+    cargo clippy --benches --tests --examples --all-features -- -D warnings
 
+[group: 'ci']
+clippy-all:
+    cargo clippy {{ rust-packages }} --benches --tests --examples --all-features -- -D warnings
+
+[group: 'ci']
 clippy-core:
-    cargo clippy {{ core-packages }} --benches --tests --examples --all-features -- -D warnings
+    cargo clippy {{ rust-packages }} --benches --tests --examples --all-features -- -D warnings
 
+[group: 'ci']
 clippy-solver package:
     cargo clippy -p {{ package }} --benches --tests --examples --all-features -- -D warnings
 
+[group: 'onboarding']
 default: check
 
+[group: 'ci']
 doc:
     cargo doc --workspace --no-deps
 
+[group: 'ci']
 docs-test: py-dev
     uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py -v
 
+[group: 'rust']
 fmt:
     cargo fmt --all
 
+[group: 'rust']
 fmt-check:
     cargo fmt --all -- --check
 
+[group: 'hygiene']
 pre-commit:
     test -x ./scripts/setup-dev-env.sh
-    {{prek}} run --all-files
+    just pre-commit-stage pre-commit
+    just pre-commit-stage pre-push
 
-py-build: py-licenses
-    cd bindings/python && {{ maturin }} build --release
+[group: 'hygiene']
+pre-commit-stage stage:
+    uvx --from prek==0.3.6 prek run --all-files --hook-stage {{stage}} --show-diff-on-failure --color always
 
+[group: 'python']
 py-build-ci:
     uv run --with build python -m build bindings/python --wheel --outdir dist
 
-py-dev: py-licenses
-    cd bindings/python && {{ maturin }} develop
+[group: 'python']
+py-check:
+    just py-fmt-check
+    just py-lint-check
+    just py-type
 
+[group: 'python']
+py-dev: py-licenses py-sync
+    cd bindings/python && uv run --with maturin maturin develop
+
+[group: 'python']
 py-doctest-ci:
     uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py
 
+[group: 'python']
 py-fmt:
-    cd bindings/python && uv run ruff format --verbose
+    cd bindings/python && uv run --with ruff ruff format --verbose
 
+[group: 'python']
+py-fmt-check:
+    cd bindings/python && uv run --with ruff ruff format --check
+
+[group: 'python']
 py-licenses:
     uv run python scripts/sync_python_licenses.py
 
+[group: 'python']
 py-lint:
-    cd bindings/python && uv run ruff check --fix --config=pyproject.toml
+    cd bindings/python && uv run --with ruff ruff check --fix --config=pyproject.toml
 
+[group: 'python']
+py-lint-check:
+    cd bindings/python && uv run --with ruff ruff check --config=pyproject.toml
+
+[group: 'python']
 py-shell: py-dev
     cd bindings/python && uv run --with numpy ipython
 
+[group: 'python']
 py-smoke-wheel artifact_glob="dist/*.whl":
-    uv run python scripts/python_package_smoke.py --artifact-glob "{{ artifact_glob }}"
+    uv run --project bindings/python python scripts/python_package_smoke.py --artifact-glob "{{artifact_glob}}"
 
+[group: 'python']
 py-sync:
     cd bindings/python && uv sync
 
+[group: 'python']
 py-test: py-dev
     uv run --project bindings/python --with pytest pytest bindings/python/tests -v
 
+[group: 'python']
 py-type:
-    cd bindings/python && uv run ty check src/
+    cd bindings/python && uv run --with ty ty check src/
 
+[group: 'python']
+py-validate-wheel artifact_glob="dist/*.whl":
+    just py-build-ci
+    just py-smoke-wheel "{{ artifact_glob }}"
+
+[group: 'onboarding']
 setup:
     ./scripts/setup-dev-env.sh
 
+[group: 'steps']
+step-fmt:
+    just fmt
+    just py-fmt
+
+[group: 'steps']
+step-lint:
+    just clippy
+    just py-lint-check
+    just py-type
+
+[group: 'steps']
+step-quality:
+    just step-fmt
+    just step-lint
+    just step-test
+    just check-dev
+
+[group: 'steps']
+step-test: test
+
+[group: 'tdd']
+tdd-green package test_filter:
+    cargo test -p {{ package }} {{ test_filter }} --all-features
+
+[group: 'tdd']
+tdd-red package test_filter:
+    ! cargo test -p {{ package }} {{ test_filter }} --all-features
+
+[group: 'tdd']
+tdd-refactor package:
+    cargo fmt --all
+    cargo clippy -p {{ package }} --benches --tests --examples --all-features -- -D warnings
+    cargo test -p {{ package }} --all-features
+
+[group: 'rust']
 test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ test-packages }} --all-features
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ rust-packages }} --exclude arco-xpress
 
+[group: 'ci']
 test-core:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ core-packages }} --all-features
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ rust-packages }} --exclude arco-xpress
 
+[group: 'ci']
 test-solver package:
     cargo test -p {{ package }} --all-features -- --test-threads=1
 
+[group: 'hygiene']
 workflow-quality:
     uvx zizmor .github

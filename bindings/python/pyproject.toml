@@ -51,3 +51,7 @@ python-source = "."
 dev = [
     "ipython>=8.18.1",
 ]
+
+[tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
