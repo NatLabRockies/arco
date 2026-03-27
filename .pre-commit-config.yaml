@@ -42,6 +42,32 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.33.1
+    hooks:
+      - id: typos
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: ruff-check
+        name: ruff check
+        entry: uvx ruff check --fix --config=bindings/python/pyproject.toml
+        language: system
+        types: [python]
+
+      - id: ruff-format
+        name: ruff format
+        entry: uvx ruff format --config=bindings/python/pyproject.toml
+        language: system
+        types: [python]
+
   - repo: local
     hooks:
       - id: prettier
@@ -59,5 +85,14 @@ repos:
         language: system
         types: [yaml]
         files: ^\.github/workflows/.*\.yaml$
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: actionlint
+        name: actionlint
+        entry: uvx --from actionlint-py actionlint
+        language: system
+        types: [yaml]
+        files: ^\.github/workflows/.*\.ya?ml$
         pass_filenames: false
         stages: [pre-push]

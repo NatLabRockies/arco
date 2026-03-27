@@ -12,6 +12,13 @@ concurrency:
 permissions:
   contents: read
 
+# Keep in sync with ci.yaml
+env:
+  UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.5.0"
+  PYTHON_LATEST: "3.12"
+  RUST_TOOLCHAIN_VERSION: "1.85"
+
 jobs:
   release-please:
     name: Release Please
@@ -92,21 +99,24 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          save-rust-cache: "false"
+          save-uv-cache: "false"
 
       - name: Build package
-        run: uv build
-        working-directory: bindings/python
+        run: just py-build-ci
 
       - name: Store the distribution packages
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: python-package-distributions
-          path: bindings/python/dist/
+          path: dist/
           retention-days: 3
 
   publish-pypi:
