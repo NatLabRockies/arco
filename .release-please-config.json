@@ -10,7 +10,7 @@
       "release-type": "simple",
       "bump-minor-pre-major": true,
       "component": "arco",
-      "include-component-in-tag": false,
+      "include-component-in-tag": true,
       "changelog-sections": [
         {
           "section": "Features",
