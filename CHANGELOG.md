@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.5](https://github.com/NatLabRockies/arco/compare/arco-v0.2.4...arco-v0.2.5) (2026-03-27)
+
+
+### Bug Fixes
+
+* adding CI gates  ([#68](https://github.com/NatLabRockies/arco/issues/68)) ([81c298f](https://github.com/NatLabRockies/arco/commit/81c298f87da7cea30b5972597cc2925a528be2f4))
+* **release:** correct grouped PR title pattern ([#70](https://github.com/NatLabRockies/arco/issues/70)) ([b754244](https://github.com/NatLabRockies/arco/commit/b7542448bc2e59bede5587657a4afe3444aaf7e7))
+* **release:** match tag format to existing tags ([#72](https://github.com/NatLabRockies/arco/issues/72)) ([3a0553c](https://github.com/NatLabRockies/arco/commit/3a0553cbe98ea42a13f87bf1864440297d5d755c))
+
+
+### Build
+
+* **ci:** improving ci ([#67](https://github.com/NatLabRockies/arco/issues/67)) ([a6bc40b](https://github.com/NatLabRockies/arco/commit/a6bc40bcfb95f2abe35632677d588afb5202829a))
+
 ## [0.2.4](https://github.com/NatLabRockies/arco/compare/arco-v0.2.3...arco-v0.2.4) (2026-03-24)
 
 
