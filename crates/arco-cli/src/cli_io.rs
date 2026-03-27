@@ -26,8 +26,8 @@ pub fn write_stdout_line(line: &str) -> io::Result<()> {
     write_all_ignoring_broken_pipe(&mut handle, b"\n")
 }
 
-pub fn should_log_solver_to_console(verbose: u8, _stdout_is_terminal: bool) -> bool {
-    verbose >= 2
+pub fn should_log_solver_to_console(verbose: u8, stdout_is_terminal: bool) -> bool {
+    verbose >= 2 && stdout_is_terminal
 }
 
 #[cfg(test)]
@@ -75,9 +75,9 @@ mod tests {
     }
 
     #[test]
-    fn enables_solver_console_logging_for_double_verbose() {
+    fn only_enables_solver_console_logging_for_double_verbose_terminals() {
         assert!(should_log_solver_to_console(2, true));
-        assert!(should_log_solver_to_console(2, false));
         assert!(!should_log_solver_to_console(1, true));
+        assert!(!should_log_solver_to_console(2, false));
     }
 }

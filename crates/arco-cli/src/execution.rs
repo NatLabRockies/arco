@@ -9,8 +9,9 @@ use arco_kdl::lowering::{
 #[cfg(feature = "xpress")]
 use arco_xpress::Solver as XpressSolver;
 use std::collections::BTreeMap;
+use std::time::Instant;
 use thiserror::Error;
-use tracing::info;
+use tracing::{debug, info};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdapterSolveOutput {
@@ -273,10 +274,18 @@ impl OptimizationAdapter for RustArcoAdapter {
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
         info!("solving with {}", backend);
+        debug!("building solver model from lowered algebra");
+        let build_started = Instant::now();
         let BuiltModel {
             model,
             variable_indices,
         } = build_model(problem, &backend)?;
+        debug!(
+            "solver model built in {:.2} ms ({} variable instances, {} constraints)",
+            build_started.elapsed().as_secs_f64() * 1000.0,
+            problem.algebra.variable_instances.len(),
+            problem.algebra.constraints.len()
+        );
         let mut solver =
             HighsSolver::new(model).map_err(|source| ExecutionError::SolverInitialization {
                 backend: backend.clone(),
@@ -515,7 +524,16 @@ pub fn execute_problem_with_options(
     adapter: &dyn OptimizationAdapter,
     include_variable_values: bool,
 ) -> Result<ExecutionResult, ExecutionError> {
+    let execution_started = Instant::now();
+    debug!(
+        "starting backend execution pipeline (include_variable_values={})",
+        include_variable_values
+    );
     let solve_output = adapter.solve(problem, include_variable_values)?;
+    debug!(
+        "backend execution pipeline returned in {:.2} ms",
+        execution_started.elapsed().as_secs_f64() * 1000.0
+    );
     let backend = adapter.backend_name();
 
     let objective = if solve_output.objective_value.lowered_name == problem.objective.name {
@@ -610,13 +628,25 @@ struct BuiltModel {
 }
 
 fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, ExecutionError> {
-    let mut model = Model::with_capacities(
-        problem.algebra.variable_instances.len(),
-        problem.algebra.constraints.len(),
-    );
-    let mut variable_indices = BTreeMap::new();
+    let total_variables = problem.algebra.variable_instances.len();
+    let total_constraints = problem.algebra.constraints.len();
+    let variable_progress_step = 50_000usize;
+    let constraint_progress_step = 10_000usize;
+    let build_started = Instant::now();
+    let debug_progress_enabled = tracing::enabled!(tracing::Level::DEBUG);
+    if debug_progress_enabled {
+        debug!(
+            "translating lowered algebra into solver model ({} variable instances, {} constraints)",
+            total_variables, total_constraints
+        );
+    }
 
-    for variable in &problem.algebra.variable_instances {
+    let mut model = Model::with_capacities(total_variables, total_constraints);
+    let mut variable_indices = BTreeMap::new();
+    let mut variable_ids = BTreeMap::new();
+
+    let mut next_variable_progress = variable_progress_step;
+    for (i, variable) in problem.algebra.variable_instances.iter().enumerate() {
         let upper = variable.upper.unwrap_or(f64::INFINITY);
         let variable_def = match variable.kind {
             VariableKind::Continuous => Variable::continuous(Bounds::new(variable.lower, upper)),
@@ -639,9 +669,22 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
                 source,
             })?;
         variable_indices.insert(variable.name.clone(), variable_id.inner() as usize);
+        variable_ids.insert(variable.name.clone(), variable_id);
+
+        let processed = i + 1;
+        if debug_progress_enabled
+            && (processed >= next_variable_progress || processed == total_variables)
+        {
+            debug!("model translation progress: variables {processed}/{total_variables}");
+            next_variable_progress += variable_progress_step;
+        }
     }
 
-    for constraint in &problem.algebra.constraints {
+    if debug_progress_enabled {
+        debug!("starting constraint coefficient population");
+    }
+    let mut next_constraint_progress = constraint_progress_step;
+    for (i, constraint) in problem.algebra.constraints.iter().enumerate() {
         let constraint_id = model
             .add_constraint(Constraint {
                 bounds: to_bounds(constraint.sense, constraint.rhs),
@@ -660,8 +703,9 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
             })?;
 
         for term in &constraint.terms {
-            let variable_id = model
-                .get_variable_by_name(&term.variable_name)
+            let variable_id = variable_ids
+                .get(&term.variable_name)
+                .copied()
                 .ok_or_else(|| ExecutionError::UnknownLoweredVariable {
                     backend: backend.to_string(),
                     lowered_name: term.variable_name.clone(),
@@ -674,6 +718,14 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
                     source,
                 })?;
         }
+
+        let processed = i + 1;
+        if debug_progress_enabled
+            && (processed >= next_constraint_progress || processed == total_constraints)
+        {
+            debug!("model translation progress: constraints {processed}/{total_constraints}");
+            next_constraint_progress += constraint_progress_step;
+        }
     }
 
     let objective_terms = problem
@@ -682,8 +734,9 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
         .terms
         .iter()
         .map(|term| {
-            let variable_id = model
-                .get_variable_by_name(&term.variable_name)
+            let variable_id = variable_ids
+                .get(&term.variable_name)
+                .copied()
                 .ok_or_else(|| ExecutionError::UnknownLoweredVariable {
                     backend: backend.to_string(),
                     lowered_name: term.variable_name.clone(),
@@ -709,6 +762,12 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
             lowered_name: problem.algebra.objective.name.clone(),
             source,
         })?;
+    if debug_progress_enabled {
+        debug!(
+            "model translation completed in {:.2} ms",
+            build_started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
 
     Ok(BuiltModel {
         model,
