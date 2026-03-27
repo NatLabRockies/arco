@@ -71,7 +71,7 @@ jobs:
         run: uv build
 
       - name: Store the distribution packages
-        uses: actions/upload-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: python-package-distributions
           path: dist/
@@ -90,7 +90,7 @@ jobs:
       url: https://pypi.org/p/arco
     steps:
       - name: Download all the dists
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: python-package-distributions
           path: dist/
