@@ -15,13 +15,44 @@ install-arco:
     uv add --upgrade arco
 
 install-torc:
-    tmpdir="$(mktemp -d)"; gh release download --repo NatLabRockies/torc --pattern "torc-x86_64-unknown-linux-musl.tar.gz" --dir "$tmpdir"; tar -xzf "$tmpdir/torc-x86_64-unknown-linux-musl.tar.gz" -C "$tmpdir"; mkdir -p "$HOME/.local/bin"; install -m 0755 "$tmpdir/torc" "$tmpdir/torc-server" "$HOME/.local/bin/"; rm -rf "$tmpdir"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    os="$(uname -s)"
+    arch="$(uname -m)"
+    case "${os}/${arch}" in
+        Darwin/arm64) artifact="torc-aarch64-apple-darwin.tar.gz" ;;
+        Linux/x86_64) artifact="torc-x86_64-unknown-linux-musl.tar.gz" ;;
+        *)
+            echo "unsupported platform: ${os}/${arch}"
+            exit 1
+            ;;
+    esac
+    tmpdir="$(mktemp -d)"
+    trap 'rm -rf "$tmpdir"' EXIT
+    gh release download --repo NatLabRockies/torc --pattern "$artifact" --dir "$tmpdir"
+    tar -xzf "$tmpdir/$artifact" -C "$tmpdir"
+    mkdir -p "$HOME/.local/bin"
+    install -m 0755 "$tmpdir/torc" "$tmpdir/torc-server" "$HOME/.local/bin/"
 
 install-julia-deps:
     bash scripts/run_jump_point.sh --install-only
 
 start-torc:
-    if [ -f {{torc_pid}} ] && kill -0 "$(cat {{torc_pid}})" >/dev/null 2>&1; then echo "torc-server already running"; exit 0; fi; nohup "$HOME/.local/bin/torc-server" run --database {{torc_db}} --host localhost --port 8080 --completion-check-interval-secs 2 > {{torc_log}} 2>&1 & echo $! > {{torc_pid}}; sleep 1
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f {{torc_pid}} ] && kill -0 "$(cat {{torc_pid}})" >/dev/null 2>&1; then
+        echo "torc-server already running"
+        exit 0
+    fi
+    nohup "$HOME/.local/bin/torc-server" run --database {{torc_db}} --host localhost --port 8080 --completion-check-interval-secs 2 > {{torc_log}} 2>&1 &
+    pid="$!"
+    echo "$pid" > {{torc_pid}}
+    sleep 1
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+        echo "torc-server failed to start; showing log tail"
+        tail -n 50 {{torc_log}} || true
+        exit 1
+    fi
 
 stop-torc:
     if [ -f {{torc_pid}} ]; then kill "$(cat {{torc_pid}})" >/dev/null 2>&1 || true; rm -f {{torc_pid}}; fi

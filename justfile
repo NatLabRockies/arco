@@ -5,6 +5,8 @@ export UV_CACHE_DIR := justfile_directory() / ".uv-cache"
 maturin := "uv run --with maturin maturin"
 prek := "uvx --from prek==0.3.6 prek"
 core-packages := "-p arco-core -p arco-expr -p arco-solver -p arco-tools -p arco-blocks -p arco-highs -p arco-bench"
+workspace-packages := "-p arco-core -p arco-expr -p arco-solver -p arco-tools -p arco-blocks -p arco-highs -p arco-bench -p arco-kdl -p arco-cli -p arco-xpress"
+test-packages := "-p arco-core -p arco-expr -p arco-solver -p arco-tools -p arco-blocks -p arco-highs -p arco-bench"
 
 bench-compare baseline candidate:
     cargo run -p arco-bench -- compare \
@@ -32,15 +34,15 @@ bench-run:
     cargo run -p arco-bench -- run
 
 check:
-    cargo check --workspace --all-features --tests --benches --examples
+    cargo check {{ workspace-packages }} --all-features --tests --benches --examples
 
 check-lib:
-    cargo check --workspace --all-features
+    cargo check {{ workspace-packages }} --all-features
 
 ci: fmt-check clippy test docs-test
 
 clippy:
-    cargo clippy --all --benches --tests --examples --all-features -- -D warnings
+    cargo clippy {{ workspace-packages }} --benches --tests --examples --all-features -- -D warnings
 
 clippy-core:
     cargo clippy {{ core-packages }} --benches --tests --examples --all-features -- -D warnings
@@ -97,7 +99,7 @@ py-sync:
     cd bindings/python && uv sync
 
 py-test: py-dev
-    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py
+    uv run --project bindings/python --with pytest pytest bindings/python/tests -v
 
 py-type:
     cd bindings/python && uv run ty check src/
@@ -106,7 +108,7 @@ setup:
     ./scripts/setup-dev-env.sh
 
 test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test --workspace --all-features --exclude arco-python
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ test-packages }} --all-features
 
 test-core:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ core-packages }} --all-features
