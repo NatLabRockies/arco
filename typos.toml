@@ -2,6 +2,8 @@
 # Energy-sector abbreviations
 FOM = "FOM"    # Fixed Operations & Maintenance
 CAES = "CAES"  # Compressed Air Energy Storage
+# Code identifiers
+arange = "arange"  # numpy.arange
 
 [files]
 extend-exclude = [
