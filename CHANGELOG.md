@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.7](https://github.com/NatLabRockies/arco/compare/v0.2.6...v0.2.7) (2026-03-27)
+
+
+### Bug Fixes
+
+* **release:** hardcode component in group PR title pattern ([#78](https://github.com/NatLabRockies/arco/issues/78)) ([486b2c7](https://github.com/NatLabRockies/arco/commit/486b2c7b132b81d632ab9c9f66e5593e4989bbee))
+
 ## [0.2.6](https://github.com/NatLabRockies/arco/compare/v0.2.5...v0.2.6) (2026-03-27)
 
 
