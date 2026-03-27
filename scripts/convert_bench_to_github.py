@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
+from statistics import median
 import sys
 
 
@@ -10,18 +12,25 @@ def convert(input_path: str, output_path: str) -> None:
     with open(input_path) as f:
         records = [json.loads(line) for line in f if line.strip()]
 
-    results = []
+    durations_by_name: dict[str, list[float]] = defaultdict(list)
+    extra_by_name: dict[str, str] = {}
     for r in records:
         if r.get("stage") != "total":
             continue
-        results.append(
-            {
-                "name": f"{r['scenario']}/{r['case_name']}",
-                "unit": "ms",
-                "value": round(r["duration_ms"], 3),
-                "extra": f"vars={r['variables']} cons={r['constraints']}",
-            }
-        )
+
+        benchmark_name = f"{r['scenario']}/{r['case_name']}"
+        durations_by_name[benchmark_name].append(float(r["duration_ms"]))
+        extra_by_name[benchmark_name] = f"vars={r['variables']} cons={r['constraints']}"
+
+    results = [
+        {
+            "name": name,
+            "unit": "ms",
+            "value": round(median(durations), 3),
+            "extra": extra_by_name[name],
+        }
+        for name, durations in sorted(durations_by_name.items())
+    ]
 
     if not results:
         print("Error: no benchmark results produced", file=sys.stderr)
@@ -31,7 +40,11 @@ def convert(input_path: str, output_path: str) -> None:
         json.dump(results, f, indent=2)
         f.write("\n")
 
-    print(f"Converted {len(records)} records -> {len(results)} benchmarks")
+    total_records = sum(len(durations) for durations in durations_by_name.values())
+    print(
+        f"Converted {len(records)} records "
+        f"({total_records} total-stage samples) -> {len(results)} benchmarks"
+    )
 
 
 if __name__ == "__main__":
