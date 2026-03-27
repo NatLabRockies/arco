@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.8](https://github.com/NatLabRockies/arco/compare/v0.2.7...v0.2.8) (2026-03-27)
+
+
+### Bug Fixes
+
+* **ci:** add cargo-dist dependency to py-build to avoid tag race ([#86](https://github.com/NatLabRockies/arco/issues/86)) ([46015d9](https://github.com/NatLabRockies/arco/commit/46015d972f1102fd183187fef691c0721ca17dbd))
+* **ci:** correct name for the release please config. ([#80](https://github.com/NatLabRockies/arco/issues/80)) ([6a2365d](https://github.com/NatLabRockies/arco/commit/6a2365d37f8b94d29e6a69d0a26c5a4ed14c4601))
+* **release:** remove component config to fix release-please parsing ([#84](https://github.com/NatLabRockies/arco/issues/84)) ([c5a7ee4](https://github.com/NatLabRockies/arco/commit/c5a7ee4781b51fd2792c91140446f339cb3390de))
+* **release:** remove explicit group-pull-request-title-pattern ([#83](https://github.com/NatLabRockies/arco/issues/83)) ([7389598](https://github.com/NatLabRockies/arco/commit/73895989fb4848698c451a8650f59a4eddf547b5))
+* **release:** switch to separate PRs to fix component parsing ([#81](https://github.com/NatLabRockies/arco/issues/81)) ([96b35fd](https://github.com/NatLabRockies/arco/commit/96b35fde135b2bff7ea8b20e619da59f6801da8f))
+
 ## [0.2.7](https://github.com/NatLabRockies/arco/compare/v0.2.6...v0.2.7) (2026-03-27)
 
 
