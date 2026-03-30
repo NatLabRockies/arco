@@ -2,7 +2,8 @@ use arco_cli::cli_io::{should_log_solver_to_console, write_stdout, write_stdout_
 use arco_cli::config::{SolverBackend, SolverConfig, load_solver_config, save_solver_config};
 use arco_cli::debug::launch_ipython;
 use arco_cli::driver::{
-    RunOptions, print_file_model, run_file_json_with_options_and_backend, validate_file_report,
+    InspectCategory, RunOptions, print_file_model, run_file_json_with_options_and_backend,
+    validate_file_report,
 };
 use arco_cli::export::{write_lp, write_mps};
 use arco_kdl::pipeline::compile_file;
@@ -44,7 +45,15 @@ enum Command {
     /// Print the algebraic model sent to the solver
     PrintModel { path: PathBuf },
     /// Validate a .kdl file without solving
-    Validate { path: PathBuf },
+    Validate {
+        path: PathBuf,
+        /// Inspect a specific semantic category
+        #[arg(long)]
+        inspect: Option<InspectCategory>,
+        /// Filter to a specific element by name within the inspected category
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Open an interactive debug shell in IPython
     Debug { path: PathBuf },
     /// Export the algebraic model in LP or MPS format
@@ -124,8 +133,14 @@ fn main() -> miette::Result<()> {
         Command::PrintModel { path } => {
             write_stdout_line(&print_file_model(&path)?).into_diagnostic()?;
         }
-        Command::Validate { path } => {
-            write_stdout_line(&validate_file_report(&path)?).into_diagnostic()?;
+        Command::Validate {
+            path,
+            inspect,
+            name,
+        } => {
+            let name_ref = name.as_deref();
+            write_stdout_line(&validate_file_report(&path, inspect, name_ref)?)
+                .into_diagnostic()?;
         }
         Command::Debug { path } => {
             launch_ipython(&path)?;

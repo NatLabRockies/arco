@@ -6,6 +6,7 @@ use crate::execution::{
     render_problem_model,
 };
 use arco_kdl::pipeline::{PipelineError, compile_file, validate_file};
+use clap::ValueEnum;
 use miette::Diagnostic;
 use serde::Serialize;
 use std::fmt::Display;
@@ -15,6 +16,18 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 const DEFAULT_BACKEND: SolverBackend = SolverBackend::Highs;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum InspectCategory {
+    Sets,
+    Constraints,
+    Variables,
+    Parameters,
+    Expressions,
+    Objective,
+    Reports,
+    Chronology,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
@@ -95,6 +108,8 @@ pub enum DriverError {
     },
     #[error("{message}")]
     BackendNotAvailable { message: String },
+    #[error("{message}")]
+    InspectLookup { message: String },
 }
 
 impl Diagnostic for DriverError {
@@ -104,6 +119,7 @@ impl Diagnostic for DriverError {
             Self::BackendNotAvailable { .. } => {
                 Some(Box::new("arco::driver::backend_not_available"))
             }
+            Self::InspectLookup { .. } => Some(Box::new("arco::driver::inspect_lookup")),
             Self::Pipeline { .. } | Self::Execution { .. } => None,
         }
     }
@@ -124,14 +140,17 @@ impl Diagnostic for DriverError {
                  To switch back to HiGHS (no extra dependencies):\n\
                  \x20   arco solver set highs",
             )),
-            Self::Pipeline { .. } | Self::Execution { .. } => None,
+            Self::InspectLookup { .. } | Self::Pipeline { .. } | Self::Execution { .. } => None,
         }
     }
 
     fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
         match self {
             Self::Pipeline(error) => Some(error),
-            Self::Execution(_) | Self::Json { .. } | Self::BackendNotAvailable { .. } => None,
+            Self::Execution(_)
+            | Self::Json { .. }
+            | Self::BackendNotAvailable { .. }
+            | Self::InspectLookup { .. } => None,
         }
     }
 }
@@ -261,15 +280,386 @@ pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
     render_problem_model(&compiled.lowered_problem).map_err(DriverError::from)
 }
 
-pub fn validate_file_report(path: &Path) -> Result<String, DriverError> {
+pub fn validate_file_report(
+    path: &Path,
+    inspect: Option<InspectCategory>,
+    name: Option<&str>,
+) -> Result<String, DriverError> {
     let validated = validate_file(path)?;
-    Ok(format!(
-        "Validation succeeded\nentrypoint: {}\nscenario: {}\nassets: {}\nconstraints: {}",
-        validated.entrypoint.display(),
-        validated.semantic_program.active_scenario,
-        validated.semantic_program.sets.assets.len(),
-        validated.semantic_program.active_constraints.len()
-    ))
+    let program = &validated.semantic_program;
+
+    match inspect {
+        None => Ok(format!(
+            "Validation succeeded\nentrypoint: {}\nscenario: {}\nassets: {}\nconstraints: {}",
+            validated.entrypoint.display(),
+            program.active_scenario,
+            program.sets.assets.len(),
+            program.active_constraints.len()
+        )),
+        Some(category) => match category {
+            InspectCategory::Sets => format_inspect_sets(program, name),
+            InspectCategory::Constraints => format_inspect_constraints(program, name),
+            InspectCategory::Variables => format_inspect_variables(program, name),
+            InspectCategory::Parameters => format_inspect_parameters(program, name),
+            InspectCategory::Expressions => format_inspect_expressions(program, name),
+            InspectCategory::Objective => format_inspect_objective(program),
+            InspectCategory::Reports => format_inspect_reports(program, name),
+            InspectCategory::Chronology => format_inspect_chronology(program),
+        },
+    }
+}
+
+fn format_inspect_sets(
+    program: &arco_kdl::semantic::SemanticProgram,
+    name: Option<&str>,
+) -> Result<String, DriverError> {
+    let sets = &program.sets;
+    let set_registry = &program.set_registry;
+
+    if let Some(target_name) = name {
+        // Detail mode: look for a specific set
+        match target_name {
+            "assets" => Ok(format!("set \"assets\": {:?}", sets.assets)),
+            "candidate_assets" => Ok(format!(
+                "set \"candidate_assets\": {:?}",
+                sets.candidate_assets
+            )),
+            "time" => Ok(format!(
+                "set \"time\": {} steps @ {}",
+                sets.time.steps, sets.time.resolution
+            )),
+            _ => {
+                // Check user-declared sets
+                if let Some(set) = set_registry.get(target_name) {
+                    Ok(format!("set \"{}\": {:?}", target_name, set.values))
+                } else {
+                    // Build list of available names
+                    let mut available = vec!["assets", "candidate_assets", "time"];
+                    let mut user_sets: Vec<_> = set_registry
+                        .keys()
+                        .map(|s| s.as_str())
+                        .filter(|s| !available.contains(s))
+                        .collect();
+                    user_sets.sort();
+                    available.extend(user_sets);
+                    Err(DriverError::InspectLookup {
+                        message: format!(
+                            "set '{}' not found. Available sets: {}",
+                            target_name,
+                            available.join(", ")
+                        ),
+                    })
+                }
+            }
+        }
+    } else {
+        // List mode: show all sets with counts
+        let mut lines = vec!["sets:".to_string()];
+        lines.push(format!("  assets: {}", sets.assets.len()));
+        lines.push(format!(
+            "  candidate_assets: {}",
+            sets.candidate_assets.len()
+        ));
+        lines.push(format!(
+            "  time: {} steps @ {}",
+            sets.time.steps, sets.time.resolution
+        ));
+
+        // Add user-declared sets (excluding built-in sets)
+        let builtin = ["assets", "candidate_assets", "time"];
+        let mut user_set_names: Vec<_> = set_registry
+            .keys()
+            .filter(|s| !builtin.contains(&s.as_str()))
+            .collect();
+        user_set_names.sort();
+        for set_name in user_set_names {
+            let count = set_registry
+                .get(set_name)
+                .map(|v| v.values.len())
+                .unwrap_or(0);
+            lines.push(format!("  {}: {}", set_name, count));
+        }
+
+        Ok(lines.join("\n"))
+    }
+}
+
+fn format_inspect_constraints(
+    program: &arco_kdl::semantic::SemanticProgram,
+    name: Option<&str>,
+) -> Result<String, DriverError> {
+    let constraints = &program.active_constraints;
+
+    if let Some(target_name) = name {
+        // Detail mode: look for a specific constraint
+        let target = constraints.iter().find(|c| c.name == target_name);
+        match target {
+            Some(constraint) => {
+                let mut lines = vec![];
+                lines.push(format!("constraint \"{}\":", target_name));
+                lines.push(format!("  source_kind: {}", constraint.source_kind));
+                lines.push(format!("  source_name: {}", constraint.source_name));
+                lines.push(format!("  expression: {}", constraint.expression_text));
+                if !constraint.generation_bindings.is_empty() {
+                    lines.push("  generation_bindings:".to_string());
+                    for binding in &constraint.generation_bindings {
+                        lines.push(format!(
+                            "    - variable: {}, domain: {}",
+                            binding.variable, binding.domain
+                        ));
+                    }
+                }
+                Ok(lines.join("\n"))
+            }
+            None => {
+                let available: Vec<_> = constraints.iter().map(|c| c.name.as_str()).collect();
+                Err(DriverError::InspectLookup {
+                    message: format!(
+                        "constraint '{}' not found. Available constraints: {}",
+                        target_name,
+                        available.join(", ")
+                    ),
+                })
+            }
+        }
+    } else {
+        // List mode: show all constraint names
+        let mut lines = vec!["constraints:".to_string()];
+        for constraint in constraints {
+            lines.push(format!(
+                "  {} ({})",
+                constraint.name, constraint.source_kind
+            ));
+        }
+        Ok(lines.join("\n"))
+    }
+}
+
+fn format_inspect_variables(
+    program: &arco_kdl::semantic::SemanticProgram,
+    name: Option<&str>,
+) -> Result<String, DriverError> {
+    let families = &program.variable_families;
+    let overrides = &program.variable_overrides;
+
+    if let Some(target_name) = name {
+        // Detail mode: look for a specific variable family
+        let target = families.iter().find(|f| f.target == target_name);
+        match target {
+            Some(family) => {
+                let mut lines = vec![];
+                lines.push(format!("variable \"{}\":", target_name));
+                lines.push(format!("  signature: {}", family.render()));
+                lines.push(format!("  index_domains: {:?}", family.index_domains));
+
+                // Look for overrides (overrides is a BTreeMap<String, VariableDeclOverrides>)
+                if let Some(override_def) = overrides.get(target_name) {
+                    lines.push("  overrides:".to_string());
+                    if let Some(kind) = &override_def.kind {
+                        lines.push(format!("    kind: {:?}", kind));
+                    }
+                    if let Some(lower) = &override_def.lower {
+                        lines.push(format!("    lower: {:?}", lower));
+                    }
+                    if let Some(upper) = &override_def.upper {
+                        lines.push(format!("    upper: {:?}", upper));
+                    }
+                }
+                Ok(lines.join("\n"))
+            }
+            None => {
+                let available: Vec<_> = families.iter().map(|f| f.target.as_str()).collect();
+                Err(DriverError::InspectLookup {
+                    message: format!(
+                        "variable '{}' not found. Available variables: {}",
+                        target_name,
+                        available.join(", ")
+                    ),
+                })
+            }
+        }
+    } else {
+        // List mode: show all variable family signatures
+        let mut lines = vec!["variables:".to_string()];
+        for family in families {
+            lines.push(format!("  {}", family.render()));
+        }
+        Ok(lines.join("\n"))
+    }
+}
+
+fn format_inspect_parameters(
+    program: &arco_kdl::semantic::SemanticProgram,
+    name: Option<&str>,
+) -> Result<String, DriverError> {
+    let params = &program.parameters;
+
+    if let Some(target_name) = name {
+        // Detail mode: find parameter by name
+        let mut found_type = None;
+
+        if params.series.iter().any(|p| p == target_name) {
+            found_type = Some("series");
+        } else if params.indexed.iter().any(|p| p == target_name) {
+            found_type = Some("indexed");
+        } else if params.asset.iter().any(|p| p == target_name) {
+            found_type = Some("asset");
+        }
+
+        match found_type {
+            Some(param_type) => Ok(format!(
+                "parameter \"{}\": type = {}",
+                target_name, param_type
+            )),
+            None => {
+                let mut available = vec![];
+                available.extend(params.series.iter().map(|p| p.as_str()));
+                available.extend(params.indexed.iter().map(|p| p.as_str()));
+                available.extend(params.asset.iter().map(|p| p.as_str()));
+                Err(DriverError::InspectLookup {
+                    message: format!(
+                        "parameter '{}' not found. Available parameters: {}",
+                        target_name,
+                        available.join(", ")
+                    ),
+                })
+            }
+        }
+    } else {
+        // List mode: group by type
+        let mut lines = vec!["parameters:".to_string()];
+
+        if !params.series.is_empty() {
+            lines.push("  series:".to_string());
+            for param in &params.series {
+                lines.push(format!("    - {}", param));
+            }
+        }
+
+        if !params.indexed.is_empty() {
+            lines.push("  indexed:".to_string());
+            for param in &params.indexed {
+                lines.push(format!("    - {}", param));
+            }
+        }
+
+        if !params.asset.is_empty() {
+            lines.push("  asset:".to_string());
+            for param in &params.asset {
+                lines.push(format!("    - {}", param));
+            }
+        }
+
+        Ok(lines.join("\n"))
+    }
+}
+
+fn format_inspect_expressions(
+    program: &arco_kdl::semantic::SemanticProgram,
+    name: Option<&str>,
+) -> Result<String, DriverError> {
+    let expressions = &program.active_expressions;
+
+    if let Some(target_name) = name {
+        // Detail mode: look for a specific expression
+        let target = expressions.iter().find(|e| e.name == target_name);
+        match target {
+            Some(expr) => {
+                let mut lines = vec![];
+                lines.push(format!("expression \"{}\":", target_name));
+                lines.push(format!("  formula: {}", expr.formula_text));
+                Ok(lines.join("\n"))
+            }
+            None => {
+                let available: Vec<_> = expressions.iter().map(|e| e.name.as_str()).collect();
+                Err(DriverError::InspectLookup {
+                    message: format!(
+                        "expression '{}' not found. Available expressions: {}",
+                        target_name,
+                        available.join(", ")
+                    ),
+                })
+            }
+        }
+    } else {
+        // List mode: show all expression names
+        let mut lines = vec!["expressions:".to_string()];
+        for expr in expressions {
+            lines.push(format!("  {}", expr.name));
+        }
+        Ok(lines.join("\n"))
+    }
+}
+
+fn format_inspect_objective(
+    program: &arco_kdl::semantic::SemanticProgram,
+) -> Result<String, DriverError> {
+    let objective = &program.active_objective;
+    let mut lines = vec!["objective:".to_string()];
+    lines.push(format!("  name: {}", objective.name));
+    lines.push(format!("  sense: {}", objective.sense));
+    lines.push(format!("  expression: {}", objective.expression_text));
+    Ok(lines.join("\n"))
+}
+
+fn format_inspect_reports(
+    program: &arco_kdl::semantic::SemanticProgram,
+    name: Option<&str>,
+) -> Result<String, DriverError> {
+    let reports = &program.active_reports;
+
+    if let Some(target_name) = name {
+        // Detail mode: look for a specific report
+        let target = reports.iter().find(|r| r.name == target_name);
+        match target {
+            Some(report) => {
+                let mut lines = vec![];
+                lines.push(format!("report \"{}\":", target_name));
+                lines.push(format!("  formula: {}", report.formula_text));
+                Ok(lines.join("\n"))
+            }
+            None => {
+                let available: Vec<_> = reports.iter().map(|r| r.name.as_str()).collect();
+                Err(DriverError::InspectLookup {
+                    message: format!(
+                        "report '{}' not found. Available reports: {}",
+                        target_name,
+                        available.join(", ")
+                    ),
+                })
+            }
+        }
+    } else {
+        // List mode: show all report names
+        let mut lines = vec!["reports:".to_string()];
+        for report in reports {
+            lines.push(format!("  {}", report.name));
+        }
+        Ok(lines.join("\n"))
+    }
+}
+
+fn format_inspect_chronology(
+    program: &arco_kdl::semantic::SemanticProgram,
+) -> Result<String, DriverError> {
+    let chronology = &program.chronology;
+    let mut lines = vec!["chronology:".to_string()];
+    lines.push(format!(
+        "  initial_boundary: {}",
+        chronology.initial_boundary.as_deref().unwrap_or("none")
+    ));
+    lines.push(format!(
+        "  terminal_boundary: {}",
+        chronology.terminal_boundary.as_deref().unwrap_or("none")
+    ));
+    lines.push(format!(
+        "  initial_commitment_boundary: {}",
+        chronology
+            .initial_commitment_boundary
+            .as_deref()
+            .unwrap_or("none")
+    ));
+    Ok(lines.join("\n"))
 }
 
 fn summarize_variables(

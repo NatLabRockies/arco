@@ -159,6 +159,135 @@ fn cli_validates_a_fixture_file() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn cli_validate_inspect_sets_list() -> Result<(), Box<dyn std::error::Error>> {
+    let input = price_taker_battery_input();
+
+    let output = arco_command()
+        .arg("validate")
+        .arg(&input)
+        .arg("--inspect")
+        .arg("sets")
+        .output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("sets:"));
+    assert!(stdout.contains("assets: 1"));
+    assert!(stdout.contains("time:"));
+
+    Ok(())
+}
+
+#[test]
+fn cli_validate_inspect_sets_detail() -> Result<(), Box<dyn std::error::Error>> {
+    let input = price_taker_battery_input();
+
+    let output = arco_command()
+        .arg("validate")
+        .arg(&input)
+        .arg("--inspect")
+        .arg("sets")
+        .arg("--name")
+        .arg("assets")
+        .output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("set \"assets\""));
+    assert!(stdout.contains("Battery1"));
+
+    Ok(())
+}
+
+#[test]
+fn cli_validate_inspect_constraints_list() -> Result<(), Box<dyn std::error::Error>> {
+    let input = price_taker_battery_input();
+
+    let output = arco_command()
+        .arg("validate")
+        .arg(&input)
+        .arg("--inspect")
+        .arg("constraints")
+        .output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("constraints:"));
+    assert!(stdout.contains("soc_balance"));
+    assert!(stdout.contains("charge_limit"));
+
+    Ok(())
+}
+
+#[test]
+fn cli_validate_inspect_variables_list() -> Result<(), Box<dyn std::error::Error>> {
+    let input = price_taker_battery_input();
+
+    let output = arco_command()
+        .arg("validate")
+        .arg(&input)
+        .arg("--inspect")
+        .arg("variables")
+        .output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("variables:"));
+    // Should list variable signatures
+    assert!(stdout.contains("charge[") || stdout.contains("discharge[") || stdout.contains("soc["));
+
+    Ok(())
+}
+
+#[test]
+fn cli_validate_inspect_sets_not_found() -> Result<(), Box<dyn std::error::Error>> {
+    let input = price_taker_battery_input();
+
+    let output = arco_command()
+        .arg("validate")
+        .arg(&input)
+        .arg("--inspect")
+        .arg("sets")
+        .arg("--name")
+        .arg("nonexistent")
+        .output()?;
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("not found"));
+    assert!(stderr.contains("Available sets:"));
+    assert!(stderr.contains("assets"));
+
+    Ok(())
+}
+
+#[test]
+fn cli_validate_inspect_objective() -> Result<(), Box<dyn std::error::Error>> {
+    let input = price_taker_battery_input();
+
+    let output = arco_command()
+        .arg("validate")
+        .arg(&input)
+        .arg("--inspect")
+        .arg("objective")
+        .output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("objective:"));
+    assert!(stdout.contains("name:"));
+    assert!(stdout.contains("sense:"));
+
+    Ok(())
+}
+
+#[test]
 fn cli_exports_a_fixture_to_lp() -> Result<(), Box<dyn std::error::Error>> {
     let input = price_taker_battery_input();
 
