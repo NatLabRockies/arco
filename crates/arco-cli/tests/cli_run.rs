@@ -23,6 +23,10 @@ fn simple_market_storage_input() -> PathBuf {
     ])
 }
 
+fn nodal_input() -> PathBuf {
+    fixture_path(&["..", "..", "examples", "nodal", "input.kdl"])
+}
+
 fn arco_command() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_arco"));
     cmd.env("ARCO_CONFIG_DIR", env!("CARGO_TARGET_TMPDIR"));
@@ -152,15 +156,19 @@ fn cli_validates_a_fixture_file() -> Result<(), Box<dyn std::error::Error>> {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.contains("Validation succeeded"));
+    assert!(!stdout.contains("Validation succeeded"));
     assert!(stdout.contains("scenario: BatteryArbitrageDay"));
+    assert!(stdout.contains("model summary:"));
+    assert!(stdout.contains("sets:"));
+    assert!(stdout.contains("variables:"));
+    assert!(stdout.contains("constraints:"));
 
     Ok(())
 }
 
 #[test]
 fn cli_validate_inspect_sets_list() -> Result<(), Box<dyn std::error::Error>> {
-    let input = price_taker_battery_input();
+    let input = nodal_input();
 
     let output = arco_command()
         .arg("validate")
@@ -173,8 +181,11 @@ fn cli_validate_inspect_sets_list() -> Result<(), Box<dyn std::error::Error>> {
 
     let stdout = String::from_utf8(output.stdout)?;
     assert!(stdout.contains("sets:"));
-    assert!(stdout.contains("assets: 1"));
-    assert!(stdout.contains("time:"));
+    assert!(stdout.contains("area: 73"));
+    assert!(stdout.contains("generators: 2011"));
+    assert!(!stdout.contains("assets:"));
+    assert!(!stdout.contains("candidate_assets:"));
+    assert!(!stdout.contains("time:"));
 
     Ok(())
 }
@@ -245,7 +256,7 @@ fn cli_validate_inspect_variables_list() -> Result<(), Box<dyn std::error::Error
 
 #[test]
 fn cli_validate_inspect_sets_not_found() -> Result<(), Box<dyn std::error::Error>> {
-    let input = price_taker_battery_input();
+    let input = nodal_input();
 
     let output = arco_command()
         .arg("validate")
@@ -261,7 +272,8 @@ fn cli_validate_inspect_sets_not_found() -> Result<(), Box<dyn std::error::Error
     let stderr = String::from_utf8(output.stderr)?;
     assert!(stderr.contains("not found"));
     assert!(stderr.contains("Available sets:"));
-    assert!(stderr.contains("assets"));
+    assert!(!stderr.contains("assets"));
+    assert!(stderr.contains("area"));
 
     Ok(())
 }

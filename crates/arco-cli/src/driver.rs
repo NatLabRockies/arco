@@ -292,9 +292,9 @@ pub fn validate_file_report(
         None => Ok(format_validation_summary(
             &validated.entrypoint,
             &program.active_scenario,
-            should_show_high_level_summary(program),
             program.set_registry.len(),
             program.sets.assets.len(),
+            program.variable_families.len(),
             program.active_constraints.len(),
         )),
         Some(category) => match category {
@@ -313,103 +313,64 @@ pub fn validate_file_report(
 fn format_validation_summary(
     entrypoint: &Path,
     scenario: &str,
-    show_high_level_summary: bool,
     set_count: usize,
     asset_count: usize,
+    variable_count: usize,
     constraint_count: usize,
 ) -> String {
-    let mut lines = vec![
-        "Validation succeeded".to_string(),
+    let lines = vec![
         format!("entrypoint: {}", entrypoint.display()),
         format!("scenario: {scenario}"),
+        "model summary:".to_string(),
+        format!("  sets: {set_count}"),
+        format!("  assets: {asset_count}"),
+        format!("  variables: {variable_count}"),
+        format!("  constraints: {constraint_count}"),
     ];
-
-    if show_high_level_summary {
-        lines.push(format!("sets: {set_count}"));
-        lines.push(format!("assets: {asset_count}"));
-    }
-
-    lines.push(format!("constraints: {constraint_count}"));
     lines.join("\n")
-}
-
-fn should_show_high_level_summary(program: &arco_kdl::semantic::SemanticProgram) -> bool {
-    !program.lowering_rules.is_empty()
-        || program
-            .active_constraints
-            .iter()
-            .any(|constraint| constraint.source_kind != "model")
 }
 
 fn format_inspect_sets(
     program: &arco_kdl::semantic::SemanticProgram,
     name: Option<&str>,
 ) -> Result<String, DriverError> {
-    let sets = &program.sets;
     let set_registry = &program.set_registry;
+    let builtin_set_names = ["assets", "candidate_assets", "time"];
+    let available_set_names: Vec<&str> = set_registry
+        .keys()
+        .map(String::as_str)
+        .filter(|set_name| !builtin_set_names.contains(set_name))
+        .collect();
 
     if let Some(target_name) = name {
-        // Detail mode: look for a specific set
-        match target_name {
-            "assets" => Ok(format!("set \"assets\": {:?}", sets.assets)),
-            "candidate_assets" => Ok(format!(
-                "set \"candidate_assets\": {:?}",
-                sets.candidate_assets
-            )),
-            "time" => Ok(format!(
-                "set \"time\": {} steps @ {}",
-                sets.time.steps, sets.time.resolution
-            )),
-            _ => {
-                // Check user-declared sets
-                if let Some(set) = set_registry.get(target_name) {
-                    Ok(format!("set \"{}\": {:?}", target_name, set.values))
-                } else {
-                    // Build list of available names
-                    let mut available = vec!["assets", "candidate_assets", "time"];
-                    let mut user_sets: Vec<_> = set_registry
-                        .keys()
-                        .map(|s| s.as_str())
-                        .filter(|s| !available.contains(s))
-                        .collect();
-                    user_sets.sort();
-                    available.extend(user_sets);
-                    Err(DriverError::InspectLookup {
-                        message: format!(
-                            "set '{}' not found. Available sets: {}",
-                            target_name,
-                            available.join(", ")
-                        ),
-                    })
-                }
-            }
+        if builtin_set_names.contains(&target_name) {
+            return Err(DriverError::InspectLookup {
+                message: format!(
+                    "set '{}' not found. Available sets: {}",
+                    target_name,
+                    available_set_names.join(", ")
+                ),
+            });
+        }
+
+        if let Some(set) = set_registry.get(target_name) {
+            Ok(format!("set \"{}\": {:?}", target_name, set.values))
+        } else {
+            Err(DriverError::InspectLookup {
+                message: format!(
+                    "set '{}' not found. Available sets: {}",
+                    target_name,
+                    available_set_names.join(", ")
+                ),
+            })
         }
     } else {
-        // List mode: show all sets with counts
         let mut lines = vec!["sets:".to_string()];
-        lines.push(format!("  assets: {}", sets.assets.len()));
-        lines.push(format!(
-            "  candidate_assets: {}",
-            sets.candidate_assets.len()
-        ));
-        lines.push(format!(
-            "  time: {} steps @ {}",
-            sets.time.steps, sets.time.resolution
-        ));
-
-        // Add user-declared sets (excluding built-in sets)
-        let builtin = ["assets", "candidate_assets", "time"];
-        let mut user_set_names: Vec<_> = set_registry
-            .keys()
-            .filter(|s| !builtin.contains(&s.as_str()))
-            .collect();
-        user_set_names.sort();
-        for set_name in user_set_names {
-            let count = set_registry
-                .get(set_name)
-                .map(|v| v.values.len())
-                .unwrap_or(0);
-            lines.push(format!("  {}: {}", set_name, count));
+        for (set_name, set_values) in set_registry
+            .iter()
+            .filter(|(set_name, _)| !builtin_set_names.contains(&set_name.as_str()))
+        {
+            lines.push(format!("  {}: {}", set_name, set_values.values.len()));
         }
 
         Ok(lines.join("\n"))
@@ -828,22 +789,14 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn format_validation_summary_high_level_includes_sets_and_assets() {
-        let summary =
-            format_validation_summary(Path::new("example.kdl"), "ScenarioA", true, 4, 2, 7);
+    fn format_validation_summary_includes_model_counts() {
+        let summary = format_validation_summary(Path::new("example.kdl"), "ScenarioA", 4, 2, 9, 7);
 
-        assert!(summary.contains("sets: 4"));
-        assert!(summary.contains("assets: 2"));
-        assert!(summary.contains("constraints: 7"));
-    }
-
-    #[test]
-    fn format_validation_summary_low_level_omits_sets_and_assets() {
-        let summary =
-            format_validation_summary(Path::new("example.kdl"), "ScenarioA", false, 4, 2, 7);
-
-        assert!(!summary.contains("sets:"));
-        assert!(!summary.contains("assets:"));
-        assert!(summary.contains("constraints: 7"));
+        assert!(!summary.contains("Validation succeeded"));
+        assert!(summary.contains("model summary:"));
+        assert!(summary.contains("  sets: 4"));
+        assert!(summary.contains("  assets: 2"));
+        assert!(summary.contains("  variables: 9"));
+        assert!(summary.contains("  constraints: 7"));
     }
 }
