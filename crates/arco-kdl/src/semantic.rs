@@ -993,10 +993,10 @@ fn load_set_csv(path: &Path) -> Result<SetCsvData, SemanticError> {
 
         let mut params = BTreeMap::new();
         for (col_index, col_name) in &param_columns {
-            if let Some(raw) = record.get(*col_index).filter(|v| !v.is_empty())
-                && let Ok(value) = raw.parse::<f64>()
-            {
-                params.insert(col_name.clone(), value);
+            if let Some(raw) = record.get(*col_index).filter(|v| !v.is_empty()) {
+                if let Ok(value) = raw.parse::<f64>() {
+                    params.insert(col_name.clone(), value);
+                }
             }
         }
         members.push(member_name.clone());
