@@ -115,11 +115,11 @@ py-doctest-ci:
 
 [group: 'python']
 py-fmt:
-    cd bindings/python && uv run --with ruff ruff format --verbose
+    cd bindings/python && uv run --no-project --with ruff ruff format --verbose
 
 [group: 'python']
 py-fmt-check:
-    cd bindings/python && uv run --with ruff ruff format --check
+    cd bindings/python && uv run --no-project --with ruff ruff format --check
 
 [group: 'python']
 py-licenses:
@@ -127,11 +127,11 @@ py-licenses:
 
 [group: 'python']
 py-lint:
-    cd bindings/python && uv run --with ruff ruff check --fix --config=pyproject.toml
+    cd bindings/python && uv run --no-project --with ruff ruff check --fix --config=pyproject.toml
 
 [group: 'python']
 py-lint-check:
-    cd bindings/python && uv run --with ruff ruff check --config=pyproject.toml
+    cd bindings/python && uv run --no-project --with ruff ruff check --config=pyproject.toml
 
 [group: 'python']
 py-shell: py-dev
@@ -151,7 +151,7 @@ py-test: py-dev
 
 [group: 'python']
 py-type:
-    cd bindings/python && uv run --with ty ty check src/
+    cd bindings/python && uv run --no-project --with ty ty check src/
 
 [group: 'python']
 py-validate-wheel artifact_glob="dist/*.whl":
