@@ -51,22 +51,32 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo fmt --all --
+        entry: just fmt
         language: system
         types: [rust]
         pass_filenames: false
 
       - id: ruff-check
         name: ruff check
-        entry: uvx ruff check --fix --config=bindings/python/pyproject.toml
+        entry: just py-lint
         language: system
         types: [python]
+        pass_filenames: false
 
       - id: ruff-format
         name: ruff format
-        entry: uvx ruff format --config=bindings/python/pyproject.toml
+        entry: just py-fmt
         language: system
         types: [python]
+        pass_filenames: false
+
+      - id: py-type
+        name: py type
+        entry: just py-type
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
 
   - repo: local
     hooks:

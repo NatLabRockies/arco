@@ -13,11 +13,11 @@ permissions:
 
 env:
   UV_VERSION: "0.9.4"
-  PREK_VERSION: "0.3.6"
+  JUST_VERSION: "1.43.0"
 
 jobs:
   prek:
-    name: prek
+    name: prek (pre-commit + pre-push)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -25,13 +25,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
         with:
-          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          sync-python-licenses: "false"
+          save-uv-cache: "false"
+          save-rust-cache: "false"
 
-      - name: Run prek
-        run: uvx --from prek==${{ env.PREK_VERSION }} prek run --all-files --show-diff-on-failure --color always
+      - name: Run prek (pre-commit stage)
+        run: just pre-commit-stage pre-commit
+
+      - name: Run prek (pre-push stage)
+        run: just pre-commit-stage pre-push
 
   lint-commit-messages:
     name: lint commit message

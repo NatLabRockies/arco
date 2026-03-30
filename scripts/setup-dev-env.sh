@@ -21,7 +21,5 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$repo_root/.uv-cache}"
 cd "$repo_root"
 
-(cd bindings/python && uv sync)
-uv run python scripts/sync_python_licenses.py
-(cd bindings/python && uv run --with maturin maturin develop)
+just py-dev
 uvx --from "${PREK_SPEC:-prek==0.3.6}" prek install --overwrite --prepare-hooks --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
