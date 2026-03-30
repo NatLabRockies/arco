@@ -289,12 +289,13 @@ pub fn validate_file_report(
     let program = &validated.semantic_program;
 
     match inspect {
-        None => Ok(format!(
-            "Validation succeeded\nentrypoint: {}\nscenario: {}\nassets: {}\nconstraints: {}",
-            validated.entrypoint.display(),
-            program.active_scenario,
+        None => Ok(format_validation_summary(
+            &validated.entrypoint,
+            &program.active_scenario,
+            should_show_high_level_summary(program),
+            program.set_registry.len(),
             program.sets.assets.len(),
-            program.active_constraints.len()
+            program.active_constraints.len(),
         )),
         Some(category) => match category {
             InspectCategory::Sets => format_inspect_sets(program, name),
@@ -307,6 +308,37 @@ pub fn validate_file_report(
             InspectCategory::Chronology => format_inspect_chronology(program),
         },
     }
+}
+
+fn format_validation_summary(
+    entrypoint: &Path,
+    scenario: &str,
+    show_high_level_summary: bool,
+    set_count: usize,
+    asset_count: usize,
+    constraint_count: usize,
+) -> String {
+    let mut lines = vec![
+        "Validation succeeded".to_string(),
+        format!("entrypoint: {}", entrypoint.display()),
+        format!("scenario: {scenario}"),
+    ];
+
+    if show_high_level_summary {
+        lines.push(format!("sets: {set_count}"));
+        lines.push(format!("assets: {asset_count}"));
+    }
+
+    lines.push(format!("constraints: {constraint_count}"));
+    lines.join("\n")
+}
+
+fn should_show_high_level_summary(program: &arco_kdl::semantic::SemanticProgram) -> bool {
+    !program.lowering_rules.is_empty()
+        || program
+            .active_constraints
+            .iter()
+            .any(|constraint| constraint.source_kind != "model")
 }
 
 fn format_inspect_sets(
@@ -788,4 +820,30 @@ fn peak_rss_bytes() -> Option<u64> {
     let mut system = System::new();
     system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
     system.process(pid).map(|p| p.memory())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_validation_summary;
+    use std::path::Path;
+
+    #[test]
+    fn format_validation_summary_high_level_includes_sets_and_assets() {
+        let summary =
+            format_validation_summary(Path::new("example.kdl"), "ScenarioA", true, 4, 2, 7);
+
+        assert!(summary.contains("sets: 4"));
+        assert!(summary.contains("assets: 2"));
+        assert!(summary.contains("constraints: 7"));
+    }
+
+    #[test]
+    fn format_validation_summary_low_level_omits_sets_and_assets() {
+        let summary =
+            format_validation_summary(Path::new("example.kdl"), "ScenarioA", false, 4, 2, 7);
+
+        assert!(!summary.contains("sets:"));
+        assert!(!summary.contains("assets:"));
+        assert!(summary.contains("constraints: 7"));
+    }
 }
