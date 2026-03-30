@@ -4,7 +4,7 @@ fn main() {
     let xpress_dir = std::env::var("XPRESSDIR").ok().or_else(|| {
         for path in &["/opt/xpressmp", "/Library/xpressmp", "C:\\xpressmp"] {
             if std::path::Path::new(path).exists() {
-                return Some(path.to_string());
+                return Some((*path).to_owned());
             }
         }
         None

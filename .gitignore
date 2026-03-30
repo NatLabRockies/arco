@@ -576,3 +576,6 @@ artifacts/
 benchmarks/plots/
 benchmarks/results/
 benchmarks/output/
+
+# Keep benchmark fixture data in repo
+!crates/arco-cli/tests/e2e/**/*.csv
