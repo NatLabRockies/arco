@@ -10,6 +10,9 @@ alias qc := step-quality
 # Rust package group (all workspace crates except python and ipopt bindings)
 rust-packages := "--workspace --exclude arco-python --exclude arco-ipopt"
 
+# Rust package group for clippy in CI where Xpress SDK is unavailable
+clippy-packages := "--workspace --exclude arco-python --exclude arco-ipopt --exclude arco-xpress"
+
 [group: 'bench']
 bench-compare baseline candidate:
     cargo run -p arco-bench -- compare \
@@ -56,11 +59,11 @@ clippy:
 
 [group: 'ci']
 clippy-all:
-    cargo clippy {{ rust-packages }} --benches --tests --examples --all-features -- -D warnings
+    cargo clippy {{ clippy-packages }} --benches --tests --examples -- -D warnings
 
 [group: 'ci']
 clippy-core:
-    cargo clippy {{ rust-packages }} --benches --tests --examples --all-features -- -D warnings
+    cargo clippy {{ clippy-packages }} --benches --tests --examples -- -D warnings
 
 [group: 'ci']
 clippy-solver package:
