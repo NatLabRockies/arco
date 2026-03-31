@@ -48,6 +48,8 @@ pub struct RunSummary {
     pub active_scenario: String,
     pub objective: ObjectiveSummary,
     pub reports: Vec<ReportSummary>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dual_reports: Vec<DualReportSummary>,
     pub variables: Vec<VariableSummary>,
     pub counts: ProblemCounts,
     pub timing: TimingSummary,
@@ -77,6 +79,18 @@ pub struct VariableSummary {
 #[derive(Debug, Serialize, PartialEq)]
 pub struct VariableValueSummary {
     pub name: String,
+    pub value: f64,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct DualReportSummary {
+    pub name: String,
+    pub values: Vec<DualReportValueSummary>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct DualReportValueSummary {
+    pub instance: String,
     pub value: f64,
 }
 
@@ -236,6 +250,24 @@ pub fn run_file_with_options_and_backend(
             .map(|report| ReportSummary {
                 name: report.dsl_name,
                 value: report.value,
+            })
+            .collect(),
+        dual_reports: execution_result
+            .dual_reports
+            .into_iter()
+            .map(|dr| {
+                let values = dr
+                    .values
+                    .into_iter()
+                    .map(|v| DualReportValueSummary {
+                        instance: trim_family_prefix(&dr.constraint_family, &v.instance_name),
+                        value: v.value,
+                    })
+                    .collect();
+                DualReportSummary {
+                    name: dr.constraint_family,
+                    values,
+                }
             })
             .collect(),
         variables,
