@@ -1,8 +1,12 @@
-use arco_cli::cli_io::{should_log_solver_to_console, write_stdout, write_stdout_line};
+use arco_cli::cli_io::{
+    ColorMode, should_colorize_stdout, should_log_solver_to_console, write_stdout,
+    write_stdout_line,
+};
 use arco_cli::config::{SolverBackend, SolverConfig, load_solver_config, save_solver_config};
 use arco_cli::debug::launch_ipython;
 use arco_cli::driver::{
-    RunOptions, print_file_model, run_file_json_with_options_and_backend, validate_file_report,
+    InspectCategory, RunOptions, inspect_file_report, print_file_model,
+    run_file_json_with_options_and_backend, validate_file_only,
 };
 use arco_cli::export::{write_lp, write_mps};
 use arco_kdl::pipeline::compile_file;
@@ -45,6 +49,19 @@ enum Command {
     PrintModel { path: PathBuf },
     /// Validate a .kdl file without solving
     Validate { path: PathBuf },
+    /// Inspect semantic model information from a validated .kdl file
+    Inspect {
+        path: PathBuf,
+        /// Inspect a specific semantic category
+        #[arg(long)]
+        section: Option<InspectCategory>,
+        /// Filter to a specific element by name within the inspected category
+        #[arg(long, requires = "section")]
+        name: Option<String>,
+        /// Emit structured JSON output
+        #[arg(long)]
+        json: bool,
+    },
     /// Open an interactive debug shell in IPython
     Debug { path: PathBuf },
     /// Export the algebraic model in LP or MPS format
@@ -125,7 +142,21 @@ fn main() -> miette::Result<()> {
             write_stdout_line(&print_file_model(&path)?).into_diagnostic()?;
         }
         Command::Validate { path } => {
-            write_stdout_line(&validate_file_report(&path)?).into_diagnostic()?;
+            write_stdout_line(&validate_file_only(
+                &path,
+                ColorMode::from(should_colorize_stdout(std::io::stdout().is_terminal())),
+            )?)
+            .into_diagnostic()?;
+        }
+        Command::Inspect {
+            path,
+            section,
+            name,
+            json,
+        } => {
+            let name_ref = name.as_deref();
+            write_stdout_line(&inspect_file_report(&path, section, name_ref, json)?)
+                .into_diagnostic()?;
         }
         Command::Debug { path } => {
             launch_ipython(&path)?;
