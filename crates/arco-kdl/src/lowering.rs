@@ -25,6 +25,7 @@ pub struct LoweredProblem {
     pub constraints: Vec<LoweredConstraint>,
     pub objective: LoweredObjective,
     pub reports: Vec<LoweredReport>,
+    pub dual_reports: Vec<LoweredDualReport>,
     pub traceability: Vec<TraceabilityRecord>,
     pub algebra: AlgebraicProblem,
 }
@@ -59,6 +60,11 @@ pub struct LoweredObjective {
 pub struct LoweredReport {
     pub name: String,
     pub formula: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoweredDualReport {
+    pub constraint_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -321,6 +327,14 @@ pub fn lower_program(
         .map(lower_report)
         .collect::<Vec<_>>();
 
+    let dual_reports = program
+        .active_dual_reports
+        .iter()
+        .map(|dr| LoweredDualReport {
+            constraint_name: dr.constraint_name.clone(),
+        })
+        .collect::<Vec<_>>();
+
     let mut traceability = Vec::new();
     traceability.extend(variables.iter().map(|variable| TraceabilityRecord {
         dsl_name: variable.family.clone(),
@@ -344,6 +358,7 @@ pub fn lower_program(
         constraints,
         objective,
         reports,
+        dual_reports,
         traceability,
         algebra,
     };
