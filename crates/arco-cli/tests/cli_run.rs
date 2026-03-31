@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -31,6 +32,11 @@ fn arco_command() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_arco"));
     cmd.env("ARCO_CONFIG_DIR", env!("CARGO_TARGET_TMPDIR"));
     cmd
+}
+
+fn parse_stdout_json(output: std::process::Output) -> Result<Value, Box<dyn std::error::Error>> {
+    let stdout = String::from_utf8(output.stdout)?;
+    Ok(serde_json::from_str(&stdout)?)
 }
 
 #[test]
@@ -140,6 +146,7 @@ fn cli_rejects_missing_arguments() -> Result<(), Box<dyn std::error::Error>> {
     assert!(stderr.contains("Usage: arco"));
     assert!(stderr.contains("Commands:"));
     assert!(stderr.contains("validate"));
+    assert!(stderr.contains("inspect"));
     assert!(stderr.contains("debug"));
     assert!(stderr.contains("export"));
     assert!(stderr.contains("solver"));
@@ -149,55 +156,127 @@ fn cli_rejects_missing_arguments() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn cli_validates_a_fixture_file() -> Result<(), Box<dyn std::error::Error>> {
-    let input = price_taker_battery_input();
+    let input = nodal_input();
 
     let output = arco_command().arg("validate").arg(&input).output()?;
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout)?;
-    assert!(!stdout.contains("Validation succeeded"));
-    assert!(stdout.contains("scenario: BatteryArbitrageDay"));
-    assert!(stdout.contains("model summary:"));
-    assert!(stdout.contains("sets:"));
-    assert!(stdout.contains("variables:"));
-    assert!(stdout.contains("constraints:"));
+    assert!(stdout.trim().is_empty());
 
     Ok(())
 }
 
 #[test]
-fn cli_validate_inspect_sets_list() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_inspect_without_section_returns_full_model_view() -> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
+
+    let output = arco_command().arg("inspect").arg(&input).output()?;
+
+    assert!(output.status.success());
+
+    let payload = parse_stdout_json(output)?;
+    let object = payload.as_object().expect("full inspect object");
+    assert!(object.contains_key("summaries"));
+    assert!(object.contains_key("sets"));
+    assert!(object.contains_key("constraints"));
+    assert!(object.contains_key("variables"));
+    assert!(object.contains_key("objectives"));
+    assert!(object.contains_key("parameters"));
+
+    let sets = object
+        .get("sets")
+        .and_then(serde_json::Value::as_object)
+        .expect("sets object");
+    assert_eq!(sets["generators"]["symbol"], "g");
+    assert_eq!(sets["nodes"]["symbol"], "n");
+
+    let variables = object
+        .get("variables")
+        .and_then(serde_json::Value::as_array)
+        .expect("variables array");
+    let dispatch = variables
+        .iter()
+        .find(|variable| variable["name"] == "dispatch")
+        .expect("dispatch variable");
+    assert_eq!(
+        dispatch["set"][0],
+        serde_json::json!({"$ref": "#/sets/generators"})
+    );
+    assert_eq!(
+        dispatch["set"][1],
+        serde_json::json!({"$ref": "#/sets/nodes"})
+    );
+    assert_eq!(
+        dispatch["set"][2],
+        serde_json::json!({"$ref": "#/sets/time"})
+    );
+
+    let parameters = object
+        .get("parameters")
+        .and_then(serde_json::Value::as_object)
+        .expect("parameters object");
+    assert!(parameters.contains_key("distance_km"));
+    assert!(parameters.contains_key("cost_spur_usd_per_km_mw"));
+    assert!(parameters.contains_key("MWLoad"));
+    assert_eq!(
+        parameters["distance_km"]["set"],
+        serde_json::json!([
+            {"$ref": "#/sets/generators"},
+            {"$ref": "#/sets/nodes"}
+        ])
+    );
+    assert_eq!(
+        parameters["MWLoad"]["set"],
+        serde_json::json!([
+            {"$ref": "#/sets/nodes"}
+        ])
+    );
+
+    Ok(())
+}
+
+#[test]
+fn cli_inspect_sets_list() -> Result<(), Box<dyn std::error::Error>> {
     let input = nodal_input();
 
     let output = arco_command()
-        .arg("validate")
+        .arg("inspect")
         .arg(&input)
-        .arg("--inspect")
+        .arg("--section")
         .arg("sets")
         .output()?;
 
     assert!(output.status.success());
 
-    let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.contains("sets:"));
-    assert!(stdout.contains("area: 73"));
-    assert!(stdout.contains("generators: 2011"));
-    assert!(!stdout.contains("assets:"));
-    assert!(!stdout.contains("candidate_assets:"));
-    assert!(!stdout.contains("time:"));
+    let payload = parse_stdout_json(output)?;
+    let items = payload.as_array().expect("set array");
+    assert!(
+        items
+            .iter()
+            .any(|item| item["name"] == "area" && item["cardinality"] == 73)
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item["name"] == "generators" && item["cardinality"] == 2011)
+    );
+    assert!(items.iter().any(|item| item["name"] == "time"));
+    assert!(!items.iter().any(|item| item["name"] == "assets"));
+    assert!(!items.iter().any(|item| item["name"] == "candidate_assets"));
 
     Ok(())
 }
 
 #[test]
-fn cli_validate_inspect_sets_detail() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_inspect_sets_detail() -> Result<(), Box<dyn std::error::Error>> {
     let input = nodal_input();
 
     let output = arco_command()
-        .arg("validate")
+        .arg("inspect")
         .arg(&input)
-        .arg("--inspect")
+        .arg("--section")
         .arg("sets")
         .arg("--name")
         .arg("assets")
@@ -213,53 +292,103 @@ fn cli_validate_inspect_sets_detail() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
-fn cli_validate_inspect_constraints_list() -> Result<(), Box<dyn std::error::Error>> {
-    let input = price_taker_battery_input();
+fn cli_inspect_constraints_list() -> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
 
     let output = arco_command()
-        .arg("validate")
+        .arg("inspect")
         .arg(&input)
-        .arg("--inspect")
+        .arg("--section")
         .arg("constraints")
         .output()?;
 
     assert!(output.status.success());
 
-    let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.contains("constraints:"));
-    assert!(stdout.contains("soc_balance"));
-    assert!(stdout.contains("charge_limit"));
+    let payload = parse_stdout_json(output)?;
+    let items = payload.as_array().expect("constraint array");
+    assert!(items.iter().any(|item| {
+        item["name"] == "generation_limit"
+            && item["relation"] == "less_or_equal"
+            && item["lhs_terms"]
+                .as_array()
+                .is_some_and(|terms| !terms.is_empty())
+            && item["scope"]
+                .as_array()
+                .is_some_and(|scope| !scope.is_empty())
+            && item["variable_refs"] == serde_json::json!([{"$ref": "#/variables/dispatch"}])
+            && item["parameter_refs"]
+                == serde_json::json!([
+                    {"$ref": "#/parameters/capacity_factor"},
+                    {"$ref": "#/parameters/required_capacity"}
+                ])
+    }));
+    assert!(items.iter().any(|item| {
+        item["name"] == "meet_nodal_demand"
+            && item["relation"] == "equal"
+            && item["lhs_terms"]
+                .as_array()
+                .is_some_and(|terms| !terms.is_empty())
+    }));
 
     Ok(())
 }
 
 #[test]
-fn cli_validate_inspect_variables_list() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_inspect_variables_list() -> Result<(), Box<dyn std::error::Error>> {
     let input = nodal_input();
 
     let output = arco_command()
-        .arg("validate")
+        .arg("inspect")
         .arg(&input)
-        .arg("--inspect")
+        .arg("--section")
         .arg("variables")
         .output()?;
 
     assert!(output.status.success());
 
-    let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.contains("variables:"));
-    assert!(stdout.contains("new_capacity indexed by"));
-    assert!(stdout.contains("dispatch indexed by"));
+    let payload = parse_stdout_json(output)?;
+    let items = payload.as_array().expect("variable array");
+    assert!(items.iter().any(|item| {
+        item["name"] == "new_capacity"
+            && item["notation"] == "new_capacity[g, n]"
+            && item["set"]
+                == serde_json::json!([
+                    {"index": "g", "name": "generators", "cardinality": 2011},
+                    {"index": "n", "name": "nodes", "cardinality": 73}
+                ])
+            && item["domain"]
+                == serde_json::json!({
+                    "kind": "continuous",
+                    "lower": 0,
+                    "upper": null
+                })
+    }));
+    assert!(items.iter().any(|item| {
+        item["name"] == "dispatch"
+            && item["notation"] == "dispatch[g, n, t]"
+            && item["set"]
+                == serde_json::json!([
+                    {"index": "g", "name": "generators", "cardinality": 2011},
+                    {"index": "n", "name": "nodes", "cardinality": 73},
+                    {"index": "t", "name": "time", "cardinality": 2}
+                ])
+            && item["domain"]
+                == serde_json::json!({
+                    "kind": "continuous",
+                    "lower": 0,
+                    "upper": null
+                })
+    }));
 
     Ok(())
 }
 
 #[test]
-fn cli_validate_rejects_name_without_inspect() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_inspect_rejects_name_without_section() -> Result<(), Box<dyn std::error::Error>> {
     let input = nodal_input();
 
     let output = arco_command()
-        .arg("validate")
+        .arg("inspect")
         .arg(&input)
         .arg("--name")
         .arg("area")
@@ -268,19 +397,19 @@ fn cli_validate_rejects_name_without_inspect() -> Result<(), Box<dyn std::error:
     assert_eq!(output.status.code(), Some(2));
 
     let stderr = String::from_utf8(output.stderr)?;
-    assert!(stderr.contains("--inspect"));
+    assert!(stderr.contains("--section"));
 
     Ok(())
 }
 
 #[test]
-fn cli_validate_inspect_sets_not_found() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_inspect_sets_not_found() -> Result<(), Box<dyn std::error::Error>> {
     let input = nodal_input();
 
     let output = arco_command()
-        .arg("validate")
+        .arg("inspect")
         .arg(&input)
-        .arg("--inspect")
+        .arg("--section")
         .arg("sets")
         .arg("--name")
         .arg("nonexistent")
@@ -298,22 +427,49 @@ fn cli_validate_inspect_sets_not_found() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
-fn cli_validate_inspect_objective() -> Result<(), Box<dyn std::error::Error>> {
-    let input = price_taker_battery_input();
+fn cli_inspect_objective() -> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
 
     let output = arco_command()
-        .arg("validate")
+        .arg("inspect")
         .arg(&input)
-        .arg("--inspect")
+        .arg("--section")
         .arg("objective")
         .output()?;
 
     assert!(output.status.success());
 
-    let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.contains("objective:"));
-    assert!(stdout.contains("name:"));
-    assert!(stdout.contains("sense:"));
+    let payload = parse_stdout_json(output)?;
+    let items = payload.as_array().expect("objective array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["name"], "TotalCost");
+    assert_eq!(items[0]["sense"], "minimize");
+    assert_eq!(items[0]["aggregation"], "sum");
+    assert!(
+        items[0]["scope"]
+            .as_array()
+            .is_some_and(|scope| !scope.is_empty())
+    );
+    assert_eq!(
+        items[0]["variable_refs"],
+        serde_json::json!([{"$ref": "#/variables/new_capacity"}])
+    );
+    assert_eq!(
+        items[0]["parameter_refs"],
+        serde_json::json!([
+            {"$ref": "#/parameters/cost_poi_usd_per_mw"},
+            {"$ref": "#/parameters/cost_reinforcement_usd_per_mw"},
+            {"$ref": "#/parameters/cost_spur_usd_per_km_mw"},
+            {"$ref": "#/parameters/distance_km"},
+            {"$ref": "#/parameters/pair_exists"}
+        ])
+    );
+    assert!(items[0].get("expression").is_none());
+    assert!(
+        items[0]["terms"]
+            .as_array()
+            .is_some_and(|terms| !terms.is_empty())
+    );
 
     Ok(())
 }

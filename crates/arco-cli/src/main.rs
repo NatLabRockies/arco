@@ -2,8 +2,8 @@ use arco_cli::cli_io::{should_log_solver_to_console, write_stdout, write_stdout_
 use arco_cli::config::{SolverBackend, SolverConfig, load_solver_config, save_solver_config};
 use arco_cli::debug::launch_ipython;
 use arco_cli::driver::{
-    InspectCategory, RunOptions, print_file_model, run_file_json_with_options_and_backend,
-    validate_file_report,
+    InspectCategory, RunOptions, inspect_file_report, print_file_model,
+    run_file_json_with_options_and_backend, validate_file_only,
 };
 use arco_cli::export::{write_lp, write_mps};
 use arco_kdl::pipeline::compile_file;
@@ -45,13 +45,15 @@ enum Command {
     /// Print the algebraic model sent to the solver
     PrintModel { path: PathBuf },
     /// Validate a .kdl file without solving
-    Validate {
+    Validate { path: PathBuf },
+    /// Inspect semantic model information from a validated .kdl file
+    Inspect {
         path: PathBuf,
         /// Inspect a specific semantic category
         #[arg(long)]
-        inspect: Option<InspectCategory>,
+        section: Option<InspectCategory>,
         /// Filter to a specific element by name within the inspected category
-        #[arg(long, requires = "inspect")]
+        #[arg(long, requires = "section")]
         name: Option<String>,
     },
     /// Open an interactive debug shell in IPython
@@ -133,14 +135,16 @@ fn main() -> miette::Result<()> {
         Command::PrintModel { path } => {
             write_stdout_line(&print_file_model(&path)?).into_diagnostic()?;
         }
-        Command::Validate {
+        Command::Validate { path } => {
+            validate_file_only(&path)?;
+        }
+        Command::Inspect {
             path,
-            inspect,
+            section,
             name,
         } => {
             let name_ref = name.as_deref();
-            write_stdout_line(&validate_file_report(&path, inspect, name_ref)?)
-                .into_diagnostic()?;
+            write_stdout_line(&inspect_file_report(&path, section, name_ref)?).into_diagnostic()?;
         }
         Command::Debug { path } => {
             launch_ipython(&path)?;

@@ -9,6 +9,7 @@ use arco_kdl::pipeline::{PipelineError, compile_file, validate_file};
 use clap::ValueEnum;
 use miette::Diagnostic;
 use serde::Serialize;
+use serde_json::{Map, Value, json};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -280,70 +281,207 @@ pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
     render_problem_model(&compiled.lowered_problem).map_err(DriverError::from)
 }
 
-pub fn validate_file_report(
+pub fn validate_file_only(path: &Path) -> Result<(), DriverError> {
+    let _ = validate_file(path)?;
+    Ok(())
+}
+
+pub fn inspect_file_report(
     path: &Path,
-    inspect: Option<InspectCategory>,
+    section: Option<InspectCategory>,
     name: Option<&str>,
 ) -> Result<String, DriverError> {
     let validated = validate_file(path)?;
     let program = &validated.semantic_program;
+    let parameter_targets = collect_parameter_targets(program);
 
-    match inspect {
-        None => Ok(format_validation_summary(
-            &validated.entrypoint,
-            &program.active_scenario,
-            program.set_registry.len(),
-            program.sets.assets.len(),
-            program.variable_families.len(),
-            program.active_constraints.len(),
-        )),
+    let payload = match section {
+        None => {
+            let summary = payload_as_array(format_validation_summary(
+                &validated.entrypoint,
+                &program.active_scenario,
+                program.set_registry.len(),
+                program.variable_families.len(),
+                program.active_constraints.len(),
+            ));
+
+            let sets_array = payload_as_array(format_inspect_sets(program, None)?);
+            let constraints = payload_as_array(format_inspect_constraints_with_params(
+                program,
+                None,
+                &parameter_targets,
+            )?);
+            let mut variables = payload_as_array(format_inspect_variables(program, None)?);
+            let expressions = payload_as_array(format_inspect_expressions(program, None)?);
+            let objectives = payload_as_array(format_inspect_objective_with_params(
+                program,
+                &parameter_targets,
+            )?);
+            let reports = payload_as_array(format_inspect_reports(program, None)?);
+            let chronologies = payload_as_array(format_inspect_chronology(program)?);
+
+            let sets = compose_set_catalog_and_ref_variables(&mut variables, &sets_array);
+            let parameters = compose_parameter_catalog(program, &parameter_targets, &sets);
+
+            Ok(json!({
+                "summaries": summary,
+                "sets": sets,
+                "constraints": constraints,
+                "variables": variables,
+                "parameters": parameters,
+                "expressions": expressions,
+                "objectives": objectives,
+                "reports": reports,
+                "chronologies": chronologies,
+            }))
+        }
         Some(category) => match category {
             InspectCategory::Sets => format_inspect_sets(program, name),
-            InspectCategory::Constraints => format_inspect_constraints(program, name),
+            InspectCategory::Constraints => {
+                format_inspect_constraints_with_params(program, name, &parameter_targets)
+            }
             InspectCategory::Variables => format_inspect_variables(program, name),
             InspectCategory::Parameters => format_inspect_parameters(program, name),
             InspectCategory::Expressions => format_inspect_expressions(program, name),
-            InspectCategory::Objective => format_inspect_objective(program),
+            InspectCategory::Objective => {
+                format_inspect_objective_with_params(program, &parameter_targets)
+            }
             InspectCategory::Reports => format_inspect_reports(program, name),
             InspectCategory::Chronology => format_inspect_chronology(program),
         },
+    }?;
+
+    serialize_validation_json(&payload).map_err(|source| DriverError::Json {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn serialize_validation_json(payload: &Value) -> Result<String, serde_json::Error> {
+    if payload.get("kind").is_none() && payload.get("items").is_none() {
+        return serde_json::to_string(payload);
     }
+    serde_json::to_string(&payload_as_array(payload.clone()))
+}
+
+fn payload_as_array(payload: Value) -> Value {
+    if let Some(items) = payload.get("items").and_then(Value::as_array) {
+        return Value::Array(items.iter().map(strip_kind_field).collect::<Vec<_>>());
+    }
+
+    Value::Array(vec![strip_kind_field(&payload)])
+}
+
+fn compose_set_catalog_and_ref_variables(variables: &mut Value, sets: &Value) -> Value {
+    let Some(variable_items) = variables.as_array_mut() else {
+        return Value::Object(Map::new());
+    };
+    let Some(set_items) = sets.as_array() else {
+        return Value::Object(Map::new());
+    };
+
+    let mut set_catalog = Map::new();
+    for set_item in set_items {
+        let Some(set_name) = set_item.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(cardinality) = set_item.get("cardinality") else {
+            continue;
+        };
+        set_catalog.insert(
+            set_name.to_string(),
+            json!({
+                "cardinality": cardinality,
+            }),
+        );
+    }
+
+    for variable in variable_items {
+        let Some(variable_object) = variable.as_object_mut() else {
+            continue;
+        };
+        let Some(set_memberships) = variable_object.get_mut("set").and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+
+        for membership in set_memberships {
+            let Some(index_name) = membership.get("index").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(set_name) = membership.get("name").and_then(Value::as_str) else {
+                continue;
+            };
+
+            if !set_catalog.contains_key(set_name) {
+                continue;
+            }
+
+            if let Some(set_object) = set_catalog.get_mut(set_name).and_then(Value::as_object_mut) {
+                set_object
+                    .entry("symbol")
+                    .or_insert_with(|| Value::String(index_name.to_string()));
+            }
+
+            *membership = json!({
+                "$ref": format!("#/sets/{set_name}"),
+            });
+        }
+    }
+
+    Value::Object(set_catalog)
+}
+
+fn strip_kind_field(value: &Value) -> Value {
+    let mut stripped = value.clone();
+    if let Some(object) = stripped.as_object_mut() {
+        object.remove("kind");
+    }
+    stripped
 }
 
 fn format_validation_summary(
     entrypoint: &Path,
     scenario: &str,
     set_count: usize,
-    asset_count: usize,
     variable_count: usize,
     constraint_count: usize,
-) -> String {
-    let lines = vec![
-        format!("entrypoint: {}", entrypoint.display()),
-        format!("scenario: {scenario}"),
-        "model summary:".to_string(),
-        format!("  sets: {set_count}"),
-        format!("  assets: {asset_count}"),
-        format!("  variables: {variable_count}"),
-        format!("  constraints: {constraint_count}"),
-    ];
-    lines.join("\n")
+) -> Value {
+    json!({
+        "kind": "summary",
+        "entrypoint": entrypoint.display().to_string(),
+        "scenario": scenario,
+        "counts": {
+            "sets": set_count,
+            "variables": variable_count,
+            "constraints": constraint_count,
+        }
+    })
+}
+
+fn render_named_card(kind: &str, fields: Vec<(&str, Value)>) -> Value {
+    let mut object = Map::new();
+    object.insert("kind".to_string(), Value::String(kind.to_string()));
+    for (key, value) in fields {
+        object.insert(key.to_string(), value);
+    }
+    Value::Object(object)
 }
 
 fn format_inspect_sets(
     program: &arco_kdl::semantic::SemanticProgram,
     name: Option<&str>,
-) -> Result<String, DriverError> {
+) -> Result<Value, DriverError> {
     let set_registry = &program.set_registry;
-    let builtin_set_names = ["assets", "candidate_assets", "time"];
+    let filtered_set_names = ["assets", "candidate_assets"];
     let available_set_names: Vec<&str> = set_registry
         .keys()
         .map(String::as_str)
-        .filter(|set_name| !builtin_set_names.contains(set_name))
+        .filter(|set_name| !filtered_set_names.contains(set_name))
         .collect();
 
     if let Some(target_name) = name {
-        if builtin_set_names.contains(&target_name) {
+        if filtered_set_names.contains(&target_name) {
             return Err(DriverError::InspectLookup {
                 message: format!(
                     "set '{}' not found. Available sets: {}",
@@ -354,7 +492,14 @@ fn format_inspect_sets(
         }
 
         if let Some(set) = set_registry.get(target_name) {
-            Ok(format!("set \"{}\": {:?}", target_name, set.values))
+            Ok(render_named_card(
+                "set",
+                vec![
+                    ("name", Value::String(target_name.to_string())),
+                    ("cardinality", json!(set.values.len())),
+                    ("values", json!(set.values)),
+                ],
+            ))
         } else {
             Err(DriverError::InspectLookup {
                 message: format!(
@@ -365,45 +510,44 @@ fn format_inspect_sets(
             })
         }
     } else {
-        let mut lines = vec!["sets:".to_string()];
-        for (set_name, set_values) in set_registry
+        let items = set_registry
             .iter()
-            .filter(|(set_name, _)| !builtin_set_names.contains(&set_name.as_str()))
-        {
-            lines.push(format!("  {}: {}", set_name, set_values.values.len()));
-        }
+            .filter(|(set_name, _)| !filtered_set_names.contains(&set_name.as_str()))
+            .map(|(set_name, set_values)| {
+                render_named_card(
+                    "set",
+                    vec![
+                        ("name", Value::String(set_name.clone())),
+                        ("cardinality", json!(set_values.values.len())),
+                    ],
+                )
+            })
+            .collect::<Vec<_>>();
 
-        Ok(lines.join("\n"))
+        Ok(json!({
+            "kind": "sets",
+            "items": items,
+        }))
     }
 }
 
-fn format_inspect_constraints(
+fn format_inspect_constraints_with_params(
     program: &arco_kdl::semantic::SemanticProgram,
     name: Option<&str>,
-) -> Result<String, DriverError> {
+    parameter_targets: &std::collections::BTreeSet<String>,
+) -> Result<Value, DriverError> {
     let constraints = &program.active_constraints;
+    let variable_targets = collect_variable_targets(program);
 
     if let Some(target_name) = name {
         // Detail mode: look for a specific constraint
         let target = constraints.iter().find(|c| c.name == target_name);
         match target {
-            Some(constraint) => {
-                let mut lines = vec![];
-                lines.push(format!("constraint \"{}\":", target_name));
-                lines.push(format!("  source_kind: {}", constraint.source_kind));
-                lines.push(format!("  source_name: {}", constraint.source_name));
-                lines.push(format!("  expression: {}", constraint.expression_text));
-                if !constraint.generation_bindings.is_empty() {
-                    lines.push("  generation_bindings:".to_string());
-                    for binding in &constraint.generation_bindings {
-                        lines.push(format!(
-                            "    - variable: {}, domain: {}",
-                            binding.variable, binding.domain
-                        ));
-                    }
-                }
-                Ok(lines.join("\n"))
-            }
+            Some(constraint) => Ok(render_constraint_details(
+                constraint,
+                &variable_targets,
+                parameter_targets,
+            )),
             None => {
                 let available: Vec<_> = constraints.iter().map(|c| c.name.as_str()).collect();
                 Err(DriverError::InspectLookup {
@@ -416,22 +560,217 @@ fn format_inspect_constraints(
             }
         }
     } else {
-        // List mode: show all constraint names
-        let mut lines = vec!["constraints:".to_string()];
-        for constraint in constraints {
-            lines.push(format!(
-                "  {} ({})",
-                constraint.name, constraint.source_kind
+        let items = constraints
+            .iter()
+            .map(|constraint| {
+                render_constraint_details(constraint, &variable_targets, parameter_targets)
+            })
+            .collect::<Vec<_>>();
+
+        Ok(json!({
+            "kind": "constraints",
+            "items": items,
+        }))
+    }
+}
+
+fn render_constraint_details(
+    constraint: &arco_kdl::semantic::ResolvedConstraint,
+    variable_targets: &std::collections::BTreeSet<String>,
+    parameter_targets: &std::collections::BTreeSet<String>,
+) -> Value {
+    let mut fields = vec![
+        ("name", Value::String(constraint.name.clone())),
+        ("source_kind", Value::String(constraint.source_kind.clone())),
+        ("source_name", Value::String(constraint.source_name.clone())),
+        (
+            "template",
+            Value::String(constraint.expression_text.clone()),
+        ),
+    ];
+
+    match &constraint.expression {
+        arco_kdl::algebra::ConstraintBody::Comparison { op, left, right } => {
+            fields.push((
+                "relation",
+                Value::String(constraint_relation_name(*op).to_string()),
+            ));
+            fields.push(("lhs", Value::String(left.to_string())));
+            fields.push(("rhs", Value::String(right.to_string())));
+            fields.push((
+                "lhs_terms",
+                Value::Array(
+                    expr_additive_terms(left)
+                        .into_iter()
+                        .map(Value::String)
+                        .collect::<Vec<_>>(),
+                ),
+            ));
+            fields.push((
+                "rhs_terms",
+                Value::Array(
+                    expr_additive_terms(right)
+                        .into_iter()
+                        .map(Value::String)
+                        .collect::<Vec<_>>(),
+                ),
             ));
         }
-        Ok(lines.join("\n"))
+        arco_kdl::algebra::ConstraintBody::Range {
+            lower,
+            lower_op,
+            middle,
+            upper_op,
+            upper,
+        } => {
+            fields.push(("relation", Value::String("range".to_string())));
+            fields.push(("lower", Value::String(lower.to_string())));
+            fields.push((
+                "lower_relation",
+                Value::String(constraint_relation_name(*lower_op).to_string()),
+            ));
+            fields.push(("middle", Value::String(middle.to_string())));
+            fields.push((
+                "middle_terms",
+                Value::Array(
+                    expr_additive_terms(middle)
+                        .into_iter()
+                        .map(Value::String)
+                        .collect::<Vec<_>>(),
+                ),
+            ));
+            fields.push((
+                "upper_relation",
+                Value::String(constraint_relation_name(*upper_op).to_string()),
+            ));
+            fields.push(("upper", Value::String(upper.to_string())));
+        }
+    }
+
+    if !constraint.generation_bindings.is_empty() {
+        fields.push((
+            "scope",
+            Value::Array(
+                constraint
+                    .generation_bindings
+                    .iter()
+                    .map(|binding| {
+                        json!({
+                            "symbol": binding.variable,
+                            "$ref": format!("#/sets/{}", binding.domain),
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        ));
+    }
+
+    if let Some(condition) = &constraint.generation_filter {
+        fields.push(("condition", Value::String(condition.to_string())));
+    }
+
+    fields.push((
+        "variable_refs",
+        Value::Array(extract_constraint_variable_refs(
+            constraint,
+            variable_targets,
+        )),
+    ));
+    fields.push((
+        "parameter_refs",
+        Value::Array(extract_constraint_parameter_refs(
+            constraint,
+            parameter_targets,
+        )),
+    ));
+
+    render_named_card("constraint", fields)
+}
+
+fn constraint_relation_name(op: arco_kdl::algebra::ComparisonOp) -> &'static str {
+    match op {
+        arco_kdl::algebra::ComparisonOp::Equal | arco_kdl::algebra::ComparisonOp::DoubleEqual => {
+            "equal"
+        }
+        arco_kdl::algebra::ComparisonOp::LessEqual => "less_or_equal",
+        arco_kdl::algebra::ComparisonOp::GreaterEqual => "greater_or_equal",
+        arco_kdl::algebra::ComparisonOp::Less => "less",
+        arco_kdl::algebra::ComparisonOp::Greater => "greater",
+        arco_kdl::algebra::ComparisonOp::NotEqual => "not_equal",
+    }
+}
+
+fn expr_additive_terms(expr: &arco_kdl::algebra::Expr) -> Vec<String> {
+    match expr {
+        arco_kdl::algebra::Expr::Binary { op, left, right }
+            if *op == arco_kdl::algebra::BinaryOp::Add =>
+        {
+            let mut terms = expr_additive_terms(left);
+            terms.extend(expr_additive_terms(right));
+            terms
+        }
+        arco_kdl::algebra::Expr::Binary { op, left, right }
+            if *op == arco_kdl::algebra::BinaryOp::Subtract =>
+        {
+            let mut terms = expr_additive_terms(left);
+            for term in expr_additive_terms(right) {
+                terms.push(format!("-({term})"));
+            }
+            terms
+        }
+        arco_kdl::algebra::Expr::Binary { op, left, right }
+            if *op == arco_kdl::algebra::BinaryOp::Multiply =>
+        {
+            if let Some(factors) = additive_factor_terms(left)
+                && factors.len() > 1
+            {
+                return factors
+                    .into_iter()
+                    .map(|factor| format!("{factor} * {}", right))
+                    .collect::<Vec<_>>();
+            }
+
+            if let Some(factors) = additive_factor_terms(right)
+                && factors.len() > 1
+            {
+                return factors
+                    .into_iter()
+                    .map(|factor| format!("{} * {factor}", left))
+                    .collect::<Vec<_>>();
+            }
+
+            vec![expr.to_string()]
+        }
+        _ => vec![expr.to_string()],
+    }
+}
+
+fn additive_factor_terms(expr: &arco_kdl::algebra::Expr) -> Option<Vec<String>> {
+    match expr {
+        arco_kdl::algebra::Expr::Binary { op, left, right }
+            if *op == arco_kdl::algebra::BinaryOp::Add =>
+        {
+            let mut terms = additive_factor_terms(left)?;
+            terms.extend(additive_factor_terms(right)?);
+            Some(terms)
+        }
+        arco_kdl::algebra::Expr::Binary { op, left, right }
+            if *op == arco_kdl::algebra::BinaryOp::Subtract =>
+        {
+            let mut terms = additive_factor_terms(left)?;
+            for term in additive_factor_terms(right)? {
+                terms.push(format!("-({term})"));
+            }
+            Some(terms)
+        }
+        _ => Some(vec![expr.to_string()]),
     }
 }
 
 fn format_inspect_variables(
     program: &arco_kdl::semantic::SemanticProgram,
     name: Option<&str>,
-) -> Result<String, DriverError> {
+) -> Result<Value, DriverError> {
     let families = &program.variable_families;
     let overrides = &program.variable_overrides;
 
@@ -440,28 +779,35 @@ fn format_inspect_variables(
         let target = families.iter().find(|f| f.target == target_name);
         match target {
             Some(family) => {
-                let mut lines = vec![];
-                lines.push(format!("variable \"{}\":", family.target));
-                lines.push(format!(
-                    "  indexed by: {}",
-                    render_variable_indexing(family)
-                ));
-                lines.push(format!("  signature: {}", family.render()));
+                let mut fields = vec![
+                    ("name", Value::String(family.target.clone())),
+                    (
+                        "notation",
+                        Value::String(render_variable_math_notation(family)),
+                    ),
+                    (
+                        "set",
+                        Value::Array(render_variable_domains(family, &program.set_registry)),
+                    ),
+                    (
+                        "domain",
+                        render_variable_value_domain(family, overrides.get(target_name)),
+                    ),
+                ];
 
                 // Look for overrides (overrides is a BTreeMap<String, VariableDeclOverrides>)
                 if let Some(override_def) = overrides.get(target_name) {
-                    lines.push("  overrides:".to_string());
                     if let Some(kind) = &override_def.kind {
-                        lines.push(format!("    kind: {:?}", kind));
+                        fields.push(("override_kind", Value::String(format!("{:?}", kind))));
                     }
                     if let Some(lower) = &override_def.lower {
-                        lines.push(format!("    lower: {:?}", lower));
+                        fields.push(("override_lower", Value::String(format!("{:?}", lower))));
                     }
                     if let Some(upper) = &override_def.upper {
-                        lines.push(format!("    upper: {:?}", upper));
+                        fields.push(("override_upper", Value::String(format!("{:?}", upper))));
                     }
                 }
-                Ok(lines.join("\n"))
+                Ok(render_named_card("variable", fields))
             }
             None => {
                 let available: Vec<_> = families.iter().map(|f| f.target.as_str()).collect();
@@ -475,39 +821,151 @@ fn format_inspect_variables(
             }
         }
     } else {
-        // List mode: show all variable family signatures
-        let mut lines = vec!["variables:".to_string()];
-        for family in families {
-            lines.push(format!(
-                "  {} indexed by {}",
-                family.target,
-                render_variable_indexing(family)
-            ));
-        }
-        Ok(lines.join("\n"))
+        let items = families
+            .iter()
+            .map(|family| {
+                render_named_card(
+                    "variable",
+                    vec![
+                        ("name", Value::String(family.target.clone())),
+                        (
+                            "notation",
+                            Value::String(render_variable_math_notation(family)),
+                        ),
+                        (
+                            "set",
+                            Value::Array(render_variable_domains(family, &program.set_registry)),
+                        ),
+                        (
+                            "domain",
+                            render_variable_value_domain(family, overrides.get(&family.target)),
+                        ),
+                    ],
+                )
+            })
+            .collect::<Vec<_>>();
+
+        Ok(json!({
+            "kind": "variables",
+            "items": items,
+        }))
     }
 }
 
-fn render_variable_indexing(family: &arco_kdl::semantic::FamilySignature) -> String {
+fn render_variable_math_notation(family: &arco_kdl::semantic::FamilySignature) -> String {
     if family.indices.is_empty() {
-        return "scalar".to_string();
+        return family.target.clone();
     }
 
+    format!("{}[{}]", family.target, family.indices.join(", "))
+}
+
+fn render_variable_domains(
+    family: &arco_kdl::semantic::FamilySignature,
+    set_registry: &std::collections::BTreeMap<String, arco_kdl::semantic::ResolvedSet>,
+) -> Vec<Value> {
     family
         .indices
         .iter()
-        .map(|index| match family.index_domains.get(index) {
-            Some(domain) => format!("{index} in {domain}"),
-            None => index.clone(),
+        .map(|index| {
+            let set_name = family
+                .index_domains
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| index.clone());
+            let cardinality = set_registry
+                .get(&set_name)
+                .map_or(0, |resolved_set| resolved_set.values.len());
+
+            json!({
+                "index": index,
+                "name": set_name,
+                "cardinality": cardinality,
+            })
         })
         .collect::<Vec<_>>()
-        .join(", ")
+}
+
+fn render_variable_value_domain(
+    family: &arco_kdl::semantic::FamilySignature,
+    overrides: Option<&arco_kdl::semantic::VariableDeclOverrides>,
+) -> Value {
+    let (mut kind, mut lower, mut upper) = match family.target.as_str() {
+        "build" => (
+            Value::String("continuous".to_string()),
+            json!(0.0),
+            Value::String("max_build[a]".to_string()),
+        ),
+        "unserved_energy" | "charge" | "discharge" | "generation" => (
+            Value::String("continuous".to_string()),
+            json!(0.0),
+            Value::Null,
+        ),
+        "dispatch" => (
+            Value::String("continuous".to_string()),
+            Value::String("asset-dependent".to_string()),
+            Value::Null,
+        ),
+        "commit" | "start" | "shutdown" => {
+            (Value::String("binary".to_string()), json!(0.0), json!(1.0))
+        }
+        _ => (
+            Value::String("continuous".to_string()),
+            Value::String("-inf".to_string()),
+            Value::Null,
+        ),
+    };
+
+    if let Some(override_def) = overrides {
+        if let Some(kind_override) = &override_def.kind {
+            let label = match kind_override {
+                arco_kdl::source::VariableKindDecl::Continuous => "continuous",
+                arco_kdl::source::VariableKindDecl::Integer => "integer",
+                arco_kdl::source::VariableKindDecl::Binary => "binary",
+            };
+            kind = Value::String(label.to_string());
+        }
+
+        if let Some(lower_override) = &override_def.lower {
+            lower = render_bound_expr(lower_override);
+        }
+
+        if let Some(upper_override) = &override_def.upper {
+            upper = render_bound_expr(upper_override);
+        }
+    }
+
+    json!({
+        "kind": kind,
+        "lower": lower,
+        "upper": upper,
+    })
+}
+
+fn render_bound_expr(bound: &arco_kdl::source::BoundExpr) -> Value {
+    match bound {
+        arco_kdl::source::BoundExpr::Literal(arco_kdl::source::LiteralValue::Integer(value)) => {
+            serde_json::Number::from_i128(*value)
+                .map(Value::Number)
+                .unwrap_or_else(|| Value::String(value.to_string()))
+        }
+        arco_kdl::source::BoundExpr::Literal(arco_kdl::source::LiteralValue::Decimal(text)) => {
+            match text.parse::<f64>() {
+                Ok(parsed) => serde_json::Number::from_f64(parsed)
+                    .map(Value::Number)
+                    .unwrap_or_else(|| Value::String(text.clone())),
+                Err(_) => Value::String(text.clone()),
+            }
+        }
+        arco_kdl::source::BoundExpr::Literal(other) => Value::String(format!("{other:?}")),
+        arco_kdl::source::BoundExpr::Formula(expr) => Value::String(format!("{expr:?}")),
+    }
 }
 
 fn format_inspect_parameters(
     program: &arco_kdl::semantic::SemanticProgram,
     name: Option<&str>,
-) -> Result<String, DriverError> {
+) -> Result<Value, DriverError> {
     let params = &program.parameters;
 
     if let Some(target_name) = name {
@@ -523,9 +981,12 @@ fn format_inspect_parameters(
         }
 
         match found_type {
-            Some(param_type) => Ok(format!(
-                "parameter \"{}\": type = {}",
-                target_name, param_type
+            Some(param_type) => Ok(render_named_card(
+                "parameter",
+                vec![
+                    ("name", Value::String(target_name.to_string())),
+                    ("type", Value::String(param_type.to_string())),
+                ],
             )),
             None => {
                 let mut available = vec![];
@@ -542,50 +1003,59 @@ fn format_inspect_parameters(
             }
         }
     } else {
-        // List mode: group by type
-        let mut lines = vec!["parameters:".to_string()];
-
-        if !params.series.is_empty() {
-            lines.push("  series:".to_string());
-            for param in &params.series {
-                lines.push(format!("    - {}", param));
-            }
+        let mut items = Vec::new();
+        for param in &params.series {
+            items.push(render_named_card(
+                "parameter",
+                vec![
+                    ("name", Value::String(param.clone())),
+                    ("type", Value::String("series".to_string())),
+                ],
+            ));
+        }
+        for param in &params.indexed {
+            items.push(render_named_card(
+                "parameter",
+                vec![
+                    ("name", Value::String(param.clone())),
+                    ("type", Value::String("indexed".to_string())),
+                ],
+            ));
+        }
+        for param in &params.asset {
+            items.push(render_named_card(
+                "parameter",
+                vec![
+                    ("name", Value::String(param.clone())),
+                    ("type", Value::String("asset".to_string())),
+                ],
+            ));
         }
 
-        if !params.indexed.is_empty() {
-            lines.push("  indexed:".to_string());
-            for param in &params.indexed {
-                lines.push(format!("    - {}", param));
-            }
-        }
-
-        if !params.asset.is_empty() {
-            lines.push("  asset:".to_string());
-            for param in &params.asset {
-                lines.push(format!("    - {}", param));
-            }
-        }
-
-        Ok(lines.join("\n"))
+        Ok(json!({
+            "kind": "parameters",
+            "items": items,
+        }))
     }
 }
 
 fn format_inspect_expressions(
     program: &arco_kdl::semantic::SemanticProgram,
     name: Option<&str>,
-) -> Result<String, DriverError> {
+) -> Result<Value, DriverError> {
     let expressions = &program.active_expressions;
 
     if let Some(target_name) = name {
         // Detail mode: look for a specific expression
         let target = expressions.iter().find(|e| e.name == target_name);
         match target {
-            Some(expr) => {
-                let mut lines = vec![];
-                lines.push(format!("expression \"{}\":", target_name));
-                lines.push(format!("  formula: {}", expr.formula_text));
-                Ok(lines.join("\n"))
-            }
+            Some(expr) => Ok(render_named_card(
+                "expression",
+                vec![
+                    ("name", Value::String(target_name.to_string())),
+                    ("formula", Value::String(expr.formula_text.clone())),
+                ],
+            )),
             None => {
                 let available: Vec<_> = expressions.iter().map(|e| e.name.as_str()).collect();
                 Err(DriverError::InspectLookup {
@@ -598,42 +1068,448 @@ fn format_inspect_expressions(
             }
         }
     } else {
-        // List mode: show all expression names
-        let mut lines = vec!["expressions:".to_string()];
-        for expr in expressions {
-            lines.push(format!("  {}", expr.name));
-        }
-        Ok(lines.join("\n"))
+        let items = expressions
+            .iter()
+            .map(|expr| {
+                render_named_card(
+                    "expression",
+                    vec![
+                        ("name", Value::String(expr.name.clone())),
+                        ("formula", Value::String(expr.formula_text.clone())),
+                    ],
+                )
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "kind": "expressions",
+            "items": items,
+        }))
     }
 }
 
-fn format_inspect_objective(
+fn format_inspect_objective_with_params(
     program: &arco_kdl::semantic::SemanticProgram,
-) -> Result<String, DriverError> {
+    parameter_targets: &std::collections::BTreeSet<String>,
+) -> Result<Value, DriverError> {
     let objective = &program.active_objective;
-    let mut lines = vec!["objective:".to_string()];
-    lines.push(format!("  name: {}", objective.name));
-    lines.push(format!("  sense: {}", objective.sense));
-    lines.push(format!("  expression: {}", objective.expression_text));
-    Ok(lines.join("\n"))
+    let variable_targets = collect_variable_targets(program);
+    let mut fields = vec![
+        ("name", Value::String(objective.name.clone())),
+        ("sense", Value::String(objective.sense.to_string())),
+    ];
+
+    match &objective.expression {
+        arco_kdl::algebra::Expr::Reduction(reduction) => {
+            let aggregation = match reduction.op {
+                arco_kdl::algebra::ReductionOp::Sum => "sum",
+            };
+            fields.push(("aggregation", Value::String(aggregation.to_string())));
+            fields.push(("scope", Value::Array(render_reduction_scope(reduction))));
+            if !reduction.filters.is_empty() {
+                fields.push((
+                    "conditions",
+                    Value::Array(
+                        reduction
+                            .filters
+                            .iter()
+                            .map(|filter| Value::String(filter.to_string()))
+                            .collect::<Vec<_>>(),
+                    ),
+                ));
+            }
+            fields.push((
+                "terms",
+                Value::Array(
+                    expr_additive_terms(&reduction.body)
+                        .into_iter()
+                        .map(Value::String)
+                        .collect::<Vec<_>>(),
+                ),
+            ));
+        }
+        expression => {
+            fields.push(("aggregation", Value::String("scalar".to_string())));
+            fields.push((
+                "terms",
+                Value::Array(
+                    expr_additive_terms(expression)
+                        .into_iter()
+                        .map(Value::String)
+                        .collect::<Vec<_>>(),
+                ),
+            ));
+        }
+    }
+
+    fields.push((
+        "variable_refs",
+        Value::Array(extract_expr_variable_refs(
+            &objective.expression,
+            &variable_targets,
+        )),
+    ));
+    fields.push((
+        "parameter_refs",
+        Value::Array(extract_expr_parameter_refs(
+            &objective.expression,
+            parameter_targets,
+        )),
+    ));
+
+    Ok(render_named_card("objective", fields))
+}
+
+fn compose_parameter_catalog(
+    program: &arco_kdl::semantic::SemanticProgram,
+    parameter_targets: &std::collections::BTreeSet<String>,
+    sets: &Value,
+) -> Value {
+    let mut catalog = Map::new();
+
+    let symbol_to_set = sets
+        .as_object()
+        .map(|set_catalog| {
+            set_catalog
+                .iter()
+                .filter_map(|(set_name, set_data)| {
+                    set_data
+                        .get("symbol")
+                        .and_then(Value::as_str)
+                        .map(|symbol| (symbol.to_string(), set_name.clone()))
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    let make_parameter_entry = |kind: &str, name: &str| {
+        let mut entry = Map::new();
+        entry.insert("kind".to_string(), Value::String(kind.to_string()));
+        let set_refs = collect_parameter_set_refs(program, name, &symbol_to_set)
+            .into_iter()
+            .map(|set_name| json!({"$ref": format!("#/sets/{set_name}")}))
+            .collect::<Vec<_>>();
+        if !set_refs.is_empty() {
+            entry.insert("set".to_string(), Value::Array(set_refs));
+        }
+        Value::Object(entry)
+    };
+
+    for name in &program.parameters.series {
+        catalog.insert(name.clone(), make_parameter_entry("series", name));
+    }
+    for name in &program.parameters.indexed {
+        catalog.insert(name.clone(), make_parameter_entry("indexed", name));
+    }
+    for name in &program.parameters.asset {
+        catalog.insert(name.clone(), make_parameter_entry("asset", name));
+    }
+
+    for name in parameter_targets {
+        catalog
+            .entry(name.clone())
+            .or_insert_with(|| make_parameter_entry("inferred", name));
+    }
+
+    Value::Object(catalog)
+}
+
+fn collect_parameter_set_refs(
+    program: &arco_kdl::semantic::SemanticProgram,
+    parameter_name: &str,
+    symbol_to_set: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeSet<String> {
+    let mut refs = std::collections::BTreeSet::new();
+
+    for constraint in &program.active_constraints {
+        match &constraint.expression {
+            arco_kdl::algebra::ConstraintBody::Comparison { left, right, .. } => {
+                collect_parameter_sets_from_expr(left, parameter_name, symbol_to_set, &mut refs);
+                collect_parameter_sets_from_expr(right, parameter_name, symbol_to_set, &mut refs);
+            }
+            arco_kdl::algebra::ConstraintBody::Range {
+                lower,
+                middle,
+                upper,
+                ..
+            } => {
+                collect_parameter_sets_from_expr(lower, parameter_name, symbol_to_set, &mut refs);
+                collect_parameter_sets_from_expr(middle, parameter_name, symbol_to_set, &mut refs);
+                collect_parameter_sets_from_expr(upper, parameter_name, symbol_to_set, &mut refs);
+            }
+        }
+        if let Some(condition) = &constraint.generation_filter {
+            collect_parameter_sets_from_expr(condition, parameter_name, symbol_to_set, &mut refs);
+        }
+    }
+
+    collect_parameter_sets_from_expr(
+        &program.active_objective.expression,
+        parameter_name,
+        symbol_to_set,
+        &mut refs,
+    );
+    for report in &program.active_reports {
+        collect_parameter_sets_from_expr(&report.formula, parameter_name, symbol_to_set, &mut refs);
+    }
+    for expression in &program.active_expressions {
+        collect_parameter_sets_from_expr(
+            &expression.formula,
+            parameter_name,
+            symbol_to_set,
+            &mut refs,
+        );
+    }
+
+    refs
+}
+
+fn collect_parameter_sets_from_expr(
+    expr: &arco_kdl::algebra::Expr,
+    parameter_name: &str,
+    symbol_to_set: &std::collections::BTreeMap<String, String>,
+    refs: &mut std::collections::BTreeSet<String>,
+) {
+    match expr {
+        arco_kdl::algebra::Expr::Indexed { target, indices } => {
+            if target == parameter_name {
+                for index in indices {
+                    if let arco_kdl::algebra::Expr::Identifier(symbol) = index
+                        && let Some(set_name) = symbol_to_set.get(symbol)
+                    {
+                        refs.insert(set_name.clone());
+                    }
+                }
+            }
+            for index in indices {
+                collect_parameter_sets_from_expr(index, parameter_name, symbol_to_set, refs);
+            }
+        }
+        arco_kdl::algebra::Expr::Unary { expr, .. } => {
+            collect_parameter_sets_from_expr(expr, parameter_name, symbol_to_set, refs)
+        }
+        arco_kdl::algebra::Expr::Binary { left, right, .. }
+        | arco_kdl::algebra::Expr::Comparison { left, right, .. } => {
+            collect_parameter_sets_from_expr(left, parameter_name, symbol_to_set, refs);
+            collect_parameter_sets_from_expr(right, parameter_name, symbol_to_set, refs);
+        }
+        arco_kdl::algebra::Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                collect_parameter_sets_from_expr(arg, parameter_name, symbol_to_set, refs);
+            }
+        }
+        arco_kdl::algebra::Expr::Reduction(reduction) => {
+            collect_parameter_sets_from_expr(&reduction.body, parameter_name, symbol_to_set, refs);
+            for filter in &reduction.filters {
+                collect_parameter_sets_from_expr(filter, parameter_name, symbol_to_set, refs);
+            }
+        }
+        arco_kdl::algebra::Expr::Number(_)
+        | arco_kdl::algebra::Expr::String(_)
+        | arco_kdl::algebra::Expr::Boolean(_)
+        | arco_kdl::algebra::Expr::Identifier(_) => {}
+    }
+}
+
+fn collect_parameter_targets(
+    program: &arco_kdl::semantic::SemanticProgram,
+) -> std::collections::BTreeSet<String> {
+    let variable_targets = collect_variable_targets(program);
+    let set_targets = program
+        .set_registry
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let mut targets = std::collections::BTreeSet::new();
+
+    for constraint in &program.active_constraints {
+        match &constraint.expression {
+            arco_kdl::algebra::ConstraintBody::Comparison { left, right, .. } => {
+                collect_expr_indexed_targets(left, &mut targets);
+                collect_expr_indexed_targets(right, &mut targets);
+            }
+            arco_kdl::algebra::ConstraintBody::Range {
+                lower,
+                middle,
+                upper,
+                ..
+            } => {
+                collect_expr_indexed_targets(lower, &mut targets);
+                collect_expr_indexed_targets(middle, &mut targets);
+                collect_expr_indexed_targets(upper, &mut targets);
+            }
+        }
+        if let Some(condition) = &constraint.generation_filter {
+            collect_expr_indexed_targets(condition, &mut targets);
+        }
+    }
+
+    collect_expr_indexed_targets(&program.active_objective.expression, &mut targets);
+    for report in &program.active_reports {
+        collect_expr_indexed_targets(&report.formula, &mut targets);
+    }
+    for expression in &program.active_expressions {
+        collect_expr_indexed_targets(&expression.formula, &mut targets);
+    }
+
+    targets
+        .into_iter()
+        .filter(|target| !variable_targets.contains(target) && !set_targets.contains(target))
+        .collect::<std::collections::BTreeSet<_>>()
+}
+
+fn collect_variable_targets(
+    program: &arco_kdl::semantic::SemanticProgram,
+) -> std::collections::BTreeSet<String> {
+    program
+        .variable_families
+        .iter()
+        .map(|family| family.target.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+}
+
+fn extract_constraint_parameter_refs(
+    constraint: &arco_kdl::semantic::ResolvedConstraint,
+    parameter_targets: &std::collections::BTreeSet<String>,
+) -> Vec<Value> {
+    let targets = collect_constraint_indexed_targets(constraint);
+    extract_indexed_refs(&targets, parameter_targets, "#/parameters")
+}
+
+fn extract_expr_parameter_refs(
+    expr: &arco_kdl::algebra::Expr,
+    parameter_targets: &std::collections::BTreeSet<String>,
+) -> Vec<Value> {
+    let mut targets = std::collections::BTreeSet::new();
+    collect_expr_indexed_targets(expr, &mut targets);
+    extract_indexed_refs(&targets, parameter_targets, "#/parameters")
+}
+
+fn extract_constraint_variable_refs(
+    constraint: &arco_kdl::semantic::ResolvedConstraint,
+    variable_targets: &std::collections::BTreeSet<String>,
+) -> Vec<Value> {
+    let targets = collect_constraint_indexed_targets(constraint);
+    extract_indexed_refs(&targets, variable_targets, "#/variables")
+}
+
+fn extract_expr_variable_refs(
+    expr: &arco_kdl::algebra::Expr,
+    variable_targets: &std::collections::BTreeSet<String>,
+) -> Vec<Value> {
+    let mut targets = std::collections::BTreeSet::new();
+    collect_expr_indexed_targets(expr, &mut targets);
+    extract_indexed_refs(&targets, variable_targets, "#/variables")
+}
+
+fn collect_constraint_indexed_targets(
+    constraint: &arco_kdl::semantic::ResolvedConstraint,
+) -> std::collections::BTreeSet<String> {
+    let mut targets = std::collections::BTreeSet::new();
+    match &constraint.expression {
+        arco_kdl::algebra::ConstraintBody::Comparison { left, right, .. } => {
+            collect_expr_indexed_targets(left, &mut targets);
+            collect_expr_indexed_targets(right, &mut targets);
+        }
+        arco_kdl::algebra::ConstraintBody::Range {
+            lower,
+            middle,
+            upper,
+            ..
+        } => {
+            collect_expr_indexed_targets(lower, &mut targets);
+            collect_expr_indexed_targets(middle, &mut targets);
+            collect_expr_indexed_targets(upper, &mut targets);
+        }
+    }
+
+    if let Some(condition) = &constraint.generation_filter {
+        collect_expr_indexed_targets(condition, &mut targets);
+    }
+    targets
+}
+
+fn extract_indexed_refs(
+    indexed_targets: &std::collections::BTreeSet<String>,
+    allowed_targets: &std::collections::BTreeSet<String>,
+    ref_prefix: &str,
+) -> Vec<Value> {
+    indexed_targets
+        .iter()
+        .filter(|target| allowed_targets.contains(*target))
+        .map(|target| json!({"$ref": format!("{ref_prefix}/{target}")}))
+        .collect::<Vec<_>>()
+}
+
+fn collect_expr_indexed_targets(
+    expr: &arco_kdl::algebra::Expr,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    match expr {
+        arco_kdl::algebra::Expr::Indexed { target, indices } => {
+            out.insert(target.clone());
+            for index in indices {
+                collect_expr_indexed_targets(index, out);
+            }
+        }
+        arco_kdl::algebra::Expr::Unary { expr, .. } => collect_expr_indexed_targets(expr, out),
+        arco_kdl::algebra::Expr::Binary { left, right, .. }
+        | arco_kdl::algebra::Expr::Comparison { left, right, .. } => {
+            collect_expr_indexed_targets(left, out);
+            collect_expr_indexed_targets(right, out);
+        }
+        arco_kdl::algebra::Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                collect_expr_indexed_targets(arg, out);
+            }
+        }
+        arco_kdl::algebra::Expr::Reduction(reduction) => {
+            collect_expr_indexed_targets(&reduction.body, out);
+            for filter in &reduction.filters {
+                collect_expr_indexed_targets(filter, out);
+            }
+        }
+        arco_kdl::algebra::Expr::Number(_)
+        | arco_kdl::algebra::Expr::String(_)
+        | arco_kdl::algebra::Expr::Boolean(_)
+        | arco_kdl::algebra::Expr::Identifier(_) => {}
+    }
+}
+
+fn render_reduction_scope(reduction: &arco_kdl::algebra::ReductionExpr) -> Vec<Value> {
+    reduction
+        .bindings
+        .iter()
+        .map(|binding| {
+            let symbol = match &binding.pattern {
+                arco_kdl::algebra::BindingPattern::Name(name) => name.clone(),
+                arco_kdl::algebra::BindingPattern::Tuple(parts) => format!("({})", parts.join(",")),
+            };
+            json!({
+                "symbol": symbol,
+                "$ref": format!("#/sets/{}", binding.domain),
+            })
+        })
+        .collect::<Vec<_>>()
 }
 
 fn format_inspect_reports(
     program: &arco_kdl::semantic::SemanticProgram,
     name: Option<&str>,
-) -> Result<String, DriverError> {
+) -> Result<Value, DriverError> {
     let reports = &program.active_reports;
 
     if let Some(target_name) = name {
         // Detail mode: look for a specific report
         let target = reports.iter().find(|r| r.name == target_name);
         match target {
-            Some(report) => {
-                let mut lines = vec![];
-                lines.push(format!("report \"{}\":", target_name));
-                lines.push(format!("  formula: {}", report.formula_text));
-                Ok(lines.join("\n"))
-            }
+            Some(report) => Ok(render_named_card(
+                "report",
+                vec![
+                    ("name", Value::String(target_name.to_string())),
+                    ("formula", Value::String(report.formula_text.clone())),
+                ],
+            )),
             None => {
                 let available: Vec<_> = reports.iter().map(|r| r.name.as_str()).collect();
                 Err(DriverError::InspectLookup {
@@ -646,36 +1522,47 @@ fn format_inspect_reports(
             }
         }
     } else {
-        // List mode: show all report names
-        let mut lines = vec!["reports:".to_string()];
-        for report in reports {
-            lines.push(format!("  {}", report.name));
-        }
-        Ok(lines.join("\n"))
+        let items = reports
+            .iter()
+            .map(|report| {
+                render_named_card(
+                    "report",
+                    vec![
+                        ("name", Value::String(report.name.clone())),
+                        ("formula", Value::String(report.formula_text.clone())),
+                    ],
+                )
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "kind": "reports",
+            "items": items,
+        }))
     }
 }
 
 fn format_inspect_chronology(
     program: &arco_kdl::semantic::SemanticProgram,
-) -> Result<String, DriverError> {
+) -> Result<Value, DriverError> {
     let chronology = &program.chronology;
-    let mut lines = vec!["chronology:".to_string()];
-    lines.push(format!(
-        "  initial_boundary: {}",
-        chronology.initial_boundary.as_deref().unwrap_or("none")
-    ));
-    lines.push(format!(
-        "  terminal_boundary: {}",
-        chronology.terminal_boundary.as_deref().unwrap_or("none")
-    ));
-    lines.push(format!(
-        "  initial_commitment_boundary: {}",
-        chronology
-            .initial_commitment_boundary
-            .as_deref()
-            .unwrap_or("none")
-    ));
-    Ok(lines.join("\n"))
+    let mut fields = Vec::new();
+    if let Some(initial_boundary) = &chronology.initial_boundary {
+        fields.push(("initial_boundary", Value::String(initial_boundary.clone())));
+    }
+    if let Some(terminal_boundary) = &chronology.terminal_boundary {
+        fields.push((
+            "terminal_boundary",
+            Value::String(terminal_boundary.clone()),
+        ));
+    }
+    if let Some(initial_commitment_boundary) = &chronology.initial_commitment_boundary {
+        fields.push((
+            "initial_commitment_boundary",
+            Value::String(initial_commitment_boundary.clone()),
+        ));
+    }
+
+    Ok(render_named_card("chronology", fields))
 }
 
 fn summarize_variables(
@@ -808,33 +1695,152 @@ fn peak_rss_bytes() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_validation_summary, render_variable_indexing};
-    use arco_kdl::semantic::FamilySignature;
+    use super::{
+        collect_constraint_indexed_targets, expr_additive_terms, extract_expr_variable_refs,
+        extract_indexed_refs, format_validation_summary, render_variable_domains,
+        render_variable_math_notation, render_variable_value_domain,
+    };
+    use arco_kdl::semantic::{FamilySignature, ResolvedSet};
+    use serde_json::json;
     use std::collections::BTreeMap;
     use std::path::Path;
 
     #[test]
     fn format_validation_summary_includes_model_counts() {
-        let summary = format_validation_summary(Path::new("example.kdl"), "ScenarioA", 4, 2, 9, 7);
+        let summary = format_validation_summary(Path::new("example.kdl"), "ScenarioA", 4, 9, 7);
 
-        assert!(!summary.contains("Validation succeeded"));
-        assert!(summary.contains("model summary:"));
-        assert!(summary.contains("  sets: 4"));
-        assert!(summary.contains("  assets: 2"));
-        assert!(summary.contains("  variables: 9"));
-        assert!(summary.contains("  constraints: 7"));
+        assert_eq!(summary["kind"], json!("summary"));
+        assert_eq!(summary["entrypoint"], json!("example.kdl"));
+        assert_eq!(summary["scenario"], json!("ScenarioA"));
+        assert_eq!(summary["counts"]["sets"], json!(4));
+        assert_eq!(summary["counts"]["variables"], json!(9));
+        assert_eq!(summary["counts"]["constraints"], json!(7));
+        assert!(summary["counts"].get("assets").is_none());
     }
 
     #[test]
-    fn render_variable_indexing_pretty_prints_domains() {
+    fn render_variable_domains_are_structured() {
         let mut family = FamilySignature::new("dispatch", ["g", "n", "t"]);
         family.index_domains = BTreeMap::from([
             ("g".to_string(), "generators".to_string()),
             ("n".to_string(), "nodes".to_string()),
         ]);
 
-        let pretty = render_variable_indexing(&family);
+        let set_registry = BTreeMap::from([
+            (
+                "generators".to_string(),
+                ResolvedSet {
+                    values: vec!["G1".to_string(), "G2".to_string()],
+                },
+            ),
+            (
+                "nodes".to_string(),
+                ResolvedSet {
+                    values: vec!["N1".to_string()],
+                },
+            ),
+        ]);
 
-        assert_eq!(pretty, "g in generators, n in nodes, t");
+        let domains = render_variable_domains(&family, &set_registry);
+
+        assert_eq!(
+            domains,
+            vec![
+                json!({"index": "g", "name": "generators", "cardinality": 2}),
+                json!({"index": "n", "name": "nodes", "cardinality": 1}),
+                json!({"index": "t", "name": "t", "cardinality": 0}),
+            ]
+        );
+    }
+
+    #[test]
+    fn render_variable_math_notation_uses_index_domains() {
+        let mut family = FamilySignature::new("dispatch", ["g", "n", "t"]);
+        family.index_domains = BTreeMap::from([
+            ("g".to_string(), "generators".to_string()),
+            ("n".to_string(), "nodes".to_string()),
+            ("t".to_string(), "time".to_string()),
+        ]);
+
+        let pretty = render_variable_math_notation(&family);
+
+        assert_eq!(pretty, "dispatch[g, n, t]");
+    }
+
+    #[test]
+    fn render_variable_value_domain_shows_default_bounds() {
+        let family = FamilySignature::new("new_capacity", ["g", "n"]);
+
+        let value_domain = render_variable_value_domain(&family, None);
+
+        assert_eq!(value_domain["kind"], json!("continuous"));
+        assert_eq!(value_domain["lower"], json!("-inf"));
+        assert_eq!(value_domain["upper"], json!(null));
+    }
+
+    #[test]
+    fn expr_additive_terms_splits_ast_sum_terms() {
+        let expression =
+            arco_kdl::algebra::parse_value_formula("a + b - c").expect("parse expression");
+
+        let terms = expr_additive_terms(&expression);
+
+        assert_eq!(terms, vec!["a", "b", "-(c)"]);
+    }
+
+    #[test]
+    fn expr_additive_terms_distributes_parenthesized_multiplication() {
+        let expression =
+            arco_kdl::algebra::parse_value_formula("(a + b + c) * x[i]").expect("parse expression");
+
+        let terms = expr_additive_terms(&expression);
+
+        assert_eq!(terms, vec!["a * x[i]", "b * x[i]", "c * x[i]"]);
+    }
+
+    #[test]
+    fn extract_expr_variable_refs_filters_to_variable_targets() {
+        let expression = arco_kdl::algebra::parse_value_formula("dispatch[g,n,t] + MWLoad[n]")
+            .expect("parse expression");
+        let variable_targets = std::collections::BTreeSet::from(["dispatch".to_string()]);
+
+        let refs = extract_expr_variable_refs(&expression, &variable_targets);
+
+        assert_eq!(refs, vec![json!({"$ref": "#/variables/dispatch"})]);
+    }
+
+    #[test]
+    fn collect_constraint_indexed_targets_collects_both_sides_and_condition() {
+        let parsed = arco_kdl::algebra::parse_constraint_formula("dispatch[g,n,t] <= MWLoad[n]")
+            .expect("parse constraint");
+        let filter =
+            arco_kdl::algebra::parse_value_formula("pair_exists[g,n]").expect("parse filter");
+        let constraint = arco_kdl::semantic::ResolvedConstraint {
+            name: "c".to_string(),
+            source_kind: "model".to_string(),
+            source_name: "m".to_string(),
+            expression_text: "dispatch[g,n,t] <= MWLoad[n]".to_string(),
+            expression: parsed,
+            generation_bindings: Vec::new(),
+            generation_filter_text: Some("pair_exists[g,n]".to_string()),
+            generation_filter: Some(filter),
+        };
+
+        let targets = collect_constraint_indexed_targets(&constraint);
+
+        assert!(targets.contains("dispatch"));
+        assert!(targets.contains("MWLoad"));
+        assert!(targets.contains("pair_exists"));
+    }
+
+    #[test]
+    fn extract_indexed_refs_filters_and_formats_refs() {
+        let indexed =
+            std::collections::BTreeSet::from(["dispatch".to_string(), "MWLoad".to_string()]);
+        let allowed = std::collections::BTreeSet::from(["dispatch".to_string()]);
+
+        let refs = extract_indexed_refs(&indexed, &allowed, "#/variables");
+
+        assert_eq!(refs, vec![json!({"$ref": "#/variables/dispatch"})]);
     }
 }
