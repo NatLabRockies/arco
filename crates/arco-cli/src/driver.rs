@@ -721,22 +721,22 @@ fn expr_additive_terms(expr: &arco_kdl::algebra::Expr) -> Vec<String> {
         arco_kdl::algebra::Expr::Binary { op, left, right }
             if *op == arco_kdl::algebra::BinaryOp::Multiply =>
         {
-            if let Some(factors) = additive_factor_terms(left)
-                && factors.len() > 1
-            {
-                return factors
-                    .into_iter()
-                    .map(|factor| format!("{factor} * {}", right))
-                    .collect::<Vec<_>>();
+            if let Some(factors) = additive_factor_terms(left) {
+                if factors.len() > 1 {
+                    return factors
+                        .into_iter()
+                        .map(|factor| format!("{factor} * {}", right))
+                        .collect::<Vec<_>>();
+                }
             }
 
-            if let Some(factors) = additive_factor_terms(right)
-                && factors.len() > 1
-            {
-                return factors
-                    .into_iter()
-                    .map(|factor| format!("{} * {factor}", left))
-                    .collect::<Vec<_>>();
+            if let Some(factors) = additive_factor_terms(right) {
+                if factors.len() > 1 {
+                    return factors
+                        .into_iter()
+                        .map(|factor| format!("{} * {factor}", left))
+                        .collect::<Vec<_>>();
+                }
             }
 
             vec![expr.to_string()]
@@ -1273,10 +1273,10 @@ fn collect_parameter_sets_from_expr(
         arco_kdl::algebra::Expr::Indexed { target, indices } => {
             if target == parameter_name {
                 for index in indices {
-                    if let arco_kdl::algebra::Expr::Identifier(symbol) = index
-                        && let Some(set_name) = symbol_to_set.get(symbol)
-                    {
-                        refs.insert(set_name.clone());
+                    if let arco_kdl::algebra::Expr::Identifier(symbol) = index {
+                        if let Some(set_name) = symbol_to_set.get(symbol) {
+                            refs.insert(set_name.clone());
+                        }
                     }
                 }
             }
