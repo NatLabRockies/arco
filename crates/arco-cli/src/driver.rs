@@ -1,4 +1,4 @@
-use crate::cli_io::{format_timed_status, style_bold_in_dim};
+use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim};
 use crate::config::SolverBackend;
 #[cfg(feature = "xpress")]
 use crate::execution::XpressArcoAdapter;
@@ -18,6 +18,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 const DEFAULT_BACKEND: SolverBackend = SolverBackend::Highs;
+const ARCO_VERSION_LABEL: &str = concat!("arco ", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum InspectCategory {
@@ -282,26 +283,21 @@ pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
     render_problem_model(&compiled.lowered_problem).map_err(DriverError::from)
 }
 
-pub fn validate_file_only(path: &Path, colorize: bool) -> Result<String, DriverError> {
+pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, DriverError> {
     let started = Instant::now();
-    let _ = validate_file(path)?;
+    let validated = validate_file(path)?;
     let elapsed_ms = started.elapsed().as_millis();
-    let display_path = match std::fs::canonicalize(path) {
-        Ok(canonical) => canonical,
-        Err(_) => path.to_path_buf(),
-    };
-    Ok(format_validate_success(&display_path, elapsed_ms, colorize))
+    Ok(format_validate_success(
+        &validated.entrypoint,
+        elapsed_ms,
+        color_mode,
+    ))
 }
 
-fn format_validate_success(path: &Path, elapsed_ms: u128, colorize: bool) -> String {
+fn format_validate_success(path: &Path, elapsed_ms: u128, color_mode: ColorMode) -> String {
     let path_uri = format!("file://{}", path.display());
-    let subject = format!("Validated {}", style_bold_in_dim(&path_uri, colorize));
-    format_timed_status(
-        &subject,
-        elapsed_ms,
-        &format!("arco {}", env!("CARGO_PKG_VERSION"),),
-        colorize,
-    )
+    let subject = format!("Validated {}", style_bold_in_dim(&path_uri, color_mode));
+    format_timed_status(&subject, elapsed_ms, ARCO_VERSION_LABEL, color_mode)
 }
 
 pub fn inspect_file_report(
@@ -2078,7 +2074,11 @@ mod tests {
 
     #[test]
     fn format_validate_success_plain_output_has_no_ansi() {
-        let rendered = format_validate_success(Path::new("/tmp/model.kdl"), 4, false);
+        let rendered = format_validate_success(
+            Path::new("/tmp/model.kdl"),
+            4,
+            crate::cli_io::ColorMode::Disabled,
+        );
         assert_eq!(
             rendered,
             format!(
@@ -2091,7 +2091,11 @@ mod tests {
 
     #[test]
     fn format_validate_success_colored_output_contains_ansi_sequences() {
-        let rendered = format_validate_success(Path::new("/tmp/model.kdl"), 4, true);
+        let rendered = format_validate_success(
+            Path::new("/tmp/model.kdl"),
+            4,
+            crate::cli_io::ColorMode::Enabled,
+        );
         assert!(rendered.starts_with("\x1b[38;5;245mValidated "));
         assert!(rendered.contains("\x1b[1mfile:///tmp/model.kdl\x1b[22m"));
         assert!(rendered.contains(&format!(

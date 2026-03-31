@@ -28,6 +28,13 @@ fn nodal_input() -> PathBuf {
     fixture_path(&["..", "..", "examples", "nodal", "input.kdl"])
 }
 
+fn validated_entrypoint_or_input(path: &std::path::Path) -> PathBuf {
+    match arco_kdl::pipeline::validate_file(path) {
+        Ok(validated) => validated.entrypoint,
+        Err(_) => path.to_path_buf(),
+    }
+}
+
 fn arco_command() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_arco"));
     cmd.env("ARCO_CONFIG_DIR", env!("CARGO_TARGET_TMPDIR"));
@@ -164,10 +171,7 @@ fn cli_validates_a_fixture_file() -> Result<(), Box<dyn std::error::Error>> {
 
     let stdout = String::from_utf8(output.stdout)?;
     let line = stdout.trim();
-    let display_path = match std::fs::canonicalize(&input) {
-        Ok(canonical) => canonical,
-        Err(_) => input.clone(),
-    };
+    let display_path = validated_entrypoint_or_input(&input);
     let prefix = format!("Validated file://{} in ", display_path.display());
     let suffix = format!("ms (arco {})", env!("CARGO_PKG_VERSION"));
     assert!(line.starts_with(&prefix));
@@ -191,10 +195,7 @@ fn cli_validate_can_force_colored_summary_output() -> Result<(), Box<dyn std::er
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout)?;
-    let display_path = match std::fs::canonicalize(&input) {
-        Ok(canonical) => canonical,
-        Err(_) => input.clone(),
-    };
+    let display_path = validated_entrypoint_or_input(&input);
     assert!(stdout.contains("\x1b[38;5;245mValidated "));
     assert!(stdout.contains(&format!("\x1b[1mfile://{}\x1b[22m", display_path.display())));
     assert!(stdout.contains(&format!("\x1b[1marco {}", env!("CARGO_PKG_VERSION"))));

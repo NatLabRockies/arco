@@ -1,5 +1,6 @@
 use arco_cli::cli_io::{
-    should_colorize_stdout, should_log_solver_to_console, write_stdout, write_stdout_line,
+    ColorMode, should_colorize_stdout, should_log_solver_to_console, write_stdout,
+    write_stdout_line,
 };
 use arco_cli::config::{SolverBackend, SolverConfig, load_solver_config, save_solver_config};
 use arco_cli::debug::launch_ipython;
@@ -143,7 +144,7 @@ fn main() -> miette::Result<()> {
         Command::Validate { path } => {
             write_stdout_line(&validate_file_only(
                 &path,
-                should_colorize_stdout(std::io::stdout().is_terminal()),
+                ColorMode::from(should_colorize_stdout(std::io::stdout().is_terminal())),
             )?)
             .into_diagnostic()?;
         }

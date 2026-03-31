@@ -5,6 +5,18 @@ const ANSI_DIM_GRAY: &str = "\x1b[38;5;245m";
 const ANSI_BOLD: &str = "\x1b[1m";
 const ANSI_NO_BOLD: &str = "\x1b[22m";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorMode {
+    Enabled,
+    Disabled,
+}
+
+impl From<bool> for ColorMode {
+    fn from(value: bool) -> Self {
+        if value { Self::Enabled } else { Self::Disabled }
+    }
+}
+
 pub fn write_all_ignoring_broken_pipe<W: Write>(writer: &mut W, bytes: &[u8]) -> io::Result<()> {
     ignore_broken_pipe(writer.write_all(bytes))?;
     ignore_broken_pipe(writer.flush())
@@ -45,24 +57,29 @@ pub fn should_colorize_stdout(stdout_is_terminal: bool) -> bool {
     stdout_is_terminal
 }
 
-pub fn format_timed_status(status: &str, elapsed_ms: u128, detail: &str, colorize: bool) -> String {
+pub fn format_timed_status(
+    status: &str,
+    elapsed_ms: u128,
+    detail: &str,
+    color_mode: ColorMode,
+) -> String {
     let elapsed = format!("in {elapsed_ms}ms");
     let payload = format!(
         "{status} {elapsed} ({})",
-        style_bold_in_dim(detail, colorize)
+        style_bold_in_dim(detail, color_mode)
     );
-    style_dimmed(&payload, colorize)
+    style_dimmed(&payload, color_mode)
 }
 
-pub fn style_bold_in_dim(content: &str, colorize: bool) -> String {
-    if !colorize {
+pub fn style_bold_in_dim(content: &str, color_mode: ColorMode) -> String {
+    if color_mode == ColorMode::Disabled {
         return content.to_string();
     }
     format!("{ANSI_BOLD}{content}{ANSI_NO_BOLD}")
 }
 
-fn style_dimmed(content: &str, colorize: bool) -> String {
-    if !colorize {
+fn style_dimmed(content: &str, color_mode: ColorMode) -> String {
+    if color_mode == ColorMode::Disabled {
         return content.to_string();
     }
     format!("{ANSI_DIM_GRAY}{content}{ANSI_RESET}")
@@ -71,7 +88,7 @@ fn style_dimmed(content: &str, colorize: bool) -> String {
 #[cfg(test)]
 mod tests {
     use crate::cli_io::{
-        format_timed_status, should_colorize_stdout, should_log_solver_to_console,
+        ColorMode, format_timed_status, should_colorize_stdout, should_log_solver_to_console,
         write_all_ignoring_broken_pipe,
     };
     use std::io::{self, Write};
@@ -124,14 +141,14 @@ mod tests {
 
     #[test]
     fn timed_status_plain_output_is_unstyled() {
-        let rendered = format_timed_status("Validated file", 4, "arco 0.2.8", false);
+        let rendered = format_timed_status("Validated file", 4, "arco 0.2.8", ColorMode::Disabled);
         assert_eq!(rendered, "Validated file in 4ms (arco 0.2.8)");
         assert!(!rendered.contains("\x1b["));
     }
 
     #[test]
     fn timed_status_colored_output_contains_expected_ansi_sequences() {
-        let rendered = format_timed_status("Validated file", 4, "arco 0.2.8", true);
+        let rendered = format_timed_status("Validated file", 4, "arco 0.2.8", ColorMode::Enabled);
         assert!(rendered.starts_with("\x1b[38;5;245mValidated file in 4ms ("));
         assert!(rendered.contains("\x1b[1marco 0.2.8"));
         assert!(rendered.ends_with(")\x1b[0m"));
