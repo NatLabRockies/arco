@@ -192,7 +192,7 @@ fn cli_validate_inspect_sets_list() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn cli_validate_inspect_sets_detail() -> Result<(), Box<dyn std::error::Error>> {
-    let input = price_taker_battery_input();
+    let input = nodal_input();
 
     let output = arco_command()
         .arg("validate")
@@ -203,11 +203,11 @@ fn cli_validate_inspect_sets_detail() -> Result<(), Box<dyn std::error::Error>> 
         .arg("assets")
         .output()?;
 
-    assert!(output.status.success());
+    assert!(!output.status.success());
 
-    let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.contains("set \"assets\""));
-    assert!(stdout.contains("Battery1"));
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("not found"));
+    assert!(stderr.contains("Available sets:"));
 
     Ok(())
 }
@@ -235,7 +235,7 @@ fn cli_validate_inspect_constraints_list() -> Result<(), Box<dyn std::error::Err
 
 #[test]
 fn cli_validate_inspect_variables_list() -> Result<(), Box<dyn std::error::Error>> {
-    let input = price_taker_battery_input();
+    let input = nodal_input();
 
     let output = arco_command()
         .arg("validate")
@@ -248,8 +248,27 @@ fn cli_validate_inspect_variables_list() -> Result<(), Box<dyn std::error::Error
 
     let stdout = String::from_utf8(output.stdout)?;
     assert!(stdout.contains("variables:"));
-    // Should list variable signatures
-    assert!(stdout.contains("charge[") || stdout.contains("discharge[") || stdout.contains("soc["));
+    assert!(stdout.contains("new_capacity indexed by"));
+    assert!(stdout.contains("dispatch indexed by"));
+
+    Ok(())
+}
+
+#[test]
+fn cli_validate_rejects_name_without_inspect() -> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
+
+    let output = arco_command()
+        .arg("validate")
+        .arg(&input)
+        .arg("--name")
+        .arg("area")
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(stderr.contains("--inspect"));
 
     Ok(())
 }

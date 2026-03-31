@@ -441,9 +441,12 @@ fn format_inspect_variables(
         match target {
             Some(family) => {
                 let mut lines = vec![];
-                lines.push(format!("variable \"{}\":", target_name));
+                lines.push(format!("variable \"{}\":", family.target));
+                lines.push(format!(
+                    "  indexed by: {}",
+                    render_variable_indexing(family)
+                ));
                 lines.push(format!("  signature: {}", family.render()));
-                lines.push(format!("  index_domains: {:?}", family.index_domains));
 
                 // Look for overrides (overrides is a BTreeMap<String, VariableDeclOverrides>)
                 if let Some(override_def) = overrides.get(target_name) {
@@ -475,10 +478,30 @@ fn format_inspect_variables(
         // List mode: show all variable family signatures
         let mut lines = vec!["variables:".to_string()];
         for family in families {
-            lines.push(format!("  {}", family.render()));
+            lines.push(format!(
+                "  {} indexed by {}",
+                family.target,
+                render_variable_indexing(family)
+            ));
         }
         Ok(lines.join("\n"))
     }
+}
+
+fn render_variable_indexing(family: &arco_kdl::semantic::FamilySignature) -> String {
+    if family.indices.is_empty() {
+        return "scalar".to_string();
+    }
+
+    family
+        .indices
+        .iter()
+        .map(|index| match family.index_domains.get(index) {
+            Some(domain) => format!("{index} in {domain}"),
+            None => index.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn format_inspect_parameters(
@@ -785,7 +808,9 @@ fn peak_rss_bytes() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::format_validation_summary;
+    use super::{format_validation_summary, render_variable_indexing};
+    use arco_kdl::semantic::FamilySignature;
+    use std::collections::BTreeMap;
     use std::path::Path;
 
     #[test]
@@ -798,5 +823,18 @@ mod tests {
         assert!(summary.contains("  assets: 2"));
         assert!(summary.contains("  variables: 9"));
         assert!(summary.contains("  constraints: 7"));
+    }
+
+    #[test]
+    fn render_variable_indexing_pretty_prints_domains() {
+        let mut family = FamilySignature::new("dispatch", ["g", "n", "t"]);
+        family.index_domains = BTreeMap::from([
+            ("g".to_string(), "generators".to_string()),
+            ("n".to_string(), "nodes".to_string()),
+        ]);
+
+        let pretty = render_variable_indexing(&family);
+
+        assert_eq!(pretty, "g in generators, n in nodes, t");
     }
 }

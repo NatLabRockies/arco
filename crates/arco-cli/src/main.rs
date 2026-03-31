@@ -51,7 +51,7 @@ enum Command {
         #[arg(long)]
         inspect: Option<InspectCategory>,
         /// Filter to a specific element by name within the inspected category
-        #[arg(long)]
+        #[arg(long, requires = "inspect")]
         name: Option<String>,
     },
     /// Open an interactive debug shell in IPython
