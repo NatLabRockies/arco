@@ -104,6 +104,7 @@ pub struct SemanticProgram {
     pub active_expressions: Vec<ResolvedExpression>,
     pub active_objective: ResolvedObjective,
     pub active_reports: Vec<ResolvedReport>,
+    pub active_dual_reports: Vec<ResolvedDualReport>,
     pub lowering_rules: Vec<String>,
 }
 
@@ -174,6 +175,11 @@ pub struct ResolvedReport {
     pub name: String,
     pub formula_text: String,
     pub formula: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedDualReport {
+    pub constraint_name: String,
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -455,12 +461,18 @@ pub fn validate_program(
 
     // Scan all algebra sources for implicit variable families not covered
     // by declared technologies (e.g. unserved_energy).
+    let scalar_report_names: Vec<String> = scenario
+        .reports
+        .iter()
+        .filter(|r| r.kind == crate::source::ReportKind::Scalar)
+        .map(|r| r.target.clone())
+        .collect();
     let implicit_families = collect_implicit_variable_families(
         program,
         &operation_names,
         &active_rule_names,
         active_objective_decl,
-        &scenario.reports,
+        &scalar_report_names,
         &variable_families,
     );
     variable_families.extend(implicit_families);
@@ -494,7 +506,8 @@ pub fn validate_program(
         expression_text: active_objective_decl.expression.clone(),
         expression: active_objective_decl.parsed_expression.clone(),
     };
-    let active_reports = resolve_scenario_reports(program, scenario, entrypoint)?;
+    let (active_reports, active_dual_reports) =
+        resolve_scenario_reports(program, scenario, &active_constraints, entrypoint)?;
     let active_expressions =
         resolve_active_expressions(program, &active_objective, &active_reports, entrypoint)?;
 
@@ -554,6 +567,7 @@ pub fn validate_program(
         active_expressions,
         active_objective,
         active_reports,
+        active_dual_reports,
         lowering_rules,
     })
     .inspect(|semantic_program| {
@@ -643,7 +657,8 @@ fn validate_canonical_model_program(
         expression_text: model.optimize.expression.clone(),
         expression: model.optimize.parsed_expression.clone(),
     };
-    let active_reports = resolve_scenario_reports(program, scenario, entrypoint)?;
+    let (active_reports, active_dual_reports) =
+        resolve_scenario_reports(program, scenario, &active_constraints, entrypoint)?;
     let active_expressions =
         resolve_active_expressions(program, &active_objective, &active_reports, entrypoint)?;
 
@@ -698,6 +713,7 @@ fn validate_canonical_model_program(
         active_expressions,
         active_objective,
         active_reports,
+        active_dual_reports,
         lowering_rules: Vec::new(),
     })
 }
@@ -822,25 +838,45 @@ fn append_constraints(
 fn resolve_scenario_reports(
     program: &SourceProgram,
     scenario: &ScenarioDecl,
+    active_constraints: &[ResolvedConstraint],
     entrypoint: &Path,
-) -> Result<Vec<ResolvedReport>, SemanticError> {
+) -> Result<(Vec<ResolvedReport>, Vec<ResolvedDualReport>), SemanticError> {
+    use crate::source::ReportKind;
     let mut reports = Vec::new();
-    for report_name in &scenario.reports {
-        let expression =
-            program
-                .expression(report_name)
-                .ok_or_else(|| SemanticError::MissingDeclaration {
-                    kind: "expression",
-                    name: report_name.clone(),
-                    path: entrypoint.to_path_buf(),
+    let mut dual_reports = Vec::new();
+    for report_decl in &scenario.reports {
+        match report_decl.kind {
+            ReportKind::Scalar => {
+                let expression = program.expression(&report_decl.target).ok_or_else(|| {
+                    SemanticError::MissingDeclaration {
+                        kind: "expression",
+                        name: report_decl.target.clone(),
+                        path: entrypoint.to_path_buf(),
+                    }
                 })?;
-        reports.push(ResolvedReport {
-            name: expression.name.clone(),
-            formula_text: expression.formula.clone(),
-            formula: expression.parsed_formula.clone(),
-        });
+                reports.push(ResolvedReport {
+                    name: expression.name.clone(),
+                    formula_text: expression.formula.clone(),
+                    formula: expression.parsed_formula.clone(),
+                });
+            }
+            ReportKind::Dual => {
+                let target = &report_decl.target;
+                let exists = active_constraints.iter().any(|c| c.name == *target);
+                if !exists {
+                    return Err(SemanticError::MissingDeclaration {
+                        kind: "constraint",
+                        name: target.clone(),
+                        path: entrypoint.to_path_buf(),
+                    });
+                }
+                dual_reports.push(ResolvedDualReport {
+                    constraint_name: target.clone(),
+                });
+            }
+        }
     }
-    Ok(reports)
+    Ok((reports, dual_reports))
 }
 
 fn resolve_active_expressions(
