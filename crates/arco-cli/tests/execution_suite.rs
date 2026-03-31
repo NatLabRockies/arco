@@ -187,6 +187,7 @@ impl OptimizationAdapter for MissingReportAdapter {
                     values: Vec::new(),
                 })
                 .collect(),
+            dual_report_values: Vec::new(),
         })
     }
 }
