@@ -43,7 +43,13 @@ fn parses_price_taker_battery_fixture_into_typed_declarations()
         .ok_or("missing scenario")?;
     assert_eq!(scenario.technologies, vec!["Battery".to_string()]);
     assert_eq!(scenario.operations, vec!["PriceTakerBattery".to_string()]);
-    assert_eq!(scenario.reports, vec!["ArbitrageRevenue".to_string()]);
+    assert_eq!(
+        scenario.reports,
+        vec![arco_kdl::source::ReportDecl {
+            kind: arco_kdl::source::ReportKind::Scalar,
+            target: "ArbitrageRevenue".to_string(),
+        }]
+    );
 
     Ok(())
 }
@@ -452,7 +458,16 @@ scenario "Day" {
 
     assert_eq!(
         scenario.reports,
-        vec!["FuelCost".to_string(), "StartupCost".to_string()]
+        vec![
+            arco_kdl::source::ReportDecl {
+                kind: arco_kdl::source::ReportKind::Scalar,
+                target: "FuelCost".to_string(),
+            },
+            arco_kdl::source::ReportDecl {
+                kind: arco_kdl::source::ReportKind::Scalar,
+                target: "StartupCost".to_string(),
+            },
+        ]
     );
 
     Ok(())
