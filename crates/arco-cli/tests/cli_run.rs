@@ -169,10 +169,32 @@ fn cli_validates_a_fixture_file() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_inspect_without_section_returns_full_model_view() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_inspect_without_section_defaults_to_pretty_output() -> Result<(), Box<dyn std::error::Error>>
+{
     let input = nodal_input();
 
     let output = arco_command().arg("inspect").arg(&input).output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("counts"));
+    assert!(stdout.contains("[summary]"));
+    assert!(stdout.contains("generation_limit"));
+
+    Ok(())
+}
+
+#[test]
+fn cli_inspect_json_without_section_returns_full_model_view()
+-> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
+
+    let output = arco_command()
+        .arg("inspect")
+        .arg(&input)
+        .arg("--json")
+        .output()?;
 
     assert!(output.status.success());
 
@@ -244,6 +266,7 @@ fn cli_inspect_sets_list() -> Result<(), Box<dyn std::error::Error>> {
     let output = arco_command()
         .arg("inspect")
         .arg(&input)
+        .arg("--json")
         .arg("--section")
         .arg("sets")
         .output()?;
@@ -298,6 +321,7 @@ fn cli_inspect_constraints_list() -> Result<(), Box<dyn std::error::Error>> {
     let output = arco_command()
         .arg("inspect")
         .arg(&input)
+        .arg("--json")
         .arg("--section")
         .arg("constraints")
         .output()?;
@@ -340,6 +364,7 @@ fn cli_inspect_variables_list() -> Result<(), Box<dyn std::error::Error>> {
     let output = arco_command()
         .arg("inspect")
         .arg(&input)
+        .arg("--json")
         .arg("--section")
         .arg("variables")
         .output()?;
@@ -378,6 +403,59 @@ fn cli_inspect_variables_list() -> Result<(), Box<dyn std::error::Error>> {
                     "lower": 0,
                     "upper": null
                 })
+    }));
+
+    Ok(())
+}
+
+#[test]
+fn cli_inspect_variables_list_defaults_to_pretty_cards() -> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
+
+    let output = arco_command()
+        .arg("inspect")
+        .arg(&input)
+        .arg("--section")
+        .arg("variables")
+        .output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("[variable]"));
+    assert!(stdout.contains("notation : new_capacity[g, n]"));
+    assert!(stdout.contains("domains  : g ∈ generators, n ∈ nodes"));
+    assert!(!stdout.contains("\"$ref\""));
+
+    Ok(())
+}
+
+#[test]
+fn cli_inspect_parameters_list() -> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
+
+    let output = arco_command()
+        .arg("inspect")
+        .arg(&input)
+        .arg("--json")
+        .arg("--section")
+        .arg("parameters")
+        .output()?;
+
+    assert!(output.status.success());
+
+    let payload = parse_stdout_json(output)?;
+    let items = payload.as_array().expect("parameter array");
+    assert!(items.iter().any(|item| {
+        item["name"] == "distance_km"
+            && item["set"]
+                == serde_json::json!([
+                    {"$ref": "#/sets/generators"},
+                    {"$ref": "#/sets/nodes"}
+                ])
+    }));
+    assert!(items.iter().any(|item| {
+        item["name"] == "MWLoad" && item["set"] == serde_json::json!([{"$ref": "#/sets/nodes"}])
     }));
 
     Ok(())
@@ -433,6 +511,7 @@ fn cli_inspect_objective() -> Result<(), Box<dyn std::error::Error>> {
     let output = arco_command()
         .arg("inspect")
         .arg(&input)
+        .arg("--json")
         .arg("--section")
         .arg("objective")
         .output()?;
@@ -469,6 +548,38 @@ fn cli_inspect_objective() -> Result<(), Box<dyn std::error::Error>> {
         items[0]["terms"]
             .as_array()
             .is_some_and(|terms| !terms.is_empty())
+    );
+
+    Ok(())
+}
+
+#[test]
+fn cli_inspect_objective_pretty_aligns_field_colons() -> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
+
+    let output = arco_command()
+        .arg("inspect")
+        .arg(&input)
+        .arg("--section")
+        .arg("objective")
+        .output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    assert!(stdout.contains("[objective]"));
+
+    let positions = stdout
+        .lines()
+        .filter(|line| line.starts_with("  ") && line.contains(':'))
+        .map(|line| line.find(':').expect("line has colon"))
+        .collect::<Vec<_>>();
+    assert!(!positions.is_empty());
+
+    let first = positions[0];
+    assert!(
+        positions.iter().all(|position| *position == first),
+        "field colons should align in pretty output: {positions:?}"
     );
 
     Ok(())

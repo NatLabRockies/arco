@@ -55,6 +55,9 @@ enum Command {
         /// Filter to a specific element by name within the inspected category
         #[arg(long, requires = "section")]
         name: Option<String>,
+        /// Emit structured JSON output
+        #[arg(long)]
+        json: bool,
     },
     /// Open an interactive debug shell in IPython
     Debug { path: PathBuf },
@@ -142,9 +145,11 @@ fn main() -> miette::Result<()> {
             path,
             section,
             name,
+            json,
         } => {
             let name_ref = name.as_deref();
-            write_stdout_line(&inspect_file_report(&path, section, name_ref)?).into_diagnostic()?;
+            write_stdout_line(&inspect_file_report(&path, section, name_ref, json)?)
+                .into_diagnostic()?;
         }
         Command::Debug { path } => {
             launch_ipython(&path)?;

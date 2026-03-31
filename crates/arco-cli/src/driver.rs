@@ -290,15 +290,34 @@ pub fn inspect_file_report(
     path: &Path,
     section: Option<InspectCategory>,
     name: Option<&str>,
+    json_output: bool,
 ) -> Result<String, DriverError> {
     let validated = validate_file(path)?;
     let program = &validated.semantic_program;
+    let payload = inspect_payload(&validated.entrypoint, program, section, name)?;
+
+    if json_output {
+        return serialize_validation_json(&payload).map_err(|source| DriverError::Json {
+            path: path.to_path_buf(),
+            source,
+        });
+    }
+
+    Ok(render_pretty_inspect_report(section, &payload))
+}
+
+fn inspect_payload(
+    entrypoint: &Path,
+    program: &arco_kdl::semantic::SemanticProgram,
+    section: Option<InspectCategory>,
+    name: Option<&str>,
+) -> Result<Value, DriverError> {
     let parameter_targets = collect_parameter_targets(program);
 
-    let payload = match section {
+    match section {
         None => {
             let summary = payload_as_array(format_validation_summary(
-                &validated.entrypoint,
+                entrypoint,
                 &program.active_scenario,
                 program.set_registry.len(),
                 program.variable_families.len(),
@@ -316,9 +335,9 @@ pub fn inspect_file_report(
             let objectives = payload_as_array(format_inspect_objective_with_params(
                 program,
                 &parameter_targets,
-            )?);
+            ));
             let reports = payload_as_array(format_inspect_reports(program, None)?);
-            let chronologies = payload_as_array(format_inspect_chronology(program)?);
+            let chronologies = payload_as_array(format_inspect_chronology(program));
 
             let sets = compose_set_catalog_and_ref_variables(&mut variables, &sets_array);
             let parameters = compose_parameter_catalog(program, &parameter_targets, &sets);
@@ -343,18 +362,204 @@ pub fn inspect_file_report(
             InspectCategory::Variables => format_inspect_variables(program, name),
             InspectCategory::Parameters => format_inspect_parameters(program, name),
             InspectCategory::Expressions => format_inspect_expressions(program, name),
-            InspectCategory::Objective => {
-                format_inspect_objective_with_params(program, &parameter_targets)
-            }
+            InspectCategory::Objective => Ok(format_inspect_objective_with_params(
+                program,
+                &parameter_targets,
+            )),
             InspectCategory::Reports => format_inspect_reports(program, name),
-            InspectCategory::Chronology => format_inspect_chronology(program),
+            InspectCategory::Chronology => Ok(format_inspect_chronology(program)),
         },
-    }?;
+    }
+}
 
-    serialize_validation_json(&payload).map_err(|source| DriverError::Json {
-        path: path.to_path_buf(),
-        source,
-    })
+fn render_pretty_inspect_report(section: Option<InspectCategory>, payload: &Value) -> String {
+    match section {
+        Some(category) => render_pretty_section(category, payload),
+        None => render_pretty_full_inspect(payload),
+    }
+}
+
+fn render_pretty_full_inspect(payload: &Value) -> String {
+    let Some(object) = payload.as_object() else {
+        return value_to_compact_string(payload);
+    };
+
+    let mut sections = Vec::new();
+
+    if let Some(summary) = object.get("summaries") {
+        sections.push(render_pretty_card_block(
+            "summary",
+            summary_items(summary).as_slice(),
+        ));
+    }
+
+    if let Some(sets) = object.get("sets").and_then(Value::as_object) {
+        let mut lines = Vec::new();
+        for (name, definition) in sets {
+            let cardinality = definition
+                .get("cardinality")
+                .map_or_else(|| "?".to_string(), value_to_compact_string);
+            let symbol = definition
+                .get("symbol")
+                .and_then(Value::as_str)
+                .map_or(String::new(), |value| format!(" ({value})"));
+            lines.push(format!("{name}{symbol}: {cardinality}"));
+        }
+        sections.push(lines.join("\n"));
+    }
+
+    for (category, key) in [
+        (InspectCategory::Constraints, "constraints"),
+        (InspectCategory::Variables, "variables"),
+        (InspectCategory::Parameters, "parameters"),
+        (InspectCategory::Expressions, "expressions"),
+        (InspectCategory::Objective, "objectives"),
+        (InspectCategory::Reports, "reports"),
+        (InspectCategory::Chronology, "chronologies"),
+    ] {
+        if let Some(value) = object.get(key) {
+            let rendered = render_pretty_section(category, value);
+            if !rendered.trim().is_empty() {
+                sections.push(rendered);
+            }
+        }
+    }
+
+    sections.join("\n\n")
+}
+
+fn render_pretty_section(category: InspectCategory, payload: &Value) -> String {
+    let kind = match category {
+        InspectCategory::Sets => "set",
+        InspectCategory::Constraints => "constraint",
+        InspectCategory::Variables => "variable",
+        InspectCategory::Parameters => "parameter",
+        InspectCategory::Expressions => "expression",
+        InspectCategory::Objective => "objective",
+        InspectCategory::Reports => "report",
+        InspectCategory::Chronology => "chronology",
+    };
+
+    render_pretty_card_block(kind, summary_items(payload).as_slice())
+}
+
+fn summary_items(payload: &Value) -> Vec<Value> {
+    if let Some(items) = payload.get("items").and_then(Value::as_array) {
+        return items.clone();
+    }
+    if let Some(items) = payload.as_array() {
+        return items.clone();
+    }
+    vec![payload.clone()]
+}
+
+fn render_pretty_card_block(kind: &str, items: &[Value]) -> String {
+    let mut cards = Vec::new();
+
+    for item in items {
+        let Some(card) = item.as_object() else {
+            cards.push(value_to_compact_string(item));
+            continue;
+        };
+
+        let mut lines = vec![format!("[{kind}]")];
+        let mut entries: Vec<(String, String)> = Vec::new();
+
+        if let Some(name) = card.get("name") {
+            entries.push(("name".to_string(), value_to_compact_string(name)));
+        }
+        if let Some(notation) = card.get("notation") {
+            entries.push(("notation".to_string(), value_to_compact_string(notation)));
+        }
+        if let Some(set) = card.get("set") {
+            entries.push(("domains".to_string(), format_domain_list(set)));
+        }
+
+        for (field, value) in card {
+            if ["kind", "name", "notation", "set"].contains(&field.as_str()) {
+                continue;
+            }
+            if kind == "variable" && field == "domain" {
+                continue;
+            }
+            entries.push((field.clone(), value_to_compact_string(value)));
+        }
+
+        let label_width = entries
+            .iter()
+            .map(|(label, _)| label.len())
+            .max()
+            .unwrap_or(0);
+
+        for (label, value) in entries {
+            lines.push(format!("  {label:<label_width$} : {value}"));
+        }
+
+        cards.push(lines.join("\n"));
+    }
+
+    cards.join("\n\n")
+}
+
+fn format_domain_list(value: &Value) -> String {
+    let Some(domains) = value.as_array() else {
+        return value_to_compact_string(value);
+    };
+
+    let rendered = domains
+        .iter()
+        .map(|domain| {
+            let Some(domain_object) = domain.as_object() else {
+                return value_to_compact_string(domain);
+            };
+
+            if let (Some(index), Some(name)) = (
+                domain_object.get("index").and_then(Value::as_str),
+                domain_object.get("name").and_then(Value::as_str),
+            ) {
+                return format!("{index} ∈ {name}");
+            }
+
+            if let Some(reference) = domain_object.get("$ref").and_then(Value::as_str) {
+                return reference
+                    .rsplit('/')
+                    .next()
+                    .map_or_else(|| reference.to_string(), ToString::to_string);
+            }
+
+            value_to_compact_string(domain)
+        })
+        .collect::<Vec<_>>();
+
+    rendered.join(", ")
+}
+
+fn value_to_compact_string(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_string(),
+        Value::Bool(boolean) => boolean.to_string(),
+        Value::Number(number) => number.to_string(),
+        Value::String(string) => string.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(value_to_compact_string)
+            .collect::<Vec<_>>()
+            .join(", "),
+        Value::Object(object) => {
+            if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+                return reference
+                    .rsplit('/')
+                    .next()
+                    .map_or_else(|| reference.to_string(), ToString::to_string);
+            }
+
+            object
+                .iter()
+                .map(|(key, entry)| format!("{key}={}", value_to_compact_string(entry)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+    }
 }
 
 fn serialize_validation_json(payload: &Value) -> Result<String, serde_json::Error> {
@@ -542,22 +747,21 @@ fn format_inspect_constraints_with_params(
     if let Some(target_name) = name {
         // Detail mode: look for a specific constraint
         let target = constraints.iter().find(|c| c.name == target_name);
-        match target {
-            Some(constraint) => Ok(render_constraint_details(
+        if let Some(constraint) = target {
+            Ok(render_constraint_details(
                 constraint,
                 &variable_targets,
                 parameter_targets,
-            )),
-            None => {
-                let available: Vec<_> = constraints.iter().map(|c| c.name.as_str()).collect();
-                Err(DriverError::InspectLookup {
-                    message: format!(
-                        "constraint '{}' not found. Available constraints: {}",
-                        target_name,
-                        available.join(", ")
-                    ),
-                })
-            }
+            ))
+        } else {
+            let available: Vec<_> = constraints.iter().map(|c| c.name.as_str()).collect();
+            Err(DriverError::InspectLookup {
+                message: format!(
+                    "constraint '{}' not found. Available constraints: {}",
+                    target_name,
+                    available.join(", ")
+                ),
+            })
         }
     } else {
         let items = constraints
@@ -777,48 +981,45 @@ fn format_inspect_variables(
     if let Some(target_name) = name {
         // Detail mode: look for a specific variable family
         let target = families.iter().find(|f| f.target == target_name);
-        match target {
-            Some(family) => {
-                let mut fields = vec![
-                    ("name", Value::String(family.target.clone())),
-                    (
-                        "notation",
-                        Value::String(render_variable_math_notation(family)),
-                    ),
-                    (
-                        "set",
-                        Value::Array(render_variable_domains(family, &program.set_registry)),
-                    ),
-                    (
-                        "domain",
-                        render_variable_value_domain(family, overrides.get(target_name)),
-                    ),
-                ];
+        if let Some(family) = target {
+            let mut fields = vec![
+                ("name", Value::String(family.target.clone())),
+                (
+                    "notation",
+                    Value::String(render_variable_math_notation(family)),
+                ),
+                (
+                    "set",
+                    Value::Array(render_variable_domains(family, &program.set_registry)),
+                ),
+                (
+                    "domain",
+                    render_variable_value_domain(family, overrides.get(target_name)),
+                ),
+            ];
 
-                // Look for overrides (overrides is a BTreeMap<String, VariableDeclOverrides>)
-                if let Some(override_def) = overrides.get(target_name) {
-                    if let Some(kind) = &override_def.kind {
-                        fields.push(("override_kind", Value::String(format!("{:?}", kind))));
-                    }
-                    if let Some(lower) = &override_def.lower {
-                        fields.push(("override_lower", Value::String(format!("{:?}", lower))));
-                    }
-                    if let Some(upper) = &override_def.upper {
-                        fields.push(("override_upper", Value::String(format!("{:?}", upper))));
-                    }
+            // Look for overrides (overrides is a BTreeMap<String, VariableDeclOverrides>)
+            if let Some(override_def) = overrides.get(target_name) {
+                if let Some(kind) = &override_def.kind {
+                    fields.push(("override_kind", Value::String(format!("{:?}", kind))));
                 }
-                Ok(render_named_card("variable", fields))
+                if let Some(lower) = &override_def.lower {
+                    fields.push(("override_lower", Value::String(format!("{:?}", lower))));
+                }
+                if let Some(upper) = &override_def.upper {
+                    fields.push(("override_upper", Value::String(format!("{:?}", upper))));
+                }
             }
-            None => {
-                let available: Vec<_> = families.iter().map(|f| f.target.as_str()).collect();
-                Err(DriverError::InspectLookup {
-                    message: format!(
-                        "variable '{}' not found. Available variables: {}",
-                        target_name,
-                        available.join(", ")
-                    ),
-                })
-            }
+            Ok(render_named_card("variable", fields))
+        } else {
+            let available: Vec<_> = families.iter().map(|f| f.target.as_str()).collect();
+            Err(DriverError::InspectLookup {
+                message: format!(
+                    "variable '{}' not found. Available variables: {}",
+                    target_name,
+                    available.join(", ")
+                ),
+            })
         }
     } else {
         let items = families
@@ -946,14 +1147,12 @@ fn render_bound_expr(bound: &arco_kdl::source::BoundExpr) -> Value {
     match bound {
         arco_kdl::source::BoundExpr::Literal(arco_kdl::source::LiteralValue::Integer(value)) => {
             serde_json::Number::from_i128(*value)
-                .map(Value::Number)
-                .unwrap_or_else(|| Value::String(value.to_string()))
+                .map_or_else(|| Value::String(value.to_string()), Value::Number)
         }
         arco_kdl::source::BoundExpr::Literal(arco_kdl::source::LiteralValue::Decimal(text)) => {
             match text.parse::<f64>() {
                 Ok(parsed) => serde_json::Number::from_f64(parsed)
-                    .map(Value::Number)
-                    .unwrap_or_else(|| Value::String(text.clone())),
+                    .map_or_else(|| Value::String(text.clone()), Value::Number),
                 Err(_) => Value::String(text.clone()),
             }
         }
@@ -966,77 +1165,96 @@ fn format_inspect_parameters(
     program: &arco_kdl::semantic::SemanticProgram,
     name: Option<&str>,
 ) -> Result<Value, DriverError> {
-    let params = &program.parameters;
+    let catalog = build_parameter_catalog(program)?;
+    let catalog_object = catalog
+        .as_object()
+        .ok_or_else(|| DriverError::InspectLookup {
+            message: "parameter catalog is not an object".to_string(),
+        })?;
 
     if let Some(target_name) = name {
-        // Detail mode: find parameter by name
-        let mut found_type = None;
-
-        if params.series.iter().any(|p| p == target_name) {
-            found_type = Some("series");
-        } else if params.indexed.iter().any(|p| p == target_name) {
-            found_type = Some("indexed");
-        } else if params.asset.iter().any(|p| p == target_name) {
-            found_type = Some("asset");
-        }
-
-        match found_type {
-            Some(param_type) => Ok(render_named_card(
+        if let Some(parameter) = catalog_object.get(target_name) {
+            Ok(render_named_card(
                 "parameter",
                 vec![
                     ("name", Value::String(target_name.to_string())),
-                    ("type", Value::String(param_type.to_string())),
-                ],
-            )),
-            None => {
-                let mut available = vec![];
-                available.extend(params.series.iter().map(|p| p.as_str()));
-                available.extend(params.indexed.iter().map(|p| p.as_str()));
-                available.extend(params.asset.iter().map(|p| p.as_str()));
-                Err(DriverError::InspectLookup {
-                    message: format!(
-                        "parameter '{}' not found. Available parameters: {}",
-                        target_name,
-                        available.join(", ")
+                    (
+                        "type",
+                        parameter
+                            .get("kind")
+                            .cloned()
+                            .unwrap_or_else(|| Value::String("inferred".to_string())),
                     ),
-                })
-            }
+                    (
+                        "set",
+                        parameter
+                            .get("set")
+                            .cloned()
+                            .unwrap_or_else(|| Value::Array(Vec::new())),
+                    ),
+                ],
+            ))
+        } else {
+            let mut available = catalog_object.keys().cloned().collect::<Vec<_>>();
+            available.sort();
+            Err(DriverError::InspectLookup {
+                message: format!(
+                    "parameter '{}' not found. Available parameters: {}",
+                    target_name,
+                    available.join(", ")
+                ),
+            })
         }
     } else {
-        let mut items = Vec::new();
-        for param in &params.series {
-            items.push(render_named_card(
-                "parameter",
-                vec![
-                    ("name", Value::String(param.clone())),
-                    ("type", Value::String("series".to_string())),
-                ],
-            ));
-        }
-        for param in &params.indexed {
-            items.push(render_named_card(
-                "parameter",
-                vec![
-                    ("name", Value::String(param.clone())),
-                    ("type", Value::String("indexed".to_string())),
-                ],
-            ));
-        }
-        for param in &params.asset {
-            items.push(render_named_card(
-                "parameter",
-                vec![
-                    ("name", Value::String(param.clone())),
-                    ("type", Value::String("asset".to_string())),
-                ],
-            ));
-        }
+        let mut parameter_names = catalog_object.keys().cloned().collect::<Vec<_>>();
+        parameter_names.sort();
+        let items = parameter_names
+            .into_iter()
+            .filter_map(|param_name| {
+                catalog_object.get(&param_name).map(|parameter| {
+                    render_named_card(
+                        "parameter",
+                        vec![
+                            ("name", Value::String(param_name)),
+                            (
+                                "type",
+                                parameter
+                                    .get("kind")
+                                    .cloned()
+                                    .unwrap_or_else(|| Value::String("inferred".to_string())),
+                            ),
+                            (
+                                "set",
+                                parameter
+                                    .get("set")
+                                    .cloned()
+                                    .unwrap_or_else(|| Value::Array(Vec::new())),
+                            ),
+                        ],
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
 
         Ok(json!({
             "kind": "parameters",
             "items": items,
         }))
     }
+}
+
+fn build_parameter_catalog(
+    program: &arco_kdl::semantic::SemanticProgram,
+) -> Result<Value, DriverError> {
+    let sets_array = payload_as_array(format_inspect_sets(program, None)?);
+    let mut variables = payload_as_array(format_inspect_variables(program, None)?);
+    let sets = compose_set_catalog_and_ref_variables(&mut variables, &sets_array);
+    let parameter_targets = collect_parameter_targets(program);
+    Ok(compose_parameter_catalog(
+        program,
+        &parameter_targets,
+        &sets,
+    ))
 }
 
 fn format_inspect_expressions(
@@ -1048,24 +1266,23 @@ fn format_inspect_expressions(
     if let Some(target_name) = name {
         // Detail mode: look for a specific expression
         let target = expressions.iter().find(|e| e.name == target_name);
-        match target {
-            Some(expr) => Ok(render_named_card(
+        if let Some(expr) = target {
+            Ok(render_named_card(
                 "expression",
                 vec![
                     ("name", Value::String(target_name.to_string())),
                     ("formula", Value::String(expr.formula_text.clone())),
                 ],
-            )),
-            None => {
-                let available: Vec<_> = expressions.iter().map(|e| e.name.as_str()).collect();
-                Err(DriverError::InspectLookup {
-                    message: format!(
-                        "expression '{}' not found. Available expressions: {}",
-                        target_name,
-                        available.join(", ")
-                    ),
-                })
-            }
+            ))
+        } else {
+            let available: Vec<_> = expressions.iter().map(|e| e.name.as_str()).collect();
+            Err(DriverError::InspectLookup {
+                message: format!(
+                    "expression '{}' not found. Available expressions: {}",
+                    target_name,
+                    available.join(", ")
+                ),
+            })
         }
     } else {
         let items = expressions
@@ -1090,12 +1307,12 @@ fn format_inspect_expressions(
 fn format_inspect_objective_with_params(
     program: &arco_kdl::semantic::SemanticProgram,
     parameter_targets: &std::collections::BTreeSet<String>,
-) -> Result<Value, DriverError> {
+) -> Value {
     let objective = &program.active_objective;
     let variable_targets = collect_variable_targets(program);
     let mut fields = vec![
         ("name", Value::String(objective.name.clone())),
-        ("sense", Value::String(objective.sense.to_string())),
+        ("sense", Value::String(objective.sense.clone())),
     ];
 
     match &objective.expression {
@@ -1156,7 +1373,7 @@ fn format_inspect_objective_with_params(
         )),
     ));
 
-    Ok(render_named_card("objective", fields))
+    render_named_card("objective", fields)
 }
 
 fn compose_parameter_catalog(
@@ -1285,7 +1502,7 @@ fn collect_parameter_sets_from_expr(
             }
         }
         arco_kdl::algebra::Expr::Unary { expr, .. } => {
-            collect_parameter_sets_from_expr(expr, parameter_name, symbol_to_set, refs)
+            collect_parameter_sets_from_expr(expr, parameter_name, symbol_to_set, refs);
         }
         arco_kdl::algebra::Expr::Binary { left, right, .. }
         | arco_kdl::algebra::Expr::Comparison { left, right, .. } => {
@@ -1502,24 +1719,23 @@ fn format_inspect_reports(
     if let Some(target_name) = name {
         // Detail mode: look for a specific report
         let target = reports.iter().find(|r| r.name == target_name);
-        match target {
-            Some(report) => Ok(render_named_card(
+        if let Some(report) = target {
+            Ok(render_named_card(
                 "report",
                 vec![
                     ("name", Value::String(target_name.to_string())),
                     ("formula", Value::String(report.formula_text.clone())),
                 ],
-            )),
-            None => {
-                let available: Vec<_> = reports.iter().map(|r| r.name.as_str()).collect();
-                Err(DriverError::InspectLookup {
-                    message: format!(
-                        "report '{}' not found. Available reports: {}",
-                        target_name,
-                        available.join(", ")
-                    ),
-                })
-            }
+            ))
+        } else {
+            let available: Vec<_> = reports.iter().map(|r| r.name.as_str()).collect();
+            Err(DriverError::InspectLookup {
+                message: format!(
+                    "report '{}' not found. Available reports: {}",
+                    target_name,
+                    available.join(", ")
+                ),
+            })
         }
     } else {
         let items = reports
@@ -1541,9 +1757,7 @@ fn format_inspect_reports(
     }
 }
 
-fn format_inspect_chronology(
-    program: &arco_kdl::semantic::SemanticProgram,
-) -> Result<Value, DriverError> {
+fn format_inspect_chronology(program: &arco_kdl::semantic::SemanticProgram) -> Value {
     let chronology = &program.chronology;
     let mut fields = Vec::new();
     if let Some(initial_boundary) = &chronology.initial_boundary {
@@ -1562,7 +1776,7 @@ fn format_inspect_chronology(
         ));
     }
 
-    Ok(render_named_card("chronology", fields))
+    render_named_card("chronology", fields)
 }
 
 fn summarize_variables(
