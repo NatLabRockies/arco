@@ -163,7 +163,41 @@ fn cli_validates_a_fixture_file() -> Result<(), Box<dyn std::error::Error>> {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout)?;
-    assert!(stdout.trim().is_empty());
+    let line = stdout.trim();
+    let display_path = match std::fs::canonicalize(&input) {
+        Ok(canonical) => canonical,
+        Err(_) => input.clone(),
+    };
+    let prefix = format!("Validated file://{} in ", display_path.display());
+    let suffix = format!("ms (arco {})", env!("CARGO_PKG_VERSION"));
+    assert!(line.starts_with(&prefix));
+    assert!(line.ends_with(&suffix));
+    let ms_fragment = &line[prefix.len()..line.len() - suffix.len()];
+    assert!(ms_fragment.parse::<u128>().is_ok());
+
+    Ok(())
+}
+
+#[test]
+fn cli_validate_can_force_colored_summary_output() -> Result<(), Box<dyn std::error::Error>> {
+    let input = nodal_input();
+
+    let output = arco_command()
+        .env("CLICOLOR_FORCE", "1")
+        .arg("validate")
+        .arg(&input)
+        .output()?;
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let display_path = match std::fs::canonicalize(&input) {
+        Ok(canonical) => canonical,
+        Err(_) => input.clone(),
+    };
+    assert!(stdout.contains("\x1b[38;5;245mValidated "));
+    assert!(stdout.contains(&format!("\x1b[1mfile://{}\x1b[22m", display_path.display())));
+    assert!(stdout.contains(&format!("\x1b[1marco {}", env!("CARGO_PKG_VERSION"))));
 
     Ok(())
 }
