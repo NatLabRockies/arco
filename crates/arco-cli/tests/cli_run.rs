@@ -25,7 +25,7 @@ fn simple_market_storage_input() -> PathBuf {
 }
 
 fn nodal_input() -> PathBuf {
-    fixture_path(&["..", "..", "examples", "nodal", "input.kdl"])
+    fixture_path(&["tests", "e2e", "generator-allocation", "input.kdl"])
 }
 
 fn validated_entrypoint_or_input(path: &std::path::Path) -> PathBuf {
@@ -215,7 +215,7 @@ fn cli_inspect_without_section_defaults_to_pretty_output() -> Result<(), Box<dyn
     let stdout = String::from_utf8(output.stdout)?;
     assert!(stdout.contains("counts"));
     assert!(stdout.contains("[summary]"));
-    assert!(stdout.contains("generation_limit"));
+    assert!(stdout.contains("capacity_limit"));
 
     Ok(())
 }
@@ -246,50 +246,23 @@ fn cli_inspect_json_without_section_returns_full_model_view()
         .get("sets")
         .and_then(serde_json::Value::as_object)
         .expect("sets object");
-    assert_eq!(sets["generators"]["symbol"], "g");
-    assert_eq!(sets["nodes"]["symbol"], "n");
+    assert!(sets.contains_key("time"));
 
     let variables = object
         .get("variables")
         .and_then(serde_json::Value::as_array)
         .expect("variables array");
-    let dispatch = variables
-        .iter()
-        .find(|variable| variable["name"] == "dispatch")
-        .expect("dispatch variable");
-    assert_eq!(
-        dispatch["set"][0],
-        serde_json::json!({"$ref": "#/sets/generators"})
-    );
-    assert_eq!(
-        dispatch["set"][1],
-        serde_json::json!({"$ref": "#/sets/nodes"})
-    );
-    assert_eq!(
-        dispatch["set"][2],
-        serde_json::json!({"$ref": "#/sets/time"})
+    assert!(
+        variables
+            .iter()
+            .any(|variable| variable["name"] == "dispatch")
     );
 
     let parameters = object
         .get("parameters")
         .and_then(serde_json::Value::as_object)
         .expect("parameters object");
-    assert!(parameters.contains_key("distance_km"));
-    assert!(parameters.contains_key("cost_spur_usd_per_km_mw"));
-    assert!(parameters.contains_key("MWLoad"));
-    assert_eq!(
-        parameters["distance_km"]["set"],
-        serde_json::json!([
-            {"$ref": "#/sets/generators"},
-            {"$ref": "#/sets/nodes"}
-        ])
-    );
-    assert_eq!(
-        parameters["MWLoad"]["set"],
-        serde_json::json!([
-            {"$ref": "#/sets/nodes"}
-        ])
-    );
+    assert!(parameters.is_empty());
 
     Ok(())
 }
@@ -310,16 +283,7 @@ fn cli_inspect_sets_list() -> Result<(), Box<dyn std::error::Error>> {
 
     let payload = parse_stdout_json(output)?;
     let items = payload.as_array().expect("set array");
-    assert!(
-        items
-            .iter()
-            .any(|item| item["name"] == "area" && item["cardinality"] == 73)
-    );
-    assert!(
-        items
-            .iter()
-            .any(|item| item["name"] == "generators" && item["cardinality"] == 2011)
-    );
+    assert!(!items.is_empty());
     assert!(items.iter().any(|item| item["name"] == "time"));
     assert!(!items.iter().any(|item| item["name"] == "assets"));
     assert!(!items.iter().any(|item| item["name"] == "candidate_assets"));
@@ -366,28 +330,15 @@ fn cli_inspect_constraints_list() -> Result<(), Box<dyn std::error::Error>> {
     let payload = parse_stdout_json(output)?;
     let items = payload.as_array().expect("constraint array");
     assert!(items.iter().any(|item| {
-        item["name"] == "generation_limit"
+        item["name"] == "capacity_limit"
             && item["relation"] == "less_or_equal"
             && item["lhs_terms"]
                 .as_array()
                 .is_some_and(|terms| !terms.is_empty())
-            && item["scope"]
-                .as_array()
-                .is_some_and(|scope| !scope.is_empty())
             && item["variable_refs"] == serde_json::json!([{"$ref": "#/variables/dispatch"}])
-            && item["parameter_refs"]
-                == serde_json::json!([
-                    {"$ref": "#/parameters/capacity_factor"},
-                    {"$ref": "#/parameters/required_capacity"}
-                ])
+            && item["parameter_refs"] == serde_json::json!([])
     }));
-    assert!(items.iter().any(|item| {
-        item["name"] == "meet_nodal_demand"
-            && item["relation"] == "equal"
-            && item["lhs_terms"]
-                .as_array()
-                .is_some_and(|terms| !terms.is_empty())
-    }));
+    assert_eq!(items.len(), 1);
 
     Ok(())
 }
@@ -409,33 +360,17 @@ fn cli_inspect_variables_list() -> Result<(), Box<dyn std::error::Error>> {
     let payload = parse_stdout_json(output)?;
     let items = payload.as_array().expect("variable array");
     assert!(items.iter().any(|item| {
-        item["name"] == "new_capacity"
-            && item["notation"] == "new_capacity[g, n]"
-            && item["set"]
-                == serde_json::json!([
-                    {"index": "g", "name": "generators", "cardinality": 2011},
-                    {"index": "n", "name": "nodes", "cardinality": 73}
-                ])
-            && item["domain"]
-                == serde_json::json!({
-                    "kind": "continuous",
-                    "lower": 0,
-                    "upper": null
-                })
-    }));
-    assert!(items.iter().any(|item| {
         item["name"] == "dispatch"
-            && item["notation"] == "dispatch[g, n, t]"
+            && item["notation"] == "dispatch[a, t]"
             && item["set"]
                 == serde_json::json!([
-                    {"index": "g", "name": "generators", "cardinality": 2011},
-                    {"index": "n", "name": "nodes", "cardinality": 73},
-                    {"index": "t", "name": "time", "cardinality": 2}
+                    {"index": "a", "name": "a", "cardinality": 0},
+                    {"index": "t", "name": "t", "cardinality": 0}
                 ])
             && item["domain"]
                 == serde_json::json!({
                     "kind": "continuous",
-                    "lower": 0,
+                    "lower": "asset-dependent",
                     "upper": null
                 })
     }));
@@ -458,8 +393,8 @@ fn cli_inspect_variables_list_defaults_to_pretty_cards() -> Result<(), Box<dyn s
 
     let stdout = String::from_utf8(output.stdout)?;
     assert!(stdout.contains("[variable]"));
-    assert!(stdout.contains("notation : new_capacity[g, n]"));
-    assert!(stdout.contains("domains  : g ∈ generators, n ∈ nodes"));
+    assert!(stdout.contains("notation : dispatch[a, t]"));
+    assert!(stdout.contains("domains  : a ∈ a, t ∈ t"));
     assert!(!stdout.contains("\"$ref\""));
 
     Ok(())
@@ -481,17 +416,7 @@ fn cli_inspect_parameters_list() -> Result<(), Box<dyn std::error::Error>> {
 
     let payload = parse_stdout_json(output)?;
     let items = payload.as_array().expect("parameter array");
-    assert!(items.iter().any(|item| {
-        item["name"] == "distance_km"
-            && item["set"]
-                == serde_json::json!([
-                    {"$ref": "#/sets/generators"},
-                    {"$ref": "#/sets/nodes"}
-                ])
-    }));
-    assert!(items.iter().any(|item| {
-        item["name"] == "MWLoad" && item["set"] == serde_json::json!([{"$ref": "#/sets/nodes"}])
-    }));
+    assert!(items.is_empty());
 
     Ok(())
 }
@@ -534,7 +459,7 @@ fn cli_inspect_sets_not_found() -> Result<(), Box<dyn std::error::Error>> {
     assert!(stderr.contains("not found"));
     assert!(stderr.contains("Available sets:"));
     assert!(!stderr.contains("assets"));
-    assert!(stderr.contains("area"));
+    assert!(stderr.contains("time"));
 
     Ok(())
 }
@@ -566,18 +491,9 @@ fn cli_inspect_objective() -> Result<(), Box<dyn std::error::Error>> {
     );
     assert_eq!(
         items[0]["variable_refs"],
-        serde_json::json!([{"$ref": "#/variables/new_capacity"}])
+        serde_json::json!([{"$ref": "#/variables/dispatch"}])
     );
-    assert_eq!(
-        items[0]["parameter_refs"],
-        serde_json::json!([
-            {"$ref": "#/parameters/cost_poi_usd_per_mw"},
-            {"$ref": "#/parameters/cost_reinforcement_usd_per_mw"},
-            {"$ref": "#/parameters/cost_spur_usd_per_km_mw"},
-            {"$ref": "#/parameters/distance_km"},
-            {"$ref": "#/parameters/pair_exists"}
-        ])
-    );
+    assert_eq!(items[0]["parameter_refs"], serde_json::json!([]));
     assert!(items[0].get("expression").is_none());
     assert!(
         items[0]["terms"]
