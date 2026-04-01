@@ -11,6 +11,7 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: check-added-large-files
+        args: ["--maxkb=1000"]
       - id: end-of-file-fixer
       - id: check-case-conflict
       - id: fix-byte-order-marker
@@ -55,6 +56,14 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+
+      - id: kdl-overlay-check
+        name: kdl overlay parse check
+        entry: just kdl-overlay-check
+        language: system
+        files: \.kdl$
+        pass_filenames: false
+        stages: [manual]
 
       - id: ruff-check
         name: ruff check

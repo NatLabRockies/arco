@@ -1,0 +1,55 @@
+name: kdl-overlay
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+    paths:
+      - "**/*.kdl"
+      - ".pre-commit-config.yaml"
+      - "scripts/check-kdl-overlay.sh"
+      - "tools/tree-sitter-arco-kdl/**"
+      - ".github/workflows/kdl-overlay.yaml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.43.0"
+
+jobs:
+  kdl-overlay-check:
+    name: kdl overlay parse check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: "3.12"
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          sync-python-licenses: "false"
+          save-uv-cache: "false"
+          save-rust-cache: "false"
+
+      - name: Ensure npm is available
+        run: |
+          if ! command -v npm >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y nodejs npm
+          fi
+
+      - name: Install tree-sitter CLI
+        run: npm install --global tree-sitter-cli
+
+      - name: Run filtered prek hook
+        run: uvx --from prek==0.3.6 prek run --all-files --hook-stage manual --show-diff-on-failure --color always kdl-overlay-check

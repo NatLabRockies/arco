@@ -98,6 +98,10 @@ pre-commit:
 pre-commit-stage stage:
     uvx --from prek==0.3.6 prek run --all-files --hook-stage {{stage}} --show-diff-on-failure --color always
 
+[group: 'hygiene']
+kdl-overlay-check:
+    ./scripts/check-kdl-overlay.sh
+
 [group: 'python']
 py-build-ci:
     uv run --with build python -m build bindings/python --wheel --outdir dist
