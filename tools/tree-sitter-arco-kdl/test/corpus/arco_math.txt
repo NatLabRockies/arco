@@ -1,0 +1,17 @@
+==================
+Constraint math body
+==================
+
+constraint balance {
+  sum(generation[a,t] for a in assets) + unserved_energy[t] = demand[t]
+}
+
+---
+
+(document
+  (node
+    (arco_math_node
+      (node_field
+        (value))
+      (arco_node_children
+        (arco_math_text)))))

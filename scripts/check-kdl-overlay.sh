@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+grammar_path="$repo_root/tools/tree-sitter-arco-kdl"
+
+if ! command -v tree-sitter >/dev/null 2>&1; then
+  echo "tree-sitter CLI is required for KDL overlay checks." >&2
+  exit 1
+fi
+
+if [ ! -f "$grammar_path/grammar.js" ]; then
+  echo "Missing overlay grammar at $grammar_path" >&2
+  exit 1
+fi
+
+failures=()
+file_count=0
+while IFS= read -r file; do
+  file_count=$((file_count + 1))
+  parsed="$(tree-sitter parse -p "$grammar_path" "$file" 2>/dev/null || true)"
+  if printf '%s' "$parsed" | rg -q '\(ERROR|\(MISSING'; then
+    failures+=("${file#"$repo_root/"}")
+  fi
+done < <(find "$repo_root" -type f -name '*.kdl' -not -path '*/target/*' -not -path '*/.git/*' | sort)
+
+if [ "$file_count" -eq 0 ]; then
+  echo "No .kdl files found."
+  exit 0
+fi
+
+if [ "${#failures[@]}" -gt 0 ]; then
+  echo "KDL overlay parse failed for ${#failures[@]} file(s):" >&2
+  printf '  - %s\n' "${failures[@]}" >&2
+  exit 1
+fi
+
+echo "KDL overlay parse passed for ${file_count} file(s)."

@@ -1,96 +1,96 @@
-technology "Generator" {
-  control "dispatch"
+technology Generator {
+  control dispatch
 }
 
-technology "Storage" {
-  control "dispatch"
-  state "soc"
+technology Storage {
+  control dispatch
+  state soc
 }
 
-operation "GeneratorDispatch" {
-  constraint "generator_limit" {
+operation GeneratorDispatch {
+  constraint generator_limit {
     dispatch[a,t] <= capacity_mw[a] * availability[a,t]
   }
 }
 
-operation "StorageDispatch" {
-  constraint "soc_balance" {
+operation StorageDispatch {
+  constraint soc_balance {
     soc[a,t] = soc[a,t-1] - dispatch[a,t]
   }
 
-  constraint "dispatch_limit" {
+  constraint dispatch_limit {
     -power_mw[a] <= dispatch[a,t] <= power_mw[a]
   }
 
-  constraint "soc_bounds" {
+  constraint soc_bounds {
     0 <= soc[a,t] <= energy_mwh[a]
   }
 }
 
-rule "SingleZoneBalance" {
-  constraint "balance" {
+rule SingleZoneBalance {
+  constraint balance {
     sum(dispatch[a,t] for a in assets) = load[t]
   }
 }
 
-expression "DispatchCost" {
+expression DispatchCost {
   sum(marginal_cost[a] * dispatch[a,t] for a in assets for t in time)
 }
 
-minimize "TotalSystemCost" {
+minimize TotalSystemCost {
   DispatchCost
 }
 
-asset "Coal" {
-  technology "Generator"
-  operation "GeneratorDispatch"
+asset Coal {
+  technology Generator
+  operation GeneratorDispatch
   capacity_mw 35000
   marginal_cost 30
 }
 
-asset "Wind" {
-  technology "Generator"
-  operation "GeneratorDispatch"
+asset Wind {
+  technology Generator
+  operation GeneratorDispatch
   capacity_mw 3000
   marginal_cost 0
 }
 
-asset "Gas" {
-  technology "Generator"
-  operation "GeneratorDispatch"
+asset Gas {
+  technology Generator
+  operation GeneratorDispatch
   capacity_mw 8000
   marginal_cost 60
 }
 
-asset "Oil" {
-  technology "Generator"
-  operation "GeneratorDispatch"
+asset Oil {
+  technology Generator
+  operation GeneratorDispatch
   capacity_mw 2000
   marginal_cost 80
 }
 
-asset "PumpedHydro" {
-  technology "Storage"
-  operation "StorageDispatch"
+asset PumpedHydro {
+  technology Storage
+  operation StorageDispatch
   power_mw 1000
   energy_mwh 6000
   initial_soc_mwh 0
 }
 
-scenario "SouthAfricaSingleZoneWithStorage" {
-  horizon steps=4 resolution="PT1H"
-  technology "Generator"
-  technology "Storage"
-  operation "GeneratorDispatch"
-  operation "StorageDispatch"
-  rule "SingleZoneBalance"
-  data "availability" from="data/availability.csv"
-  data "load" from="data/load.csv"
-  asset "Coal"
-  asset "Wind"
-  asset "Gas"
-  asset "Oil"
-  asset "PumpedHydro"
-  minimize "TotalSystemCost"
-  report "DispatchCost"
+scenario SouthAfricaSingleZoneWithStorage {
+  horizon steps=4 resolution=PT1H
+  technology Generator
+  technology Storage
+  operation GeneratorDispatch
+  operation StorageDispatch
+  rule SingleZoneBalance
+  data availability from="data/availability.csv"
+  data load from="data/load.csv"
+  asset Coal
+  asset Wind
+  asset Gas
+  asset Oil
+  asset PumpedHydro
+  minimize TotalSystemCost
+  report DispatchCost
 }

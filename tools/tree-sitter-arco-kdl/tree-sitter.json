@@ -1,0 +1,15 @@
+{
+  "grammars": [
+    {
+      "name": "arco_kdl",
+      "camelcase": "ArcoKdl",
+      "scope": "source.arco-kdl",
+      "file-types": ["kdl"],
+      "injection-regex": "^arco_kdl$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "description": "Thin overlay grammar for Arco KDL surface syntax"
+  }
+}

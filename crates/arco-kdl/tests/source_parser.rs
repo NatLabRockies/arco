@@ -442,8 +442,8 @@ model "EconomicDispatch" {
 scenario "Day" {
   horizon steps=24 resolution="PT1H"
   use "EconomicDispatch"
-  report "FuelCost"
-  report "StartupCost"
+  report FuelCost
+  report StartupCost
 }
 "#;
 

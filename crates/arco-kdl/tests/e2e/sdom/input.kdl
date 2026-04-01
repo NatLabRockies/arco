@@ -10,97 +10,97 @@
 // The as= property names the set of assets for each technology, making
 // constraint references like `for a in pv_plants` explicit and greppable.
 
-technology "PV" as="pv_plants" {
-    invest "pv_fraction" lower=0 upper=1
-    control "pv_dispatch" lower=0
+technology PV as=pv_plants {
+    invest pv_fraction lower=0 upper=1
+    control pv_dispatch lower=0
 }
 
-technology "Wind" as="wind_plants" {
-    invest "wind_fraction" lower=0 upper=1
-    control "wind_dispatch" lower=0
+technology Wind as=wind_plants {
+    invest wind_fraction lower=0 upper=1
+    control wind_dispatch lower=0
 }
 
-technology "BalancingUnit" as="balancing_units" {
-    invest "bal_capacity" lower=0
-    control "bal_dispatch" lower=0
+technology BalancingUnit as=balancing_units {
+    invest bal_capacity lower=0
+    control bal_dispatch lower=0
 }
 
-technology "CoupledStorage" as="storage_techs" {
-    invest "power_charge" lower=0
-    invest "power_discharge" lower=0
-    invest "energy_cap" lower=0
-    control "charge" lower=0
-    control "discharge" lower=0
-    control "charge_indicator" kind="binary"
-    state "soc"
+technology CoupledStorage as=storage_techs {
+    invest power_charge lower=0
+    invest power_discharge lower=0
+    invest energy_cap lower=0
+    control charge lower=0
+    control discharge lower=0
+    control charge_indicator kind=binary
+    state soc
 }
 
-technology "Hydro" as="hydro_units" {
-    control "dispatch" lower=0
+technology Hydro as=hydro_units {
+    control dispatch lower=0
 }
 
-technology "Trade" as="trade_nodes" {
-    control "imports" lower=0
-    control "exports" lower=0
+technology Trade as=trade_nodes {
+    control imports lower=0
+    control exports lower=0
 }
 
 // --- Operations (per-asset constraints) -------------------------------------
 
-operation "PVDispatch" {
-    constraint "pv_dispatch_limit" {
+operation PVDispatch {
+    constraint pv_dispatch_limit {
         pv_dispatch[a,t] <= solar_cf[a,t] * pv_max_cap[a] * pv_fraction[a]
     }
 }
 
-operation "WindDispatch" {
-    constraint "wind_dispatch_limit" {
+operation WindDispatch {
+    constraint wind_dispatch_limit {
         wind_dispatch[a,t] <= wind_cf[a,t] * wind_max_cap[a] * wind_fraction[a]
     }
 }
 
-operation "BalancingOp" {
-    constraint "dispatch_limit" { bal_dispatch[a,t] <= bal_capacity[a] }
-    constraint "capacity_lower" { bal_capacity[a] >= min_bal_cap[a] }
-    constraint "capacity_upper" { bal_capacity[a] <= max_bal_cap[a] }
+operation BalancingOp {
+    constraint dispatch_limit { bal_dispatch[a,t] <= bal_capacity[a] }
+    constraint capacity_lower { bal_capacity[a] >= min_bal_cap[a] }
+    constraint capacity_upper { bal_capacity[a] <= max_bal_cap[a] }
 }
 
-operation "StorageOp" {
-    constraint "coupled_power" { power_charge[a] = power_discharge[a] }
-    constraint "charge_power_cap" { power_charge[a] <= max_stor_power[a] }
-    constraint "discharge_power_cap" { power_discharge[a] <= max_stor_power[a] }
-    constraint "charge_limit" { charge[a,t] <= power_charge[a] }
-    constraint "discharge_limit" { discharge[a,t] <= power_discharge[a] }
-    constraint "charge_big_m" { charge[a,t] <= max_stor_power[a] * charge_indicator[a,t] }
-    constraint "discharge_big_m" {
+operation StorageOp {
+    constraint coupled_power { power_charge[a] = power_discharge[a] }
+    constraint charge_power_cap { power_charge[a] <= max_stor_power[a] }
+    constraint discharge_power_cap { power_discharge[a] <= max_stor_power[a] }
+    constraint charge_limit { charge[a,t] <= power_charge[a] }
+    constraint discharge_limit { discharge[a,t] <= power_discharge[a] }
+    constraint charge_big_m { charge[a,t] <= max_stor_power[a] * charge_indicator[a,t] }
+    constraint discharge_big_m {
         discharge[a,t] <= max_stor_power[a] - max_stor_power[a] * charge_indicator[a,t]
     }
-    constraint "soc_balance" {
+    constraint soc_balance {
         soc[a,t] = soc[a,t-1] + sqrt(roundtrip_eff[a]) * charge[a,t] - discharge[a,t] / sqrt(roundtrip_eff[a])
     }
-    constraint "soc_lower" { soc[a,t] >= 0 }
-    constraint "soc_upper" { soc[a,t] <= energy_cap[a] }
-    constraint "min_duration" { energy_cap[a] >= min_dur[a] * power_discharge[a] / sqrt(roundtrip_eff[a]) }
-    constraint "max_duration" { energy_cap[a] <= max_dur[a] * power_discharge[a] / sqrt(roundtrip_eff[a]) }
-    constraint "cycle_limit" {
-        over "a" in="storage_techs"
+    constraint soc_lower { soc[a,t] >= 0 }
+    constraint soc_upper { soc[a,t] <= energy_cap[a] }
+    constraint min_duration { energy_cap[a] >= min_dur[a] * power_discharge[a] / sqrt(roundtrip_eff[a]) }
+    constraint max_duration { energy_cap[a] <= max_dur[a] * power_discharge[a] / sqrt(roundtrip_eff[a]) }
+    constraint cycle_limit {
+        over a in=storage_techs
         expr { sum(discharge[a,t] for t in time) <= annualized_max_cycles[a] * energy_cap[a] }
     }
 }
 
-operation "HydroOp" {
-    constraint "hydro_min_bound" { dispatch[a,t] >= hydro_min[a,t] }
-    constraint "hydro_max_bound" { dispatch[a,t] <= hydro_max[a,t] }
+operation HydroOp {
+    constraint hydro_min_bound { dispatch[a,t] >= hydro_min[a,t] }
+    constraint hydro_max_bound { dispatch[a,t] <= hydro_max[a,t] }
 }
 
-operation "TradeOp" {
-    constraint "import_cap" { imports[a,t] <= max_import[a] }
-    constraint "export_cap" { exports[a,t] <= max_export[a] }
+operation TradeOp {
+    constraint import_cap { imports[a,t] <= max_import[a] }
+    constraint export_cap { exports[a,t] <= max_export[a] }
 }
 
 // --- Rules (system-level constraints) ---------------------------------------
 
-rule "EnergyBalance" {
-    constraint "balance" {
+rule EnergyBalance {
+    constraint balance {
         sum(pv_dispatch[a,t] for a in pv_plants)
         + sum(wind_dispatch[a,t] for a in wind_plants)
         + sum(bal_dispatch[a,t] for a in balancing_units)
@@ -114,9 +114,9 @@ rule "EnergyBalance" {
     }
 }
 
-rule "CleanEnergyTarget" {
-    constraint "clean_target" {
-        over "a" in="balancing_units"
+rule CleanEnergyTarget {
+    constraint clean_target {
+        over a in=balancing_units
         expr {
             sum(bal_dispatch[a,t] for a in balancing_units for t in time)
             <= 0.2 * (
@@ -128,9 +128,9 @@ rule "CleanEnergyTarget" {
     }
 }
 
-rule "HydroBudget" {
-    constraint "energy_budget" {
-        over "b" in="budget_periods"
+rule HydroBudget {
+    constraint energy_budget {
+        over b in=budget_periods
         expr {
             sum(dispatch[a,t] for a in hydro_units for t in time
                 if t >= budget_start[b] if t <= budget_end[b])
@@ -141,20 +141,20 @@ rule "HydroBudget" {
 
 // --- Cost expressions -------------------------------------------------------
 
-expression "PVCost" {
+expression PVCost {
     sum(annualized_pv_cost[a] * pv_max_cap[a] * pv_fraction[a] for a in pv_plants)
 }
 
-expression "WindCost" {
+expression WindCost {
     sum(annualized_wind_cost[a] * wind_max_cap[a] * wind_fraction[a] for a in wind_plants)
 }
 
-expression "BalancingCost" {
+expression BalancingCost {
     sum(annualized_bal_invest[a] * bal_capacity[a] for a in balancing_units)
     + sum(marginal_cost[a] * bal_dispatch[a,t] for a in balancing_units for t in time)
 }
 
-expression "StorageCost" {
+expression StorageCost {
     sum(
         annualized_power_cost[a] * power_discharge[a]
         - annualized_power_cost[a] * cost_ratio[a] * power_discharge[a]
@@ -164,49 +164,49 @@ expression "StorageCost" {
     + sum(vom_stor[a] * discharge[a,t] for a in storage_techs for t in time)
 }
 
-expression "TradeCost" {
+expression TradeCost {
     sum(import_price[t] * imports[a,t] for a in trade_nodes for t in time)
     - sum(export_price[t] * exports[a,t] for a in trade_nodes for t in time)
 }
 
-minimize "SystemCost" { PVCost + WindCost + BalancingCost + StorageCost + TradeCost }
+minimize SystemCost { PVCost + WindCost + BalancingCost + StorageCost + TradeCost }
 
 // --- Instances and Assets ---------------------------------------------------
 // Auto-map: CSV columns auto-map to parameters by name (no map directives needed).
 
-instances "PVPlants" from="data/pv_plants.csv" { technology "PV"; operation "PVDispatch" }
-instances "WindPlants" from="data/wind_plants.csv" { technology "Wind"; operation "WindDispatch" }
-instances "BalancingUnits" from="data/balancing_units.csv" { technology "BalancingUnit"; operation "BalancingOp" }
-instances "StorageTechs" from="data/storage_techs.csv" { technology "CoupledStorage"; operation "StorageOp" }
+instances PVPlants from="data/pv_plants.csv" { technology PV; operation PVDispatch; }
+instances WindPlants from="data/wind_plants.csv" { technology Wind; operation WindDispatch; }
+instances BalancingUnits from="data/balancing_units.csv" { technology BalancingUnit; operation BalancingOp; }
+instances StorageTechs from="data/storage_techs.csv" { technology CoupledStorage; operation StorageOp; }
 
-asset "DispatchableHydro" { technology "Hydro"; operation "HydroOp" }
-asset "TradeNode" { technology "Trade"; operation "TradeOp"; max_import 500; max_export 500 }
+asset DispatchableHydro { technology Hydro; operation HydroOp; }
+asset TradeNode { technology Trade; operation TradeOp; max_import 500; max_export 500; }
 
 // --- Scenario ---------------------------------------------------------------
 // Auto-wire: technologies, operations, and rules are inferred from the
 // instances and assets declared above. No need to re-list them.
 
-scenario "SDOMCase" {
-    horizon steps=24 resolution="PT1H"
-    set "budget_periods" from="data/budget_periods.csv"
-    data "demand" from="data/demand.csv"
-    data "solar_cf" from="data/solar_cf.csv"
-    data "wind_cf" from="data/wind_cf.csv"
-    data "nuclear_gen" from="data/nuclear_gen.csv"
-    data "hydro_min" from="data/hydro_min.csv"
-    data "hydro_max" from="data/hydro_max.csv"
-    data "import_price" from="data/import_price.csv"
-    data "export_price" from="data/export_price.csv"
-    instances "PVPlants"
-    instances "WindPlants"
-    instances "BalancingUnits"
-    instances "StorageTechs"
-    asset "DispatchableHydro"
-    asset "TradeNode"
-    minimize "SystemCost"
-    report "PVCost"
-    report "WindCost"
-    report "BalancingCost"
-    report "StorageCost"
-    report "TradeCost"
+scenario SDOMCase {
+    horizon steps=24 resolution=PT1H
+    set budget_periods from="data/budget_periods.csv"
+    data demand from="data/demand.csv"
+    data solar_cf from="data/solar_cf.csv"
+    data wind_cf from="data/wind_cf.csv"
+    data nuclear_gen from="data/nuclear_gen.csv"
+    data hydro_min from="data/hydro_min.csv"
+    data hydro_max from="data/hydro_max.csv"
+    data import_price from="data/import_price.csv"
+    data export_price from="data/export_price.csv"
+    instances PVPlants
+    instances WindPlants
+    instances BalancingUnits
+    instances StorageTechs
+    asset DispatchableHydro
+    asset TradeNode
+    minimize SystemCost
+    report PVCost
+    report WindCost
+    report BalancingCost
+    report StorageCost
+    report TradeCost
 }
