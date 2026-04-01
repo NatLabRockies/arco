@@ -14,11 +14,24 @@ use thiserror::Error;
 use tracing::info;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DualReportResult {
+    pub constraint_family: String,
+    pub values: Vec<DualReportValue>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DualReportValue {
+    pub instance_name: String,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct AdapterSolveOutput {
     pub status: SolveStatus,
     pub objective_value: ScalarArtifactValue,
     pub report_values: Vec<ScalarArtifactValue>,
     pub variable_values: Vec<VariableArtifactValue>,
+    pub dual_report_values: Vec<DualReportResult>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +68,7 @@ pub struct ExecutionResult {
     pub objective: MappedScalarResult,
     pub reports: Vec<MappedScalarResult>,
     pub variables: Vec<MappedVariableResult>,
+    pub dual_reports: Vec<DualReportResult>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -258,6 +272,14 @@ impl OptimizationAdapter for MockArcoAdapter {
                     },
                 })
                 .collect(),
+            dual_report_values: problem
+                .dual_reports
+                .iter()
+                .map(|dr| DualReportResult {
+                    constraint_family: dr.constraint_name.clone(),
+                    values: Vec::new(),
+                })
+                .collect(),
         })
     }
 }
@@ -279,6 +301,7 @@ impl OptimizationAdapter for RustArcoAdapter {
         let BuiltModel {
             model,
             variable_indices,
+            constraint_indices,
         } = build_model(problem, &backend)?;
         info!(
             "solver model translation completed in {:.2} ms",
@@ -378,6 +401,9 @@ impl OptimizationAdapter for RustArcoAdapter {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        let dual_report_values =
+            extract_dual_report_values(problem, &constraint_indices, solution.constraint_duals());
+
         Ok(AdapterSolveOutput {
             status: map_solver_status(solution.core_status()),
             objective_value: ScalarArtifactValue {
@@ -386,6 +412,7 @@ impl OptimizationAdapter for RustArcoAdapter {
             },
             report_values,
             variable_values,
+            dual_report_values,
         })
     }
 }
@@ -421,6 +448,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
         let BuiltModel {
             model,
             variable_indices,
+            constraint_indices,
         } = build_model(problem, &backend)?;
         info!(
             "solver model translation completed in {:.2} ms",
@@ -520,6 +548,9 @@ impl OptimizationAdapter for XpressArcoAdapter {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        let dual_report_values =
+            extract_dual_report_values(problem, &constraint_indices, solution.constraint_duals());
+
         Ok(AdapterSolveOutput {
             status: map_solver_status(solution.core_status()),
             objective_value: ScalarArtifactValue {
@@ -528,6 +559,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
             },
             report_values,
             variable_values,
+            dual_report_values,
         })
     }
 }
@@ -625,6 +657,7 @@ pub fn execute_problem_with_options(
         objective,
         reports,
         variables,
+        dual_reports: solve_output.dual_report_values,
     })
 }
 
@@ -636,6 +669,7 @@ pub fn render_problem_model(problem: &LoweredProblem) -> Result<String, Executio
 struct BuiltModel {
     model: Model,
     variable_indices: BTreeMap<String, usize>,
+    constraint_indices: BTreeMap<String, usize>,
 }
 
 fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, ExecutionError> {
@@ -644,6 +678,7 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
         problem.algebra.constraints.len(),
     );
     let mut variable_ids = BTreeMap::new();
+    let mut constraint_ids = BTreeMap::new();
 
     for variable in &problem.algebra.variable_instances {
         let upper = variable.upper.unwrap_or(f64::INFINITY);
@@ -687,6 +722,7 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
                 lowered_name: constraint.name.clone(),
                 source,
             })?;
+        constraint_ids.insert(constraint.name.clone(), constraint_id.inner() as usize);
 
         for term in &constraint.terms {
             let variable_id = variable_ids
@@ -749,6 +785,7 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
     Ok(BuiltModel {
         model,
         variable_indices,
+        constraint_indices: constraint_ids,
     })
 }
 
@@ -801,6 +838,41 @@ fn lookup_primal_value(
         })
 }
 
+fn extract_dual_report_values(
+    problem: &LoweredProblem,
+    constraint_indices: &BTreeMap<String, usize>,
+    constraint_duals: &[f64],
+) -> Vec<DualReportResult> {
+    problem
+        .dual_reports
+        .iter()
+        .map(|dual_report| {
+            let family = &dual_report.constraint_name;
+            let prefix = format!("{family}[");
+            let mut upper = prefix.clone();
+            // Increment last char to form exclusive upper bound for range query.
+            // '[' + 1 == '\\' in ASCII, so range "name[".."name\\" captures all "name[...]" keys.
+            if let Some(last) = upper.pop() {
+                upper.push((last as u8 + 1) as char);
+            }
+            let values = constraint_indices
+                .range(prefix..upper)
+                .map(|(name, &index)| {
+                    let dual = constraint_duals.get(index).copied().unwrap_or(0.0);
+                    DualReportValue {
+                        instance_name: name.clone(),
+                        value: dual,
+                    }
+                })
+                .collect();
+            DualReportResult {
+                constraint_family: family.clone(),
+                values,
+            }
+        })
+        .collect()
+}
+
 fn to_bounds(sense: ConstraintSense, rhs: f64) -> Bounds {
     match sense {
         ConstraintSense::GreaterEqual => Bounds::new(rhs, f64::INFINITY),
@@ -850,6 +922,7 @@ mod tests {
                 expression: "0".to_string(),
             },
             reports: Vec::new(),
+            dual_reports: Vec::new(),
             traceability: Vec::new(),
             algebra: AlgebraicProblem {
                 variable_instances: vec![VariableInstance {

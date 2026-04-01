@@ -174,6 +174,20 @@ pub struct ObjectiveDecl {
     pub parsed_expression: Expr,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReportKind {
+    /// Scalar expression evaluated at the primal solution.
+    Scalar,
+    /// Constraint shadow prices (dual values).
+    Dual,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportDecl {
+    pub kind: ReportKind,
+    pub target: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScenarioDecl {
     pub name: String,
@@ -187,7 +201,7 @@ pub struct ScenarioDecl {
     pub rules: Vec<String>,
     pub model_use: Option<String>,
     pub objective: Option<String>,
-    pub reports: Vec<String>,
+    pub reports: Vec<ReportDecl>,
     /// User-declared sets whose members are listed inline in the scenario.
     /// E.g. `generators { "gen1"; "gen2" }` produces `("generators", ["gen1", "gen2"])`.
     pub custom_sets: BTreeMap<String, Vec<String>>,
@@ -827,7 +841,24 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
             "minimize" | "maximize" => {
                 objective = Some(first_arg_string(child, 0, context)?);
             }
-            "report" => reports.push(first_arg_string(child, 0, context)?),
+            "report" => {
+                let first = first_arg_string(child, 0, context)?;
+                match first.as_str() {
+                    "dual" => {
+                        let target = first_arg_string(child, 1, context)?;
+                        reports.push(ReportDecl {
+                            kind: ReportKind::Dual,
+                            target,
+                        });
+                    }
+                    _ => {
+                        reports.push(ReportDecl {
+                            kind: ReportKind::Scalar,
+                            target: first,
+                        });
+                    }
+                }
+            }
             name if !SCENARIO_KEYWORDS.contains(&name) => {
                 let members = parse_custom_set_members(child);
                 if !members.is_empty() {
