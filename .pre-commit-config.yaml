@@ -63,6 +63,7 @@ repos:
         language: system
         files: \.kdl$
         pass_filenames: false
+        stages: [manual]
 
       - id: ruff-check
         name: ruff check
