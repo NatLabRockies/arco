@@ -71,6 +71,9 @@ pub struct Model {
     pub(crate) constraint_names: Option<BTreeMap<ConstraintId, String>>,
     pub(crate) variable_metadata: Option<BTreeMap<VariableId, serde_json::Value>>,
     pub(crate) constraint_metadata: Option<BTreeMap<ConstraintId, serde_json::Value>>,
+    // Reverse lookup for O(1) name-to-id resolution
+    pub(crate) variable_name_to_id: Option<HashMap<String, VariableId>>,
+    pub(crate) constraint_name_to_id: Option<HashMap<String, ConstraintId>>,
 }
 
 pub(crate) const BITS_PER_WORD: usize = u64::BITS as usize;
@@ -104,6 +107,8 @@ impl Model {
             constraint_names: None,
             variable_metadata: None,
             constraint_metadata: None,
+            variable_name_to_id: None,
+            constraint_name_to_id: None,
         }
     }
 
@@ -125,6 +130,8 @@ impl Model {
             constraint_names: None,
             variable_metadata: None,
             constraint_metadata: None,
+            variable_name_to_id: None,
+            constraint_name_to_id: None,
         }
     }
 
