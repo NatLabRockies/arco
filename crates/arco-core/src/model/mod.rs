@@ -248,24 +248,45 @@ impl Model {
         }
     }
 
-    pub(crate) fn normalize_terms(&self, terms: Vec<(VariableId, f64)>) -> Vec<(VariableId, f64)> {
+    /// Normalize terms with minimal allocations.
+    /// Uses in-place deduplication instead of HashMap to reduce allocations.
+    pub(crate) fn normalize_terms(
+        &self,
+        mut terms: Vec<(VariableId, f64)>,
+    ) -> Vec<(VariableId, f64)> {
         let started = Instant::now();
         let terms_in = terms.len();
 
         let skip_zeros = matches!(self.simplify_level, SimplifyLevel::Light);
-        let mut merged: HashMap<VariableId, f64> = HashMap::with_capacity(terms.len());
-        for (var_id, coeff) in terms {
-            if skip_zeros && coeff == 0.0 {
-                continue;
-            }
-            *merged.entry(var_id).or_insert(0.0) += coeff;
+
+        // Pre-filter zeros if needed (in-place)
+        if skip_zeros {
+            terms.retain(|(_, coeff)| *coeff != 0.0);
         }
 
-        let mut normalized: Vec<(VariableId, f64)> = merged
-            .into_iter()
-            .filter(|(_, coeff)| *coeff != 0.0)
-            .collect();
-        normalized.sort_unstable_by_key(|(id, _)| id.inner());
+        // Sort by variable ID to enable in-place deduplication
+        terms.sort_unstable_by_key(|(id, _)| id.inner());
+
+        // In-place deduplication: accumulate coefficients for same variable
+        if terms.len() > 1 {
+            let mut write_idx = 0;
+            for read_idx in 1..terms.len() {
+                if terms[read_idx].0 == terms[write_idx].0 {
+                    // Same variable: accumulate coefficient
+                    let coeff = terms[read_idx].1;
+                    terms[write_idx].1 += coeff;
+                } else {
+                    // Different variable: move to next write position
+                    write_idx += 1;
+                    terms[write_idx] = terms[read_idx];
+                }
+            }
+            // Truncate to remove duplicates
+            terms.truncate(write_idx + 1);
+        }
+
+        // Filter out zero coefficients post-merge
+        terms.retain(|(_, coeff)| *coeff != 0.0);
 
         tracing::debug!(
             component = "model",
@@ -273,12 +294,12 @@ impl Model {
             status = "success",
             simplify_level = self.simplify_level.as_str(),
             expr_terms_in = terms_in,
-            expr_terms_out = normalized.len(),
+            expr_terms_out = terms.len(),
             duration_ms = started.elapsed().as_secs_f64() * 1000.0,
             "Lowered linear expression"
         );
 
-        normalized
+        terms
     }
 
     pub(crate) fn add_objective_terms(&mut self, terms: Vec<(VariableId, f64)>) {
