@@ -18,6 +18,7 @@ jobs:
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: true
       matrix:

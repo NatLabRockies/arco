@@ -20,19 +20,16 @@ Arco (**Assembled Resource-Constrained Optimization**) is an experimental optimi
 
 Built for harder optimization problems on constrained resources, Arco is intentional about every allocation, careful with stack and heap behavior, and relentless about minimizing memory usage so more systems can run real workloads.
 
-## Table of Contents
-
-- [Quickstart](#quickstart)
-- [Installation](#installation)
-- [Usage](#usage)
-  - [Your First Model](#your-first-model)
-  - [Indexed Variables](#indexed-variables)
-  - [Block Composition](#block-composition)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Benchmarking](#benchmarking)
-- [Contributing](#contributing)
-- [License](#license)
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#benchmarking">Benchmarking</a> ·
+  <a href="#contributing">Contributing</a> ·
+  <a href="#license">License</a>
+</p>
 
 ## Quickstart
 
