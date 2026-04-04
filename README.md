@@ -1,131 +1,43 @@
-> [!WARNING]
-> Arco is built primarily for internal use within our organization.
-> You are welcome to try it, but we make no guarantees about API stability or
-> robustness at this stage. For battle-tested alternatives, consider
-> [Pyomo](https://www.pyomo.org/) (Python) or [JuMP](https://jump.dev/) (Julia).
-
 <div align="center">
 
-<h1>ARCO</h1>
+# Arco
 
-<p><strong>A memory-smart optimization library for solving problems on constrained hardware.</strong></p>
+**A memory-smart optimization library for LP and MIP problems on constrained hardware.**
 
-<p>
-  <a href="https://www.rust-lang.org/"><img alt="Rust" src="https://img.shields.io/badge/rust-1.85-brightgreen"></a>
-  <a href="docs/diataxis.md"><img alt="Docs" src="https://img.shields.io/badge/docs-di%C3%A1taxis-green"></a>
-  <a href="https://github.com/astral-sh/ruff"><img alt="Ruff" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"></a>
-  <a href="https://github.com/astral-sh/ty"><img alt="ty" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json"></a>
-</p>
+[![CI](https://img.shields.io/github/actions/workflow/status/pesap/arco/ci.yaml?branch=main&label=CI)](https://github.com/pesap/arco/actions/workflows/ci.yaml)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/arco/)
+[![Rust](https://img.shields.io/badge/rust-1.85-orange)](https://www.rust-lang.org/)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-green)](./licenses/BSD-3-Clause.txt)
+[![Docs](https://img.shields.io/badge/docs-di%C3%A1taxis-blue)](./docs/)
+[![PyPI](https://img.shields.io/pypi/v/arco)](https://pypi.org/project/arco/)
 
 </div>
 
-Arco is an experimental framework that serves a narrow set of linear and
-mixed-integer optimization. The primary user-facing API is the Python binding
-module `arco`, backed by Rust crates for model construction, solver integration,
-and diagnostics.
-The name stands for **Assembled Resource-Constrained Optimization** to reflect
-both the memory-focused design and the API ideas assembled from multiple
-optimization ecosystems.
+> [!WARNING]
+> Arco is built primarily for internal use within our organization. You are welcome to try it, but we make no guarantees about API stability or robustness at this stage. For battle-tested alternatives, consider [Pyomo](https://www.pyomo.org/) (Python) or [JuMP](https://jump.dev/) (Julia).
 
-## Philosophy
+Arco (**Assembled Resource-Constrained Optimization**) is an experimental optimization framework for linear and mixed-integer programming. The primary user-facing API is the Python binding module `arco`, backed by Rust crates for model construction, solver integration, and diagnostics.
 
-Arco is built for harder optimization problems on constrained resources. We are
-intentional about every allocation, careful with stack and heap behavior, and
-relentless about minimizing memory usage so more systems can run real workloads.
-The goal is not to trade speed for frugality, it is to keep performance at the
-max while staying memory disciplined.
+Built for harder optimization problems on constrained resources, Arco is intentional about every allocation, careful with stack and heap behavior, and relentless about minimizing memory usage so more systems can run real workloads.
 
-## At a Glance
-
-<table>
-<tr>
-<td valign="top" width="33%">
-
-<strong>What Arco Optimizes For</strong>
-
-<ul>
-  <li>LP/MIP workloads where memory pressure is a first-class constraint</li>
-  <li>Predictable memory behavior across stack and heap allocations</li>
-  <li>High throughput in model construction, orchestration, and solver handoff</li>
-</ul>
-
-</td>
-<td valign="top" width="33%">
-
-<strong>What Arco Is Not</strong>
-
-<ul>
-  <li>Not a general-purpose optimization framework</li>
-  <li>Not a symbolic math system for arbitrary modeling workflows</li>
-  <li>Not yet a production-hardened platform for critical infrastructure</li>
-</ul>
-
-</td>
-<td valign="top" width="33%">
-
-<strong>Current Maturity</strong>
-
-<ul>
-  <li>Experimental project with active iteration and evolving ergonomics</li>
-  <li>Best fit today for evaluation, prototyping, and focused production pilots</li>
-  <li>Readiness details are tracked in <a href="#features-and-status">Features and Status</a></li>
-</ul>
-
-</td>
-</tr>
-</table>
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#installation">Installation</a> ·
+  <a href="#usage">Usage</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#benchmarking">Benchmarking</a> ·
+  <a href="#contributing">Contributing</a> ·
+  <a href="#license">License</a>
+</p>
 
 ## Quickstart
 
-### Python Library
-
-Use `uv` to install and run Arco from Python.
+Install with `uv` (recommended) or `pip`:
 
 ```bash
 uv add arco
-uv run python -c "import arco; print(arco.__name__)"
 ```
-
-Use `pip` if you prefer a standard Python virtual environment workflow.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install arco
-python -c "import arco; print(arco.__name__)"
-```
-
-### CLI Tool
-
-The `arco` CLI is available as a standalone binary from GitHub Releases. Install
-via the shell installer:
-
-```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.sh | sh
-```
-
-Or on Windows via PowerShell:
-
-```powershell
-powershell -c "irm https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.ps1 | iex"
-```
-
-For specific versions or manual installation, download the appropriate binary for
-your platform from the [GitHub Releases](https://github.com/NatLabRockies/arco/releases)
-page.
-
-## API comparison
-
-<a id="api-comparison"></a>
-
-<table>
-<tr>
-<th>With ARCO</th>
-<th>With Pyomo</th>
-</tr>
-<tr>
-<td>
 
 ```python
 import arco
@@ -135,101 +47,273 @@ model = arco.Model()
 x = model.add_variable(lb=0, name="x")
 y = model.add_variable(lb=0, name="y")
 
-model.add_constraint(x + y >= 5.0)
+model.add_constraint(x + y >= 5.0, name="demand")
 model.minimize(3.0 * x + 2.0 * y)
 
-result = model.solve()
-# x=0.0, y=5.0, objective=10.0
+solution = model.solve()
+print(f"x = {solution.value(x):.2f}, y = {solution.value(y):.2f}")
+print(f"objective = {solution.objective_value:.2f}")
 ```
 
-</td>
-<td>
+Output:
+```
+x = 0.00, y = 5.00
+objective = 10.00
+```
+
+> [!NOTE]
+> Arco embeds the HiGHS solver. No external solver installation or configuration required.
+
+## Installation
+
+### Prerequisites
+
+- Python 3.9 or newer
+- (Optional) `uv` for fast, reproducible Python environments
+
+### From PyPI
+
+Using `uv`:
+```bash
+uv add arco
+```
+
+Using `pip`:
+```bash
+pip install arco
+```
+
+### From Source
+
+For development or to build the Rust extension locally:
+
+```bash
+git clone https://github.com/pesap/arco.git
+cd arco
+
+# Install just (command runner)
+cargo install just
+
+# Build and install Python extension in development mode
+just py-dev
+
+# Run tests
+just test
+uv run pytest
+```
+
+## Usage
+
+### Your First Model
+
+Build and solve a production planning problem:
 
 ```python
-import pyomo.environ as pyo
+import arco
 
-model = pyo.ConcreteModel()
+# Create a model
+model = arco.Model()
 
-model.x = pyo.Var(within=pyo.NonNegativeReals)
-model.y = pyo.Var(within=pyo.NonNegativeReals)
-
-model.demand = pyo.Constraint(
-    expr=model.x + model.y >= 5.0
+# Decision variables: production quantities
+x = model.add_variable(
+    bounds=arco.Bounds(lower=1.0, upper=float("inf")),
+    name="product_x"
 )
-model.cost = pyo.Objective(
-    expr=3.0 * model.x + 2.0 * model.y,
-    sense=pyo.minimize
+y = model.add_variable(
+    bounds=arco.Bounds(lower=2.0, upper=float("inf")),
+    name="product_y"
 )
 
-solver = pyo.SolverFactory('highs')
-result = solver.solve(model)
+# Constraint: total production must meet demand
+model.add_constraint(x + y >= 5.0, name="demand")
+
+# Objective: minimize production cost
+model.minimize(3.0 * x + 2.0 * y)
+
+# Solve and inspect results
+solution = model.solve()
+assert solution.is_optimal()
+
+print(f"Optimal: x={solution.value(x):.1f}, y={solution.value(y):.1f}")
+print(f"Cost: {solution.objective_value:.1f}")
 ```
 
-</td>
-</tr>
-</table>
+### Indexed Variables
 
-## Features and Roadmap
+Work with structured, array-like variables for large-scale problems:
 
-- **High Performance**: Rust core with zero-copy data structures for maximum
-  speed and minimal memory overhead.
-- **Python First**: Native Python bindings via PyO3 with intuitive operator
-  overloading for model construction.
-- **Solver Included**: HiGHS solver embedded out of the box. No external solver
-  installation or configuration required.
-- **Multi-Solver Support**: Pluggable solver backends including HiGHS (open
-  source) and FICO Xpress (commercial).
-- **Block Composition**: DAG-based orchestration for multi-stage optimization
-  problems with automatic dependency resolution.
-- **Memory Instrumentation**: Built-in diagnostics for tracking memory usage and
-  identifying bottlenecks.
+```python
+import arco
 
-| Feature                  | Status       | Feature                   | Status           |
-| :----------------------- | :----------- | :------------------------ | :--------------- |
-| **Model Construction**   | ✅ Available | **Block Orchestration**   | ✅ Available     |
-| **LP / MIP Solving**     | ✅ Available | **DAG Execution**         | ✅ Available     |
-| **HiGHS Backend**        | ✅ Available | **Warm Starting**         | ✅ Available     |
-| **Xpress Backend**       | ✅ Available | **Memory Diagnostics**    | ✅ Available     |
-| **Sparse Matrix Export** | ✅ Available | **Schema Validation**     | ✅ Available     |
-| **Slack Variables**      | ✅ Available | **Parallel Block Solve**  | 🚧 Under Testing |
-| **Dual / Reduced Costs** | ✅ Available | **Distributed Execution** | 📋 Planned       |
+model = arco.Model()
+
+# Create index sets
+plants = model.add_index_set(["NYC", "LA", "CHI"])
+products = model.add_index_set(range(5))
+
+# Create a 2D array of variables
+production = model.add_variables(
+    index_sets=[plants, products],
+    bounds=arco.Bounds(lower=0, upper=100),
+    name="production"
+)
+
+# Use operators on arrays
+total_by_plant = production.sum(axis=1)
+model.add_constraint(total_by_plant >= 10)
+
+solution = model.solve()
+```
+
+### Block Composition
+
+Compose multi-stage optimization workflows using blocks:
+
+```python
+from dataclasses import dataclass
+import arco
+from arco import block
+
+@dataclass
+class FacilityInput:
+    capacity: float
+    demand: float
+
+@block
+def facility_block(model, data: FacilityInput):
+    x = model.add_variable(lb=0, ub=data.capacity, name="output")
+    model.add_constraint(x >= data.demand)
+    model.minimize(x)
+    return {"output": x}
+
+# Build model with blocks
+model = arco.Model()
+block_handle = model.add_block(facility_block, FacilityInput(capacity=100, demand=50))
+solution = model.solve()
+```
+
+> [!TIP]
+> See the [tutorials](./docs/tutorials/) and [how-to guides](./docs/how-to/) for comprehensive examples.
+
+## Features
+
+| Feature | Status | Description |
+|:--------|:------:|:------------|
+| **Model Construction** | ✅ | Zero-copy data structures with intuitive Python operator overloading |
+| **LP / MIP Solving** | ✅ | Linear and mixed-integer programming via embedded HiGHS |
+| **HiGHS Backend** | ✅ | Open-source solver embedded out of the box |
+| **Xpress Backend** | ✅ | Commercial solver support for enterprise users |
+| **Block Orchestration** | ✅ | DAG-based composition for multi-stage problems |
+| **Memory Diagnostics** | ✅ | Built-in tracking of memory usage and bottlenecks |
+| **Warm Starting** | ✅ | Reuse solutions across sequential solves |
+| **NumPy Integration** | ✅ | Array arithmetic, element-wise operations, reductions |
+| **Parallel Block Solve** | 🚧 | Under testing for concurrent block execution |
+| **Distributed Execution** | 📋 | Planned for distributed optimization workflows |
+
+**Legend:** ✅ Available | 🚧 Under Testing | 📋 Planned
+
+## Architecture
+
+Arco is organized as a Rust workspace with Python bindings:
+
+```mermaid
+graph TB
+    subgraph Python["Python API"]
+        A[arco Python Module]
+    end
+
+    subgraph Bindings["PyO3 Bindings Layer"]
+        B[arco-bindings-python]
+    end
+
+    subgraph Crates["Rust Workspace"]
+        C[arco-core<br/>Model Builder]
+        D[arco-expr<br/>Expression Engine]
+        E[arco-solver<br/>Solver Abstractions]
+        F[arco-highs<br/>HiGHS Integration]
+        G[arco-blocks<br/>Block Composition]
+        H[arco-tools<br/>Memory Diagnostics]
+    end
+
+    subgraph Solvers["Solver Backends"]
+        I[HiGHS<br/>Embedded]
+        J[Xpress<br/>Optional]
+    end
+
+    A --> B
+    B --> C
+    B --> D
+    B --> E
+    B --> G
+    C --> D
+    E --> F
+    E --> J
+    F --> I
+    C --> H
+```
+
+### Crate Overview
+
+| Crate | Purpose |
+|:------|:--------|
+| `arco-core` | Model construction, variables, constraints, objectives |
+| `arco-expr` | Expression trees and constraint generation |
+| `arco-solver` | Solver-agnostic abstractions and solution handling |
+| `arco-highs` | HiGHS solver integration (embedded) |
+| `arco-blocks` | DAG-based block composition and orchestration |
+| `arco-tools` | Memory instrumentation and diagnostics |
+| `arco-bench` | Benchmarking framework for regression testing |
 
 ## Benchmarking
 
-Use the `arco-bench` CLI to run model benchmarks, inspect artifacts, and compare
-runs.
+Use `arco-bench` to run performance benchmarks and catch regressions:
 
 ```bash
-# Run default model-build scenarios
-cargo run -p arco-bench -- run
+# Run default benchmark scenarios
+just bench-run
 
-# Run FAC-25 and model-build with custom cases and repetitions
-cargo run -p arco-bench -- run \
-  --scenario model-build,fac25 \
-  --cases 1000,10000 \
-  --repetitions 3
+# Run with custom parameters
+just bench-run --scenario model-build,fac25 --cases 1000,10000 --repetitions 3
 
-# Summarize an artifact
-cargo run -p arco-bench -- report \
-  --input artifacts/bench/bench_<timestamp>.jsonl
+# Generate report
+just bench-report artifacts/bench/results.jsonl
 
-# Compare candidate against baseline and fail on regressions
-cargo run -p arco-bench -- compare \
-  --baseline artifacts/bench/baseline.jsonl \
-  --candidate artifacts/bench/candidate.jsonl \
-  --duration-threshold-pct 5 \
-  --memory-threshold-pct 5
-
-# Gate regressions across both total and variables stages
-just bench-gate artifacts/bench/baseline.jsonl artifacts/bench/candidate.jsonl 5 5
+# Compare and gate on regressions
+just bench-gate baseline.jsonl candidate.jsonl 5 5
 ```
-
-By default, `run` writes newline-delimited JSON records to
-`artifacts/bench/<run-id>.jsonl`. Use `--format table|json|ndjson` on `run`,
-`report`, and `compare` for terminal output control.
 
 ## Contributing
 
-Contributions are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
-development workflow, testing expectations, and documentation requirements.
-Release/versioning behavior is defined in [`RELEASE_POLICY.md`](RELEASE_POLICY.md).
+Contributions are welcome. Please see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the development workflow, testing expectations, and documentation requirements.
+
+Quick start for contributors:
+
+```bash
+# Setup
+just fmt      # Format code
+just clippy   # Run linter
+just check    # Type-check workspace
+
+# Testing
+just test     # Run Rust tests
+just py-test  # Run Python doctests
+
+# Full CI gate
+just ci
+```
+
+Release and versioning behavior is defined in [`RELEASE_POLICY.md`](./RELEASE_POLICY.md).
+
+## License
+
+Arco is licensed under the BSD 3-Clause License. See [`licenses/BSD-3-Clause.txt`](./licenses/BSD-3-Clause.txt) for details.
+
+The embedded HiGHS solver is licensed under the MIT License. See [`licenses/HiGHS-MIT.txt`](./licenses/HiGHS-MIT.txt) for details.
+
+---
+
+<div align="center">
+
+**[Documentation](./docs/)** · **[Issues](https://github.com/pesap/arco/issues)** · **[Releases](https://github.com/pesap/arco/releases)**
+
+</div>
