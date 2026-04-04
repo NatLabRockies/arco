@@ -27,6 +27,16 @@ The name stands for **Assembled Resource-Constrained Optimization** to reflect
 both the memory-focused design and the API ideas assembled from multiple
 optimization ecosystems.
 
+<p align="center">
+  <a href="#philosophy">Philosophy</a> ·
+  <a href="#at-a-glance">At a Glance</a> ·
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#api-comparison">API</a> ·
+  <a href="#features-and-roadmap">Features</a> ·
+  <a href="#benchmarking">Benchmarking</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
+
 ## Philosophy
 
 Arco is built for harder optimization problems on constrained resources. We are
