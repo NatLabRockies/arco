@@ -1,3 +1,0 @@
-asset_name,p_min_mw,p_max_mw,ramp_up,ramp_down,startup_cost
-Thermal1,40,120,30,30,800
-Thermal2,20,80,25,25,500
