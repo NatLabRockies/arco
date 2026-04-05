@@ -568,6 +568,9 @@ bindings/python/licenses/
 # Local git worktrees
 .worktrees/
 
+# Local agent scratch space
+.opencode/
+
 # Hiding LLM plan
 docs/plan*
 
