@@ -22,3 +22,7 @@ smallvec = { workspace = true }
 
 [features]
 default = []
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }
+arco-highs = { workspace = true }
