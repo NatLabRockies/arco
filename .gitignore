@@ -580,3 +580,8 @@ benchmarks/output/
 # Keep benchmark fixture data in repo
 !crates/arco-cli/tests/e2e/**/*.csv
 !crates/arco-kdl/tests/e2e/**/*.csv
+
+# Keep root workspace KDL example data in repo
+!examples/capacity-expansion/data/*.csv
+!examples/price-taker-battery/data/*.csv
+!examples/simple-electricity-market-storage/data/*.csv

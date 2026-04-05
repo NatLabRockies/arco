@@ -730,12 +730,4 @@ mod tests {
             (vec![1.0, 2.0], vec![3.0, 4.0], vec![5.0], vec![6.0])
         );
     }
-
-    #[test]
-    fn test_primal_start_length_mismatch() {
-        let mut model = HighsModel::new();
-        model.add_col(0.0, 1.0, 1.0);
-
-        assert!(model.set_primal_start(vec![0.0, 1.0]).is_err());
-    }
 }

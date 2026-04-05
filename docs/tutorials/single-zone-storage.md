@@ -10,7 +10,7 @@ The goal is simple:
 3. inspect the solved variable values
 
 By the end, you will have run the exact fixture at
-[`tests/e2e/simple-electricity-market-storage/input.kdl`](../../tests/e2e/simple-electricity-market-storage/input.kdl)
+[`examples/simple-electricity-market-storage/input.kdl`](../../examples/simple-electricity-market-storage/input.kdl)
 and compared its results against the published PyPSA example.
 
 ## Before You Start
@@ -20,9 +20,9 @@ this repository.
 
 From the repository root, the fixture lives at:
 
-- [`tests/e2e/simple-electricity-market-storage/input.kdl`](../../tests/e2e/simple-electricity-market-storage/input.kdl)
-- [`tests/e2e/simple-electricity-market-storage/data/load.csv`](../../tests/e2e/simple-electricity-market-storage/data/load.csv)
-- [`tests/e2e/simple-electricity-market-storage/data/availability.csv`](../../tests/e2e/simple-electricity-market-storage/data/availability.csv)
+- [`examples/simple-electricity-market-storage/input.kdl`](../../examples/simple-electricity-market-storage/input.kdl)
+- [`examples/simple-electricity-market-storage/data/load.csv`](../../examples/simple-electricity-market-storage/data/load.csv)
+- [`examples/simple-electricity-market-storage/data/availability.csv`](../../examples/simple-electricity-market-storage/data/availability.csv)
 
 ## Step 1: Read The KDL Model
 
@@ -78,7 +78,7 @@ rule "SingleZoneBalance" {
 Run the fixture through the current pipeline:
 
 ```bash
-cargo run -- run tests/e2e/simple-electricity-market-storage/input.kdl
+cargo run -- run examples/simple-electricity-market-storage/input.kdl
 ```
 
 The output is JSON. The most important fields are:
@@ -191,5 +191,5 @@ You now have a working Arco tutorial for a multi-period single-zone market with:
 - full solved variable extraction from the CLI output
 
 If you want the underlying fixture, use
-[`tests/e2e/simple-electricity-market-storage/input.kdl`](../../tests/e2e/simple-electricity-market-storage/input.kdl)
+[`examples/simple-electricity-market-storage/input.kdl`](../../examples/simple-electricity-market-storage/input.kdl)
 as the starting point.
