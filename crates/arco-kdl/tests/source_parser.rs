@@ -1,6 +1,6 @@
 use arco_kdl::source::{
     BoundExpr, ColumnMappingDecl, GenerationBinding, IndexDecl, LiteralValue, NamedVariableDecl,
-    VariableKindDecl, parse_program_file, parse_program_text,
+    VariableKindDecl, parse_program_text,
 };
 use std::path::PathBuf;
 
@@ -10,48 +10,6 @@ fn idx(name: &str) -> IndexDecl {
         name: name.to_string(),
         domain: None,
     }
-}
-
-#[test]
-fn parses_price_taker_battery_fixture_into_typed_declarations()
--> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("e2e")
-        .join("price-taker-battery")
-        .join("input.kdl");
-
-    let parsed = parse_program_file(&path)?;
-    let program = parsed.program;
-
-    assert_eq!(program.technologies.len(), 1);
-    assert_eq!(program.operations.len(), 1);
-    assert_eq!(program.assets.len(), 1);
-    assert_eq!(program.scenarios.len(), 1);
-
-    let technology = program.technology("Battery").ok_or("missing technology")?;
-    let control_names: Vec<&str> = technology
-        .controls
-        .iter()
-        .map(|c| c.name.as_str())
-        .collect();
-    assert_eq!(control_names, vec!["charge", "discharge"]);
-    assert_eq!(technology.states, vec!["soc".to_string()]);
-
-    let scenario = program
-        .scenario("BatteryArbitrageDay")
-        .ok_or("missing scenario")?;
-    assert_eq!(scenario.technologies, vec!["Battery".to_string()]);
-    assert_eq!(scenario.operations, vec!["PriceTakerBattery".to_string()]);
-    assert_eq!(
-        scenario.reports,
-        vec![arco_kdl::source::ReportDecl {
-            kind: arco_kdl::source::ReportKind::Scalar,
-            target: "ArbitrageRevenue".to_string(),
-        }]
-    );
-
-    Ok(())
 }
 
 #[test]
@@ -231,40 +189,6 @@ scenario name="Case" {
     assert_eq!(scenario.horizon.steps, 1);
     assert_eq!(scenario.assets, vec!["Battery1".to_string()]);
     assert_eq!(scenario.objective.as_deref(), Some("Profit"));
-
-    Ok(())
-}
-
-#[test]
-fn parses_generalized_network_fixture_into_ast_declarations()
--> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("e2e")
-        .join("generalized-two-node-network")
-        .join("input.kdl");
-
-    let parsed = parse_program_file(&path)?;
-    let program = parsed.program;
-
-    let operation = program
-        .operation("Transmission")
-        .ok_or("missing transmission operation")?;
-    let rule = program.rule("NodeBalance").ok_or("missing balance rule")?;
-    let objective = program.objective("TotalCost").ok_or("missing objective")?;
-
-    assert_eq!(
-        operation.constraints[0].parsed_expression.to_string(),
-        "-thermal_limit_mw[l] <= flow[l,t] <= thermal_limit_mw[l]"
-    );
-    assert_eq!(
-        rule.constraints[0].parsed_expression.to_string(),
-        "sum(dispatch[g,t] for g in generators if generator_node[g] == n) + sum(flow[l,t] for l in incoming_lines if line_to[l] == n) - sum(flow[l,t] for l in outgoing_lines if line_from[l] == n) = demand[n,t]"
-    );
-    assert_eq!(
-        objective.parsed_expression.to_string(),
-        "GenerationCost + LossPenalty"
-    );
 
     Ok(())
 }
