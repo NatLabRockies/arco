@@ -1,0 +1,19 @@
+model GeneratorAllocation {
+  control dispatch {
+    a
+    t
+  }
+
+  constraint capacity_limit {
+    dispatch[a,t] <= 10
+  }
+
+  minimize TotalCost {
+    sum(dispatch[a,t] for a in assets for t in time)
+  }
+}
+
+scenario GeneratorAllocationDay {
+  horizon steps=3 resolution=PT1H
+  use GeneratorAllocation
+}

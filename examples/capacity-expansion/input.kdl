@@ -1,0 +1,60 @@
+technology GasCT {
+  control dispatch
+}
+
+operation ExpansionDispatch {
+  constraint dispatch_limit {
+    dispatch[a,t] <= existing_capacity[a] + build[a]
+  }
+}
+
+instances ExistingThermal from="data/existing_thermal.csv" {
+  technology GasCT
+  operation ExpansionDispatch
+  map name from=asset_name
+  map existing_capacity from=existing_capacity_mw
+  map variable_cost from=variable_cost
+}
+
+instances CandidateGas from="data/candidate_gas.csv" {
+  technology GasCT
+  operation ExpansionDispatch
+  map name from=asset_name
+  map max_build from=max_build_mw
+  map build_cost from=build_cost
+  map variable_cost from=variable_cost
+}
+
+rule EnergyBalance {
+  constraint balance {
+    sum(dispatch[a,t] for a in assets) + unserved_energy[t] = demand[t]
+  }
+}
+
+expression InvestmentCost {
+  sum(build_cost[a] * build[a] for a in candidate_assets)
+}
+
+expression OperatingCost {
+  sum(variable_cost[a] * dispatch[a,t] for a in assets for t in time)
+}
+
+expression PenaltyCost {
+  sum(voll[t] * unserved_energy[t] for t in time)
+}
+
+minimize ExpansionCost {
+  InvestmentCost + OperatingCost + PenaltyCost
+}
+
+scenario ExpansionCase {
+  horizon steps=24 resolution=PT1H
+  technology GasCT
+  operation ExpansionDispatch
+  rule EnergyBalance
+  data demand from="data/demand.csv"
+  data voll from="data/voll.csv"
+  instances ExistingThermal
+  instances CandidateGas
+  minimize ExpansionCost
+}
