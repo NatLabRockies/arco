@@ -1,0 +1,5 @@
+asset_name,existing_capacity_mw,max_build_mw,build_cost,variable_cost,is_candidate
+ExistingCT1,120,0,0,42,0
+ExistingCT2,80,0,0,46,0
+CandidateCT1,0,150,900,44,1
+CandidateCT2,0,120,980,41,1

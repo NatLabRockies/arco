@@ -1,7 +1,20 @@
+data units from="data/units.csv" {
+  map asset_id from="asset"
+  map variable_cost from="cost"
+
+  set asset_id alias="a"
+  param variable_cost index_by="asset_id"
+}
+
 model GeneratorAllocation {
+  set asset_id alias="a"
+  set time alias="t" from="horizon"
+
+  param variable_cost index_by="asset_id"
+
   control dispatch {
-    a
-    t
+    index asset_id
+    index time
   }
 
   constraint capacity_limit {
@@ -9,7 +22,7 @@ model GeneratorAllocation {
   }
 
   minimize TotalCost {
-    sum(dispatch[a,t] for a in assets for t in time)
+    sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
   }
 }
 

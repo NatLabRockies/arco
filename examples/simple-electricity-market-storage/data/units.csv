@@ -1,0 +1,6 @@
+asset,capacity_mw,marginal_cost
+Coal,35000,30
+Wind,3000,0
+Gas,8000,60
+Oil,2000,80
+PumpedHydro,1000,0

@@ -1,0 +1,2 @@
+asset,power_mw,energy_mwh,charge_efficiency,discharge_efficiency,initial_soc_mwh,terminal_soc_mwh
+Battery1,100,400,0.92,0.92,200,200

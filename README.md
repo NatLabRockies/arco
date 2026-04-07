@@ -50,85 +50,50 @@ Install the CLI:
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/NatLabRockies/arco/releases/latest/download/arco-installer.sh | sh
 ```
 
-Write an optimization model. This one maximizes battery arbitrage revenue over
-a 24-hour price curve:
+Write an optimization model using the low-level KDL profile:
 
 ```kdl
 // input.kdl
-technology Battery {
-  control charge
-  control discharge
-  state soc
+data units from="data/units.csv" {
+  map asset_id from="asset"
+  map variable_cost from="cost"
+
+  set asset_id alias="a"
+  param variable_cost index_by="asset_id"
 }
 
-operation PriceTakerBattery {
-  constraint soc_balance {
-    soc[a,t] = soc[a,t-1]
-      + charge_efficiency[a] * charge[a,t]
-      - discharge[a,t] / discharge_efficiency[a]
+model GeneratorAllocation {
+  set asset_id alias="a"
+  set time alias="t" from="horizon"
+
+  param variable_cost index_by="asset_id"
+
+  control dispatch {
+    index asset_id
+    index time
   }
-  constraint charge_limit { charge[a,t] <= power_mw[a] }
-  constraint discharge_limit { discharge[a,t] <= power_mw[a] }
-  constraint soc_bounds { 0 <= soc[a,t] <= energy_mwh[a] }
+
+  constraint capacity_limit {
+    dispatch[a,t] <= 10
+  }
+
+  minimize TotalCost {
+    sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
+  }
 }
 
-expression ArbitrageRevenue {
-  sum(prices[t] * (discharge[a,t] - charge[a,t])
-      for a in assets for t in time)
-}
-
-maximize ArbitrageProfit { ArbitrageRevenue }
-
-asset Battery1 {
-  technology Battery
-  operation PriceTakerBattery
-  power_mw 100
-  energy_mwh 400
-  charge_efficiency 0.92
-  discharge_efficiency 0.92
-  initial_soc_mwh 200
-  terminal_soc_mwh 200
-}
-
-scenario BatteryArbitrageDay {
-  horizon steps=24 resolution=PT1H
-  technology Battery
-  operation PriceTakerBattery
-  data prices from="data/prices.csv"
-  asset Battery1
-  maximize ArbitrageProfit
-  report ArbitrageRevenue
+scenario GeneratorAllocationDay {
+  horizon steps=3 resolution=PT1H
+  use GeneratorAllocation
 }
 ```
 
-Supply a price curve in `data/prices.csv`:
+Supply `data/units.csv`:
 
 ```csv
-t,prices
-1,35
-2,30
-3,25
-4,20
-5,18
-6,15
-7,16
-8,19
-9,24
-10,32
-11,40
-12,48
-13,55
-14,60
-15,58
-16,52
-17,49
-18,46
-19,42
-20,38
-21,33
-22,31
-23,29
-24,27
+asset,cost
+GenA,10
+GenB,12
 ```
 
 Solve it:
@@ -140,16 +105,14 @@ arco run input.kdl --compact
 ```json
 {
   "solve_status": "optimal",
-  "active_scenario": "BatteryArbitrageDay",
+  "active_scenario": "GeneratorAllocationDay",
   "objective": {
-    "name": "ArbitrageProfit",
-    "sense": "maximize",
-    "value": 13221.22
+    "name": "TotalCost",
+    "sense": "minimize",
+    "value": 0.0
   },
-  "reports": [
-    { "name": "ArbitrageRevenue", "value": 13221.22 }
-  ],
-  "counts": { "parameters": 7, "variables": 3, "constraints": 4 },
+  "reports": [],
+  "counts": { "parameters": 1, "variables": 1, "constraints": 1 },
   "timing": { "total_ms": 8.48 }
 }
 ```
@@ -212,129 +175,45 @@ uv run pytest
 
 ## KDL Language
 
-Arco models are written in [KDL](https://kdl.dev) files. The language has two
-layers that share a common algebra grammar and can coexist in the same file.
+Arco models are written in [KDL](https://kdl.dev) files.
 
-### High-Level Layer (Power-System Domain)
+The supported profile is low-level and explicit:
 
-The high-level layer provides domain-specific declarations for modeling power
-systems. You define technologies, operations, rules, assets, and scenarios. The
-compiler normalizes these into a canonical form before solving.
+- top-level `data`, `subset`, `model`, and `scenario`
+- data-level `map`, `set`, `index`, and `param`
+- model-level `set`, `param`, `control`, `expression`, `constraint`, and one objective
+- scenario-level `horizon`, `use`, optional `data` bindings, and `report`
 
-**Technologies** declare the variable families for a class of equipment:
-
-```kdl
-technology Thermal {
-  control generation
-  state commit
-  state start
-  state shutdown
-}
-```
-
-**Operations** define per-asset constraints tied to a technology:
+Example:
 
 ```kdl
-operation StandardUC {
-  constraint commitment_transition {
-    commit[a,t] - commit[a,t-1] = start[a,t] - shutdown[a,t]
-  }
-  constraint min_output { generation[a,t] >= p_min[a] * commit[a,t] }
-  constraint max_output { generation[a,t] <= p_max[a] * commit[a,t] }
-  constraint ramp_up_limit {
-    generation[a,t] - generation[a,t-1] <= ramp_up[a]
-  }
-  constraint ramp_down_limit {
-    generation[a,t-1] - generation[a,t] <= ramp_down[a]
-  }
-}
-```
+data units from="data/units.csv" {
+  map asset_id from="asset"
+  map variable_cost from="cost"
 
-**Rules** define system-level constraints across assets:
-
-```kdl
-rule EnergyBalance {
-  constraint balance {
-    sum(generation[a,t] for a in assets) + unserved_energy[t] = demand[t]
-  }
-}
-```
-
-**Instances** bulk-create assets from CSV data:
-
-```kdl
-instances ThermalUnits from="data/thermal_units.csv" {
-  technology Thermal
-  operation StandardUC
-  map name from=asset_name
-  map p_min from=p_min_mw
-  map p_max from=p_max_mw
-  map ramp_up from=ramp_up
-  map ramp_down from=ramp_down
-  map startup_cost from=startup_cost
-}
-```
-
-**Expressions** define named, reusable formulas. **Scenarios** wire everything
-together for execution:
-
-```kdl
-expression FuelCost {
-  sum(fuel_cost[a,t] * generation[a,t] for a in assets for t in time)
-}
-expression StartupCost {
-  sum(startup_cost[a] * start[a,t] for a in assets for t in time)
-}
-expression PenaltyCost {
-  sum(lol_penalty[t] * unserved_energy[t] for t in time)
+  set asset_id alias="a"
+  param variable_cost index_by="asset_id"
 }
 
-minimize SystemCost { FuelCost + StartupCost + PenaltyCost }
-
-scenario BaseCase {
-  horizon steps=24 resolution=PT1H
-  technology Thermal
-  operation StandardUC
-  rule EnergyBalance
-  data demand from="data/demand.csv"
-  data fuel_cost from="data/fuel_cost.csv"
-  data lol_penalty from="data/lol_penalty.csv"
-  data initial_commitment from="data/initial_commitment.csv"
-  instances ThermalUnits
-  minimize SystemCost
-  report FuelCost
-  report StartupCost
-  report PenaltyCost
-}
-```
-
-### Low-Level Layer (Generic Optimization)
-
-For problems without power-system semantics, the low-level layer provides a
-self-contained `model` block with explicit sets, variables, constraints, and an
-objective. A `scenario` activates it with `use`:
-
-```kdl
 model GeneratorAllocation {
-  control dispatch lower=0 {
-    a
-    t
-  }
+  set asset_id alias="a"
+  set time alias="t" from="horizon"
 
-  constraint capacity_limit {
-    dispatch[a,t] <= capacity[a]
+  param variable_cost index_by="asset_id"
+
+  control dispatch {
+    index asset_id
+    index time
   }
 
   minimize TotalCost {
-    sum(cost[a] * dispatch[a,t] for a in assets for t in time)
+    sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
   }
 }
 
 scenario AllocationDay {
   horizon steps=24 resolution=PT1H
   use GeneratorAllocation
-  data capacity from="data/capacity.csv"
-  data cost from="data/cost.csv"
 }
 ```
 
@@ -351,16 +230,16 @@ The `arco` CLI compiles and solves KDL optimization models.
 arco <command> [options]
 ```
 
-| Command                   | Description                                         |
-| :------------------------ | :-------------------------------------------------- |
-| `arco run <file>`         | Compile and solve a `.kdl` formulation              |
-| `arco validate <file>`    | Validate a `.kdl` file without solving              |
+| Command                   | Description                                          |
+| :------------------------ | :--------------------------------------------------- |
+| `arco run <file>`         | Compile and solve a `.kdl` formulation               |
+| `arco validate <file>`    | Validate a `.kdl` file without solving               |
 | `arco inspect <file>`     | Inspect semantic model (sets, variables, parameters) |
-| `arco print-model <file>` | Print the algebraic model sent to the solver        |
-| `arco export <file>`      | Export as LP or MPS format                          |
-| `arco debug <file>`       | Open an interactive IPython debug shell             |
-| `arco solver show`        | Show the active solver backend                      |
-| `arco solver set <name>`  | Set the solver backend (`highs` or `xpress`)        |
+| `arco print-model <file>` | Print the algebraic model sent to the solver         |
+| `arco export <file>`      | Export as LP or MPS format                           |
+| `arco debug <file>`       | Open an interactive IPython debug shell              |
+| `arco solver show`        | Show the active solver backend                       |
+| `arco solver set <name>`  | Set the solver backend (`highs` or `xpress`)         |
 
 ### Examples
 
@@ -502,7 +381,7 @@ solution = model.solve()
 
 | Feature                   | Status | Description                                                          |
 | :------------------------ | :----: | :------------------------------------------------------------------- |
-| **KDL Optimization DSL**  |   ✅   | Two-layer DSL for generic and power-system optimization models       |
+| **KDL Optimization DSL**  |   ✅   | Low-level KDL profile with explicit data/model/scenario declarations |
 | **CLI Compiler/Solver**   |   ✅   | Compile, validate, inspect, solve, and export from the command line  |
 | **LP / MIP Solving**      |   ✅   | Linear and mixed-integer programming via embedded HiGHS              |
 | **HiGHS Backend**         |   ✅   | Open-source solver embedded out of the box                           |
@@ -567,17 +446,17 @@ graph TB
 
 ### Crate Overview
 
-| Crate         | Purpose                                                |
-| :------------ | :----------------------------------------------------- |
-| `arco-cli`    | CLI compiler and solver for KDL optimization models    |
+| Crate         | Purpose                                                 |
+| :------------ | :------------------------------------------------------ |
+| `arco-cli`    | CLI compiler and solver for KDL optimization models     |
 | `arco-kdl`    | KDL parser, semantic validation, and algebraic lowering |
-| `arco-core`   | Model construction, variables, constraints, objectives |
-| `arco-expr`   | Expression trees and constraint generation             |
-| `arco-solver` | Solver-agnostic abstractions and solution handling     |
-| `arco-highs`  | HiGHS solver integration (embedded)                    |
-| `arco-blocks` | DAG-based block composition and orchestration          |
-| `arco-tools`  | Memory instrumentation and diagnostics                 |
-| `arco-bench`  | Benchmarking framework for regression testing          |
+| `arco-core`   | Model construction, variables, constraints, objectives  |
+| `arco-expr`   | Expression trees and constraint generation              |
+| `arco-solver` | Solver-agnostic abstractions and solution handling      |
+| `arco-highs`  | HiGHS solver integration (embedded)                     |
+| `arco-blocks` | DAG-based block composition and orchestration           |
+| `arco-tools`  | Memory instrumentation and diagnostics                  |
+| `arco-bench`  | Benchmarking framework for regression testing           |
 
 ## Benchmarking
 
