@@ -910,19 +910,10 @@ fn load_inputs(
     let mut set_params = BTreeMap::new();
 
     for data_decl in &source_program.data {
-        load_data_decl_params(
-            data_decl,
-            entry_dir,
-            &mut generic_data,
-            &mut set_params,
-            entrypoint,
-        )?;
+        load_data_decl_params(data_decl, entry_dir, &mut generic_data, &mut set_params)?;
     }
 
     for binding in &scenario.data {
-        series.remove(&binding.name);
-        indexed.remove(&binding.name);
-        asset_data.remove(&binding.name);
         generic_data.remove(&binding.name);
 
         let csv_path = entry_dir.join(&binding.source);
@@ -2160,6 +2151,7 @@ fn domain_value_matches_selectors(
     let FilterValue::String(member) = value else {
         return false;
     };
+    let key = vec![member.clone()];
 
     selectors.iter().all(|(field, expected)| {
         if let Some(param_values) = inputs.set_params.get(field)
@@ -2169,7 +2161,7 @@ fn domain_value_matches_selectors(
         }
 
         if let Some(table) = inputs.generic_data.get(field)
-            && let Some(actual) = table.values.get(&vec![member.clone()])
+            && let Some(actual) = table.values.get(&key)
         {
             return numeric_or_string_match(*actual, expected);
         }
@@ -2808,7 +2800,6 @@ fn load_data_decl_params(
     entry_dir: &Path,
     generic_data: &mut BTreeMap<String, GenericDataTable>,
     set_params: &mut BTreeMap<String, BTreeMap<String, f64>>,
-    entrypoint: &Path,
 ) -> Result<(), LoweringError> {
     let csv_path = entry_dir.join(&data_decl.source);
     let rows = read_csv_rows(&csv_path)?;
@@ -2893,25 +2884,24 @@ fn load_data_decl_params(
             }
         }
 
-        let table = GenericDataTable {
-            values: values.clone(),
-            default_missing: None,
-        };
-        generic_data.insert(parameter.name.clone(), table);
-
         if key_columns.len() == 1 {
-            for (key, value) in values {
+            let members = set_params.entry(parameter.name.clone()).or_default();
+            for (key, value) in &values {
                 if let Some(member) = key.first() {
-                    set_params
-                        .entry(parameter.name.clone())
-                        .or_default()
-                        .insert(member.clone(), value);
+                    members.insert(member.clone(), *value);
                 }
             }
         }
+
+        generic_data.insert(
+            parameter.name.clone(),
+            GenericDataTable {
+                values,
+                default_missing: None,
+            },
+        );
     }
 
-    let _ = entrypoint;
     Ok(())
 }
 
