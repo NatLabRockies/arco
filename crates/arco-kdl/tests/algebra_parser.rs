@@ -33,6 +33,26 @@ fn parses_filtered_tuple_reduction_expressions() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
+fn parses_inline_selector_reduction_domain() -> Result<(), Box<dyn std::error::Error>> {
+    let expression = parse_value_formula(
+        "sum(dispatch[g,t] for g in generator_data[class=solar area=north] for t in time)",
+    )?;
+
+    let Expr::Reduction(reduction) = expression else {
+        return Err("expected reduction expression".into());
+    };
+
+    assert_eq!(reduction.bindings.len(), 2);
+    assert_eq!(
+        reduction.bindings[0].domain,
+        "generator_data[class=solar area=north]"
+    );
+    assert_eq!(reduction.bindings[1].domain, "time");
+
+    Ok(())
+}
+
+#[test]
 fn parses_chained_constraint_bounds() -> Result<(), Box<dyn std::error::Error>> {
     let constraint = parse_constraint_formula("-power_mw[a] <= dispatch[a,t] <= power_mw[a]")?;
 

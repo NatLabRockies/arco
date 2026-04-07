@@ -6,8 +6,9 @@ use crate::algebra::{
     ConstraintBody, Expr, collect_named_expression_dependencies, constraint_mentions_previous_time,
 };
 use crate::source::{
-    BoundExpr, ConstraintDecl, DataBindingDecl, GenerationBinding, InstancesDecl, ScenarioDecl,
-    SourceProgram, VariableKindDecl,
+    BoundExpr, ConstraintDecl, DataBindingDecl, FilterComparators, GenerationBinding,
+    InstancesDecl, LiteralValue, ModelDecl, ScenarioDecl, SetDecl, SourceProgram, SubsetDecl,
+    VariableKindDecl,
 };
 use csv::StringRecord;
 use miette::Diagnostic;
@@ -190,6 +191,12 @@ pub enum SemanticError {
         help("add a `scenario` declaration")
     )]
     MissingScenario { path: PathBuf },
+    #[error("semantic validation currently supports exactly one scenario in {path}, found {count}")]
+    #[diagnostic(
+        code(arco::semantic::scenario_count),
+        help("keep a single `scenario` declaration while low-level migration is in progress")
+    )]
+    ScenarioCount { count: usize, path: PathBuf },
     #[error("missing declaration `{kind}` named `{name}` in {path}")]
     #[diagnostic(
         code(arco::semantic::missing_declaration),
@@ -281,6 +288,31 @@ pub enum SemanticError {
         #[source]
         source: csv::Error,
     },
+    #[error("scenario `{scenario}` must declare `use` for a model in {path}")]
+    #[diagnostic(
+        code(arco::semantic::missing_model_use),
+        help("add `use \"ModelName\"` to the scenario")
+    )]
+    MissingModelUse { scenario: String, path: PathBuf },
+    #[error(
+        "scenario `{scenario}` binds data `{binding}` that is not a parameter in model `{model}` in {path}"
+    )]
+    #[diagnostic(
+        code(arco::semantic::unknown_scenario_data_binding),
+        help("rename the data binding or add a matching model parameter")
+    )]
+    UnknownScenarioDataBinding {
+        scenario: String,
+        binding: String,
+        model: String,
+        path: PathBuf,
+    },
+    #[error("expression cycle detected: {cycle} in {path}")]
+    #[diagnostic(
+        code(arco::semantic::expression_cycle),
+        help("rewrite model expressions so named dependencies form a DAG")
+    )]
+    ExpressionCycle { cycle: String, path: PathBuf },
 }
 
 pub fn validate_program(
@@ -585,15 +617,13 @@ fn validate_canonical_model_program(
     entrypoint: &Path,
 ) -> Result<SemanticProgram, SemanticError> {
     let scenario = resolve_scenario(program, entrypoint)?;
-    let model_name =
-        scenario
-            .model_use
-            .clone()
-            .ok_or_else(|| SemanticError::MissingDeclaration {
-                kind: "model",
-                name: "active model".to_string(),
-                path: entrypoint.to_path_buf(),
-            })?;
+    let model_name = scenario
+        .model_use
+        .clone()
+        .ok_or_else(|| SemanticError::MissingModelUse {
+            scenario: scenario.name.clone(),
+            path: entrypoint.to_path_buf(),
+        })?;
     let model = program
         .model(&model_name)
         .ok_or_else(|| SemanticError::MissingDeclaration {
@@ -601,6 +631,18 @@ fn validate_canonical_model_program(
             name: model_name,
             path: entrypoint.to_path_buf(),
         })?;
+
+    let mut seen_data_bindings = BTreeSet::new();
+    for binding in &scenario.data {
+        if !seen_data_bindings.insert(binding.name.clone()) {
+            return Err(SemanticError::DuplicateDataBinding {
+                name: binding.name.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+    }
+
+    validate_scenario_data_bindings_match_model_params(scenario, model, entrypoint)?;
 
     let mut asset_names = scenario.assets.iter().cloned().collect::<BTreeSet<_>>();
     if asset_names.is_empty() {
@@ -658,9 +700,9 @@ fn validate_canonical_model_program(
         expression: model.optimize.parsed_expression.clone(),
     };
     let (active_reports, active_dual_reports) =
-        resolve_scenario_reports(program, scenario, &active_constraints, entrypoint)?;
+        resolve_model_scenario_reports(model, scenario, &active_constraints, entrypoint)?;
     let active_expressions =
-        resolve_active_expressions(program, &active_objective, &active_reports, entrypoint)?;
+        resolve_active_model_expressions(model, &active_objective, &active_reports, entrypoint)?;
 
     let resolved_sets = ResolvedSets {
         assets: asset_names.into_iter().collect(),
@@ -671,6 +713,10 @@ fn validate_canonical_model_program(
         },
     };
     let mut set_registry = build_set_registry(&resolved_sets, &scenario.custom_sets);
+
+    if let Some(entry_dir) = entrypoint.parent() {
+        extend_set_registry_from_low_level_declarations(program, entry_dir, &mut set_registry)?;
+    }
 
     let mut set_params: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
     if let Some(entry_dir) = entrypoint.parent() {
@@ -718,6 +764,29 @@ fn validate_canonical_model_program(
     })
 }
 
+fn validate_scenario_data_bindings_match_model_params(
+    scenario: &ScenarioDecl,
+    model: &ModelDecl,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    let parameter_names = model
+        .parameters
+        .iter()
+        .map(|parameter| parameter.name.as_str())
+        .collect::<BTreeSet<_>>();
+    for binding in &scenario.data {
+        if !parameter_names.contains(binding.name.as_str()) {
+            return Err(SemanticError::UnknownScenarioDataBinding {
+                scenario: scenario.name.clone(),
+                binding: binding.name.clone(),
+                model: model.name.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn classify_parameter_indices(
     name: &str,
     indices: &[String],
@@ -738,8 +807,8 @@ fn classify_parameter_indices(
     let signature = render_signature(name, &normalized_indices);
 
     if normalized_indices.len() == 1 {
-        let index = &normalized_indices[0];
-        if index.contains('t') || index.contains("time") {
+        let index = normalized_indices[0].to_ascii_lowercase();
+        if index == "t" || index == "time" {
             let _ = series_parameters.insert(signature);
         } else {
             let _ = asset_parameters.insert(signature);
@@ -762,11 +831,16 @@ fn resolve_scenario<'a>(
     program: &'a SourceProgram,
     entrypoint: &Path,
 ) -> Result<&'a ScenarioDecl, SemanticError> {
-    program
-        .first_scenario()
-        .ok_or_else(|| SemanticError::MissingScenario {
+    match program.scenarios.len() {
+        0 => Err(SemanticError::MissingScenario {
             path: entrypoint.to_path_buf(),
-        })
+        }),
+        1 => Ok(&program.scenarios[0]),
+        count => Err(SemanticError::ScenarioCount {
+            count,
+            path: entrypoint.to_path_buf(),
+        }),
+    }
 }
 
 fn resolve_direct_wiring_constraints(
@@ -909,6 +983,193 @@ fn resolve_active_expressions(
             formula: expression.parsed_formula.clone(),
         });
     }
+    expressions.sort_by_key(|expression| expression.name.clone());
+    Ok(expressions)
+}
+
+fn resolve_model_scenario_reports(
+    model: &ModelDecl,
+    scenario: &ScenarioDecl,
+    active_constraints: &[ResolvedConstraint],
+    entrypoint: &Path,
+) -> Result<(Vec<ResolvedReport>, Vec<ResolvedDualReport>), SemanticError> {
+    use crate::source::ReportKind;
+
+    let mut reports = Vec::new();
+    let mut dual_reports = Vec::new();
+    for report_decl in &scenario.reports {
+        match report_decl.kind {
+            ReportKind::Scalar => {
+                if report_decl.target == model.optimize.name {
+                    reports.push(ResolvedReport {
+                        name: model.optimize.name.clone(),
+                        formula_text: model.optimize.expression.clone(),
+                        formula: model.optimize.parsed_expression.clone(),
+                    });
+                    continue;
+                }
+                let expression = model
+                    .expressions
+                    .iter()
+                    .find(|expression| expression.name == report_decl.target)
+                    .ok_or_else(|| SemanticError::MissingDeclaration {
+                        kind: "expression",
+                        name: report_decl.target.clone(),
+                        path: entrypoint.to_path_buf(),
+                    })?;
+                reports.push(ResolvedReport {
+                    name: expression.name.clone(),
+                    formula_text: expression.formula.clone(),
+                    formula: expression.parsed_formula.clone(),
+                });
+            }
+            ReportKind::Dual => {
+                let target = &report_decl.target;
+                let exists = active_constraints
+                    .iter()
+                    .any(|constraint| constraint.name == *target);
+                if !exists {
+                    return Err(SemanticError::MissingDeclaration {
+                        kind: "constraint",
+                        name: target.clone(),
+                        path: entrypoint.to_path_buf(),
+                    });
+                }
+                dual_reports.push(ResolvedDualReport {
+                    constraint_name: target.clone(),
+                });
+            }
+        }
+    }
+
+    Ok((reports, dual_reports))
+}
+
+fn resolve_active_model_expressions(
+    model: &ModelDecl,
+    objective: &ResolvedObjective,
+    reports: &[ResolvedReport],
+    entrypoint: &Path,
+) -> Result<Vec<ResolvedExpression>, SemanticError> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum VisitState {
+        Visiting,
+        Done,
+    }
+
+    let expression_index = model
+        .expressions
+        .iter()
+        .map(|expression| (expression.name.as_str(), expression))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut resolved = BTreeSet::new();
+    let mut states: BTreeMap<String, VisitState> = BTreeMap::new();
+    let mut stack: Vec<String> = Vec::new();
+
+    fn visit_expression_name(
+        name: &str,
+        expression_index: &BTreeMap<&str, &crate::source::ExpressionDecl>,
+        resolved: &mut BTreeSet<String>,
+        states: &mut BTreeMap<String, VisitState>,
+        stack: &mut Vec<String>,
+        entrypoint: &Path,
+    ) -> Result<(), SemanticError> {
+        if let Some(state) = states.get(name) {
+            if *state == VisitState::Done {
+                return Ok(());
+            }
+            if let Some(start) = stack.iter().position(|item| item == name) {
+                let mut cycle = stack[start..].to_vec();
+                cycle.push(name.to_string());
+                return Err(SemanticError::ExpressionCycle {
+                    cycle: cycle.join(" -> "),
+                    path: entrypoint.to_path_buf(),
+                });
+            }
+        }
+
+        let expression =
+            expression_index
+                .get(name)
+                .ok_or_else(|| SemanticError::MissingDeclaration {
+                    kind: "expression",
+                    name: name.to_string(),
+                    path: entrypoint.to_path_buf(),
+                })?;
+
+        states.insert(name.to_string(), VisitState::Visiting);
+        stack.push(name.to_string());
+
+        for dependency in collect_named_expression_dependencies(&expression.parsed_formula) {
+            if expression_index.contains_key(dependency.as_str()) {
+                visit_expression_name(
+                    &dependency,
+                    expression_index,
+                    resolved,
+                    states,
+                    stack,
+                    entrypoint,
+                )?;
+            }
+        }
+
+        stack.pop();
+        states.insert(name.to_string(), VisitState::Done);
+        resolved.insert(name.to_string());
+        Ok(())
+    }
+
+    for dependency in collect_named_expression_dependencies(&objective.expression) {
+        if expression_index.contains_key(dependency.as_str()) {
+            visit_expression_name(
+                &dependency,
+                &expression_index,
+                &mut resolved,
+                &mut states,
+                &mut stack,
+                entrypoint,
+            )?;
+        }
+    }
+
+    for report in reports {
+        if expression_index.contains_key(report.name.as_str()) {
+            visit_expression_name(
+                &report.name,
+                &expression_index,
+                &mut resolved,
+                &mut states,
+                &mut stack,
+                entrypoint,
+            )?;
+        }
+        for dependency in collect_named_expression_dependencies(&report.formula) {
+            if expression_index.contains_key(dependency.as_str()) {
+                visit_expression_name(
+                    &dependency,
+                    &expression_index,
+                    &mut resolved,
+                    &mut states,
+                    &mut stack,
+                    entrypoint,
+                )?;
+            }
+        }
+    }
+
+    let mut expressions = resolved
+        .into_iter()
+        .filter_map(|name| {
+            expression_index
+                .get(name.as_str())
+                .map(|expression| ResolvedExpression {
+                    name: expression.name.clone(),
+                    formula_text: expression.formula.clone(),
+                    formula: expression.parsed_formula.clone(),
+                })
+        })
+        .collect::<Vec<_>>();
     expressions.sort_by_key(|expression| expression.name.clone());
     Ok(expressions)
 }
@@ -1517,6 +1778,250 @@ fn collect_control_overrides<'a>(
         }
     }
     overrides
+}
+
+fn extend_set_registry_from_low_level_declarations(
+    program: &SourceProgram,
+    entry_dir: &Path,
+    registry: &mut BTreeMap<String, ResolvedSet>,
+) -> Result<(), SemanticError> {
+    let mut data_rows = BTreeMap::new();
+    for data_decl in &program.data {
+        let csv_path = entry_dir.join(&data_decl.source);
+        let rows = read_csv_rows(&csv_path)?;
+        data_rows.insert(data_decl.name.clone(), rows);
+
+        for set_decl in &data_decl.sets {
+            let values = values_for_data_set(data_decl, set_decl, &data_rows[&data_decl.name]);
+            registry.insert(set_decl.name.clone(), ResolvedSet { values });
+        }
+    }
+
+    for set_decl in &program.sets {
+        let values = values_for_top_level_set(program, set_decl, &data_rows);
+        registry.insert(set_decl.name.clone(), ResolvedSet { values });
+    }
+
+    for subset_decl in &program.subsets {
+        let values = values_for_subset(program, subset_decl, &data_rows);
+        registry.insert(subset_decl.name.clone(), ResolvedSet { values });
+    }
+
+    Ok(())
+}
+
+fn values_for_top_level_set(
+    program: &SourceProgram,
+    set_decl: &SetDecl,
+    data_rows: &BTreeMap<String, Vec<BTreeMap<String, String>>>,
+) -> Vec<String> {
+    let Some(source) = &set_decl.source else {
+        return Vec::new();
+    };
+    let Some(data_decl) = program.data(source) else {
+        return Vec::new();
+    };
+    let Some(rows) = data_rows.get(source) else {
+        return Vec::new();
+    };
+    values_for_data_set(data_decl, set_decl, rows)
+}
+
+fn values_for_subset(
+    program: &SourceProgram,
+    subset_decl: &SubsetDecl,
+    data_rows: &BTreeMap<String, Vec<BTreeMap<String, String>>>,
+) -> Vec<String> {
+    let Some(data_decl) = program.data(&subset_decl.source) else {
+        return Vec::new();
+    };
+    let Some(rows) = data_rows.get(&subset_decl.source) else {
+        return Vec::new();
+    };
+
+    let target_column = data_decl.maps.first().map_or_else(
+        || "name".to_string(),
+        |mapping| {
+            mapping
+                .source
+                .clone()
+                .unwrap_or_else(|| mapping.name.clone())
+        },
+    );
+
+    let mut values = BTreeSet::new();
+    for row in rows {
+        if !field_filters_match(row, data_decl, &subset_decl.field_filters) {
+            continue;
+        }
+        if !comparators_match(
+            row,
+            data_decl,
+            subset_decl.filter_by.as_deref(),
+            Some(target_column.as_str()),
+            &subset_decl.comparators,
+        ) {
+            continue;
+        }
+        if let Some(value) = row.get(&target_column) {
+            values.insert(value.clone());
+        }
+    }
+    values.into_iter().collect()
+}
+
+fn values_for_data_set(
+    data_decl: &crate::source::DataDecl,
+    set_decl: &SetDecl,
+    rows: &[BTreeMap<String, String>],
+) -> Vec<String> {
+    let target_column = source_column_for_logical_name(data_decl, &set_decl.name);
+    let mut values = BTreeSet::new();
+    for row in rows {
+        if !comparators_match(
+            row,
+            data_decl,
+            set_decl.filter_by.as_deref(),
+            Some(target_column.as_str()),
+            &set_decl.comparators,
+        ) {
+            continue;
+        }
+        if let Some(value) = row.get(&target_column) {
+            values.insert(value.clone());
+        }
+    }
+    values.into_iter().collect()
+}
+
+fn source_column_for_logical_name(data_decl: &crate::source::DataDecl, logical: &str) -> String {
+    data_decl
+        .maps
+        .iter()
+        .find(|mapping| mapping.name == logical)
+        .map_or_else(
+            || logical.to_string(),
+            |mapping| {
+                mapping
+                    .source
+                    .clone()
+                    .unwrap_or_else(|| mapping.name.clone())
+            },
+        )
+}
+
+fn field_filters_match(
+    row: &BTreeMap<String, String>,
+    data_decl: &crate::source::DataDecl,
+    field_filters: &BTreeMap<String, LiteralValue>,
+) -> bool {
+    field_filters.iter().all(|(field, expected)| {
+        let source_field = source_column_for_logical_name(data_decl, field);
+        row.get(&source_field)
+            .is_some_and(|actual| literal_matches(actual, expected))
+    })
+}
+
+fn comparators_match(
+    row: &BTreeMap<String, String>,
+    data_decl: &crate::source::DataDecl,
+    filter_by: Option<&str>,
+    default_column: Option<&str>,
+    comparators: &FilterComparators,
+) -> bool {
+    if comparators.eq.is_none()
+        && comparators.ge.is_none()
+        && comparators.geq.is_none()
+        && comparators.le.is_none()
+        && comparators.leq.is_none()
+    {
+        return true;
+    }
+
+    let column = filter_by
+        .map(|name| source_column_for_logical_name(data_decl, name))
+        .or_else(|| default_column.map(ToString::to_string));
+    let Some(column) = column else {
+        return true;
+    };
+    let Some(raw_value) = row.get(&column) else {
+        return false;
+    };
+
+    if let Some(expected) = &comparators.eq {
+        if !literal_matches(raw_value, expected) {
+            return false;
+        }
+    }
+    if let Some(expected) = &comparators.ge {
+        if !literal_numeric_compare(raw_value, expected, |actual, threshold| actual > threshold) {
+            return false;
+        }
+    }
+    if let Some(expected) = &comparators.geq {
+        if !literal_numeric_compare(raw_value, expected, |actual, threshold| actual >= threshold) {
+            return false;
+        }
+    }
+    if let Some(expected) = &comparators.le {
+        if !literal_numeric_compare(raw_value, expected, |actual, threshold| actual < threshold) {
+            return false;
+        }
+    }
+    if let Some(expected) = &comparators.leq {
+        if !literal_numeric_compare(raw_value, expected, |actual, threshold| actual <= threshold) {
+            return false;
+        }
+    }
+    true
+}
+
+fn literal_matches(actual: &str, expected: &LiteralValue) -> bool {
+    match expected {
+        LiteralValue::String(value) => actual == value,
+        LiteralValue::Integer(value) => actual.parse::<i128>() == Ok(*value),
+        LiteralValue::Decimal(value) => {
+            let Ok(expected_value) = value.parse::<f64>() else {
+                return false;
+            };
+            actual
+                .parse::<f64>()
+                .map(|actual_value| (actual_value - expected_value).abs() < 1e-9)
+                .unwrap_or(false)
+        }
+        LiteralValue::Boolean(value) => {
+            let normalized = actual.trim().to_ascii_lowercase();
+            (*value && (normalized == "true" || normalized == "1"))
+                || (!*value && (normalized == "false" || normalized == "0"))
+        }
+    }
+}
+
+fn literal_numeric_compare(
+    actual: &str,
+    expected: &LiteralValue,
+    compare: impl Fn(f64, f64) -> bool,
+) -> bool {
+    let Ok(actual_value) = actual.parse::<f64>() else {
+        return false;
+    };
+    let expected_value = match expected {
+        LiteralValue::Integer(value) => *value as f64,
+        LiteralValue::Decimal(value) | LiteralValue::String(value) => {
+            let Ok(parsed) = value.parse::<f64>() else {
+                return false;
+            };
+            parsed
+        }
+        LiteralValue::Boolean(value) => {
+            if *value {
+                1.0
+            } else {
+                0.0
+            }
+        }
+    };
+    compare(actual_value, expected_value)
 }
 
 /// Build the set registry from the resolved built-in sets and any

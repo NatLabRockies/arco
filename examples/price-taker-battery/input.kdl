@@ -1,22 +1,51 @@
-technology Battery {
-  control charge
-  control discharge
-  state soc
+data battery from="data/battery.csv" {
+  map asset_id from="asset"
+
+  set asset_id alias="a"
+
+  param power_mw index_by="asset_id"
+  param energy_mwh index_by="asset_id"
+  param charge_efficiency index_by="asset_id"
+  param discharge_efficiency index_by="asset_id"
+  param initial_soc_mwh index_by="asset_id"
+  param terminal_soc_mwh index_by="asset_id"
 }
 
-asset Battery1 {
-  technology Battery
-  operation PriceTakerBattery
-  power_mw 100
-  energy_mwh 400
-  charge_efficiency 0.92
-  discharge_efficiency 0.92
-  initial_soc_mwh 200
-  terminal_soc_mwh 200
+data price_curve from="data/prices.csv" {
+  set t
+  param prices index_by="t"
 }
 
-operation PriceTakerBattery {
-  constraint name=soc_balance {
+model PriceTakerBattery {
+  set asset_id alias="a"
+  set time alias="t" from="horizon"
+
+  param power_mw index_by="asset_id"
+  param energy_mwh index_by="asset_id"
+  param charge_efficiency index_by="asset_id"
+  param discharge_efficiency index_by="asset_id"
+  param initial_soc_mwh index_by="asset_id"
+  param terminal_soc_mwh index_by="asset_id"
+  param prices index_by="time"
+
+  control charge {
+    index asset_id
+    index time
+  }
+  control discharge {
+    index asset_id
+    index time
+  }
+  control soc {
+    index asset_id
+    index time
+  }
+
+  expression ArbitrageRevenue {
+    sum(prices[t] * (discharge[a,t] - charge[a,t]) for a in asset_id for t in time)
+  }
+
+  constraint soc_balance {
     soc[a,t] = soc[a,t-1] + charge_efficiency[a] * charge[a,t] - discharge[a,t] / discharge_efficiency[a]
   }
   constraint charge_limit {
@@ -28,22 +57,14 @@ operation PriceTakerBattery {
   constraint soc_bounds {
     0 <= soc[a,t] <= energy_mwh[a]
   }
-}
 
-expression ArbitrageRevenue {
-  sum(prices[t] * (discharge[a,t] - charge[a,t]) for a in assets for t in time)
-}
-
-maximize ArbitrageProfit {
-  ArbitrageRevenue
+  maximize ArbitrageProfit {
+    ArbitrageRevenue
+  }
 }
 
 scenario BatteryArbitrageDay {
   horizon steps=24 resolution=PT1H
-  technology Battery
-  operation PriceTakerBattery
-  data prices from="data/prices.csv"
-  asset Battery1
-  maximize ArbitrageProfit
+  use PriceTakerBattery
   report ArbitrageRevenue
 }

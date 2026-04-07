@@ -11,6 +11,8 @@ use tracing::info;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceProgram {
+    pub data: Vec<DataDecl>,
+    pub subsets: Vec<SubsetDecl>,
     pub models: Vec<ModelDecl>,
     pub sets: Vec<SetDecl>,
     pub technologies: Vec<TechnologyDecl>,
@@ -29,8 +31,48 @@ pub struct ModelDecl {
     pub sets: Vec<SetDecl>,
     pub parameters: Vec<ParamDecl>,
     pub controls: Vec<ControlDecl>,
+    pub expressions: Vec<ExpressionDecl>,
     pub constraints: Vec<ConstraintDecl>,
     pub optimize: ObjectiveDecl,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataDecl {
+    pub name: String,
+    pub source: String,
+    pub maps: Vec<MapDecl>,
+    pub sets: Vec<SetDecl>,
+    pub indices: Vec<DataIndexDecl>,
+    pub parameters: Vec<ParamDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MapDecl {
+    pub name: String,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataIndexDecl {
+    pub columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubsetDecl {
+    pub name: String,
+    pub source: String,
+    pub field_filters: BTreeMap<String, LiteralValue>,
+    pub filter_by: Option<String>,
+    pub comparators: FilterComparators,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FilterComparators {
+    pub eq: Option<LiteralValue>,
+    pub ge: Option<LiteralValue>,
+    pub geq: Option<LiteralValue>,
+    pub le: Option<LiteralValue>,
+    pub leq: Option<LiteralValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +80,9 @@ pub struct SetDecl {
     pub name: String,
     pub alias: Option<String>,
     pub source: Option<String>,
+    pub subset_of: Option<String>,
+    pub filter_by: Option<String>,
+    pub comparators: FilterComparators,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +90,13 @@ pub struct ParamDecl {
     pub name: String,
     pub indices: Vec<String>,
     pub value: Option<LiteralValue>,
+    pub from: Option<String>,
+    pub index_by: Option<String>,
+    pub uses_index_children: bool,
+    pub reduce: Option<String>,
+    pub filter_by: Option<String>,
+    pub comparators: FilterComparators,
+    pub units: Option<String>,
 }
 
 /// A single index dimension in a control declaration, optionally bound to a
@@ -307,6 +359,14 @@ impl SourceProgram {
         self.technologies.iter().find(|decl| decl.name == name)
     }
 
+    pub fn data(&self, name: &str) -> Option<&DataDecl> {
+        self.data.iter().find(|decl| decl.name == name)
+    }
+
+    pub fn subset(&self, name: &str) -> Option<&SubsetDecl> {
+        self.subsets.iter().find(|decl| decl.name == name)
+    }
+
     pub fn model(&self, name: &str) -> Option<&ModelDecl> {
         self.models.iter().find(|decl| decl.name == name)
     }
@@ -458,20 +518,9 @@ fn parse_document(
 
     for node in document.nodes() {
         match node.name().value() {
+            "data" => program.data.push(parse_data(node, context)?),
+            "subset" => program.subsets.push(parse_subset(node, context)?),
             "model" => program.models.push(parse_model(node, context)?),
-            "set" => program.sets.push(parse_set(node, context)?),
-            "technology" => program.technologies.push(parse_technology(node, context)?),
-            "operation" => program.operations.push(parse_operation(node, context)?),
-            "asset" => program.assets.push(parse_asset(node, context)?),
-            "instances" => program.instances.push(parse_instances(node, context)?),
-            "rule" => program.rules.push(parse_rule(node, context)?),
-            "expression" => program.expressions.push(parse_expression(node, context)?),
-            "minimize" => program
-                .objectives
-                .push(parse_optimize(node, "minimize", context)?),
-            "maximize" => program
-                .objectives
-                .push(parse_optimize(node, "maximize", context)?),
             "scenario" => program.scenarios.push(parse_scenario(node, context)?),
             other => {
                 return Err(SourceError::UnsupportedDeclaration {
@@ -491,24 +540,27 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
     let mut sets = Vec::new();
     let mut parameters = Vec::new();
     let mut controls = Vec::new();
+    let mut expressions = Vec::new();
     let constraints = parse_constraints(node, context)?;
     let mut optimize = None;
 
     for child in node.iter_children() {
         match child.name().value() {
             "set" => sets.push(parse_set(child, context)?),
-            "param" => parameters.push(ParamDecl {
-                name: first_arg_string(child, 0, context)?,
-                indices: declaration_indices(child)
-                    .into_iter()
-                    .map(|idx| idx.name)
-                    .collect(),
-                value: positional_value(child, context)?,
-            }),
+            "param" => parameters.push(parse_param(child, context)?),
             "control" => controls.push(parse_control(child, context)?),
+            "expression" => expressions.push(parse_expression(child, context)?),
+            "constraint" => {}
             "minimize" => optimize = Some(parse_optimize(child, "minimize", context)?),
             "maximize" => optimize = Some(parse_optimize(child, "maximize", context)?),
-            _ => {}
+            other => {
+                return Err(SourceError::UnsupportedDeclaration {
+                    name: other.to_string(),
+                    path: context.path.to_path_buf(),
+                    source_text: Box::new(context.source_text.clone()),
+                    span: child.span(),
+                });
+            }
         }
     }
 
@@ -517,9 +569,112 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
         sets,
         parameters,
         controls,
+        expressions,
         constraints,
         optimize: optimize
             .ok_or_else(|| missing_node_error("minimize_or_maximize", node, context))?,
+    })
+}
+
+fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, SourceError> {
+    let mut maps = Vec::new();
+    let mut sets = Vec::new();
+    let mut indices = Vec::new();
+    let mut parameters = Vec::new();
+
+    for child in node.iter_children() {
+        match child.name().value() {
+            "map" => maps.push(MapDecl {
+                name: first_arg_string(child, 0, context)?,
+                source: optional_property_string(child, "from", context)?,
+            }),
+            "set" => sets.push(parse_set(child, context)?),
+            "index" => {
+                let mut columns = Vec::new();
+                let mut position = 0;
+                while let Some(value) = child.get(position) {
+                    let Some(name) = value.as_string() else {
+                        return Err(invalid_value_error(
+                            child,
+                            format!("argument {position}"),
+                            context,
+                        ));
+                    };
+                    columns.push(name.to_string());
+                    position += 1;
+                }
+                indices.push(DataIndexDecl { columns });
+            }
+            "param" => parameters.push(parse_param(child, context)?),
+            other => {
+                return Err(SourceError::UnsupportedDeclaration {
+                    name: other.to_string(),
+                    path: context.path.to_path_buf(),
+                    source_text: Box::new(context.source_text.clone()),
+                    span: child.span(),
+                });
+            }
+        }
+    }
+
+    Ok(DataDecl {
+        name: first_arg_string(node, 0, context)?,
+        source: property_string(node, "from", context)?,
+        maps,
+        sets,
+        indices,
+        parameters,
+    })
+}
+
+fn parse_subset(node: &KdlNode, context: &ParseContext<'_>) -> Result<SubsetDecl, SourceError> {
+    let mut field_filters = BTreeMap::new();
+    for entry in node.entries() {
+        let Some(entry_name) = entry.name() else {
+            continue;
+        };
+        let key = entry_name.value();
+        if matches!(
+            key,
+            "from" | "filter_by" | "eq" | "ge" | "geq" | "le" | "leq"
+        ) {
+            continue;
+        }
+        let value = literal_from_arg(node, entry.value(), context)?;
+        field_filters.insert(key.to_string(), value);
+    }
+
+    Ok(SubsetDecl {
+        name: first_arg_string(node, 0, context)?,
+        source: property_string(node, "from", context)?,
+        field_filters,
+        filter_by: optional_property_string(node, "filter_by", context)?,
+        comparators: parse_filter_comparators(node, context)?,
+    })
+}
+
+fn parse_param(node: &KdlNode, context: &ParseContext<'_>) -> Result<ParamDecl, SourceError> {
+    let declaration_indices = declaration_indices(node, context)?;
+    let indices = declaration_indices
+        .iter()
+        .map(|index| index.name.clone())
+        .collect::<Vec<_>>();
+    let index_by = optional_property_string(node, "index_by", context)?;
+    let uses_index_children = node
+        .iter_children()
+        .any(|child| child.name().value() == "index");
+
+    Ok(ParamDecl {
+        name: first_arg_string(node, 0, context)?,
+        value: positional_value(node, &indices, context)?,
+        indices,
+        from: optional_property_string(node, "from", context)?,
+        index_by,
+        uses_index_children,
+        reduce: parse_reduce(node, context)?,
+        filter_by: optional_property_string(node, "filter_by", context)?,
+        comparators: parse_filter_comparators(node, context)?,
+        units: optional_property_string(node, "units", context)?,
     })
 }
 
@@ -531,6 +686,9 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
             .and_then(KdlValue::as_string)
             .map(ToString::to_string),
         source: optional_property_string(node, "from", context)?,
+        subset_of: optional_property_string(node, "subset_of", context)?,
+        filter_by: optional_property_string(node, "filter_by", context)?,
+        comparators: parse_filter_comparators(node, context)?,
     })
 }
 
@@ -566,7 +724,7 @@ fn parse_control(node: &KdlNode, context: &ParseContext<'_>) -> Result<ControlDe
 
     Ok(ControlDecl {
         name: first_arg_string(node, 0, context)?,
-        indices: declaration_indices(node),
+        indices: declaration_indices(node, context)?,
         lower,
         upper,
         kind,
@@ -586,31 +744,80 @@ fn parse_variable_kind_decl(
     }
 }
 
-fn declaration_indices(node: &KdlNode) -> Vec<IndexDecl> {
+fn declaration_indices(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<Vec<IndexDecl>, SourceError> {
     let mut indices = Vec::new();
+
+    if let Some(property_index) = optional_property_string(node, "index_by", context)? {
+        indices.push(IndexDecl {
+            name: property_index.clone(),
+            domain: Some(property_index),
+        });
+    }
+
     for child in node.iter_children() {
         match child.name().value() {
             "lower" | "upper" => {}
-            name => {
-                let domain = child
-                    .get("in")
-                    .and_then(KdlValue::as_string)
-                    .map(ToString::to_string);
+            "index" => {
+                let index_name = first_arg_string(child, 0, context)?;
                 indices.push(IndexDecl {
-                    name: name.to_string(),
-                    domain,
+                    name: index_name.clone(),
+                    domain: Some(index_name),
                 });
             }
+            _ => {}
         }
     }
-    indices
+
+    Ok(indices)
+}
+
+fn parse_reduce(node: &KdlNode, context: &ParseContext<'_>) -> Result<Option<String>, SourceError> {
+    if let Some(reducer) = optional_property_string(node, "reduce", context)? {
+        return Ok(Some(reducer));
+    }
+
+    for child in node.iter_children() {
+        if child.name().value() == "reduce" {
+            return Ok(Some(first_arg_string(child, 0, context)?));
+        }
+    }
+
+    Ok(None)
+}
+
+fn parse_filter_comparators(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<FilterComparators, SourceError> {
+    Ok(FilterComparators {
+        eq: parse_optional_literal_property(node, "eq", context)?,
+        ge: parse_optional_literal_property(node, "ge", context)?,
+        geq: parse_optional_literal_property(node, "geq", context)?,
+        le: parse_optional_literal_property(node, "le", context)?,
+        leq: parse_optional_literal_property(node, "leq", context)?,
+    })
+}
+
+fn parse_optional_literal_property(
+    node: &KdlNode,
+    property: &'static str,
+    context: &ParseContext<'_>,
+) -> Result<Option<LiteralValue>, SourceError> {
+    let Some(value) = node.get(property) else {
+        return Ok(None);
+    };
+    literal_from_arg(node, value, context).map(Some)
 }
 
 fn positional_value(
     node: &KdlNode,
+    indices: &[String],
     context: &ParseContext<'_>,
 ) -> Result<Option<LiteralValue>, SourceError> {
-    if declaration_indices(node).is_empty() {
+    if indices.is_empty() {
         return node
             .get(1)
             .map(|value| literal_from_arg(node, value, context))
@@ -660,123 +867,6 @@ fn parse_optimize(
     })
 }
 
-fn parse_technology(
-    node: &KdlNode,
-    context: &ParseContext<'_>,
-) -> Result<TechnologyDecl, SourceError> {
-    let mut investments = Vec::new();
-    let mut controls = Vec::new();
-    let mut states = Vec::new();
-    for child in node.iter_children() {
-        match child.name().value() {
-            "invest" => investments.push(parse_named_variable_decl(child, context)?),
-            "control" => controls.push(parse_named_variable_decl(child, context)?),
-            "state" => states.push(first_arg_string(child, 0, context)?),
-            _ => {}
-        }
-    }
-
-    let set_name = node
-        .get("as")
-        .and_then(KdlValue::as_string)
-        .map(ToString::to_string);
-
-    Ok(TechnologyDecl {
-        name: first_arg_string(node, 0, context)?,
-        set_name,
-        investments,
-        controls,
-        states,
-    })
-}
-
-/// Parse a named variable declaration with optional `kind`, `lower`, and
-/// `upper` literal properties. Used for both `invest` and `control` children
-/// inside a `technology` block.
-fn parse_named_variable_decl(
-    node: &KdlNode,
-    context: &ParseContext<'_>,
-) -> Result<NamedVariableDecl, SourceError> {
-    let kind = optional_property_string(node, "kind", context)?
-        .map(|value| parse_variable_kind_decl(node, &value, context))
-        .transpose()?;
-    Ok(NamedVariableDecl {
-        name: first_arg_string(node, 0, context)?,
-        kind,
-        lower: optional_property_literal(node, "lower", context)?.map(BoundExpr::Literal),
-        upper: optional_property_literal(node, "upper", context)?.map(BoundExpr::Literal),
-    })
-}
-
-fn parse_operation(
-    node: &KdlNode,
-    context: &ParseContext<'_>,
-) -> Result<OperationDecl, SourceError> {
-    Ok(OperationDecl {
-        name: first_arg_string(node, 0, context)?,
-        constraints: parse_constraints(node, context)?,
-    })
-}
-
-fn parse_asset(node: &KdlNode, context: &ParseContext<'_>) -> Result<AssetDecl, SourceError> {
-    let mut technology = None;
-    let mut operation = None;
-    let mut parameters = BTreeMap::new();
-
-    for child in node.iter_children() {
-        match child.name().value() {
-            "technology" => technology = Some(first_arg_string(child, 0, context)?),
-            "operation" => operation = Some(first_arg_string(child, 0, context)?),
-            name => {
-                parameters.insert(name.to_string(), first_arg_literal(child, context)?);
-            }
-        }
-    }
-
-    Ok(AssetDecl {
-        name: first_arg_string(node, 0, context)?,
-        technology: technology.ok_or_else(|| missing_node_error("technology", node, context))?,
-        operation,
-        parameters,
-    })
-}
-
-fn parse_instances(
-    node: &KdlNode,
-    context: &ParseContext<'_>,
-) -> Result<InstancesDecl, SourceError> {
-    let mut technology = None;
-    let mut operation = None;
-    let mut columns = Vec::new();
-
-    for child in node.iter_children() {
-        match child.name().value() {
-            "technology" => technology = Some(first_arg_string(child, 0, context)?),
-            "operation" => operation = Some(first_arg_string(child, 0, context)?),
-            "map" => columns.push(ColumnMappingDecl {
-                source: property_string(child, "from", context)?,
-                target: first_arg_string(child, 0, context)?,
-            }),
-            _ => {}
-        }
-    }
-
-    Ok(InstancesDecl {
-        name: first_arg_string(node, 0, context)?,
-        source: property_string(node, "from", context)?,
-        technology: technology.ok_or_else(|| missing_node_error("technology", node, context))?,
-        operation,
-        columns,
-    })
-}
-
-fn parse_rule(node: &KdlNode, context: &ParseContext<'_>) -> Result<RuleDecl, SourceError> {
-    Ok(RuleDecl {
-        name: first_arg_string(node, 0, context)?,
-        constraints: parse_constraints(node, context)?,
-    })
-}
-
 fn parse_expression(
     node: &KdlNode,
     context: &ParseContext<'_>,
@@ -790,37 +880,11 @@ fn parse_expression(
     })
 }
 
-/// Keywords recognized as built-in scenario children. Anything else with
-/// child string arguments is treated as a user-declared custom set.
-const SCENARIO_KEYWORDS: &[&str] = &[
-    "data",
-    "set",
-    "asset",
-    "instances",
-    "technology",
-    "operation",
-    "rule",
-    "use",
-    "minimize",
-    "maximize",
-    "report",
-    "horizon",
-    "solver",
-];
-
 fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<ScenarioDecl, SourceError> {
     let horizon_node = child_node(node, "horizon", context)?;
     let mut data = Vec::new();
-    let mut set_bindings = Vec::new();
-    let mut assets = Vec::new();
-    let mut instances = Vec::new();
-    let mut technologies = Vec::new();
-    let mut operations = Vec::new();
-    let mut rules = Vec::new();
     let mut model_use = None;
-    let mut objective = None;
     let mut reports = Vec::new();
-    let mut custom_sets: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
     for child in node.iter_children() {
         match child.name().value() {
@@ -828,19 +892,7 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
                 name: first_arg_string(child, 0, context)?,
                 source: property_string(child, "from", context)?,
             }),
-            "set" => set_bindings.push(SetBindingDecl {
-                name: first_arg_string(child, 0, context)?,
-                source: property_string(child, "from", context)?,
-            }),
-            "asset" => assets.push(first_arg_string(child, 0, context)?),
-            "instances" => instances.push(first_arg_string(child, 0, context)?),
-            "technology" => technologies.push(first_arg_string(child, 0, context)?),
-            "operation" => operations.push(first_arg_string(child, 0, context)?),
-            "rule" => rules.push(first_arg_string(child, 0, context)?),
             "use" => model_use = Some(first_arg_string(child, 0, context)?),
-            "minimize" | "maximize" => {
-                objective = Some(first_arg_string(child, 0, context)?);
-            }
             "report" => {
                 let first = first_arg_string(child, 0, context)?;
                 match first.as_str() {
@@ -859,16 +911,15 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
                     }
                 }
             }
-            name if !SCENARIO_KEYWORDS.contains(&name) => {
-                let members = parse_custom_set_members(child);
-                if !members.is_empty() {
-                    custom_sets
-                        .entry(name.to_string())
-                        .or_default()
-                        .extend(members);
-                }
+            "horizon" => {}
+            other => {
+                return Err(SourceError::UnsupportedDeclaration {
+                    name: other.to_string(),
+                    path: context.path.to_path_buf(),
+                    source_text: Box::new(context.source_text.clone()),
+                    span: child.span(),
+                });
             }
-            _ => {}
         }
     }
 
@@ -879,42 +930,17 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
             resolution: property_string(horizon_node, "resolution", context)?,
         },
         data,
-        set_bindings,
-        assets,
-        instances,
-        technologies,
-        operations,
-        rules,
+        set_bindings: Vec::new(),
+        assets: Vec::new(),
+        instances: Vec::new(),
+        technologies: Vec::new(),
+        operations: Vec::new(),
+        rules: Vec::new(),
         model_use,
-        objective,
+        objective: None,
         reports,
-        custom_sets,
+        custom_sets: BTreeMap::new(),
     })
-}
-
-/// Extract string members from a custom set node. Members are child nodes
-/// whose names are string literals, e.g.:
-/// ```kdl
-/// generators {
-///     "gen1"
-///     "gen2"
-/// }
-/// ```
-fn parse_custom_set_members(node: &KdlNode) -> Vec<String> {
-    let mut members = Vec::new();
-    // Members as positional arguments on child nodes (each child is a string literal node name)
-    for child in node.iter_children() {
-        members.push(child.name().value().to_string());
-    }
-    // Also check for inline string arguments on the node itself
-    for entry in node.entries() {
-        if entry.name().is_none() {
-            if let Some(s) = entry.value().as_string() {
-                members.push(s.to_string());
-            }
-        }
-    }
-    members
 }
 
 fn parse_constraints(
@@ -1045,30 +1071,6 @@ fn first_arg_string(
                 .map(ToString::to_string)
         })
         .ok_or_else(|| missing_argument_error(node, index, context))
-}
-
-fn first_arg_literal(
-    node: &KdlNode,
-    context: &ParseContext<'_>,
-) -> Result<LiteralValue, SourceError> {
-    let value = node
-        .get(0)
-        .ok_or_else(|| missing_argument_error(node, 0, context))?;
-
-    if let Some(string) = value.as_string() {
-        return Ok(LiteralValue::String(string.to_string()));
-    }
-    if let Some(integer) = value.as_integer() {
-        return Ok(LiteralValue::Integer(integer));
-    }
-    if let Some(boolean) = value.as_bool() {
-        return Ok(LiteralValue::Boolean(boolean));
-    }
-    if let Some(decimal) = value.as_float() {
-        return Ok(LiteralValue::Decimal(decimal.to_string()));
-    }
-
-    Err(invalid_value_error(node, "argument 0".to_string(), context))
 }
 
 fn property_string(

@@ -1,152 +1,180 @@
-use arco_kdl::semantic::{FamilySignature, ResolvedSet, validate_program};
+use arco_kdl::semantic::validate_program;
 use arco_kdl::source::parse_program_text;
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[test]
-fn semantic_validation_accepts_canonical_model_use() -> Result<(), Box<dyn std::error::Error>> {
+fn temp_root(prefix: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)?
         .as_nanos()
         .to_string();
-    let root = std::env::temp_dir().join(format!("arco-dsl-semantic-canonical-{unique}"));
+    let root = std::env::temp_dir().join(format!("arco-kdl-{prefix}-{unique}"));
     fs::create_dir_all(&root)?;
-
-    let path = root.join("canonical.kdl");
-    let text = r#"
-model "EconomicDispatch" {
-  control "dispatch" {
-    a
-    t
-  }
-
-  constraint "balance[a,t]" {
-    dispatch[a,t] = 0
-  }
-
-  minimize "TotalCost" {
-    sum(dispatch[a,t] for a in assets for t in time)
-  }
-}
-
-scenario "Case" {
-  horizon steps=2 resolution="PT1H"
-  use "EconomicDispatch"
-}
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
-    let semantic = validate_program(&parsed.program, &path)?;
-    assert_eq!(semantic.active_scenario, "Case");
-    assert_eq!(semantic.active_objective.name, "TotalCost");
-    assert_eq!(
-        semantic.variable_families,
-        vec![FamilySignature::new("dispatch", ["a", "t"])]
-    );
-
-    fs::remove_dir_all(&root)?;
-    Ok(())
+    Ok(root)
 }
 
 #[test]
-fn semantic_validation_rejects_canonical_scenario_without_use()
--> Result<(), Box<dyn std::error::Error>> {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_nanos()
-        .to_string();
-    let root = std::env::temp_dir().join(format!("arco-dsl-semantic-canonical-missing-{unique}"));
-    fs::create_dir_all(&root)?;
-
-    let path = root.join("canonical_missing_use.kdl");
+fn semantic_validation_rejects_missing_scenario() -> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-no-scenario")?;
+    let path = root.join("input.kdl");
     let text = r#"
-model "EconomicDispatch" {
-  control "dispatch" {
-    a
-    t
-  }
-  minimize "TotalCost" {
-    dispatch[a,t]
-  }
-}
-
-scenario "Case" {
-  horizon steps=1 resolution="PT1H"
-}
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
-    let error = validate_program(&parsed.program, &path).expect_err("validation should fail");
-    assert!(
-        error
-            .to_string()
-            .contains("missing declaration `model` named `active model`")
-    );
-
-    fs::remove_dir_all(&root)?;
-    Ok(())
-}
-
-#[test]
-fn set_registry_contains_built_in_sets_after_semantic_analysis()
--> Result<(), Box<dyn std::error::Error>> {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_nanos()
-        .to_string();
-    let root = std::env::temp_dir().join(format!("arco-dsl-semantic-set-registry-{unique}"));
-    fs::create_dir_all(&root)?;
-
-    let path = root.join("registry.kdl");
-    let text = r#"
-model "Simple" {
+model "Dispatch" {
   control "x" {
-    a
-    t
+    index "a"
+    index "t"
   }
-
-  constraint "eq[a,t]" {
-    x[a,t] = 0
+  minimize "Obj" {
+    sum(x[a,t] for a in assets for t in time)
   }
+}
+"#;
 
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path).expect_err("expected semantic failure");
+    assert!(error.to_string().contains("no scenario is available"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_requires_single_scenario() -> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-multi-scenario")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+model "Dispatch" {
+  control "x" {
+    index "a"
+    index "t"
+  }
   minimize "Obj" {
     sum(x[a,t] for a in assets for t in time)
   }
 }
 
 scenario "S1" {
-  horizon steps=3 resolution="PT1H"
-  use "Simple"
+  horizon steps=1 resolution="PT1H"
+  use "Dispatch"
+}
+
+scenario "S2" {
+  horizon steps=1 resolution="PT1H"
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path).expect_err("expected semantic failure");
+    assert!(error.to_string().contains("exactly one scenario"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_requires_scenario_data_bindings_to_match_model_params()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-data-param-match")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+model "Dispatch" {
+  param "demand" {
+    index "t"
+  }
+  control "x" {
+    index "a"
+    index "t"
+  }
+  constraint "bal[a,t]" {
+    x[a,t] <= demand[t]
+  }
+  minimize "Obj" {
+    sum(x[a,t] for a in assets for t in time)
+  }
+}
+
+scenario "S1" {
+  horizon steps=1 resolution="PT1H"
+  use "Dispatch"
+  data "unknown_param" from="data.csv"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path).expect_err("expected semantic failure");
+    assert!(error.to_string().contains("unknown_param"));
+    assert!(error.to_string().contains("parameter"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_resolves_reports_and_registry_for_low_level_model()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-reports-registry")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("assets.csv"),
+        "asset,is_candidate,zone\nA,1,north\nB,0,south\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "generator_data" from="data/assets.csv" {
+  map "asset_id" from="asset"
+  set "asset_id"
+}
+
+subset "candidate_assets" from="generator_data" filter_by="is_candidate" eq=1
+
+model "Dispatch" {
+  control "x" {
+    index "a"
+    index "t"
+  }
+
+  expression "FuelCost" {
+    sum(x[a,t] for a in assets for t in time)
+  }
+
+  constraint "balance[a,t]" {
+    x[a,t] = 0
+  }
+
+  minimize "TotalCost" {
+    FuelCost
+  }
+}
+
+scenario "S1" {
+  horizon steps=2 resolution="PT1H"
+  use "Dispatch"
+  report FuelCost
+  report TotalCost
+  report dual "balance[a,t]"
 }
 "#;
 
     let parsed = parse_program_text(text, &path)?;
     let semantic = validate_program(&parsed.program, &path)?;
 
-    // The registry should contain entries for assets, candidate_assets, and time.
+    assert_eq!(semantic.active_scenario, "S1");
+    assert_eq!(semantic.active_objective.name, "TotalCost");
+    assert_eq!(semantic.variable_families.len(), 1);
+    assert_eq!(semantic.variable_families[0].target, "x");
+    assert_eq!(semantic.variable_families[0].indices, vec!["a", "t"]);
+    assert_eq!(semantic.active_reports.len(), 2);
+    assert_eq!(semantic.active_dual_reports.len(), 1);
     assert!(
-        semantic.set_registry.contains_key("assets"),
-        "registry should contain 'assets'"
+        semantic
+            .active_expressions
+            .iter()
+            .any(|e| e.name == "FuelCost")
     );
-    assert!(
-        semantic.set_registry.contains_key("candidate_assets"),
-        "registry should contain 'candidate_assets'"
-    );
-    assert!(
-        semantic.set_registry.contains_key("time"),
-        "registry should contain 'time'"
-    );
-
-    // time set should have 3 string entries matching the horizon.
-    assert_eq!(
-        semantic.set_registry["time"],
-        ResolvedSet {
-            values: vec!["1".to_string(), "2".to_string(), "3".to_string()]
-        }
-    );
-
-    // assets set should match the ResolvedSets.assets (which mirrors set_registry).
-    assert_eq!(semantic.set_registry["assets"].values, semantic.sets.assets);
+    assert!(semantic.set_registry.contains_key("time"));
+    assert!(semantic.set_registry.contains_key("asset_id"));
+    assert!(semantic.set_registry.contains_key("candidate_assets"));
 
     fs::remove_dir_all(&root)?;
     Ok(())

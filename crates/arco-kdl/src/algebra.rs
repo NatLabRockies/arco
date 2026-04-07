@@ -728,7 +728,7 @@ impl<'a> Parser<'a> {
             )?;
             bindings.push(Binding {
                 pattern,
-                domain: self.parse_identifier_name()?,
+                domain: self.parse_domain_reference()?,
             });
         }
 
@@ -771,6 +771,65 @@ impl<'a> Parser<'a> {
         } else {
             Err(ParseError::new(token.position, "expected an identifier"))
         }
+    }
+
+    fn parse_domain_reference(&mut self) -> Result<String, ParseError> {
+        let base = self.parse_identifier_name()?;
+        if !self.matches(|kind| matches!(kind, TokenKind::LBracket)) {
+            return Ok(base);
+        }
+
+        let mut selectors = Vec::new();
+        loop {
+            let key = self.parse_identifier_name()?;
+            self.expect_token(
+                |kind| matches!(kind, TokenKind::Equal),
+                "expected `=` in inline selector",
+            )?;
+            let value = self.parse_selector_value()?;
+            selectors.push(format!("{key}={value}"));
+
+            if self.matches(|kind| matches!(kind, TokenKind::RBracket)) {
+                break;
+            }
+
+            // Accept either comma-separated or whitespace-separated selector pairs.
+            if self.matches(|kind| matches!(kind, TokenKind::Comma)) {
+                continue;
+            }
+
+            let Some(token) = self.tokens.get(self.index) else {
+                return Err(ParseError::new(0, "expected `]` to close inline selector"));
+            };
+            if !matches!(token.kind, TokenKind::Identifier(_)) {
+                return Err(ParseError::new(
+                    token.position,
+                    "expected another `key=value` selector pair or `]`",
+                ));
+            }
+        }
+
+        Ok(format!("{base}[{}]", selectors.join(" ")))
+    }
+
+    fn parse_selector_value(&mut self) -> Result<String, ParseError> {
+        let token = self
+            .tokens
+            .get(self.index)
+            .ok_or_else(|| ParseError::new(0, "unexpected end of input"))?;
+        let value = match &token.kind {
+            TokenKind::Identifier(value) => value.clone(),
+            TokenKind::Number(value) => value.clone(),
+            TokenKind::String(value) => {
+                let escaped = value.replace('"', "\\\"");
+                format!("\"{escaped}\"")
+            }
+            _ => {
+                return Err(ParseError::new(token.position, "expected selector value"));
+            }
+        };
+        self.index += 1;
+        Ok(value)
     }
 
     fn parse_comparison_operator(&mut self) -> Result<ComparisonOp, ParseError> {
