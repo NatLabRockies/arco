@@ -2154,16 +2154,16 @@ fn domain_value_matches_selectors(
     let key = vec![member.clone()];
 
     selectors.iter().all(|(field, expected)| {
-        if let Some(param_values) = inputs.set_params.get(field)
-            && let Some(actual) = param_values.get(member)
-        {
-            return numeric_or_string_match(*actual, expected);
+        if let Some(param_values) = inputs.set_params.get(field) {
+            if let Some(actual) = param_values.get(member) {
+                return numeric_or_string_match(*actual, expected);
+            }
         }
 
-        if let Some(table) = inputs.generic_data.get(field)
-            && let Some(actual) = table.values.get(&key)
-        {
-            return numeric_or_string_match(*actual, expected);
+        if let Some(table) = inputs.generic_data.get(field) {
+            if let Some(actual) = table.values.get(&key) {
+                return numeric_or_string_match(*actual, expected);
+            }
         }
 
         false

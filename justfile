@@ -206,11 +206,11 @@ tdd-refactor package:
 
 [group: 'rust']
 test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ rust-packages }} --exclude arco-xpress
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
 
 [group: 'ci']
 test-core:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo test {{ rust-packages }} --exclude arco-xpress
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
 
 [group: 'ci']
 test-solver package:
