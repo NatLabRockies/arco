@@ -1,5 +1,4 @@
 use crate::lowering::{LoweredProblem, LoweringError, lower_program};
-use crate::normalize::{NormalizeError, normalize_program};
 use crate::semantic::{SemanticError, SemanticProgram, validate_program};
 use crate::source::{SourceError, parse_program_file};
 use miette::Diagnostic;
@@ -40,8 +39,6 @@ pub enum PipelineError {
     #[error(transparent)]
     Source(#[from] SourceError),
     #[error(transparent)]
-    Normalize(#[from] NormalizeError),
-    #[error(transparent)]
     Semantic(#[from] SemanticError),
     #[error(transparent)]
     Lowering(#[from] LoweringError),
@@ -55,7 +52,6 @@ impl Diagnostic for PipelineError {
     fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
         match self {
             Self::Source(error) => Some(error),
-            Self::Normalize(error) => Some(error),
             Self::Semantic(error) => Some(error),
             Self::Lowering(error) => Some(error),
         }
@@ -121,6 +117,5 @@ fn validate_parsed_source(
     parsed_source: &crate::source::ParsedSource,
     path: &Path,
 ) -> Result<SemanticProgram, PipelineError> {
-    normalize_program(&parsed_source.program, path)?;
     validate_program(&parsed_source.program, path).map_err(Into::into)
 }

@@ -8,7 +8,8 @@ use crate::semantic::{
     VariableDeclOverrides,
 };
 use crate::source::{
-    BoundExpr, GenerationBinding, LiteralValue, ScenarioDecl, SourceProgram, VariableKindDecl,
+    BoundExpr, DataDecl, FilterComparators, GenerationBinding, LiteralValue, ParamDecl,
+    ScenarioDecl, SourceProgram, VariableKindDecl,
 };
 use csv::StringRecord;
 use miette::Diagnostic;
@@ -290,7 +291,7 @@ pub fn lower_program(
             path: entrypoint.to_path_buf(),
         })?;
     let mut inputs = load_inputs(program, source_program, scenario, entrypoint)?;
-    inputs.set_params = program.set_params.clone();
+    inputs.set_params.extend(program.set_params.clone());
     let algebra = lower_algebra(program, &inputs, entrypoint)?;
 
     let parameters = [
@@ -906,7 +907,24 @@ fn load_inputs(
     let mut indexed = BTreeMap::new();
     let mut asset_data = BTreeMap::new();
     let mut generic_data = BTreeMap::new();
+    let mut set_params = BTreeMap::new();
+
+    for data_decl in &source_program.data {
+        load_data_decl_params(
+            data_decl,
+            entry_dir,
+            &mut generic_data,
+            &mut set_params,
+            entrypoint,
+        )?;
+    }
+
     for binding in &scenario.data {
+        series.remove(&binding.name);
+        indexed.remove(&binding.name);
+        asset_data.remove(&binding.name);
+        generic_data.remove(&binding.name);
+
         let csv_path = entry_dir.join(&binding.source);
         let rows = read_csv_rows(&csv_path)?;
         let Some(first_row) = rows.first() else {
@@ -965,7 +983,7 @@ fn load_inputs(
         indexed,
         asset_data,
         generic_data,
-        set_params: BTreeMap::new(),
+        set_params,
     })
 }
 
@@ -1951,6 +1969,15 @@ fn reduction_domain_values(
     program: &SemanticProgram,
     entrypoint: &Path,
 ) -> Result<Vec<FilterValue>, LoweringError> {
+    if let Some((base, selectors)) = parse_inline_selector_domain(domain, entrypoint)? {
+        let base_values = reduction_domain_values(base.as_str(), inputs, program, entrypoint)?;
+        let filtered = base_values
+            .into_iter()
+            .filter(|value| domain_value_matches_selectors(value, &selectors, inputs))
+            .collect();
+        return Ok(filtered);
+    }
+
     match domain {
         "assets" => Ok(inputs
             .assets
@@ -1981,6 +2008,191 @@ fn reduction_domain_values(
             }
         }
     }
+}
+
+fn parse_inline_selector_domain(
+    domain: &str,
+    entrypoint: &Path,
+) -> Result<Option<(String, Vec<(String, String)>)>, LoweringError> {
+    let Some(start) = domain.find('[') else {
+        return Ok(None);
+    };
+    let Some(end) = domain.rfind(']') else {
+        return Err(LoweringError::InvalidFormulation {
+            message: format!("invalid inline selector domain `{domain}`"),
+            path: entrypoint.to_path_buf(),
+        });
+    };
+    if end <= start || domain[end + 1..].trim().len() > 0 {
+        return Err(LoweringError::InvalidFormulation {
+            message: format!("invalid inline selector domain `{domain}`"),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
+    let base = domain[..start].trim().to_string();
+    if base.is_empty() {
+        return Err(LoweringError::InvalidFormulation {
+            message: format!("invalid inline selector domain `{domain}`"),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
+    let body = &domain[start + 1..end];
+    let bytes = body.as_bytes();
+    let mut index = 0;
+    let mut selectors = Vec::new();
+
+    while index < bytes.len() {
+        while index < bytes.len() && matches!(bytes[index] as char, ' ' | '\t' | ',') {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            break;
+        }
+
+        let key_start = index;
+        while index < bytes.len() {
+            let character = bytes[index] as char;
+            if character == '=' || character == ' ' || character == '\t' || character == ',' {
+                break;
+            }
+            index += 1;
+        }
+        let key = body[key_start..index].trim();
+        if key.is_empty() {
+            return Err(LoweringError::InvalidFormulation {
+                message: format!("invalid inline selector domain `{domain}`"),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+
+        while index < bytes.len() && matches!(bytes[index] as char, ' ' | '\t') {
+            index += 1;
+        }
+        if index >= bytes.len() || bytes[index] as char != '=' {
+            return Err(LoweringError::InvalidFormulation {
+                message: format!("invalid inline selector domain `{domain}`"),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+        index += 1;
+        while index < bytes.len() && matches!(bytes[index] as char, ' ' | '\t') {
+            index += 1;
+        }
+
+        if index >= bytes.len() {
+            return Err(LoweringError::InvalidFormulation {
+                message: format!("invalid inline selector domain `{domain}`"),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+
+        let value = if bytes[index] as char == '"' {
+            index += 1;
+            let mut escaped = false;
+            let mut terminated = false;
+            let mut literal = String::new();
+            while index < bytes.len() {
+                let character = bytes[index] as char;
+                index += 1;
+                if escaped {
+                    literal.push(character);
+                    escaped = false;
+                    continue;
+                }
+                match character {
+                    '\\' => escaped = true,
+                    '"' => {
+                        terminated = true;
+                        break;
+                    }
+                    _ => literal.push(character),
+                }
+            }
+            if escaped || !terminated {
+                return Err(LoweringError::InvalidFormulation {
+                    message: format!("invalid inline selector domain `{domain}`"),
+                    path: entrypoint.to_path_buf(),
+                });
+            }
+            literal
+        } else {
+            let value_start = index;
+            while index < bytes.len() {
+                let character = bytes[index] as char;
+                if matches!(character, ' ' | '\t' | ',') {
+                    break;
+                }
+                index += 1;
+            }
+            body[value_start..index].trim().to_string()
+        };
+
+        if value.is_empty() {
+            return Err(LoweringError::InvalidFormulation {
+                message: format!("invalid inline selector domain `{domain}`"),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+
+        selectors.push((key.to_string(), value));
+    }
+
+    if selectors.is_empty() {
+        return Err(LoweringError::InvalidFormulation {
+            message: format!("invalid inline selector domain `{domain}`"),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
+    Ok(Some((base, selectors)))
+}
+
+fn domain_value_matches_selectors(
+    value: &FilterValue,
+    selectors: &[(String, String)],
+    inputs: &ScenarioInputs,
+) -> bool {
+    let FilterValue::String(member) = value else {
+        return false;
+    };
+
+    selectors.iter().all(|(field, expected)| {
+        if let Some(param_values) = inputs.set_params.get(field)
+            && let Some(actual) = param_values.get(member)
+        {
+            return numeric_or_string_match(*actual, expected);
+        }
+
+        if let Some(table) = inputs.generic_data.get(field)
+            && let Some(actual) = table.values.get(&vec![member.clone()])
+        {
+            return numeric_or_string_match(*actual, expected);
+        }
+
+        false
+    })
+}
+
+fn numeric_or_string_match(actual: f64, expected: &str) -> bool {
+    if let Ok(expected_number) = expected.parse::<f64>() {
+        return (actual - expected_number).abs() < 1e-9;
+    }
+
+    if expected.eq_ignore_ascii_case("true") {
+        return (actual - 1.0).abs() < 1e-9;
+    }
+    if expected.eq_ignore_ascii_case("false") {
+        return actual.abs() < 1e-9;
+    }
+
+    let actual_string = if actual.fract().abs() < 1e-9 {
+        (actual as i64).to_string()
+    } else {
+        actual.to_string()
+    };
+    actual_string == expected
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2586,6 +2798,260 @@ fn parse_data_value(
             field: name.to_string(),
             path: path.to_path_buf(),
         })
+}
+
+fn load_data_decl_params(
+    data_decl: &DataDecl,
+    entry_dir: &Path,
+    generic_data: &mut BTreeMap<String, GenericDataTable>,
+    set_params: &mut BTreeMap<String, BTreeMap<String, f64>>,
+    entrypoint: &Path,
+) -> Result<(), LoweringError> {
+    let csv_path = entry_dir.join(&data_decl.source);
+    let rows = read_csv_rows(&csv_path)?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    for parameter in &data_decl.parameters {
+        let value_column = parameter
+            .from
+            .clone()
+            .unwrap_or_else(|| parameter.name.clone());
+        let key_columns = resolve_param_key_columns(data_decl, parameter);
+        let mut values: BTreeMap<Vec<String>, f64> = BTreeMap::new();
+        let mut counts: BTreeMap<Vec<String>, usize> = BTreeMap::new();
+
+        for row in &rows {
+            if !matches_data_param_filter(row, data_decl, parameter) {
+                continue;
+            }
+
+            let value_raw = row
+                .get(&value_column)
+                .cloned()
+                .or_else(|| row.get("value").cloned())
+                .ok_or_else(|| LoweringError::MissingColumn {
+                    column: value_column.clone(),
+                    path: csv_path.clone(),
+                })?;
+            let value = value_raw
+                .parse::<f64>()
+                .map_err(|_| LoweringError::InvalidNumber {
+                    value: value_raw,
+                    field: value_column.clone(),
+                    path: csv_path.clone(),
+                })?;
+
+            let key = key_columns
+                .iter()
+                .map(|column| {
+                    row.get(column)
+                        .cloned()
+                        .ok_or_else(|| LoweringError::MissingColumn {
+                            column: column.clone(),
+                            path: csv_path.clone(),
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let reducer = parameter.reduce.as_deref().unwrap_or("replace");
+            match reducer {
+                "sum" => {
+                    *values.entry(key.clone()).or_insert(0.0) += value;
+                }
+                "min" => {
+                    values
+                        .entry(key.clone())
+                        .and_modify(|existing| *existing = existing.min(value))
+                        .or_insert(value);
+                }
+                "max" => {
+                    values
+                        .entry(key.clone())
+                        .and_modify(|existing| *existing = existing.max(value))
+                        .or_insert(value);
+                }
+                "avg" | "mean" => {
+                    *values.entry(key.clone()).or_insert(0.0) += value;
+                    *counts.entry(key).or_insert(0) += 1;
+                }
+                _ => {
+                    values.insert(key, value);
+                }
+            }
+        }
+
+        if matches!(parameter.reduce.as_deref(), Some("avg" | "mean")) {
+            for (key, sum) in &mut values {
+                if let Some(count) = counts.get(key) {
+                    *sum /= *count as f64;
+                }
+            }
+        }
+
+        let table = GenericDataTable {
+            values: values.clone(),
+            default_missing: None,
+        };
+        generic_data.insert(parameter.name.clone(), table);
+
+        if key_columns.len() == 1 {
+            for (key, value) in values {
+                if let Some(member) = key.first() {
+                    set_params
+                        .entry(parameter.name.clone())
+                        .or_default()
+                        .insert(member.clone(), value);
+                }
+            }
+        }
+    }
+
+    let _ = entrypoint;
+    Ok(())
+}
+
+fn resolve_param_key_columns(data_decl: &DataDecl, parameter: &ParamDecl) -> Vec<String> {
+    if !parameter.indices.is_empty() {
+        return parameter
+            .indices
+            .iter()
+            .map(|index| resolve_data_column(data_decl, index))
+            .collect();
+    }
+
+    if let Some(index_by) = &parameter.index_by {
+        return vec![resolve_data_column(data_decl, index_by)];
+    }
+
+    if let Some(index_decl) = data_decl.indices.first() {
+        return index_decl
+            .columns
+            .iter()
+            .map(|column| resolve_data_column(data_decl, column))
+            .collect();
+    }
+
+    Vec::new()
+}
+
+fn resolve_data_column(data_decl: &DataDecl, logical_name: &str) -> String {
+    data_decl
+        .maps
+        .iter()
+        .find(|mapping| mapping.name == logical_name)
+        .map(|mapping| {
+            mapping
+                .source
+                .clone()
+                .unwrap_or_else(|| mapping.name.clone())
+        })
+        .unwrap_or_else(|| logical_name.to_string())
+}
+
+fn matches_data_param_filter(
+    row: &HashMap<String, String>,
+    data_decl: &DataDecl,
+    parameter: &ParamDecl,
+) -> bool {
+    if parameter.comparators.eq.is_none()
+        && parameter.comparators.ge.is_none()
+        && parameter.comparators.geq.is_none()
+        && parameter.comparators.le.is_none()
+        && parameter.comparators.leq.is_none()
+    {
+        return true;
+    }
+
+    let filter_column = parameter
+        .filter_by
+        .as_ref()
+        .or(parameter.from.as_ref())
+        .map(|logical_name| resolve_data_column(data_decl, logical_name))
+        .unwrap_or_else(|| resolve_data_column(data_decl, &parameter.name));
+    let Some(raw_value) = row.get(&filter_column) else {
+        return false;
+    };
+
+    compare_data_param_comparators(raw_value, &parameter.comparators)
+}
+
+fn compare_data_param_comparators(raw_value: &str, comparators: &FilterComparators) -> bool {
+    if let Some(expected) = &comparators.eq {
+        if !literal_filter_match(raw_value, expected) {
+            return false;
+        }
+    }
+    if let Some(expected) = &comparators.ge {
+        if !numeric_filter_compare(raw_value, expected, |left, right| left > right) {
+            return false;
+        }
+    }
+    if let Some(expected) = &comparators.geq {
+        if !numeric_filter_compare(raw_value, expected, |left, right| left >= right) {
+            return false;
+        }
+    }
+    if let Some(expected) = &comparators.le {
+        if !numeric_filter_compare(raw_value, expected, |left, right| left < right) {
+            return false;
+        }
+    }
+    if let Some(expected) = &comparators.leq {
+        if !numeric_filter_compare(raw_value, expected, |left, right| left <= right) {
+            return false;
+        }
+    }
+    true
+}
+
+fn literal_filter_match(raw_value: &str, literal: &LiteralValue) -> bool {
+    match literal {
+        LiteralValue::String(value) => raw_value == value,
+        LiteralValue::Integer(value) => raw_value.parse::<i128>() == Ok(*value),
+        LiteralValue::Decimal(value) => {
+            let Ok(expected) = value.parse::<f64>() else {
+                return false;
+            };
+            raw_value
+                .parse::<f64>()
+                .map(|actual| (actual - expected).abs() < 1e-9)
+                .unwrap_or(false)
+        }
+        LiteralValue::Boolean(value) => {
+            let normalized = raw_value.trim().to_ascii_lowercase();
+            (*value && (normalized == "true" || normalized == "1"))
+                || (!*value && (normalized == "false" || normalized == "0"))
+        }
+    }
+}
+
+fn numeric_filter_compare(
+    raw_value: &str,
+    literal: &LiteralValue,
+    comparator: impl Fn(f64, f64) -> bool,
+) -> bool {
+    let Ok(actual) = raw_value.parse::<f64>() else {
+        return false;
+    };
+    let expected = match literal {
+        LiteralValue::Integer(value) => *value as f64,
+        LiteralValue::Decimal(value) | LiteralValue::String(value) => {
+            let Ok(parsed) = value.parse::<f64>() else {
+                return false;
+            };
+            parsed
+        }
+        LiteralValue::Boolean(value) => {
+            if *value {
+                1.0
+            } else {
+                0.0
+            }
+        }
+    };
+    comparator(actual, expected)
 }
 
 fn load_generic_data_table(
