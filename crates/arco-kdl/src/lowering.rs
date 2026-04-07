@@ -2010,10 +2010,13 @@ fn reduction_domain_values(
     }
 }
 
+type InlineSelector = (String, String);
+type InlineSelectorDomain = (String, Vec<InlineSelector>);
+
 fn parse_inline_selector_domain(
     domain: &str,
     entrypoint: &Path,
-) -> Result<Option<(String, Vec<(String, String)>)>, LoweringError> {
+) -> Result<Option<InlineSelectorDomain>, LoweringError> {
     let Some(start) = domain.find('[') else {
         return Ok(None);
     };
@@ -2023,7 +2026,7 @@ fn parse_inline_selector_domain(
             path: entrypoint.to_path_buf(),
         });
     };
-    if end <= start || domain[end + 1..].trim().len() > 0 {
+    if end <= start || !domain[end + 1..].trim().is_empty() {
         return Err(LoweringError::InvalidFormulation {
             message: format!("invalid inline selector domain `{domain}`"),
             path: entrypoint.to_path_buf(),
@@ -2941,13 +2944,15 @@ fn resolve_data_column(data_decl: &DataDecl, logical_name: &str) -> String {
         .maps
         .iter()
         .find(|mapping| mapping.name == logical_name)
-        .map(|mapping| {
-            mapping
-                .source
-                .clone()
-                .unwrap_or_else(|| mapping.name.clone())
-        })
-        .unwrap_or_else(|| logical_name.to_string())
+        .map_or_else(
+            || logical_name.to_string(),
+            |mapping| {
+                mapping
+                    .source
+                    .clone()
+                    .unwrap_or_else(|| mapping.name.clone())
+            },
+        )
 }
 
 fn matches_data_param_filter(
@@ -2968,8 +2973,10 @@ fn matches_data_param_filter(
         .filter_by
         .as_ref()
         .or(parameter.from.as_ref())
-        .map(|logical_name| resolve_data_column(data_decl, logical_name))
-        .unwrap_or_else(|| resolve_data_column(data_decl, &parameter.name));
+        .map_or_else(
+            || resolve_data_column(data_decl, &parameter.name),
+            |logical_name| resolve_data_column(data_decl, logical_name),
+        );
     let Some(raw_value) = row.get(&filter_column) else {
         return false;
     };

@@ -1839,16 +1839,15 @@ fn values_for_subset(
         return Vec::new();
     };
 
-    let target_column = data_decl
-        .maps
-        .first()
-        .map(|mapping| {
+    let target_column = data_decl.maps.first().map_or_else(
+        || "name".to_string(),
+        |mapping| {
             mapping
                 .source
                 .clone()
                 .unwrap_or_else(|| mapping.name.clone())
-        })
-        .unwrap_or_else(|| "name".to_string());
+        },
+    );
 
     let mut values = BTreeSet::new();
     for row in rows {
@@ -1900,13 +1899,15 @@ fn source_column_for_logical_name(data_decl: &crate::source::DataDecl, logical: 
         .maps
         .iter()
         .find(|mapping| mapping.name == logical)
-        .map(|mapping| {
-            mapping
-                .source
-                .clone()
-                .unwrap_or_else(|| mapping.name.clone())
-        })
-        .unwrap_or_else(|| logical.to_string())
+        .map_or_else(
+            || logical.to_string(),
+            |mapping| {
+                mapping
+                    .source
+                    .clone()
+                    .unwrap_or_else(|| mapping.name.clone())
+            },
+        )
 }
 
 fn field_filters_match(
@@ -1917,8 +1918,7 @@ fn field_filters_match(
     field_filters.iter().all(|(field, expected)| {
         let source_field = source_column_for_logical_name(data_decl, field);
         row.get(&source_field)
-            .map(|actual| literal_matches(actual, expected))
-            .unwrap_or(false)
+            .is_some_and(|actual| literal_matches(actual, expected))
     })
 }
 

@@ -426,13 +426,11 @@ mod tests {
         };
 
         let script =
-            build_ipython_script(Path::new("tests/e2e/price-taker-battery/input.kdl"), &model);
+            build_ipython_script(Path::new("examples/price-taker-battery/input.kdl"), &model);
 
         assert!(script.contains("import arco"));
         // The model path is embedded as a raw string literal.
-        assert!(
-            script.contains(r#"model_path = Path(r"tests/e2e/price-taker-battery/input.kdl")"#)
-        );
+        assert!(script.contains(r#"model_path = Path(r"examples/price-taker-battery/input.kdl")"#));
         // CSC matrix data: col_ptrs, row_indices, values from the test model.
         // Note: Rust's f64::to_string() omits the trailing .0 for whole numbers.
         assert!(script.contains("col_ptrs=[0, 1]"));
