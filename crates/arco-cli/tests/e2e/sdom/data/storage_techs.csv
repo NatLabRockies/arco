@@ -1,2 +1,0 @@
-asset_name,max_stor_power,annualized_power_cost,annualized_energy_cost,roundtrip_eff,min_dur,max_dur,vom_stor,annualized_max_cycles,cost_ratio,initial_soc_mwh
-LiIon,200,40.05,17.52,0.85,2,6,1,333.33,0.5,0

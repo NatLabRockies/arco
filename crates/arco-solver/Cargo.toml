@@ -16,5 +16,3 @@ workspace = true
 [dependencies]
 arco-core = { workspace = true }
 arco-expr = { workspace = true }
-
-[dev-dependencies]
