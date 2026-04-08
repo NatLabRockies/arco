@@ -38,15 +38,15 @@ model CapacityExpansion {
     index time
   }
 
-  control build index_by="asset_id" lower=0
+  control expansion index_by="asset_id" lower=0
   control unserved_energy index_by="time" lower=0
 
   expression InvestmentCost {
-    sum(build_cost[a] * build[a] for a in candidate_assets)
+    sum(build_cost[asset] * expansion[asset] for asset in candidate_assets)
   }
 
   expression OperatingCost {
-    sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
+    sum(variable_cost[asset] * dispatch[asset,t] for asset in asset_id for t in time)
   }
 
   expression PenaltyCost {
@@ -54,15 +54,25 @@ model CapacityExpansion {
   }
 
   constraint dispatch_limit {
-    dispatch[a,t] <= existing_capacity_mw[a] + build[a]
+    over asset in=asset_id
+    over t in=time
+    expr {
+      dispatch[asset,t] <= existing_capacity_mw[asset] + expansion[asset]
+    }
   }
 
   constraint candidate_build_limit {
-    build[a] <= max_build_mw[a] * is_candidate[a]
+    over asset in=asset_id
+    expr {
+      expansion[asset] <= max_build_mw[asset] * is_candidate[asset]
+    }
   }
 
   constraint balance {
-    sum(dispatch[a,t] for a in asset_id) + unserved_energy[t] = demand[t]
+    over t in=time
+    expr {
+      sum(dispatch[asset,t] for asset in asset_id) + unserved_energy[t] = demand[t]
+    }
   }
 
   minimize ExpansionCost {

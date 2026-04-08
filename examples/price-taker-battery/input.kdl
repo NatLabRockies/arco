@@ -42,20 +42,56 @@ model PriceTakerBattery {
   }
 
   expression ArbitrageRevenue {
-    sum(prices[t] * (discharge[a,t] - charge[a,t]) for a in asset_id for t in time)
+    sum(prices[t] * (discharge[asset,t] - charge[asset,t]) for asset in asset_id for t in time)
+  }
+
+  constraint soc_initial {
+    over asset in=asset_id
+    expr {
+      soc[asset,1] = initial_soc_mwh[asset] + charge_efficiency[asset] * charge[asset,1] - discharge[asset,1] / discharge_efficiency[asset]
+    }
   }
 
   constraint soc_balance {
-    soc[a,t] = soc[a,t-1] + charge_efficiency[a] * charge[a,t] - discharge[a,t] / discharge_efficiency[a]
+    over asset in=asset_id
+    over t in=time
+    when "t > 1"
+    expr {
+      soc[asset,t] = soc[asset,t-1] + charge_efficiency[asset] * charge[asset,t] - discharge[asset,t] / discharge_efficiency[asset]
+    }
   }
+
   constraint charge_limit {
-    charge[a,t] <= power_mw[a]
+    over asset in=asset_id
+    over t in=time
+    expr {
+      charge[asset,t] <= power_mw[asset]
+    }
   }
+
   constraint discharge_limit {
-    discharge[a,t] <= power_mw[a]
+    over asset in=asset_id
+    over t in=time
+    expr {
+      discharge[asset,t] <= power_mw[asset]
+    }
   }
+
   constraint soc_bounds {
-    0 <= soc[a,t] <= energy_mwh[a]
+    over asset in=asset_id
+    over t in=time
+    expr {
+      0 <= soc[asset,t] <= energy_mwh[asset]
+    }
+  }
+
+  constraint terminal_soc {
+    over asset in=asset_id
+    over t in=time
+    when "t == 24"
+    expr {
+      soc[asset,t] = terminal_soc_mwh[asset]
+    }
   }
 
   maximize ArbitrageProfit {

@@ -40,15 +40,22 @@ model SouthAfricaSingleZoneDispatch {
   }
 
   expression DispatchCost {
-    sum(marginal_cost[a] * dispatch[a,t] for a in asset_id for t in time)
+    sum(marginal_cost[asset] * dispatch[asset,t] for asset in asset_id for t in time)
   }
 
   constraint dispatch_limit {
-    dispatch[a,t] <= capacity_mw[a] * availability[a,t]
+    over asset in=asset_id
+    over t in=time
+    expr {
+      dispatch[asset,t] <= capacity_mw[asset] * availability[asset,t]
+    }
   }
 
   constraint balance {
-    sum(dispatch[a,t] for a in asset_id) = load[t]
+    over t in=time
+    expr {
+      sum(dispatch[asset,t] for asset in asset_id) = load[t]
+    }
   }
 
   minimize TotalSystemCost {

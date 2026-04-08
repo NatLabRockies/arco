@@ -5,8 +5,8 @@ use arco_cli::cli_io::{
 use arco_cli::config::{SolverBackend, SolverConfig, load_solver_config, save_solver_config};
 use arco_cli::debug::launch_ipython;
 use arco_cli::driver::{
-    InspectCategory, RunOptions, inspect_file_report, print_file_model,
-    run_file_json_with_options_and_backend, validate_file_only,
+    RunOptions, inspect_file_report, print_file_model, run_file_json_with_options_and_backend,
+    validate_file_only,
 };
 use arco_cli::export::{write_lp, write_mps};
 use arco_kdl::pipeline::compile_file;
@@ -52,13 +52,7 @@ enum Command {
     /// Inspect semantic model information from a validated .kdl file
     Inspect {
         path: PathBuf,
-        /// Inspect a specific semantic category
-        #[arg(long)]
-        section: Option<InspectCategory>,
-        /// Filter to a specific element by name within the inspected category
-        #[arg(long, requires = "section")]
-        name: Option<String>,
-        /// Emit structured JSON output
+        /// Emit structured JSON output instead of TOML
         #[arg(long)]
         json: bool,
     },
@@ -148,15 +142,8 @@ fn main() -> miette::Result<()> {
             )?)
             .into_diagnostic()?;
         }
-        Command::Inspect {
-            path,
-            section,
-            name,
-            json,
-        } => {
-            let name_ref = name.as_deref();
-            write_stdout_line(&inspect_file_report(&path, section, name_ref, json)?)
-                .into_diagnostic()?;
+        Command::Inspect { path, json } => {
+            write_stdout_line(&inspect_file_report(&path, json)?).into_diagnostic()?;
         }
         Command::Debug { path } => {
             launch_ipython(&path)?;
