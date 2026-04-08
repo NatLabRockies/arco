@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.3.0](https://github.com/NatLabRockies/arco/compare/v0.2.8...v0.3.0) (2026-04-08)
+
+
+### Features
+
+* adding pretty printing of sets/variables ([#102](https://github.com/NatLabRockies/arco/issues/102)) ([d56cc33](https://github.com/NatLabRockies/arco/commit/d56cc335b73c384f37f42922ec55f476c2be02f4))
+* expose constraint duals via unified report keyword ([#103](https://github.com/NatLabRockies/arco/issues/103)) ([bdfa40b](https://github.com/NatLabRockies/arco/commit/bdfa40b414e2f23e81498093217100d0674fe785))
+
+
+### Bug Fixes
+
+* **ci:** use justfile py-build-ci approach for Python packaging ([#89](https://github.com/NatLabRockies/arco/issues/89)) ([410099e](https://github.com/NatLabRockies/arco/commit/410099e2f08652f8369045fe001053143248c77f))
+* cleaning and providing better  examples ([#122](https://github.com/NatLabRockies/arco/issues/122)) ([36973b7](https://github.com/NatLabRockies/arco/commit/36973b7e38074f762bf1d2b90947ab0ce42ca75f))
+* refresh stale just recipes and stabilize local checks ([#91](https://github.com/NatLabRockies/arco/issues/91)) ([54cbce7](https://github.com/NatLabRockies/arco/commit/54cbce78f1dd06aa57e2299a9002d7384f03f7e9))
+* resolve clippy warnings ([#93](https://github.com/NatLabRockies/arco/issues/93)) ([ef2b25c](https://github.com/NatLabRockies/arco/commit/ef2b25c8e551f27e0662fe8411e73d56be727e79))
+* resolve prek failures for typos and ruff formatting ([#92](https://github.com/NatLabRockies/arco/issues/92)) ([d0affcc](https://github.com/NatLabRockies/arco/commit/d0affcc27842b0527d61944bf8a2f9c4dcbc1c94))
+* support nodal generic indexed lowering and verbose solver logs ([#95](https://github.com/NatLabRockies/arco/issues/95)) ([92bcdbf](https://github.com/NatLabRockies/arco/commit/92bcdbf0b6611954107650eb367dcb89bb484f1f))
+
+
+### Performance
+
+* O(1) metadata lookup with reverse HashMap ([#111](https://github.com/NatLabRockies/arco/issues/111)) ([837ecfc](https://github.com/NatLabRockies/arco/commit/837ecfc3a00573da10ce56da168e90e78e8c1ef1))
+* reduce allocations in normalize_terms and export_crs ([#112](https://github.com/NatLabRockies/arco/issues/112)) ([d3260a5](https://github.com/NatLabRockies/arco/commit/d3260a564cb61fcfbc3a29307cd3e3bc94f76757))
+
+
+### Refactoring
+
+* **justfile:** improving just file and action/pre-commit ([#97](https://github.com/NatLabRockies/arco/issues/97)) ([58a83a4](https://github.com/NatLabRockies/arco/commit/58a83a4e6b9acd9ee965fd723c46e1ce266a8ee5))
+* stabilizing low-level api ([#118](https://github.com/NatLabRockies/arco/issues/118)) ([de6fc90](https://github.com/NatLabRockies/arco/commit/de6fc90f9c638741dca6ca4d6897fd5e58946991))
+
+
+### Documentation
+
+* **readme:** comprehensive README refresh ([#117](https://github.com/NatLabRockies/arco/issues/117)) ([54ba177](https://github.com/NatLabRockies/arco/commit/54ba177b5ba442d47c0fdc2e00ee51ded211a4ae))
+
+
+### CI
+
+* add benchmark tracking with github-action-benchmark ([#94](https://github.com/NatLabRockies/arco/issues/94)) ([1a2a2d7](https://github.com/NatLabRockies/arco/commit/1a2a2d721b6e01061f64fc1392a3504a5e859aac))
+
+
+### Build
+
+* **deps:** bump actions/download-artifact from 7.0.0 to 8.0.1 ([#106](https://github.com/NatLabRockies/arco/issues/106)) ([c09984d](https://github.com/NatLabRockies/arco/commit/c09984d4d031fddbd4101fedb86807a74781926e))
+* **deps:** bump actions/upload-artifact from 6.0.0 to 7.0.0 ([#104](https://github.com/NatLabRockies/arco/issues/104)) ([47799be](https://github.com/NatLabRockies/arco/commit/47799be39a39db6e6f5384fd3b41263b11bca78f))
+* **deps:** bump astral-sh/setup-uv from 7.6.0 to 8.0.0 ([#121](https://github.com/NatLabRockies/arco/issues/121)) ([6cb4343](https://github.com/NatLabRockies/arco/commit/6cb43435ae8441e0788e9fc8fe10eef78b6a147a))
+* **deps:** bump benchmark-action/github-action-benchmark ([#120](https://github.com/NatLabRockies/arco/issues/120)) ([a51a951](https://github.com/NatLabRockies/arco/commit/a51a9518463dbaccb39eef95c8eeb535ccf30a66))
+* **deps:** bump pypa/gh-action-pypi-publish ([#105](https://github.com/NatLabRockies/arco/issues/105)) ([37407eb](https://github.com/NatLabRockies/arco/commit/37407eb6a0014479c445f94415bd8fd8759062d9))
+* **deps:** bump pypa/gh-action-pypi-publish from 1.13.0 to 1.14.0 ([#119](https://github.com/NatLabRockies/arco/issues/119)) ([826f5ca](https://github.com/NatLabRockies/arco/commit/826f5ca7b06d206187422d93ddb0a0f354755ed7))
+
 ## [0.2.8](https://github.com/NatLabRockies/arco/compare/v0.2.7...v0.2.8) (2026-03-27)
 
 
