@@ -8,7 +8,7 @@ constrained hardware.**
 [![CI](https://img.shields.io/github/actions/workflow/status/NatLabRockies/arco/ci.yaml?branch=main&label=CI)](https://github.com/NatLabRockies/arco/actions/workflows/ci.yaml)
 [![Rust](https://img.shields.io/badge/rust-1.85-orange)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/arco/)
-[![License](https://img.shields.io/badge/license-BSD--3--Clause-green)](./licenses/BSD-3-Clause.txt)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-green)](./LICENSE.md)
 [![Docs](https://img.shields.io/badge/docs-di%C3%A1taxis-blue)](./docs/)
 [![PyPI](https://img.shields.io/pypi/v/arco)](https://pypi.org/project/arco/)
 
@@ -30,6 +30,9 @@ Built for harder optimization problems on constrained resources, Arco is
 intentional about every allocation, careful with stack and heap behavior, and
 relentless about minimizing memory usage so more systems can run real workloads.
 
+> [!NOTE]
+> NLR Software Record: **SWR-26-030**
+
 <p align="center">
   <a href="#quickstart">Quickstart</a> ·
   <a href="#installation">Installation</a> ·
@@ -40,7 +43,8 @@ relentless about minimizing memory usage so more systems can run real workloads.
   <a href="#architecture">Architecture</a> ·
   <a href="#benchmarking">Benchmarking</a> ·
   <a href="#contributing">Contributing</a> ·
-  <a href="#license">License</a>
+  <a href="#license">License</a> ·
+  <a href="#disclaimer">Disclaimer</a>
 </p>
 
 ## Quickstart
@@ -507,10 +511,15 @@ Release and versioning behavior is defined in
 ## License
 
 Arco is licensed under the BSD 3-Clause License. See
-[`licenses/BSD-3-Clause.txt`](./licenses/BSD-3-Clause.txt) for details.
+[`LICENSE.md`](./LICENSE.md) for details.
 
 The embedded HiGHS solver is licensed under the MIT License. See
 [`licenses/HiGHS-MIT.txt`](./licenses/HiGHS-MIT.txt) for details.
+
+## Disclaimer
+
+This repository includes an AI-generation disclaimer in
+[`DISCLAIMER.md`](./DISCLAIMER.md).
 
 ---
 
