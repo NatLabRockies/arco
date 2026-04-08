@@ -46,19 +46,19 @@ fn examples_support_validate_print_model_inspect_and_run() {
 
         assert_cli_success(&["validate", model]);
         assert_cli_success(&["print-model", model]);
-        assert_cli_success(&["inspect", model, "--section", "constraints"]);
+        assert_cli_success(&["inspect", model]);
         assert_cli_success(&["run", model, "--compact"]);
     }
 }
 
 #[test]
-fn inspect_objective_expands_refs_from_named_expressions() {
+fn inspect_produces_valid_toml() {
     let model_path = example_path("examples/capacity-expansion/input.kdl");
     let model = model_path
         .to_str()
         .expect("example path contains invalid unicode");
 
-    let output = run_cli(&["inspect", model, "--section", "objective", "--json"]);
+    let output = run_cli(&["inspect", model]);
     assert!(
         output.status.success(),
         "command failed\nstdout:\n{}\nstderr:\n{}",
@@ -66,145 +66,32 @@ fn inspect_objective_expands_refs_from_named_expressions() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid objective json");
-    let objective = payload
-        .as_array()
-        .and_then(|items| items.first())
-        .expect("objective section returns one objective item");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: toml::Value = toml::from_str(&stdout).expect("output should be valid TOML");
 
-    let variable_refs = objective
-        .get("variable_refs")
-        .and_then(Value::as_array)
-        .expect("objective includes variable refs");
-    let parameter_refs = objective
-        .get("parameter_refs")
-        .and_then(Value::as_array)
-        .expect("objective includes parameter refs");
-
-    let variable_ref_values = variable_refs
-        .iter()
-        .filter_map(|value| value.get("$ref"))
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>();
-    let parameter_ref_values = parameter_refs
-        .iter()
-        .filter_map(|value| value.get("$ref"))
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>();
-
-    assert!(variable_ref_values.contains(&"#/variables/dispatch"));
-    assert!(variable_ref_values.contains(&"#/variables/expansion"));
-    assert!(variable_ref_values.contains(&"#/variables/unserved_energy"));
-
-    assert!(parameter_ref_values.contains(&"#/parameters/build_cost"));
-    assert!(parameter_ref_values.contains(&"#/parameters/variable_cost"));
-    assert!(parameter_ref_values.contains(&"#/parameters/voll"));
-}
-
-#[test]
-fn inspect_full_json_omits_empty_chronologies() {
-    let model_path = example_path("examples/capacity-expansion/input.kdl");
-    let model = model_path
-        .to_str()
-        .expect("example path contains invalid unicode");
-
-    let output = run_cli(&["inspect", model, "--json"]);
+    // Check top-level sections exist
+    assert!(parsed.get("meta").is_some(), "should have meta section");
+    assert!(parsed.get("set").is_some(), "should have set section");
     assert!(
-        output.status.success(),
-        "command failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        parsed.get("variable").is_some(),
+        "should have variable section"
     );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid full inspect json");
     assert!(
-        payload.get("chronologies").is_none(),
-        "full inspect should omit empty chronology section"
+        parsed.get("parameter").is_some(),
+        "should have parameter section"
+    );
+    assert!(
+        parsed.get("constraint").is_some(),
+        "should have constraint section"
+    );
+    assert!(
+        parsed.get("objective").is_some(),
+        "should have objective section"
     );
 }
 
 #[test]
-fn inspect_parameters_section_uses_set_dimensions() {
-    let model_path = example_path("examples/capacity-expansion/input.kdl");
-    let model = model_path
-        .to_str()
-        .expect("example path contains invalid unicode");
-
-    let output = run_cli(&["inspect", model, "--section", "parameters", "--json"]);
-    assert!(
-        output.status.success(),
-        "command failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid parameter json");
-    let sets = payload
-        .get("sets")
-        .and_then(Value::as_object)
-        .expect("parameter section includes set catalog");
-    assert!(sets.contains_key("asset_id"));
-
-    let parameters = payload
-        .get("parameters")
-        .and_then(Value::as_object)
-        .expect("parameter section includes parameter table");
-
-    assert!(
-        parameters.get("build_cost").is_none(),
-        "parameter table should not include repeated inferred base entries"
-    );
-
-    let build_cost = parameters
-        .get("build_cost[asset_id]")
-        .expect("build_cost indexed parameter present");
-
-    let set_refs = build_cost
-        .get("set")
-        .and_then(Value::as_array)
-        .expect("indexed parameter includes set refs");
-
-    let ref_values = set_refs
-        .iter()
-        .filter_map(|value| value.get("$ref"))
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>();
-
-    assert!(ref_values.contains(&"#/sets/asset_id"));
-    assert!(build_cost.get("type").is_none());
-}
-
-#[test]
-fn inspect_variables_section_includes_set_catalog() {
-    let model_path = example_path("examples/capacity-expansion/input.kdl");
-    let model = model_path
-        .to_str()
-        .expect("example path contains invalid unicode");
-
-    let output = run_cli(&["inspect", model, "--section", "variables", "--json"]);
-    assert!(
-        output.status.success(),
-        "command failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid variable json");
-    let sets = payload
-        .get("sets")
-        .and_then(Value::as_object)
-        .expect("variable section includes set catalog");
-    assert!(sets.contains_key("time"));
-
-    let variables = payload
-        .get("variables")
-        .and_then(Value::as_array)
-        .expect("variable section includes variable cards");
-    assert!(!variables.is_empty());
-}
-
-#[test]
-fn inspect_full_json_parameters_table_omits_repeated_bases() {
+fn inspect_json_produces_valid_json() {
     let model_path = example_path("examples/capacity-expansion/input.kdl");
     let model = model_path
         .to_str()
@@ -219,11 +106,100 @@ fn inspect_full_json_parameters_table_omits_repeated_bases() {
     );
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("valid inspect json");
-    let parameters = payload
-        .get("parameters")
-        .and_then(Value::as_object)
-        .expect("full inspect includes parameter table");
 
-    assert!(parameters.get("build_cost").is_none());
-    assert!(parameters.get("build_cost[asset_id]").is_some());
+    // Check structure matches TOML layout
+    assert!(payload.get("meta").is_some());
+    assert!(payload.get("set").is_some());
+    assert!(payload.get("variable").is_some());
+    assert!(payload.get("parameter").is_some());
+    assert!(payload.get("constraint").is_some());
+    assert!(payload.get("objective").is_some());
+
+    // Check counts
+    let counts = payload["meta"]["counts"]
+        .as_object()
+        .expect("counts object");
+    assert!(counts.get("set").is_some());
+    assert!(counts.get("variable").is_some());
+    assert!(counts.get("parameter").is_some());
+    assert!(counts.get("constraint").is_some());
+}
+
+#[test]
+fn inspect_json_constraints_have_structured_refs() {
+    let model_path = example_path("examples/capacity-expansion/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let output = run_cli(&["inspect", model, "--json"]);
+    assert!(output.status.success());
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid inspect json");
+    let constraints = payload["constraint"].as_array().expect("constraint array");
+
+    assert!(!constraints.is_empty());
+
+    // Each constraint should have structured fields
+    for constraint in constraints {
+        assert!(constraint.get("name").is_some());
+        assert!(constraint.get("relation").is_some());
+        assert!(constraint.get("template").is_some());
+        assert!(constraint.get("source").is_some());
+        assert!(constraint.get("scope").is_some());
+        assert!(constraint.get("lhs").is_some());
+        assert!(constraint.get("rhs").is_some());
+        assert!(constraint.get("instances").is_some());
+    }
+}
+
+#[test]
+fn inspect_json_variables_have_set_bindings() {
+    let model_path = example_path("examples/capacity-expansion/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let output = run_cli(&["inspect", model, "--json"]);
+    assert!(output.status.success());
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid inspect json");
+    let variables = payload["variable"].as_array().expect("variable array");
+
+    assert!(!variables.is_empty());
+
+    for variable in variables {
+        assert!(variable.get("name").is_some());
+        assert!(variable.get("kind").is_some());
+        assert!(variable.get("set").is_some());
+
+        // Each set binding should have name and size
+        let sets = variable["set"].as_array().expect("set array");
+        for set_binding in sets {
+            assert!(set_binding.get("name").is_some());
+            assert!(set_binding.get("size").is_some());
+        }
+    }
+}
+
+#[test]
+fn inspect_json_parameters_have_dtype() {
+    let model_path = example_path("examples/capacity-expansion/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let output = run_cli(&["inspect", model, "--json"]);
+    assert!(output.status.success());
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid inspect json");
+    let parameters = payload["parameter"].as_array().expect("parameter array");
+
+    assert!(!parameters.is_empty());
+
+    for param in parameters {
+        assert!(param.get("name").is_some());
+        assert!(param.get("kind").is_some());
+        assert!(param.get("dtype").is_some());
+    }
 }
