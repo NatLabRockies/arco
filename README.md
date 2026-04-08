@@ -14,7 +14,8 @@ constrained hardware.**
 
 </div>
 
-> [!WARNING] Arco is built primarily for internal use within our organization.
+> [!WARNING]
+> Arco is built primarily for internal use within our organization.
 > You are welcome to try it, but we make no guarantees about API stability or
 > robustness at this stage. For battle-tested alternatives, consider
 > [Pyomo](https://www.pyomo.org/) (Python) or [JuMP](https://jump.dev/) (Julia).
@@ -117,7 +118,8 @@ arco run input.kdl --compact
 }
 ```
 
-> [!NOTE] Arco embeds the HiGHS solver. No external solver installation or
+> [!NOTE]
+> Arco embeds the HiGHS solver. No external solver installation or
 > configuration required.
 
 ## Installation
@@ -217,7 +219,8 @@ scenario AllocationDay {
 }
 ```
 
-> [!TIP] See the [KDL syntax reference](./docs/reference/kdl-syntax-summary.md)
+> [!TIP]
+> See the [KDL syntax reference](./docs/reference/kdl-syntax-summary.md)
 > for the full grammar, algebra operators, constraint forms, and reduction
 > syntax. Complete working examples live in the [`examples/`](./examples/)
 > directory.
@@ -374,7 +377,8 @@ solution = model.solve()
 
 </details>
 
-> [!TIP] See the [tutorials](./docs/tutorials/) and
+> [!TIP]
+> See the [tutorials](./docs/tutorials/) and
 > [how-to guides](./docs/how-to/) for comprehensive Python examples.
 
 ## Features
