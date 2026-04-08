@@ -388,7 +388,7 @@ fn inspect_payload(
             let sets = compose_set_catalog_and_ref_variables(&mut variables, &sets_array);
             let parameters = compose_parameter_catalog(program, &parameter_targets, &sets);
 
-            Ok(json!({
+            let mut payload = json!({
                 "summaries": summary,
                 "sets": sets,
                 "constraints": constraints,
@@ -397,16 +397,49 @@ fn inspect_payload(
                 "expressions": expressions,
                 "objectives": objectives,
                 "reports": reports,
-                "chronologies": chronologies,
-            }))
+            });
+
+            if !chronologies
+                .as_array()
+                .is_some_and(|items| items.is_empty())
+            {
+                payload["chronologies"] = chronologies;
+            }
+
+            Ok(payload)
         }
         Some(category) => match category {
             InspectCategory::Sets => format_inspect_sets(program, name),
             InspectCategory::Constraints => {
                 format_inspect_constraints_with_params(program, name, &parameter_targets)
             }
-            InspectCategory::Variables => format_inspect_variables(program, name),
-            InspectCategory::Parameters => format_inspect_parameters(program, name),
+            InspectCategory::Variables => {
+                if name.is_some() {
+                    format_inspect_variables(program, name)
+                } else {
+                    let sets_array = payload_as_array(format_inspect_sets(program, None)?);
+                    let mut variables = payload_as_array(format_inspect_variables(program, None)?);
+                    let sets = compose_set_catalog_and_ref_variables(&mut variables, &sets_array);
+                    Ok(json!({
+                        "sets": sets,
+                        "variables": variables,
+                    }))
+                }
+            }
+            InspectCategory::Parameters => {
+                if name.is_some() {
+                    format_inspect_parameters(program, name)
+                } else {
+                    let sets_array = payload_as_array(format_inspect_sets(program, None)?);
+                    let mut variables = payload_as_array(format_inspect_variables(program, None)?);
+                    let sets = compose_set_catalog_and_ref_variables(&mut variables, &sets_array);
+                    let parameters = payload_as_array(format_inspect_parameters(program, None)?);
+                    Ok(json!({
+                        "sets": sets,
+                        "parameters": parameters,
+                    }))
+                }
+            }
             InspectCategory::Expressions => format_inspect_expressions(program, name),
             InspectCategory::Objective => Ok(format_inspect_objective_with_params(
                 program,
@@ -440,18 +473,7 @@ fn render_pretty_full_inspect(payload: &Value) -> String {
     }
 
     if let Some(sets) = object.get("sets").and_then(Value::as_object) {
-        let mut lines = Vec::new();
-        for (name, definition) in sets {
-            let cardinality = definition
-                .get("cardinality")
-                .map_or_else(|| "?".to_string(), value_to_compact_string);
-            let symbol = definition
-                .get("symbol")
-                .and_then(Value::as_str)
-                .map_or(String::new(), |value| format!(" ({value})"));
-            lines.push(format!("{name}{symbol}: {cardinality}"));
-        }
-        sections.push(lines.join("\n"));
+        sections.push(render_set_catalog_lines(sets));
     }
 
     for (category, key) in [
@@ -486,7 +508,53 @@ fn render_pretty_section(category: InspectCategory, payload: &Value) -> String {
         InspectCategory::Chronology => "chronology",
     };
 
+    if let Some(object) = payload.as_object() {
+        let section_key = match category {
+            InspectCategory::Constraints => Some("constraints"),
+            InspectCategory::Variables => Some("variables"),
+            InspectCategory::Parameters => Some("parameters"),
+            InspectCategory::Expressions => Some("expressions"),
+            InspectCategory::Objective => Some("objectives"),
+            InspectCategory::Reports => Some("reports"),
+            InspectCategory::Chronology => Some("chronologies"),
+            InspectCategory::Sets => None,
+        };
+
+        if let Some(section_key) = section_key
+            && let Some(section_payload) = object.get(section_key)
+        {
+            let rendered_section =
+                render_pretty_card_block(kind, summary_items(section_payload).as_slice());
+            if matches!(
+                category,
+                InspectCategory::Variables | InspectCategory::Parameters
+            ) && let Some(sets) = object.get("sets").and_then(Value::as_object)
+            {
+                let rendered_sets = render_set_catalog_lines(sets);
+                if !rendered_sets.trim().is_empty() {
+                    return format!("{rendered_sets}\n\n{rendered_section}");
+                }
+            }
+            return rendered_section;
+        }
+    }
+
     render_pretty_card_block(kind, summary_items(payload).as_slice())
+}
+
+fn render_set_catalog_lines(sets: &Map<String, Value>) -> String {
+    let mut lines = Vec::new();
+    for (name, definition) in sets {
+        let cardinality = definition
+            .get("cardinality")
+            .map_or_else(|| "?".to_string(), value_to_compact_string);
+        let symbol = definition
+            .get("symbol")
+            .and_then(Value::as_str)
+            .map_or(String::new(), |value| format!(" ({value})"));
+        lines.push(format!("{name}{symbol}: {cardinality}"));
+    }
+    lines.join("\n")
 }
 
 fn summary_items(payload: &Value) -> Vec<Value> {
@@ -1225,13 +1293,6 @@ fn format_inspect_parameters(
                 vec![
                     ("name", Value::String(target_name.to_string())),
                     (
-                        "type",
-                        parameter
-                            .get("kind")
-                            .cloned()
-                            .unwrap_or_else(|| Value::String("inferred".to_string())),
-                    ),
-                    (
                         "set",
                         parameter
                             .get("set")
@@ -1252,9 +1313,7 @@ fn format_inspect_parameters(
             })
         }
     } else {
-        let mut parameter_names = catalog_object.keys().cloned().collect::<Vec<_>>();
-        parameter_names.sort();
-        let items = parameter_names
+        let items = select_parameter_display_names(catalog_object)
             .into_iter()
             .filter_map(|param_name| {
                 catalog_object.get(&param_name).map(|parameter| {
@@ -1262,13 +1321,6 @@ fn format_inspect_parameters(
                         "parameter",
                         vec![
                             ("name", Value::String(param_name)),
-                            (
-                                "type",
-                                parameter
-                                    .get("kind")
-                                    .cloned()
-                                    .unwrap_or_else(|| Value::String("inferred".to_string())),
-                            ),
                             (
                                 "set",
                                 parameter
@@ -1287,6 +1339,32 @@ fn format_inspect_parameters(
             "items": items,
         }))
     }
+}
+
+fn select_parameter_display_names(catalog_object: &Map<String, Value>) -> Vec<String> {
+    let signature_bases = catalog_object
+        .keys()
+        .filter_map(|name| name.split_once('[').map(|(base, _)| base.to_string()))
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let mut names = catalog_object.keys().cloned().collect::<Vec<_>>();
+    names.sort();
+    names
+        .into_iter()
+        .filter(|name| {
+            if name.contains('[') {
+                return true;
+            }
+
+            let is_inferred = catalog_object
+                .get(name)
+                .and_then(|parameter| parameter.get("kind"))
+                .and_then(Value::as_str)
+                == Some("inferred");
+
+            !(is_inferred && signature_bases.contains(name))
+        })
+        .collect()
 }
 
 fn build_parameter_catalog(
@@ -1356,6 +1434,19 @@ fn format_inspect_objective_with_params(
 ) -> Value {
     let objective = &program.active_objective;
     let variable_targets = collect_variable_targets(program);
+    let expression_catalog = program
+        .active_expressions
+        .iter()
+        .map(|expression| (expression.name.clone(), expression.formula.clone()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut objective_targets = std::collections::BTreeSet::new();
+    collect_expr_indexed_targets_with_expression_expansion(
+        &objective.expression,
+        &expression_catalog,
+        &mut std::collections::BTreeSet::new(),
+        &mut objective_targets,
+    );
+
     let mut fields = vec![
         ("name", Value::String(objective.name.clone())),
         ("sense", Value::String(objective.sense.clone())),
@@ -1406,20 +1497,107 @@ fn format_inspect_objective_with_params(
 
     fields.push((
         "variable_refs",
-        Value::Array(extract_expr_variable_refs(
-            &objective.expression,
+        Value::Array(extract_indexed_refs(
+            &objective_targets,
             &variable_targets,
+            "#/variables",
         )),
     ));
     fields.push((
         "parameter_refs",
-        Value::Array(extract_expr_parameter_refs(
-            &objective.expression,
+        Value::Array(extract_indexed_refs(
+            &objective_targets,
             parameter_targets,
+            "#/parameters",
         )),
     ));
 
     render_named_card("objective", fields)
+}
+
+fn collect_expr_indexed_targets_with_expression_expansion(
+    expr: &arco_kdl::algebra::Expr,
+    expression_catalog: &std::collections::BTreeMap<String, arco_kdl::algebra::Expr>,
+    expanded: &mut std::collections::BTreeSet<String>,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    match expr {
+        arco_kdl::algebra::Expr::Identifier(name) => {
+            if let Some(formula) = expression_catalog.get(name)
+                && expanded.insert(name.clone())
+            {
+                collect_expr_indexed_targets_with_expression_expansion(
+                    formula,
+                    expression_catalog,
+                    expanded,
+                    out,
+                );
+            }
+        }
+        arco_kdl::algebra::Expr::Indexed { target, indices } => {
+            out.insert(target.clone());
+            for index in indices {
+                collect_expr_indexed_targets_with_expression_expansion(
+                    index,
+                    expression_catalog,
+                    expanded,
+                    out,
+                );
+            }
+        }
+        arco_kdl::algebra::Expr::Unary { expr, .. } => {
+            collect_expr_indexed_targets_with_expression_expansion(
+                expr,
+                expression_catalog,
+                expanded,
+                out,
+            );
+        }
+        arco_kdl::algebra::Expr::Binary { left, right, .. }
+        | arco_kdl::algebra::Expr::Comparison { left, right, .. } => {
+            collect_expr_indexed_targets_with_expression_expansion(
+                left,
+                expression_catalog,
+                expanded,
+                out,
+            );
+            collect_expr_indexed_targets_with_expression_expansion(
+                right,
+                expression_catalog,
+                expanded,
+                out,
+            );
+        }
+        arco_kdl::algebra::Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                collect_expr_indexed_targets_with_expression_expansion(
+                    arg,
+                    expression_catalog,
+                    expanded,
+                    out,
+                );
+            }
+        }
+        arco_kdl::algebra::Expr::Reduction(reduction) => {
+            collect_expr_indexed_targets_with_expression_expansion(
+                &reduction.body,
+                expression_catalog,
+                expanded,
+                out,
+            );
+            for filter in &reduction.filters {
+                collect_expr_indexed_targets_with_expression_expansion(
+                    filter,
+                    expression_catalog,
+                    expanded,
+                    out,
+                );
+            }
+        }
+        arco_kdl::algebra::Expr::Number(_)
+        | arco_kdl::algebra::Expr::String(_)
+        | arco_kdl::algebra::Expr::Boolean(_) => {}
+    }
 }
 
 fn compose_parameter_catalog(
@@ -1481,6 +1659,11 @@ fn collect_parameter_set_refs(
     parameter_name: &str,
     symbol_to_set: &std::collections::BTreeMap<String, String>,
 ) -> std::collections::BTreeSet<String> {
+    let declared_refs = collect_declared_parameter_set_refs(parameter_name, symbol_to_set);
+    if !declared_refs.is_empty() {
+        return declared_refs;
+    }
+
     let mut refs = std::collections::BTreeSet::new();
 
     for constraint in &program.active_constraints {
@@ -1524,6 +1707,28 @@ fn collect_parameter_set_refs(
     }
 
     refs
+}
+
+fn collect_declared_parameter_set_refs(
+    parameter_name: &str,
+    symbol_to_set: &std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeSet<String> {
+    let Some((_, indices)) = parameter_name.split_once('[') else {
+        return std::collections::BTreeSet::new();
+    };
+    let indices = indices.strip_suffix(']').unwrap_or(indices);
+
+    indices
+        .split(',')
+        .map(str::trim)
+        .filter(|index| !index.is_empty())
+        .map(|index| {
+            symbol_to_set
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| index.to_string())
+        })
+        .collect::<std::collections::BTreeSet<_>>()
 }
 
 fn collect_parameter_sets_from_expr(
@@ -1639,15 +1844,6 @@ fn extract_constraint_parameter_refs(
     extract_indexed_refs(&targets, parameter_targets, "#/parameters")
 }
 
-fn extract_expr_parameter_refs(
-    expr: &arco_kdl::algebra::Expr,
-    parameter_targets: &std::collections::BTreeSet<String>,
-) -> Vec<Value> {
-    let mut targets = std::collections::BTreeSet::new();
-    collect_expr_indexed_targets(expr, &mut targets);
-    extract_indexed_refs(&targets, parameter_targets, "#/parameters")
-}
-
 fn extract_constraint_variable_refs(
     constraint: &arco_kdl::semantic::ResolvedConstraint,
     variable_targets: &std::collections::BTreeSet<String>,
@@ -1656,6 +1852,7 @@ fn extract_constraint_variable_refs(
     extract_indexed_refs(&targets, variable_targets, "#/variables")
 }
 
+#[cfg(test)]
 fn extract_expr_variable_refs(
     expr: &arco_kdl::algebra::Expr,
     variable_targets: &std::collections::BTreeSet<String>,
@@ -1822,6 +2019,13 @@ fn format_inspect_chronology(program: &arco_kdl::semantic::SemanticProgram) -> V
         ));
     }
 
+    if fields.is_empty() {
+        return json!({
+            "kind": "chronologies",
+            "items": [],
+        });
+    }
+
     render_named_card("chronology", fields)
 }
 
@@ -1959,6 +2163,7 @@ mod tests {
         collect_constraint_indexed_targets, expr_additive_terms, extract_expr_variable_refs,
         extract_indexed_refs, format_validate_success, format_validation_summary,
         render_variable_domains, render_variable_math_notation, render_variable_value_domain,
+        select_parameter_display_names,
     };
     use arco_kdl::semantic::{FamilySignature, ResolvedSet};
     use serde_json::json;
@@ -2102,6 +2307,28 @@ mod tests {
         let refs = extract_indexed_refs(&indexed, &allowed, "#/variables");
 
         assert_eq!(refs, vec![json!({"$ref": "#/variables/dispatch"})]);
+    }
+
+    #[test]
+    fn select_parameter_display_names_prefers_declared_signatures_over_inferred_bases() {
+        let catalog = serde_json::Map::from_iter([
+            ("build_cost".to_string(), json!({"kind": "inferred"})),
+            ("build_cost[asset_id]".to_string(), json!({"kind": "asset"})),
+            ("demand".to_string(), json!({"kind": "inferred"})),
+            ("demand[time]".to_string(), json!({"kind": "series"})),
+            ("voll".to_string(), json!({"kind": "inferred"})),
+        ]);
+
+        let names = select_parameter_display_names(&catalog);
+
+        assert_eq!(
+            names,
+            vec![
+                "build_cost[asset_id]".to_string(),
+                "demand[time]".to_string(),
+                "voll".to_string(),
+            ]
+        );
     }
 
     #[test]
