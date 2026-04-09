@@ -48,7 +48,7 @@ relentless about minimizing memory usage so more systems can run real workloads.
 Install the CLI:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/NatLabRockies/arco/releases/latest/download/arco-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.sh | sh
 ```
 
 Write an optimization model using the low-level KDL profile:
@@ -129,17 +129,28 @@ arco run input.kdl --compact
 macOS and Linux:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/NatLabRockies/arco/releases/latest/download/arco-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/NatLabRockies/arco/releases/latest/download/arco-installer.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.ps1 | iex"
 ```
 
 The installer places the `arco` binary in `~/.cargo/bin` and includes a
 self-updater (`arco-update`).
+
+> [!NOTE]
+> Linux `*-unknown-linux-gnu` artifacts require a recent glibc. If your system
+> is older (for example, glibc 2.28), use a release that includes musl assets
+> (`*-unknown-linux-musl`) or build from source:
+>
+> ```bash
+> git clone https://github.com/NatLabRockies/arco.git
+> cd arco
+> cargo install --path crates/arco-cli --locked
+> ```
 
 ### Python Binding
 
