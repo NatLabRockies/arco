@@ -1,6 +1,6 @@
 #![allow(clippy::float_cmp)]
 
-use arco_kdl::lowering::lower_program;
+use arco_kdl::lowering::{LoweringError, lower_program};
 use arco_kdl::semantic::validate_program;
 use arco_kdl::source::parse_program_file;
 use std::fs;
@@ -147,6 +147,72 @@ scenario "S1" {
         .find(|c| c.name == "cap_limit[t][1]")
         .ok_or("missing capacity constraint")?;
     assert_eq!(cap.rhs, 55.0);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_reports_missing_data_point_for_sparse_generic_data_table()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("sparse-generic-data")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("dist.csv"),
+        "g,b,distance_km\ng1,b1,10\ng1,b2,20\ng2,b1,30\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "distance" from="data/dist.csv" {
+  set "g"
+  set "b"
+  param "distance_km" {
+    index "g"
+    index "b"
+  }
+}
+
+model "SparseDistance" {
+  set "g"
+  set "b"
+
+  param "distance_km" {
+    index "g"
+    index "b"
+  }
+
+  control "flow" lower=0 {
+    index "g"
+    index "b"
+  }
+
+  minimize "TotalCost" {
+    sum(distance_km[g,b] * flow[g,b] for g in g for b in b)
+  }
+}
+
+scenario "SparseDistanceCase" {
+  horizon steps=1 resolution="PT1H"
+  use "SparseDistance"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let err = lower_program(&semantic, &parsed.program, &path)
+        .expect_err("sparse data table should fail lowering with a missing key");
+
+    match err {
+        LoweringError::MissingDataPoint { name, key, .. } => {
+            assert_eq!(name, "distance_km");
+            assert_eq!(key, "g2,b2");
+        }
+        other => panic!("expected MissingDataPoint, got {other:?}"),
+    }
 
     fs::remove_dir_all(&root)?;
     Ok(())

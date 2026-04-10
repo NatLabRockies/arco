@@ -222,7 +222,7 @@ pub enum LoweringError {
     #[error("missing required data point `{name}` for key `{key}` during lowering in {path}")]
     #[diagnostic(
         code(arco::lowering::missing_data_point),
-        help("fill in the missing data point in the input tables")
+        help("add the missing row in the data table or restrict iteration to keys that exist")
     )]
     MissingDataPoint {
         name: String,
@@ -910,7 +910,13 @@ fn load_inputs(
     let mut set_params = BTreeMap::new();
 
     for data_decl in &source_program.data {
-        load_data_decl_params(data_decl, entry_dir, &mut generic_data, &mut set_params)?;
+        load_data_decl_params(
+            source_program,
+            data_decl,
+            entry_dir,
+            &mut generic_data,
+            &mut set_params,
+        )?;
     }
 
     for binding in &scenario.data {
@@ -1302,6 +1308,11 @@ fn resolve_single_index_domain(
         if let Some(set) = program.set_registry.get(domain.as_str()) {
             return Ok(set.values.clone());
         }
+        if let Some(canonical) = program.set_aliases.get(domain.as_str()) {
+            if let Some(set) = program.set_registry.get(canonical.as_str()) {
+                return Ok(set.values.clone());
+            }
+        }
         return Err(LoweringError::InvalidFormulation {
             message: format!(
                 "index `{index_name}` in `{family}` references unknown set `{domain}`"
@@ -1320,6 +1331,11 @@ fn resolve_single_index_domain(
             // Last resort: check if the index name itself is a set in the registry.
             if let Some(set) = program.set_registry.get(index_name) {
                 return Ok(set.values.clone());
+            }
+            if let Some(canonical) = program.set_aliases.get(index_name) {
+                if let Some(set) = program.set_registry.get(canonical.as_str()) {
+                    return Ok(set.values.clone());
+                }
             }
             Err(LoweringError::InvalidFormulation {
                 message: format!("unsupported variable family domain `{family}`"),
@@ -1986,17 +2002,25 @@ fn reduction_domain_values(
             .collect()),
         _ => {
             if let Some(set) = program.set_registry.get(domain) {
-                Ok(set
+                return Ok(set
                     .values
                     .iter()
                     .map(|v| FilterValue::String(v.clone()))
-                    .collect())
-            } else {
-                Err(LoweringError::InvalidFormulation {
-                    message: format!("unsupported reduction domain `{domain}`"),
-                    path: entrypoint.to_path_buf(),
-                })
+                    .collect());
             }
+            if let Some(canonical) = program.set_aliases.get(domain) {
+                if let Some(set) = program.set_registry.get(canonical.as_str()) {
+                    return Ok(set
+                        .values
+                        .iter()
+                        .map(|v| FilterValue::String(v.clone()))
+                        .collect());
+                }
+            }
+            Err(LoweringError::InvalidFormulation {
+                message: format!("unsupported reduction domain `{domain}`"),
+                path: entrypoint.to_path_buf(),
+            })
         }
     }
 }
@@ -2318,8 +2342,16 @@ fn parameter_reference_expr(
     inputs: &ScenarioInputs,
     entrypoint: &Path,
 ) -> Result<AffineExpr, LoweringError> {
+    let references_generic_table = inputs.generic_data.contains_key(target);
     if let Some(value) = generic_data_value(&inputs.generic_data, target, resolved, entrypoint)? {
         return Ok(AffineExpr::constant(value));
+    }
+    if references_generic_table {
+        return Err(LoweringError::MissingDataPoint {
+            name: target.to_string(),
+            key: format_filter_lookup_key(resolved, entrypoint)?,
+            path: entrypoint.to_path_buf(),
+        });
     }
 
     let value = match resolved {
@@ -2616,6 +2648,16 @@ fn constraint_binding_suffix(
     }
 }
 
+fn coerce_numeric_filter_value(value: FilterValue) -> FilterValue {
+    match value {
+        FilterValue::String(text) => text
+            .parse::<f64>()
+            .map(FilterValue::Number)
+            .unwrap_or(FilterValue::String(text)),
+        other => other,
+    }
+}
+
 fn integer_time_index(value: &FilterValue, entrypoint: &Path) -> Result<i64, LoweringError> {
     match value {
         FilterValue::Number(number) => {
@@ -2649,16 +2691,15 @@ fn resolve_index_expr(
     entrypoint: &Path,
 ) -> Result<FilterValue, LoweringError> {
     match expr {
-        Expr::Identifier(name) => {
-            bindings
-                .values
-                .get(name)
-                .cloned()
-                .ok_or_else(|| LoweringError::InvalidFormulation {
-                    message: format!("unbound index identifier `{name}`"),
-                    path: entrypoint.to_path_buf(),
-                })
-        }
+        Expr::Identifier(name) => bindings
+            .values
+            .get(name)
+            .cloned()
+            .map(coerce_numeric_filter_value)
+            .ok_or_else(|| LoweringError::InvalidFormulation {
+                message: format!("unbound index identifier `{name}`"),
+                path: entrypoint.to_path_buf(),
+            }),
         Expr::Number(value) => value.parse::<f64>().map(FilterValue::Number).map_err(|_| {
             LoweringError::InvalidFormulation {
                 message: format!("invalid numeric index `{value}`"),
@@ -2796,6 +2837,7 @@ fn parse_data_value(
 }
 
 fn load_data_decl_params(
+    source_program: &SourceProgram,
     data_decl: &DataDecl,
     entry_dir: &Path,
     generic_data: &mut BTreeMap<String, GenericDataTable>,
@@ -2812,7 +2854,7 @@ fn load_data_decl_params(
             .from
             .clone()
             .unwrap_or_else(|| parameter.name.clone());
-        let key_columns = resolve_param_key_columns(data_decl, parameter);
+        let key_columns = resolve_param_key_columns(source_program, data_decl, parameter);
         let mut values: BTreeMap<Vec<String>, f64> = BTreeMap::new();
         let mut counts: BTreeMap<Vec<String>, usize> = BTreeMap::new();
 
@@ -2905,28 +2947,63 @@ fn load_data_decl_params(
     Ok(())
 }
 
-fn resolve_param_key_columns(data_decl: &DataDecl, parameter: &ParamDecl) -> Vec<String> {
+fn resolve_param_key_columns(
+    source_program: &SourceProgram,
+    data_decl: &DataDecl,
+    parameter: &ParamDecl,
+) -> Vec<String> {
     if !parameter.indices.is_empty() {
         return parameter
             .indices
             .iter()
-            .map(|index| resolve_data_column(data_decl, index))
+            .map(|index| canonical_data_set_name(source_program, data_decl, index))
+            .map(|index| resolve_data_column(data_decl, index.as_str()))
             .collect();
     }
 
     if let Some(index_by) = &parameter.index_by {
-        return vec![resolve_data_column(data_decl, index_by)];
+        let canonical = canonical_data_set_name(source_program, data_decl, index_by);
+        return vec![resolve_data_column(data_decl, &canonical)];
     }
 
     if let Some(index_decl) = data_decl.indices.first() {
         return index_decl
             .columns
             .iter()
-            .map(|column| resolve_data_column(data_decl, column))
+            .map(|column| canonical_data_set_name(source_program, data_decl, column))
+            .map(|column| resolve_data_column(data_decl, column.as_str()))
             .collect();
     }
 
     Vec::new()
+}
+
+fn canonical_data_set_name(
+    source_program: &SourceProgram,
+    data_decl: &DataDecl,
+    symbol: &str,
+) -> String {
+    if let Some(local) = data_decl
+        .sets
+        .iter()
+        .find(|set| set.alias.as_deref() == Some(symbol))
+        .map(|set| set.name.clone())
+    {
+        return local;
+    }
+
+    if let Some(global) = source_program
+        .data
+        .iter()
+        .flat_map(|decl| decl.sets.iter())
+        .chain(source_program.sets.iter())
+        .find(|set| set.alias.as_deref() == Some(symbol))
+        .map(|set| set.name.clone())
+    {
+        return global;
+    }
+
+    symbol.to_string()
 }
 
 fn resolve_data_column(data_decl: &DataDecl, logical_name: &str) -> String {
@@ -3189,6 +3266,17 @@ fn generic_data_value(
     }
 
     Ok(table.default_missing)
+}
+
+fn format_filter_lookup_key(
+    resolved: &[FilterValue],
+    entrypoint: &Path,
+) -> Result<String, LoweringError> {
+    let parts = resolved
+        .iter()
+        .map(|value| filter_value_to_key_component(value, entrypoint))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(parts.join(","))
 }
 
 fn filter_value_to_key_component(

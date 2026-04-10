@@ -79,8 +79,16 @@ pub struct FilterComparators {
 pub struct SetDecl {
     pub name: String,
     pub alias: Option<String>,
+    /// Legacy source-backed set resolution (pre-spec migration).
     pub source: Option<String>,
+    /// Parent-set relationship from `in <parent>` (or legacy `subset_of=`).
     pub subset_of: Option<String>,
+    /// Explicit members for top-level `set` declarations.
+    pub members: Vec<LiteralValue>,
+    /// Canonical predicate filter from `filter { ... }`.
+    pub filter_expression: Option<String>,
+    pub parsed_filter_expression: Option<Expr>,
+    /// Legacy comparator filter surface.
     pub filter_by: Option<String>,
     pub comparators: FilterComparators,
 }
@@ -94,6 +102,10 @@ pub struct ParamDecl {
     pub index_by: Option<String>,
     pub uses_index_children: bool,
     pub reduce: Option<String>,
+    /// Canonical predicate filter from `filter { ... }`.
+    pub filter_expression: Option<String>,
+    pub parsed_filter_expression: Option<Expr>,
+    /// Legacy comparator filter surface.
     pub filter_by: Option<String>,
     pub comparators: FilterComparators,
     pub units: Option<String>,
@@ -259,7 +271,7 @@ pub struct ScenarioDecl {
     pub custom_sets: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HorizonDecl {
     pub steps: usize,
     pub resolution: String,
@@ -518,6 +530,7 @@ fn parse_document(
 
     for node in document.nodes() {
         match node.name().value() {
+            "set" => program.sets.push(parse_set(node, context)?),
             "data" => program.data.push(parse_data(node, context)?),
             "subset" => program.subsets.push(parse_subset(node, context)?),
             "model" => program.models.push(parse_model(node, context)?),
@@ -664,6 +677,13 @@ fn parse_param(node: &KdlNode, context: &ParseContext<'_>) -> Result<ParamDecl, 
         .iter_children()
         .any(|child| child.name().value() == "index");
 
+    let filter_expression = parse_optional_filter_expression(node, context)?;
+    let parsed_filter_expression = filter_expression
+        .as_deref()
+        .map(parse_value_formula)
+        .transpose()
+        .map_err(|error| algebra_error(node, error.to_string(), context))?;
+
     Ok(ParamDecl {
         name: first_arg_string(node, 0, context)?,
         value: positional_value(node, &indices, context)?,
@@ -672,6 +692,8 @@ fn parse_param(node: &KdlNode, context: &ParseContext<'_>) -> Result<ParamDecl, 
         index_by,
         uses_index_children,
         reduce: parse_reduce(node, context)?,
+        filter_expression,
+        parsed_filter_expression,
         filter_by: optional_property_string(node, "filter_by", context)?,
         comparators: parse_filter_comparators(node, context)?,
         units: optional_property_string(node, "units", context)?,
@@ -679,6 +701,39 @@ fn parse_param(node: &KdlNode, context: &ParseContext<'_>) -> Result<ParamDecl, 
 }
 
 fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, SourceError> {
+    let mut subset_of = optional_property_string(node, "subset_of", context)?;
+    let mut filter_expression = parse_optional_filter_expression(node, context)?;
+    let mut members = Vec::new();
+
+    for child in node.iter_children() {
+        match child.name().value() {
+            "in" => {
+                subset_of = Some(first_arg_string(child, 0, context)?);
+            }
+            "filter" => {
+                filter_expression = Some(property_string(child, "expression", context)?);
+            }
+            // Top-level explicit set members are represented as child nodes.
+            member => {
+                if !child.entries().is_empty() {
+                    return Err(SourceError::UnsupportedDeclaration {
+                        name: member.to_string(),
+                        path: context.path.to_path_buf(),
+                        source_text: Box::new(context.source_text.clone()),
+                        span: child.span(),
+                    });
+                }
+                members.push(LiteralValue::String(member.to_string()));
+            }
+        }
+    }
+
+    let parsed_filter_expression = filter_expression
+        .as_deref()
+        .map(parse_value_formula)
+        .transpose()
+        .map_err(|error| algebra_error(node, error.to_string(), context))?;
+
     Ok(SetDecl {
         name: first_arg_string(node, 0, context)?,
         alias: node
@@ -686,7 +741,10 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
             .and_then(KdlValue::as_string)
             .map(ToString::to_string),
         source: optional_property_string(node, "from", context)?,
-        subset_of: optional_property_string(node, "subset_of", context)?,
+        subset_of,
+        members,
+        filter_expression,
+        parsed_filter_expression,
         filter_by: optional_property_string(node, "filter_by", context)?,
         comparators: parse_filter_comparators(node, context)?,
     })
@@ -759,12 +817,24 @@ fn declaration_indices(
 
     for child in node.iter_children() {
         match child.name().value() {
-            "lower" | "upper" => {}
+            "lower" | "upper" | "filter" => {}
             "index" => {
                 let index_name = first_arg_string(child, 0, context)?;
+                let domain = child
+                    .iter_children()
+                    .find(|grandchild| grandchild.name().value() == "in")
+                    .map(|in_node| first_arg_string(in_node, 0, context))
+                    .transpose()?
+                    .or_else(|| {
+                        child
+                            .get("in")
+                            .and_then(KdlValue::as_string)
+                            .map(ToString::to_string)
+                    })
+                    .unwrap_or_else(|| index_name.clone());
                 indices.push(IndexDecl {
-                    name: index_name.clone(),
-                    domain: Some(index_name),
+                    name: index_name,
+                    domain: Some(domain),
                 });
             }
             _ => {}
@@ -799,6 +869,33 @@ fn parse_filter_comparators(
         le: parse_optional_literal_property(node, "le", context)?,
         leq: parse_optional_literal_property(node, "leq", context)?,
     })
+}
+
+fn parse_optional_filter_expression(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<Option<String>, SourceError> {
+    for child in node.iter_children() {
+        if child.name().value() == "filter" {
+            return Ok(Some(algebra_text_from_node(child, context)?));
+        }
+    }
+
+    Ok(None)
+}
+
+fn algebra_text_from_node(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<String, SourceError> {
+    if let Ok(expression) = property_string(node, "expression", context) {
+        return Ok(expression);
+    }
+    if let Ok(formula) = child_arg_string(node, "formula", 0, context) {
+        return Ok(formula);
+    }
+
+    Err(missing_property_error(node, "expression", context))
 }
 
 fn parse_optional_literal_property(
@@ -881,17 +978,28 @@ fn parse_expression(
 }
 
 fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<ScenarioDecl, SourceError> {
-    let horizon_node = child_node(node, "horizon", context)?;
+    let mut horizon = HorizonDecl::default();
     let mut data = Vec::new();
     let mut model_use = None;
     let mut reports = Vec::new();
 
     for child in node.iter_children() {
         match child.name().value() {
-            "data" => data.push(DataBindingDecl {
-                name: first_arg_string(child, 0, context)?,
-                source: property_string(child, "from", context)?,
-            }),
+            "data" => {
+                if child.children().is_some() {
+                    return Err(SourceError::InvalidValue {
+                        node: child.name().value().to_string(),
+                        field: "scenario data must not have child blocks".to_string(),
+                        path: context.path.to_path_buf(),
+                        source_text: Box::new(context.source_text.clone()),
+                        span: child.span(),
+                    });
+                }
+                data.push(DataBindingDecl {
+                    name: first_arg_string(child, 0, context)?,
+                    source: property_string(child, "from", context)?,
+                });
+            }
             "use" => model_use = Some(first_arg_string(child, 0, context)?),
             "report" => {
                 let first = first_arg_string(child, 0, context)?;
@@ -911,7 +1019,11 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
                     }
                 }
             }
-            "horizon" => {}
+            // Legacy horizon support, optional in the canonical spec.
+            "horizon" => {
+                horizon.steps = property_usize(child, "steps", context)?;
+                horizon.resolution = property_string(child, "resolution", context)?;
+            }
             other => {
                 return Err(SourceError::UnsupportedDeclaration {
                     name: other.to_string(),
@@ -925,10 +1037,7 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
 
     Ok(ScenarioDecl {
         name: first_arg_string(node, 0, context)?,
-        horizon: HorizonDecl {
-            steps: property_usize(horizon_node, "steps", context)?,
-            resolution: property_string(horizon_node, "resolution", context)?,
-        },
+        horizon,
         data,
         set_bindings: Vec::new(),
         assets: Vec::new(),
@@ -953,76 +1062,84 @@ fn parse_constraints(
         .filter(|child| child.name().value() == "constraint")
         .enumerate()
     {
-        let has_generation_children = child
-            .iter_children()
-            .any(|grandchild| matches!(grandchild.name().value(), "over" | "when" | "expr"));
+        let mut generation_bindings = Vec::new();
+        let mut generation_filters = Vec::new();
+        let mut expression = optional_property_string(child, "expression", context)?;
 
-        if has_generation_children {
-            constraints.push(parse_constraint_with_generation(child, index, context)?);
-        } else {
-            let expression = property_string(child, "expression", context)?;
-            let generation_filter = optional_property_string(child, "if", context)?;
-            constraints.push(ConstraintDecl {
-                name: constraint_name(child, index),
-                parsed_expression: parse_constraint_formula(&expression)
-                    .map_err(|error| algebra_error(child, error.to_string(), context))?,
-                generation_bindings: Vec::new(),
-                parsed_generation_filter: generation_filter
-                    .as_deref()
-                    .map(parse_value_formula)
-                    .transpose()
-                    .map_err(|error| algebra_error(child, error.to_string(), context))?,
-                generation_filter,
-                expression,
-            });
+        for grandchild in child.iter_children() {
+            match grandchild.name().value() {
+                "index" => {
+                    generation_bindings.push(parse_constraint_index_binding(grandchild, context)?);
+                }
+                "over" => {
+                    generation_bindings.push(GenerationBinding {
+                        variable: first_arg_string(grandchild, 0, context)?,
+                        domain: property_string(grandchild, "in", context)?,
+                    });
+                }
+                "if" => {
+                    generation_filters.push(property_string(grandchild, "expression", context)?);
+                }
+                "when" => generation_filters.push(first_arg_string(grandchild, 0, context)?),
+                "expression" | "expr" => {
+                    expression = Some(algebra_text_from_node(grandchild, context)?);
+                }
+                // Parsed at semantic/lowering stage, but accepted at source parse stage.
+                "slack" => {}
+                other => {
+                    return Err(SourceError::UnsupportedDeclaration {
+                        name: other.to_string(),
+                        path: context.path.to_path_buf(),
+                        source_text: Box::new(context.source_text.clone()),
+                        span: grandchild.span(),
+                    });
+                }
+            }
         }
+
+        let expression =
+            expression.ok_or_else(|| missing_node_error("expression", child, context))?;
+        let generation_filter = if generation_filters.is_empty() {
+            None
+        } else {
+            Some(generation_filters.join(" and "))
+        };
+
+        constraints.push(ConstraintDecl {
+            name: constraint_name(child, index),
+            parsed_expression: parse_constraint_formula(&expression)
+                .map_err(|error| algebra_error(child, error.to_string(), context))?,
+            generation_bindings,
+            parsed_generation_filter: generation_filter
+                .as_deref()
+                .map(parse_value_formula)
+                .transpose()
+                .map_err(|error| algebra_error(child, error.to_string(), context))?,
+            generation_filter,
+            expression,
+        });
     }
     Ok(constraints)
 }
 
-fn parse_constraint_with_generation(
+fn parse_constraint_index_binding(
     node: &KdlNode,
-    index: usize,
     context: &ParseContext<'_>,
-) -> Result<ConstraintDecl, SourceError> {
-    let mut generation_bindings = Vec::new();
-    let mut generation_filter = None;
-    let mut expression = None;
+) -> Result<GenerationBinding, SourceError> {
+    let variable = first_arg_string(node, 0, context)?;
+    let domain = node
+        .iter_children()
+        .find(|child| child.name().value() == "in")
+        .map(|child| first_arg_string(child, 0, context))
+        .transpose()?
+        .or_else(|| {
+            node.get("in")
+                .and_then(KdlValue::as_string)
+                .map(ToString::to_string)
+        })
+        .unwrap_or_else(|| variable.clone());
 
-    for child in node.iter_children() {
-        match child.name().value() {
-            "over" => {
-                generation_bindings.push(GenerationBinding {
-                    variable: first_arg_string(child, 0, context)?,
-                    domain: property_string(child, "in", context)?,
-                });
-            }
-            "when" => {
-                generation_filter = Some(first_arg_string(child, 0, context)?);
-            }
-            "expr" => {
-                expression = Some(property_string(child, "expression", context)?);
-            }
-            _ => {}
-        }
-    }
-
-    let expression = expression.ok_or_else(|| missing_node_error("expr", node, context))?;
-    let parsed_generation_filter = generation_filter
-        .as_deref()
-        .map(parse_value_formula)
-        .transpose()
-        .map_err(|error| algebra_error(node, error.to_string(), context))?;
-
-    Ok(ConstraintDecl {
-        name: constraint_name(node, index),
-        parsed_expression: parse_constraint_formula(&expression)
-            .map_err(|error| algebra_error(node, error.to_string(), context))?,
-        generation_bindings,
-        parsed_generation_filter,
-        generation_filter,
-        expression,
-    })
+    Ok(GenerationBinding { variable, domain })
 }
 
 fn constraint_name(node: &KdlNode, index: usize) -> String {
