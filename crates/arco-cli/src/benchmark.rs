@@ -59,8 +59,6 @@ pub struct SemanticProgramExpectation {
     pub variable_families: Vec<String>,
     #[serde(default)]
     pub chronology: ExpectedChronology,
-    #[serde(default)]
-    pub lowering_rules: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -153,7 +151,8 @@ fn evaluate_case(
     let compiled = compile_file(&entrypoint)?;
     let execution_result = execute_problem(&compiled.lowered_problem, &RustArcoAdapter::new())?;
 
-    let actual_semantic_program = to_semantic_expectation(case, &compiled.semantic_program);
+    let actual_semantic_program =
+        to_semantic_expectation(case, &compiled.semantic_program, &entrypoint)?;
     let actual_e2e_summary = to_e2e_summary(case, &execution_result);
     let expected_semantic_program = read_json(&repo_root.join(&case.expected_semantic_program))?;
     let expected_e2e_summary = read_json(&repo_root.join(&case.expected_e2e_summary))?;
@@ -180,16 +179,13 @@ fn evaluate_case(
 fn to_semantic_expectation(
     case: &BenchmarkCaseDefinition,
     program: &SemanticProgram,
-) -> SemanticProgramExpectation {
-    SemanticProgramExpectation {
+    entrypoint: &Path,
+) -> Result<SemanticProgramExpectation, BenchmarkError> {
+    Ok(SemanticProgramExpectation {
         case_id: case.id.clone(),
         active_scenario: program.active_scenario.clone(),
         sets: ExpectedSets {
-            assets: program
-                .set_registry
-                .get("assets")
-                .map(|set| set.values.clone())
-                .unwrap_or_default(),
+            assets: required_set_values(program, "assets", entrypoint)?,
             candidate_assets: program
                 .set_registry
                 .get("candidate_assets")
@@ -215,8 +211,22 @@ fn to_semantic_expectation(
             terminal_boundary: program.chronology.terminal_boundary.clone(),
             initial_commitment_boundary: program.chronology.initial_commitment_boundary.clone(),
         },
-        lowering_rules: Vec::new(),
-    }
+    })
+}
+
+fn required_set_values(
+    program: &SemanticProgram,
+    set_name: &'static str,
+    entrypoint: &Path,
+) -> Result<Vec<String>, BenchmarkError> {
+    program
+        .set_registry
+        .get(set_name)
+        .map(|set| set.values.clone())
+        .ok_or_else(|| BenchmarkError::MissingNode {
+            name: set_name,
+            path: entrypoint.to_path_buf(),
+        })
 }
 
 fn to_e2e_summary(
@@ -250,4 +260,110 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, BenchmarkEr
         path: path.to_path_buf(),
         source,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arco_kdl::algebra::Expr;
+    use arco_kdl::semantic::{
+        ResolvedChronology, ResolvedObjective, ResolvedParameters, ResolvedSet, ResolvedSets,
+        ResolvedTimeSet,
+    };
+    use std::collections::BTreeMap;
+
+    fn base_program() -> SemanticProgram {
+        SemanticProgram {
+            active_scenario: "Base".to_string(),
+            sets: ResolvedSets {
+                time: ResolvedTimeSet {
+                    steps: 24,
+                    resolution: "PT1H".to_string(),
+                },
+            },
+            set_registry: BTreeMap::new(),
+            set_aliases: BTreeMap::new(),
+            set_params: BTreeMap::new(),
+            parameters: ResolvedParameters::default(),
+            variable_families: Vec::new(),
+            variable_overrides: BTreeMap::new(),
+            chronology: ResolvedChronology::default(),
+            active_constraints: Vec::new(),
+            active_expressions: Vec::new(),
+            active_objective: ResolvedObjective {
+                name: "Obj".to_string(),
+                sense: "minimize".to_string(),
+                expression_text: "0".to_string(),
+                expression: Expr::Number("0".to_string()),
+            },
+            active_reports: Vec::new(),
+            active_dual_reports: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn semantic_expectation_requires_assets_set() {
+        let case = BenchmarkCaseDefinition {
+            id: "case-1".to_string(),
+            description: "desc".to_string(),
+            entrypoint: "examples/example.kdl".to_string(),
+            expected_semantic_program: "expected/semantic.json".to_string(),
+            expected_e2e_summary: "expected/e2e.json".to_string(),
+            solvable: true,
+        };
+
+        let error = to_semantic_expectation(&case, &base_program(), Path::new("/tmp/in.kdl"))
+            .expect_err("missing assets set should fail loudly");
+
+        match error {
+            BenchmarkError::MissingNode { name, .. } => assert_eq!(name, "assets"),
+            other => panic!("expected MissingNode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn semantic_expectation_accepts_legacy_lowering_rules_json_field() {
+        let text = r#"{
+            "case_id": "case-1",
+            "active_scenario": "Base",
+            "sets": {
+                "assets": ["a1"],
+                "candidate_assets": [],
+                "time": { "steps": 24, "resolution": "PT1H" }
+            },
+            "parameters": { "series": [], "indexed": [], "asset": [] },
+            "variable_families": [],
+            "chronology": {},
+            "lowering_rules": ["legacy"]
+        }"#;
+
+        let parsed: SemanticProgramExpectation =
+            serde_json::from_str(text).expect("legacy field should be ignored");
+        assert_eq!(parsed.case_id, "case-1");
+    }
+
+    #[test]
+    fn semantic_expectation_reads_assets_from_registry() {
+        let case = BenchmarkCaseDefinition {
+            id: "case-1".to_string(),
+            description: "desc".to_string(),
+            entrypoint: "examples/example.kdl".to_string(),
+            expected_semantic_program: "expected/semantic.json".to_string(),
+            expected_e2e_summary: "expected/e2e.json".to_string(),
+            solvable: true,
+        };
+
+        let mut program = base_program();
+        program.set_registry.insert(
+            "assets".to_string(),
+            ResolvedSet {
+                values: vec!["g1".to_string(), "g2".to_string()],
+            },
+        );
+
+        let expectation =
+            to_semantic_expectation(&case, &program, Path::new("/tmp/in.kdl")).unwrap();
+
+        assert_eq!(expectation.sets.assets, vec!["g1", "g2"]);
+    }
 }

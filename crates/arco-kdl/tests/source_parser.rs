@@ -1,4 +1,4 @@
-use arco_kdl::source::{BoundExpr, LiteralValue, ReportKind, parse_program_text};
+use arco_kdl::source::{BoundExpr, LiteralValue, ReportKind, SourceError, parse_program_text};
 use std::path::PathBuf;
 
 #[test]
@@ -241,6 +241,54 @@ scenario Base {
     assert_eq!(constraint.generation_filter.as_deref(), Some("tt > 1"));
 
     Ok(())
+}
+
+#[test]
+fn rejects_unsupported_top_level_declarations() {
+    let path = PathBuf::from("test.kdl");
+    let cases = [
+        ("technology", "technology Battery { control dispatch }"),
+        ("operation", "operation Dispatch { }"),
+        ("asset", "asset Gen { }"),
+        ("instances", "instances Fleet from=\"data.csv\" { }"),
+        ("rule", "rule Balance { }"),
+        ("expression", "expression Cost { 1 }"),
+        ("minimize", "minimize Obj { 1 }"),
+        ("maximize", "maximize Obj { 1 }"),
+    ];
+
+    for (decl, text) in cases {
+        let error = parse_program_text(text, &path)
+            .expect_err("unsupported declaration should be rejected at parse time");
+        match error {
+            SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, decl),
+            other => panic!("expected UnsupportedDeclaration for {decl}, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn rejects_unsupported_scenario_set_binding() {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+model "Dispatch" {
+  control "p" index_by="g"
+  maximize "Obj" { p[g] }
+}
+
+scenario "Base" {
+  use "Dispatch"
+  set "assets" from="generator_data"
+}
+"#;
+
+    let error = parse_program_text(text, &path)
+        .expect_err("scenario-level set binding should be rejected at parse time");
+
+    match error {
+        SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, "set"),
+        other => panic!("expected UnsupportedDeclaration, got {other:?}"),
+    }
 }
 
 #[test]
