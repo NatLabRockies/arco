@@ -185,8 +185,16 @@ fn to_semantic_expectation(
         case_id: case.id.clone(),
         active_scenario: program.active_scenario.clone(),
         sets: ExpectedSets {
-            assets: program.sets.assets.clone(),
-            candidate_assets: program.sets.candidate_assets.clone(),
+            assets: program
+                .set_registry
+                .get("assets")
+                .map(|set| set.values.clone())
+                .unwrap_or_default(),
+            candidate_assets: program
+                .set_registry
+                .get("candidate_assets")
+                .map(|set| set.values.clone())
+                .unwrap_or_default(),
             time: ExpectedTimeSet {
                 steps: program.sets.time.steps,
                 resolution: program.sets.time.resolution.clone(),
@@ -207,7 +215,7 @@ fn to_semantic_expectation(
             terminal_boundary: program.chronology.terminal_boundary.clone(),
             initial_commitment_boundary: program.chronology.initial_commitment_boundary.clone(),
         },
-        lowering_rules: program.lowering_rules.clone(),
+        lowering_rules: Vec::new(),
     }
 }
 
