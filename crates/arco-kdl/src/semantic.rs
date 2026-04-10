@@ -96,6 +96,7 @@ pub struct SemanticProgram {
     pub active_scenario: String,
     pub sets: ResolvedSets,
     pub set_registry: BTreeMap<String, ResolvedSet>,
+    pub set_aliases: BTreeMap<String, String>,
     pub set_params: BTreeMap<String, BTreeMap<String, f64>>,
     pub parameters: ResolvedParameters,
     pub variable_families: Vec<FamilySignature>,
@@ -600,6 +601,7 @@ pub fn validate_program(
         active_objective,
         active_reports,
         active_dual_reports,
+        set_aliases: collect_set_aliases(program, None),
         lowering_rules,
     })
     .inspect(|semantic_program| {
@@ -760,6 +762,7 @@ fn validate_canonical_model_program(
         active_objective,
         active_reports,
         active_dual_reports,
+        set_aliases: collect_set_aliases(program, Some(model)),
         lowering_rules: Vec::new(),
     })
 }
@@ -2022,6 +2025,37 @@ fn literal_numeric_compare(
         }
     };
     compare(actual_value, expected_value)
+}
+
+fn collect_set_aliases(
+    program: &SourceProgram,
+    model: Option<&ModelDecl>,
+) -> BTreeMap<String, String> {
+    let mut aliases = BTreeMap::new();
+
+    for set_decl in &program.sets {
+        if let Some(alias) = &set_decl.alias {
+            aliases.insert(alias.clone(), set_decl.name.clone());
+        }
+    }
+
+    for data_decl in &program.data {
+        for set_decl in &data_decl.sets {
+            if let Some(alias) = &set_decl.alias {
+                aliases.insert(alias.clone(), set_decl.name.clone());
+            }
+        }
+    }
+
+    if let Some(model) = model {
+        for set_decl in &model.sets {
+            if let Some(alias) = &set_decl.alias {
+                aliases.insert(alias.clone(), set_decl.name.clone());
+            }
+        }
+    }
+
+    aliases
 }
 
 /// Build the set registry from the resolved built-in sets and any

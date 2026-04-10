@@ -196,6 +196,79 @@ subset "large_units" from="units" filter_by="capacity_mw" geq=200 leq=500
 }
 
 #[test]
+fn parses_generated_constraint_with_index_if_and_expression_children()
+-> Result<(), Box<dyn std::error::Error>> {
+    let path = PathBuf::from("test.kdl");
+    let text = r"
+model Dispatch {
+  control p {
+    index g
+    index t
+  }
+
+  constraint ramp {
+    index g
+    index tt { in t }
+    if { tt > 1 }
+    expression {
+      p[g,tt] - p[g,tt-1] <= 10
+    }
+  }
+
+  minimize Obj {
+    sum(p[g,t] for g in g for t in t)
+  }
+}
+
+scenario Base {
+  use Dispatch
+}
+";
+
+    let parsed = parse_program_text(text, &path)?;
+    let model = parsed.program.model("Dispatch").ok_or("missing model")?;
+    let constraint = model
+        .constraints
+        .iter()
+        .find(|constraint| constraint.name == "ramp")
+        .ok_or("missing ramp constraint")?;
+
+    assert_eq!(constraint.generation_bindings.len(), 2);
+    assert_eq!(constraint.generation_bindings[0].variable, "g");
+    assert_eq!(constraint.generation_bindings[0].domain, "g");
+    assert_eq!(constraint.generation_bindings[1].variable, "tt");
+    assert_eq!(constraint.generation_bindings[1].domain, "t");
+    assert_eq!(constraint.generation_filter.as_deref(), Some("tt > 1"));
+
+    Ok(())
+}
+
+#[test]
+fn parses_scenario_without_horizon_block() -> Result<(), Box<dyn std::error::Error>> {
+    let path = PathBuf::from("test.kdl");
+    let text = r"
+model Dispatch {
+  control p index_by=g
+  maximize Obj {
+    p[g]
+  }
+}
+
+scenario Base {
+  use Dispatch
+  report Obj
+}
+";
+
+    let parsed = parse_program_text(text, &path)?;
+    let scenario = parsed.program.scenario("Base").ok_or("missing scenario")?;
+    assert_eq!(scenario.horizon.steps, 0);
+    assert_eq!(scenario.horizon.resolution, "");
+
+    Ok(())
+}
+
+#[test]
 fn rejects_unsupported_top_level_technology_declaration() {
     let path = PathBuf::from("test.kdl");
     let text = r#"

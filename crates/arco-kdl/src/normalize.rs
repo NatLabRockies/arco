@@ -263,6 +263,8 @@ pub fn normalize_surface_syntax(text: &str) -> String {
         "expr",
         "lower",
         "upper",
+        "if",
+        "filter",
     ];
     let mut normalized = String::with_capacity(text.len());
     let bytes = text.as_bytes();
@@ -324,10 +326,10 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
 
     let opening_brace = opening_brace?;
 
-    // For constraint blocks, peek at the body content. If it starts with
-    // over/when/expr, this is a generation-style constraint with proper KDL
-    // children, not bare math. Skip the rewrite so only inner `expr` blocks
-    // get their math rewritten.
+    // For generated constraints, the body starts with structural child nodes
+    // (`index`, `if`, `slack`, `expression`) or legacy generation nodes
+    // (`over`, `when`, `expr`). In those cases we must preserve the structure
+    // and only rewrite nested algebra-bearing children.
     if keyword == "constraint" && body_starts_with_generation_keyword(text, opening_brace) {
         return None;
     }
@@ -378,7 +380,9 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
         "expression" => format!("{header} {{ formula {encoded_body} }}"),
         "minimize" | "maximize" => format!("{header} expression={encoded_body}"),
         "expr" => format!("{header} expression={encoded_body}"),
-        "lower" | "upper" => format!("{header} expression={encoded_body}"),
+        "lower" | "upper" | "if" | "filter" => {
+            format!("{header} expression={encoded_body}")
+        }
         _ => return None,
     };
 
@@ -387,7 +391,7 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
 
 fn body_starts_with_generation_keyword(text: &str, opening_brace: usize) -> bool {
     let trimmed = text[opening_brace + 1..].trim_start();
-    for keyword in ["over", "when", "expr"] {
+    for keyword in ["index", "if", "slack", "expression", "over", "when", "expr"] {
         let Some(rest) = trimmed.strip_prefix(keyword) else {
             continue;
         };
