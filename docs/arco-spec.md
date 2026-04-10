@@ -59,12 +59,54 @@ compatibility is explicit: new node types require a spec version bump.
 Arco targets [KDL 2.0](https://kdl.dev) as its host syntax. The live
 specification is available at <https://kdl.dev/spec/>.
 
-Any document that is valid under this specification is also a valid KDL 2.0
-document. A conforming KDL 2.0 parser MUST be able to structurally parse an Arco
-file without error. Arco semantic rules are applied as a second pass after KDL
-parsing succeeds.
+Certain Arco nodes contain **algebra blocks** — math expressions like
+`dispatch[a,t] <= capacity[a]` or `type == thermal`. These expressions are not
+KDL nodes. To maintain strict KDL 2.0 conformance, algebra block content MAY be
+written as a quoted string argument:
 
-KDL features used by Arco:
+```kdl
+// KDL 2.0 conformant — algebra as a quoted string
+filter "type == thermal"
+expression "dispatch[a,t] <= capacity[a]"
+minimize total_cost "sum(fuel_cost[g] * dispatch[g,t] for g in gen for t in time)"
+```
+
+For readability, the Arco parser also accepts **bare (unquoted) algebra blocks**
+using `{ ... }` syntax:
+
+```arco
+// Arco extended syntax — bare algebra blocks (not valid KDL 2.0)
+filter { type == thermal }
+expression { dispatch[a,t] <= capacity[a] }
+minimize total_cost {
+  sum(fuel_cost[g] * dispatch[g,t] for g in gen for t in time)
+}
+```
+
+Both forms are semantically identical. The bare form is RECOMMENDED for
+readability. The quoted form exists so that standard KDL 2.0 tooling (linters,
+formatters, syntax highlighters) can process Arco files without modification. An
+Arco-aware parser MUST accept both forms.
+
+Algebra blocks occur in the following contexts (exhaustive list):
+
+| Parent node  | Context                         | Example                                  |
+| ------------ | ------------------------------- | ---------------------------------------- |
+| `filter`     | set/param row filter body       | `filter { type == thermal }`             |
+| `if`         | constraint row-filter predicate | `if { active[g] }`                       |
+| `expression` | constraint algebra body         | `expression { dispatch[a,t] <= cap[a] }` |
+| `expression` | named reusable formula body     | `expression TotalCost { sum(...) }`      |
+| `constraint` | simple-form constraint body     | `constraint cap { x[a] <= cap[a] }`      |
+| `minimize`   | objective body                  | `minimize cost { sum(...) }`             |
+| `maximize`   | objective body                  | `maximize profit { sum(...) }`           |
+| `lower`      | control bound formula           | `lower { -capacity[l] }`                 |
+| `upper`      | control bound formula           | `upper { capacity[l] }`                  |
+
+All other `{ ... }` blocks in Arco (children of `data`, `model`, `scenario`,
+`control`, `set`, `param`, `bounds`, `index`, `slack`, `report`) contain
+standard KDL nodes and are parsed with normal KDL 2.0 rules.
+
+KDL features used by Arco (structural layer):
 
 - Nodes and children: every Arco declaration (`set`, `data`, `model`,
   `scenario`, `control`, `expression`, `constraint`, `minimize`, `maximize`)
@@ -74,7 +116,7 @@ KDL features used by Arco:
 - Type annotations: KDL 2.0 type annotations (e.g., `(f64)200`) are supported
   but optional (see [§8](#8-kdl-20-type-annotations-optional)).
 - Comments: line comments (`//`) and slashdash comments (`/-`) are fully
-  supported.
+  supported in both KDL and algebra block contexts.
 - Multi-line strings and raw strings: KDL 2.0 multi-line and raw string literals
   are accepted wherever a string value is expected.
 
@@ -144,7 +186,7 @@ This specification uses the following terms consistently:
 
 | Term                     | Meaning                                                                                                                                                                                                                                                                     |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `algebra block`          | A `{ ... }` child block whose content is parsed as an algebra expression (not as KDL nodes). Also called a "bare-math block". Used for `expression`, `constraint`, `minimize`, `maximize`, `bounds` > `lower`/`upper`, `if`, and `filter` bodies.                           |
+| `algebra block`          | A `{ ... }` child block whose content is parsed as an algebra expression, not as KDL nodes. Also called a "bare-math block". This is Arco's extension to KDL 2.0; see [§1.1](#11-kdl-compatibility) for the exhaustive list of contexts and parsing implications.           |
 | `expression`             | Two roles depending on context: (1) as a model child, a named reusable formula (`expression <name> { ... }`); (2) inside a generated constraint, the algebra body node (`expression { ... }`). See disambiguation note below.                                               |
 | `constraint`             | A named algebraic relation (equality or inequality) declared with `constraint <name> { ... }`.                                                                                                                                                                              |
 | `objective`              | The single optimization target, declared with `minimize <name> { ... }` or `maximize <name> { ... }`.                                                                                                                                                                       |
@@ -181,7 +223,7 @@ filter clause on reductions (`sum(x for a in set if cond)`). Inside generated
 constraints, `if { ... }` is a row-filter block that controls which rows are
 generated. Both use the same predicate syntax but serve different purposes.
 
-```kdl
+```arco
 model dispatch {
   // "expression" - named reusable formula (model-level declaration)
   expression TotalFuelCost {
@@ -212,7 +254,7 @@ A low-level document MAY contain these top-level declarations:
 - [`model`](#6-model-declaration)
 - [`scenario`](#7-scenario-declaration)
 
-```kdl
+```arco
 // global scalar constants
 param voll 9000 units="$/MWh"
 param big_m 1e6
@@ -276,7 +318,7 @@ ranges, scenario labels, or piecewise segments.
 
 Explicit member list:
 
-```kdl
+```
 set <name> { <member1>; <member2>; ... }
 ```
 
@@ -311,7 +353,7 @@ the block are globally visible. Any `model` or algebra expression in the
 document can reference them by name. A single `data` block can supply sets and
 parameters to multiple models.
 
-```kdl
+```
 data <name> from=<path> { ... }
 ```
 
@@ -322,10 +364,13 @@ Required properties:
 
 CSV parsing: Arco expects RFC 4180-compliant CSV files (comma-delimited,
 optional double-quote escaping, CRLF or LF line endings). The first row MUST be
-a header row containing column names. CSV files MUST be UTF-8 encoded.
+a header row containing column names. Column names in the header MUST be unique;
+duplicate column names MUST fail validation (see
+[§10](#10-validation-requirements), rule 73). CSV files MUST be UTF-8 encoded.
 Implementations SHOULD accept files with or without a UTF-8 BOM. Empty cells in
 a numeric column MUST fail validation. Empty cells in a string/categorical
-column are treated as empty strings.
+column are treated as empty strings. Column matching is always by name, not by
+position.
 
 Allowed children:
 
@@ -338,7 +383,7 @@ Allowed children:
 
 `map` binds logical names to CSV headers.
 
-```kdl
+```
 map <logical_name>
 map <logical_name> from=<source_header>
 ```
@@ -359,7 +404,7 @@ property; the set name itself determines the column. Sets declared inside a
 `data` block are globally visible and can be referenced by any model,
 constraint, or algebra expression in the document.
 
-```kdl
+```
 set <name>
 set <name> alias=<short>
 set <name> {
@@ -375,9 +420,10 @@ Semantics:
 
 - `set class` extracts unique values from the `class` column.
 - `alias` provides a short set reference that MAY be used wherever a set
-  reference is expected (`index`, `index`, `index ... { in ... }`, and algebra
-  iteration domains). Example: `set asset_id alias=a` allows
-  `param capacity { index a }`, `index a_idx { in a }`, and `dispatch[a,t]`.
+  reference is expected (`index=` property, `index` children,
+  `index ... { in ... }`, and algebra iteration domains). Example:
+  `set asset_id alias=a` allows `param capacity { index a }`,
+  `index a_idx { in a }`, and `dispatch[a,t]`.
 - `in <parent>` declares that this set is contained within `<parent>`. Each
   child value maps to exactly one parent value, forming a hierarchy edge. If a
   child value in the CSV maps to more than one distinct parent value, validation
@@ -391,7 +437,7 @@ Semantics:
   same bare-math block syntax as `expression`, `if`, and `lower`/`upper`.
   Supported operators: `==`, `>`, `>=`, `<`, `<=`, `!=`.
 
-```kdl
+```arco
 set thermal_gen {
   in gen
   filter { type == thermal }
@@ -403,6 +449,13 @@ set large_gen {
 set mid_gen {
   in gen
   filter { capacity_mw >= 100 and capacity_mw <= 500 }
+}
+
+// combined: subset of a parent set with a filter applied
+// "solar generators in region A" — gen is the parent, filter narrows to solar+region
+set solar_region_a {
+  in gen
+  filter { type == solar and region == A }
 }
 ```
 
@@ -429,7 +482,7 @@ For a full worked example of both approaches, see the data scoping discussion in
 Multiple columns can be listed as arguments to a single `index` declaration to
 form a multi-column index.
 
-```kdl
+```
 index <set_a>
 index <set_a> <set_b>
 index <set_a> <set_b> <set_c>
@@ -446,8 +499,13 @@ Semantics:
 - At most one `index` declaration is allowed per `data` block. To index by
   multiple columns, list them all as arguments to a single `index` node.
 - The declared `index` sets the default indexing for all `param` declarations in
-  the same `data` block that do not specify their own `index` or `index`
-  children (see [§5.4](#54-param-inside-data)).
+  the same `data` block that do not specify their own `index` property or
+  `index` children (see [§5.4](#54-param-inside-data)).
+- If a model declares a `set` with the same name as a data-level `set`, the
+  model-level set shadows the data-level set within that model's scope. To
+  prevent silent dimension mismatches when parameters inherit block-level
+  indexing, model-level sets MUST NOT shadow data-level or top-level set names
+  (see [§10](#10-validation-requirements), rule 44).
 
 ```kdl
 // valid: multi-column index on a single declaration
@@ -479,7 +537,7 @@ is read from.
 
 Single-dimension indexing (property form):
 
-```kdl
+```
 param <name>
 param <name> from=<csv_column>
 param <name> index=<set>
@@ -488,13 +546,14 @@ param <name> { index <set> }
 
 Multi-dimension indexing (child node form):
 
-```kdl
+```
 param <name> { index <set_a>; index <set_b> }
 param <name> from=<csv_column> { index <set_a>; index <set_b> }
 ```
 
-`<set>` references in `index` and `index` MAY use either canonical set names or
-aliases. Implementations MUST normalize aliases to canonical set names.
+`<set>` references in the `index=` property and `index` children MAY use either
+canonical set names or aliases. Implementations MUST normalize aliases to
+canonical set names.
 
 Example, given this CSV:
 
@@ -518,8 +577,8 @@ data generators from="data/generators.csv" {
 In algebra, reference `capacity_mw[g]` and `hr[g]`. The `from=` property only
 affects which CSV column is read, not the param's logical name.
 
-`index` and `index` children are mutually exclusive. Using both on the same
-`param` MUST fail validation.
+The `index=` property and `index` children are mutually exclusive. Using both on
+the same `param` MUST fail validation.
 
 ```kdl
 // INVALID: index and index children on the same param
@@ -528,7 +587,7 @@ param cost index=asset { index time }  // validation error
 
 Aggregation:
 
-```kdl
+```
 // property form (single-dimension)
 param <name> index=<set> reduce=<reducer>
 
@@ -555,14 +614,20 @@ Supported reducers:
 - `sum`, `avg`, `min`, `max`, `first`, `last`
 
 `first` and `last` select the first or last value encountered in CSV row order
-(the order rows appear in the source file). `avg` over an empty group (after
-filtering) MUST produce a data-loading error (division by zero). `min` and `max`
-over an empty group MUST produce a data-loading error. `sum` over an empty group
-evaluates to `0`.
+(the order rows appear in the source file). `first` and `last` over an empty
+group (after filtering) MUST produce a data-loading error. `avg` over an empty
+group (after filtering) MUST produce a data-loading error (division by zero).
+`min` and `max` over an empty group MUST produce a data-loading error. `sum`
+over an empty group evaluates to `0`.
+
+Note: The empty-group errors above apply to `reduce` aggregation at data-loading
+time. For `min(...)` and `max(...)` in algebra expressions, domain emptiness may
+depend on runtime data, so those errors occur at solve time (see
+[§10](#10-validation-requirements), rule 67).
 
 Filtering:
 
-```kdl
+```
 param <name> from=<field> { filter { <predicate> } }
 ```
 
@@ -571,7 +636,7 @@ constraint `if` blocks:
 
 Given a CSV with columns `gen_id`, `capacity_mw`, and `prime_mover`:
 
-```kdl
+```arco
 param cc_capacity from=capacity_mw { filter { prime_mover == CC } }
 param large_units from=capacity_mw { filter { capacity_mw >= 200 } }
 ```
@@ -579,7 +644,7 @@ param large_units from=capacity_mw { filter { capacity_mw >= 200 } }
 Order of operations when `filter` and `reduce` are combined: filtering is
 applied first, then the reducer operates on the filtered rows. For example:
 
-```kdl
+```arco
 // first filter to thermal rows, then sum their capacity
 param total_thermal_cap from=capacity_mw index=region reduce=sum {
   filter { type == thermal }
@@ -641,18 +706,21 @@ Semantics:
 - If `from` is omitted, source field defaults to `<name>`. Column header
   matching is case-sensitive. CSV column names MUST match exactly (after `map`
   resolution).
-- If neither `index` nor `index` children are present, default is the block's
-  `index` declaration if present (see [§5.3](#53-index-inside-data)), else
-  1-based numeric row position (row 1, 2, 3, ...). In this fallback case, no
-  named set is created; the parameter is indexed by implicit row order and
-  referenced in algebra by its positional integer index.
+- If neither the `index=` property nor `index` children are present, default is
+  the block's `index` declaration if present (see
+  [§5.3](#53-index-inside-data)), else 1-based numeric row position (row 1, 2,
+  3, ...). In this fallback case, no named set is created; the parameter is
+  indexed by implicit row order and referenced in algebra by its positional
+  integer index.
 - If indexing is non-unique, `reduce` MUST be provided.
 
 ### 5.5 Inline selectors
 
-Dataset rows MAY be filtered inline using bracket notation on the dataset name
-inside algebra expressions. This produces an anonymous subset without requiring
-a named declaration.
+Dataset rows MAY be filtered inline using bracket notation on a `data` block
+name inside algebra expressions. This produces an anonymous subset without
+requiring a named declaration. The name before the brackets MUST resolve to a
+declared `data` block (not a `set` name); see
+[§10](#10-validation-requirements), rule 46.
 
 ```
 <data_name>[<field>=<value> ...]
@@ -689,7 +757,7 @@ filtered domains, use `set { in ... }` inside the relevant `data` block.
 
 `model` declares low-level optimization structure.
 
-```kdl
+```
 model <name> { ... }
 ```
 
@@ -710,7 +778,7 @@ Allowed children:
 
 Model-domain sets. These are abstract domains resolved at scenario time.
 
-```kdl
+```
 set <name>
 set <name> alias=<short>
 ```
@@ -734,7 +802,7 @@ set <name> alias=<short>
   model cannot shadow or override a data-level set. To use a data-level set in a
   model, reference it directly without redeclaration.
 
-```kdl
+```arco
 // data declares gen, capacity_mw, fuel_cost, and the thermal_gen subset
 data generators from="data/generators.csv" {
   map gen from=generator_id
@@ -779,20 +847,21 @@ Model parameters are declared with index intent.
 
 Single-dimension:
 
-```kdl
+```
 param <name> index=<set>
 ```
 
 Multi-dimension:
 
-```kdl
+```
 param <name> { index <set_a>; index <set_b> }
 ```
 
-`<set>` references in `index` and `index` MAY use either canonical set names or
-aliases. Implementations MUST normalize aliases to canonical set names.
+`<set>` references in the `index=` property and `index` children MAY use either
+canonical set names or aliases. Implementations MUST normalize aliases to
+canonical set names.
 
-`index` and `index` children are mutually exclusive.
+The `index=` property and `index` children are mutually exclusive.
 
 Model parameters are resolved at scenario time. The scenario binds concrete
 values via `data` declarations ([§7](#7-scenario-declaration)). A model
@@ -807,7 +876,7 @@ variables indexed over one or more sets.
 The preferred form uses a child block with `index` children, and bounds and
 `kind` as properties on the `control` node:
 
-```kdl
+```
 control <name> lower=0 upper=100 kind=continuous {
   index <set_a>
   index <set_b>
@@ -819,13 +888,13 @@ properties on the `control` node line (not child nodes).
 
 Compact single-dimension form:
 
-```kdl
+```
 control <name> index=<set>
 control <name> index=<set> kind=binary lower=0 upper=1
 ```
 
-`index` and `index` children are mutually exclusive. Using both on the same
-`control` MUST fail validation.
+The `index=` property and `index` children are mutually exclusive. Using both on
+the same `control` MUST fail validation.
 
 Index domain binding:
 
@@ -833,7 +902,7 @@ The `{ in <set> }` child block on `index` binds the index variable to a named
 domain set (canonical name or alias). This is useful when the iteration domain
 differs from the index name:
 
-```kdl
+```
 control <name> {
   index <set_a> { in <domain_a> }
   index <set_b> { in <domain_b> }
@@ -871,7 +940,7 @@ control dispatch lower=0 upper=500 {
 
 2. **Formula bounds** — algebra expressions inside a `bounds` child block:
 
-```kdl
+```arco
 control flow {
   index l { in lines }
   bounds {
@@ -884,7 +953,7 @@ control flow {
 3. **Mixed** — literal property for one direction, formula in `bounds` for the
    other:
 
-```kdl
+```arco
 control output lower=0 {
   index g { in gen }
   index time
@@ -913,7 +982,7 @@ whose bodies use the same bare-math algebra syntax as `expression` and
 Specifying both a literal property and a formula block for the same direction
 MUST fail validation:
 
-```kdl
+```arco
 // INVALID: two lower bounds on the same control
 control flow lower=0 {
   index lines
@@ -930,7 +999,7 @@ reference the control's own index variables. The variable names used in the
 algebra MUST match the index names declared on the same `control`. References to
 undeclared variables MUST fail validation.
 
-```kdl
+```arco
 control flow {
   index l { in lines }
   bounds {
@@ -952,7 +1021,7 @@ control flow {
 
 Named reusable algebra formulas.
 
-```kdl
+```
 expression <name> {
   sum(fuel_cost[a,t] * dispatch[a,t] for a in assets for t in time)
 }
@@ -979,7 +1048,7 @@ Two supported forms.
 
 Simple algebra body:
 
-```kdl
+```
 constraint <name> {
   dispatch[a,t] <= capacity_mw[a]
 }
@@ -999,13 +1068,19 @@ across declarations), validation MUST fail with an ambiguity error. Similarly,
 if index inference fails because a referenced declaration has no index signature
 at all, validation MUST fail with a missing-index error.
 
-Simple-form constraints do not support `if` guards, `slack` children, or
-explicit `index` clauses. Constraints that require temporal offset guards
-(`t-1`, `t+1`) or row filtering MUST use the generated form.
+Simple-form constraints do not support `if` guards or explicit `index` clauses.
+`slack` children ARE supported on simple-form constraints (see below).
+Constraints that require temporal offset guards (`t-1`, `t+1`) or row filtering
+MUST use the generated form.
+
+Implementer note: Simple-form inference relies on positional matching, which can
+be fragile when `control` and `param` declarations have different index arities.
+When in doubt, prefer the generated form with explicit `index` clauses for
+clarity and safety.
 
 Generated row form:
 
-```kdl
+```
 constraint <name> {
   index a { in asset_id }
   index t { in time }
@@ -1017,10 +1092,12 @@ constraint <name> {
 ```
 
 - `index` creates explicit row generation domains.
-- `if { ... }` filters generated rows (optional). The body is an algebra
-  predicate that MUST evaluate to a boolean or truthy numeric result. Truthiness
-  for numeric values: `0` and `0.0` are falsy; any other finite numeric value is
-  truthy. `NaN` MUST fail validation.
+- `if { ... }` filters generated rows (optional). The body MUST be an explicit
+  boolean predicate (using a comparison operator such as `==`, `!=`, `>`, `>=`,
+  `<`, `<=`). Bare numeric references without a comparison operator (e.g.,
+  `if { count[a] }`) MUST fail validation. This prevents silent bugs where a
+  zero value is indistinguishable from a "false" condition. `NaN` MUST fail
+  validation.
 - `expression` contains the constraint algebra body.
 
 The generated form is preferred when iteration domains need to be explicit or
@@ -1033,7 +1110,7 @@ least one of the iteration variables declared by the `index` clauses. A
 condition that does not depend on any loop variable is a static condition and
 MUST fail validation (see [§10](#10-validation-requirements), rule 45):
 
-```kdl
+```arco
 // valid: condition references loop variable `t`
 if { t > 1 }
 
@@ -1047,7 +1124,7 @@ if { 1 > 0 }  // validation error
 The `if` block supports arbitrary algebra predicates, including numeric
 comparisons and temporal conditions:
 
-```kdl
+```arco
 constraint ramp_up {
   index g { in generators }
   index t { in time }
@@ -1071,7 +1148,7 @@ Nested `if` conditions:
 Multiple `if` blocks MAY appear in the same constraint. They are combined with
 AND semantics. All conditions MUST be true for the row to be generated:
 
-```kdl
+```arco
 constraint conditional_ramp {
   index g { in generators }
   index t { in time }
@@ -1088,16 +1165,18 @@ Temporal offsets and boundary guards:
 An **ordered set** is a set whose members have a well-defined sequence. Ordering
 is determined by: (1) for numeric members, numeric sort order; (2) for top-level
 `set` declarations with inline members, declaration order; (3) for data-level
-sets, CSV row order (first occurrence of each unique value). Temporal offsets
-(`t-1`, `t+1`) are valid only on ordered sets. Implementations SHOULD emit a
-diagnostic if a temporal offset is applied to a set whose ordering is ambiguous.
+sets, CSV row order (first occurrence of each unique value). A set whose
+ordering cannot be determined by any of these three rules is **unordered**.
+Temporal offsets (`t-1`, `t+1`) are valid only on ordered sets. Implementations
+MUST reject temporal offsets applied to unordered sets (validation error). This
+prevents silently producing undefined iteration sequences.
 
 Algebra expressions support temporal offset indexing (`t-1`, `t+1`) on ordered
 sets. When a constraint references a previous or next time step, an `if` guard
 MUST be present to exclude boundary steps where the offset would be
 out-of-range. Failing to guard temporal offsets is a validation error.
 
-```kdl
+```arco
 // INVALID: t-1 without a guard on the first time step
 constraint unguarded_ramp {
   index g { in generators }
@@ -1112,7 +1191,7 @@ Range constraints (chained inequalities):
 
 Constraint bodies MAY use chained inequalities to express range bounds:
 
-```kdl
+```arco
 constraint angle_bounds {
   index b { in buses }
   index t { in time }
@@ -1137,7 +1216,7 @@ A `slack` child on a constraint automatically creates a slack variable that
 relaxes the constraint. The slack variable is added to the appropriate side of
 the inequality and a penalty term is added to the objective.
 
-```kdl
+```arco
 constraint balance {
   index t { in time }
   slack penalty=1000
@@ -1150,7 +1229,7 @@ constraint balance {
 This is equivalent to manually declaring a slack control, adding it to the
 constraint body, and adding a penalty to the objective:
 
-```kdl
+```arco
 // what the compiler generates from the slack declaration above:
 control balance_slack lower=0 { index time }
 
@@ -1202,17 +1281,20 @@ simple-form and generated-form constraints. On a simple-form constraint, the
 slack variable is indexed over the same inferred iteration domains as the
 constraint itself.
 
-Name collision avoidance: The auto-generated slack variable names
-(`<constraint>_slack`, `<constraint>_slack_pos`, `<constraint>_slack_neg`) MUST
-NOT collide with any user-declared `control` name. If a collision is detected,
-validation MUST fail. To avoid collisions, either rename the user-declared
-control or use the `name=` property on `slack` to override the generated name.
+Name collision avoidance: All auto-generated slack variable names MUST NOT
+collide with any user-declared `control` name. The full set of generated name
+patterns is: `<constraint>_slack` (inequality), `<constraint>_slack_pos` and
+`<constraint>_slack_neg` (equality), `<constraint>_slack_lo` and
+`<constraint>_slack_hi` (range). If a collision is detected, validation MUST
+fail (see [§10](#10-validation-requirements), rule 39). To avoid collisions,
+either rename the user-declared control or use the `name=` property on `slack`
+to override the generated name.
 
 ### 6.6 Objective
 
 Exactly one objective is required per model.
 
-```kdl
+```arco
 minimize total_cost {
   sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
 }
@@ -1231,7 +1313,7 @@ by identifier.
 
 A model with zero objectives or more than one objective MUST fail validation.
 
-```kdl
+```arco
 // INVALID: model with two objectives
 model bad {
   set time alias=t
@@ -1247,7 +1329,7 @@ model bad {
 `scenario` is the low-level execution entrypoint. It wires a model to concrete
 data and activates execution.
 
-```kdl
+```
 scenario <name> {
   use <model_name>
   data <name> from=<path>
@@ -1302,17 +1384,18 @@ referenced model or a `param` declared in a top-level `data` block. Top-level
 need scenario-level bindings, but a scenario MAY override them by providing a
 binding with the same param name (see [§7.4](#74-data-scoping) for override
 rules). Scenario `data` bindings that match neither a model param nor a
-top-level data param MUST fail validation (rule 29). The CSV structure
-determines how the parameter is indexed according to the following rules:
+top-level data param MUST fail validation (see
+[§10](#10-validation-requirements), rule 29). The CSV structure determines how
+the parameter is indexed according to the following rules:
 
 Column-to-index matching:
 
 1. The model `param` declaration specifies which sets the parameter is indexed
-   over (via `index` or `index` children).
+   over (via the `index=` property or `index` children).
 2. Each index set MUST correspond to a column in the bound CSV file. If an alias
-   is used in `index` or `index`, it MUST first resolve to its canonical set
-   name. Column matching then uses that canonical set name (after any `map`
-   resolution in the source `data` block).
+   is used in `index=` or `index` children, it MUST first resolve to its
+   canonical set name. Column matching then uses that canonical set name (after
+   any `map` resolution in the source `data` block).
 3. The value column is matched by the `param` name (or its `from` override).
 4. Extra columns in the CSV that do not match any index set or the param name
    are ignored.
@@ -1412,7 +1495,12 @@ scenarios.
 
 If a scenario-level `data` binding resolves the same param name as a top-level
 `data` block, the scenario-level binding takes precedence for that parameter
-within that scenario. The override is by param name, not by data block name:
+within that scenario. The override is by param name, not by data block name.
+Scenario `data` bindings that do not match any model param or top-level data
+param MUST fail validation (see [§10](#10-validation-requirements), rule 29),
+which prevents typos from silently producing unbound data. Implementations
+SHOULD emit a diagnostic when a scenario-level binding overrides a top-level
+param, so users are aware of the override:
 
 ```kdl
 // top-level: declares a param named "demand" inside block "demand_data"
@@ -1442,8 +1530,9 @@ enforced across all `data` blocks:
   Duplicate set names across different data sources MUST fail validation (see
   [§10](#10-validation-requirements), rule 6).
 - Two `data` blocks MUST NOT declare `param` declarations with the same name
-  (rule 7). If two CSV files contain columns with the same logical name, use
-  `map` to give them distinct names, or consolidate into one `data` block.
+  (see [§10](#10-validation-requirements), rule 7). If two CSV files contain
+  columns with the same logical name, use `map` to give them distinct names, or
+  consolidate into one `data` block.
 
 #### Global namespace design note
 
@@ -1474,7 +1563,7 @@ data lines from="data/lines.csv" {
 
 #### Multi-model data sharing example
 
-```kdl
+```arco
 // sets and params here are globally visible to all models
 data units from="data/units.csv" {
   set plant_id
@@ -1539,7 +1628,7 @@ Node annotation:
 
 Typed value literals in filters:
 
-```kdl
+```arco
 param large_units from=capacity_mw { filter { capacity_mw >= (f64)200 } }
 param cc_capacity from=capacity_mw { filter { prime_mover == (prime_mover)CC } }
 ```
@@ -1600,7 +1689,7 @@ Rules:
 - The predicate references column names from the parent `data` block (after
   `map` resolution) on the left-hand side of each comparison.
 
-```kdl
+```arco
 data generators from="data/generators.csv" {
   set gen
   set thermal { in gen; filter { type == thermal } }
@@ -1617,76 +1706,82 @@ data generators from="data/generators.csv" {
 
 Quick-reference index:
 
-| #   | Category                  | Rule summary                                                      |
-| --- | ------------------------- | ----------------------------------------------------------------- |
-| 1   | Name uniqueness           | Duplicate `data` block names                                      |
-| 2   | Name uniqueness           | Duplicate `model` names                                           |
-| 3   | Name uniqueness           | Duplicate `scenario` names                                        |
-| 4   | Name uniqueness           | Duplicate `map` targets within one `data` block                   |
-| 5   | Name uniqueness           | Duplicate `set` names within one `data` block                     |
-| 6   | Name uniqueness           | Set name collisions across `data` blocks                          |
-| 7   | Name uniqueness           | Param name collisions across `data` blocks                        |
-| 8   | Column resolution         | `map` without `from` must match CSV column                        |
-| 9   | Column resolution         | Unknown source columns in `map from=` or `param from=`            |
-| 10  | Column resolution         | Unknown set references in `index`/`index`                         |
-| 11  | Set hierarchy             | `in` parent must resolve (see rule 32 for scoping)                |
-| 12  | Set hierarchy             | `in` cycles detected                                              |
-| 13  | Set hierarchy             | Child-to-parent hierarchy contradictions                          |
-| 14  | Indexing                  | `index` and `index` children mutually exclusive                   |
-| 15  | Indexing                  | At most one `index` per `data` block                              |
-| 16  | Indexing                  | Non-unique indexing without `reduce`                              |
-| 17  | Indexing                  | `reduce` on scalar parameter                                      |
-| 18  | Filtering                 | Filter predicate references unknown columns                       |
-| 19  | Filtering                 | Numeric comparison on non-numeric column                          |
-| 20  | Filtering                 | Contradictory filter predicates (SHOULD)                          |
-| 21  | Type/metadata             | `units` value must be valid KDL string or identifier              |
-| 22  | Type/metadata             | Type annotation conflicts                                         |
-| 23  | Model structure           | Model must have exactly one objective                             |
-| 24  | Model structure           | Circular expression references                                    |
-| 25  | Model structure           | `control kind=` must be continuous/integer/binary                 |
-| 26  | Model structure           | Constraint index refs must resolve to known sets                  |
-| 27  | Scenario resolution       | `scenario` must have `use`                                        |
-| 28  | Scenario resolution       | `use <model>` must resolve to existing model                      |
-| 29  | Scenario resolution       | Scenario `data` binding must match model `param`                  |
-| 30  | Scenario resolution       | Scalar `report` must resolve to expression/objective              |
-| 31  | Scenario resolution       | Dual `report` must resolve to constraint                          |
-| 32  | Subset resolution         | `in` parent must be in same data block or top-level               |
-| 33  | Subset resolution         | Filtered subset must be subset of parent; warn if empty           |
-| 34  | Temporal safety           | Temporal offsets without boundary `if` guard                      |
-| 35  | Data integrity            | Empty CSV files                                                   |
-| 36  | Operator context          | `==` in constraint body (use `=`)                                 |
-| 37  | Operator context          | `=` in predicate context (use `==`)                               |
-| 38  | Nonlinear/solver          | Nonlinear built-ins trigger NLP/MINLP diagnostic (SHOULD)         |
-| 39  | Slack naming              | Auto-generated slack names must not collide with controls         |
-| 40  | Strict inequalities       | `<`/`>` MUST fail in range constraints; SHOULD warn in non-range  |
-| 41  | Bound algebra scoping     | Bound algebra vars must match control's own index names           |
-| 42  | Alias uniqueness          | Set aliases unique; no alias-name collisions                      |
-| 43  | Operator context          | `!=` in constraint body                                           |
-| 44  | Model/data set conflicts  | Model set must not shadow data/top-level set name                 |
-| 45  | Row filter scoping        | `if` predicate must reference at least one index variable         |
-| 46  | Inline selector           | Inline selector data ref must resolve to `data` block             |
-| 47  | Inline selector           | Inline selector fields must resolve to data columns               |
-| 48  | Ergonomic profile         | `use_data` must resolve to top-level `data` block                 |
-| 49  | _(removed)_               | _(`bounds` is now a canonical `control` child; see rules 60, 68)_ |
-| 50  | _(removed)_               | _(subsumed by rules 60 and 68)_                                   |
-| 51  | Top-level set members     | Duplicate members in top-level `set`                              |
-| 52  | Literal type restrictions | Boolean/string literals outside predicate contexts                |
-| 53  | Expression/objective      | Comparison operators in expression/objective bodies               |
-| 54  | Constraint structure      | Constraint body must contain at least one comparison operator     |
-| 55  | Operator context          | `and`/`or` outside predicate contexts                             |
-| 56  | Inline scalar             | Inline scalar must be numeric; no `index`/`index`/`from`/`reduce` |
-| 57  | Scenario structure        | Scenario-level `data` must not have child block                   |
-| 58  | Control structure         | `control` must have at least one `index` or `index`               |
-| 59  | Top-level set structure   | Top-level `set` must have non-empty member list                   |
-| 60  | Control bounds            | Literal and formula bounds on same direction conflict             |
-| 68  | Control bounds            | `value=` with `lower`, `upper`, or bound blocks MUST fail         |
-| 61  | Null values               | KDL `null` in any value position MUST fail                        |
-| 62  | Binary bounds             | `control kind=binary` with bounds outside [0,1] MUST fail         |
-| 63  | Param resolution          | Unresolved model `param` at scenario time MUST fail               |
-| 64  | Param namespace           | Top-level `param` name collision with data-level `param`/`set`    |
-| 65  | Tuple arity               | Tuple binding arity must match `data` block `index` column count  |
-| 66  | Set column resolution     | `set <name>` inside `data` must resolve to CSV column             |
-| 67  | Empty-domain aggregation  | `min()`/`max()` over empty domain MUST produce solve-time error   |
+| #   | Category                  | Rule summary                                                                      |
+| --- | ------------------------- | --------------------------------------------------------------------------------- |
+| 1   | Name uniqueness           | Duplicate `data` block names                                                      |
+| 2   | Name uniqueness           | Duplicate `model` names                                                           |
+| 3   | Name uniqueness           | Duplicate `scenario` names                                                        |
+| 4   | Name uniqueness           | Duplicate `map` targets within one `data` block                                   |
+| 5   | Name uniqueness           | Duplicate `set` names within one `data` block                                     |
+| 6   | Name uniqueness           | Set name collisions across `data` blocks                                          |
+| 7   | Name uniqueness           | Param name collisions across `data` blocks                                        |
+| 8   | Column resolution         | `map` without `from` must match CSV column                                        |
+| 9   | Column resolution         | Unknown source columns in `map from=` or `param from=`                            |
+| 10  | Column resolution         | Unknown set references in `index=` property or `index` children                   |
+| 11  | Set hierarchy             | `in` parent must resolve (see [rule 32](#10-validation-requirements) for scoping) |
+| 12  | Set hierarchy             | `in` cycles detected                                                              |
+| 13  | Set hierarchy             | Child-to-parent hierarchy contradictions                                          |
+| 14  | Indexing                  | `index=` property and `index` children mutually exclusive                         |
+| 15  | Indexing                  | At most one `index` per `data` block                                              |
+| 16  | Indexing                  | Non-unique indexing without `reduce`                                              |
+| 17  | Indexing                  | `reduce` on scalar parameter                                                      |
+| 18  | Filtering                 | Filter predicate references unknown columns                                       |
+| 19  | Filtering                 | Numeric comparison on non-numeric column                                          |
+| 20  | Filtering                 | Contradictory filter predicates (SHOULD)                                          |
+| 21  | Type/metadata             | `units` value must be valid KDL string or identifier                              |
+| 22  | Type/metadata             | Type annotation conflicts                                                         |
+| 23  | Model structure           | Model must have exactly one objective                                             |
+| 24  | Model structure           | Circular expression references                                                    |
+| 25  | Model structure           | `control kind=` must be continuous/integer/binary                                 |
+| 26  | Model structure           | Constraint index refs must resolve to known sets                                  |
+| 27  | Scenario resolution       | `scenario` must have `use`                                                        |
+| 28  | Scenario resolution       | `use <model>` must resolve to existing model                                      |
+| 29  | Scenario resolution       | Scenario `data` binding must match model `param`                                  |
+| 30  | Scenario resolution       | Scalar `report` must resolve to expression/objective                              |
+| 31  | Scenario resolution       | Dual `report` must resolve to constraint                                          |
+| 32  | Subset resolution         | `in` parent must be in same data block or top-level                               |
+| 33  | Subset resolution         | Filtered subset must be subset of parent; warn if empty                           |
+| 34  | Temporal safety           | Temporal offsets without boundary `if` guard                                      |
+| 35  | Data integrity            | Empty CSV files                                                                   |
+| 36  | Operator context          | `==` in constraint body (use `=`)                                                 |
+| 37  | Operator context          | `=` in predicate context (use `==`)                                               |
+| 38  | Nonlinear/solver          | Nonlinear built-ins trigger NLP/MINLP diagnostic (SHOULD)                         |
+| 39  | Slack naming              | Auto-generated slack names must not collide with controls                         |
+| 40  | Strict inequalities       | `<`/`>` MUST fail in range constraints; SHOULD warn in non-range                  |
+| 41  | Bound algebra scoping     | Bound algebra vars must match control's own index names                           |
+| 42  | Alias uniqueness          | Set aliases unique; no alias-name collisions                                      |
+| 43  | Operator context          | `!=` in constraint body                                                           |
+| 44  | Model/data set conflicts  | Model set must not shadow data/top-level set name                                 |
+| 45  | Row filter scoping        | `if` predicate must reference at least one index variable                         |
+| 46  | Inline selector           | Inline selector data ref must resolve to `data` block                             |
+| 47  | Inline selector           | Inline selector fields must resolve to data columns                               |
+| 48  | Ergonomic profile         | `use_data` must resolve to top-level `data` block                                 |
+| 49  | _(removed)_               | _(`bounds` is now a canonical `control` child; see rules 60, 68)_                 |
+| 50  | _(removed)_               | _(subsumed by rules 60 and 68)_                                                   |
+| 51  | Top-level set members     | Duplicate members in top-level `set`                                              |
+| 52  | Literal type restrictions | Boolean/string literals outside predicate contexts                                |
+| 53  | Expression/objective      | Comparison operators in expression/objective bodies                               |
+| 54  | Constraint structure      | Constraint body must contain at least one comparison operator                     |
+| 55  | Operator context          | `and`/`or` outside predicate contexts                                             |
+| 56  | Inline scalar             | Inline scalar must be numeric; no `index` prop/children/`from`/`reduce`           |
+| 57  | Scenario structure        | Scenario-level `data` must not have child block                                   |
+| 58  | Control structure         | `control` must have at least one `index` property or `index` child                |
+| 59  | Top-level set structure   | Top-level `set` must have non-empty member list                                   |
+| 60  | Control bounds            | Literal and formula bounds on same direction conflict                             |
+| 61  | Null values               | KDL `null` in any value position MUST fail                                        |
+| 62  | Binary bounds             | `control kind=binary` with bounds outside [0,1] MUST fail                         |
+| 63  | Param resolution          | Unresolved model `param` at scenario time MUST fail                               |
+| 64  | Param namespace           | Top-level `param` name collision with data-level `param`/`set`                    |
+| 65  | Tuple arity               | Tuple binding arity must match `data` block `index` column count                  |
+| 66  | Set column resolution     | `set <name>` inside `data` must resolve to CSV column                             |
+| 67  | Empty-domain aggregation  | `min()`/`max()` over empty domain MUST produce solve-time error                   |
+| 68  | Control bounds            | `value=` with `lower`, `upper`, or bound blocks MUST fail                         |
+| 69  | Slack naming (range)      | `_slack_lo`/`_slack_hi` names must not collide with controls                      |
+| 70  | Scalar CSV rows           | Scalar param bound to CSV with multiple rows MUST fail                            |
+| 71  | Slack penalty             | `slack` penalty MUST be a positive numeric value                                  |
+| 72  | `if` predicate form       | `if` body must be explicit boolean predicate (comparison required)                |
+| 73  | Duplicate CSV columns     | CSV header with duplicate column names MUST fail                                  |
+| 74  | Temporal offset ordering  | Temporal offset on unordered set MUST fail                                        |
 
 Implementations MUST validate at least:
 
@@ -1697,28 +1792,31 @@ Duplicate `param` names within a single `data` block or `model` block are also
 prohibited (subsumed by the global uniqueness requirement of rules 7 and 64).
 
 Column and field resolution (rules 8–10): `map` without `from` MUST resolve to
-an existing CSV column. Unknown source columns and unknown set references in
-`index`/`index` MUST fail validation.
+an existing CSV column. Unknown source columns and unknown set references in the
+`index=` property or `index` children MUST fail validation.
 
 Set hierarchy (rules 11–13): `in` parent MUST resolve to a set in the same
-`data` block or a top-level `set` (see rule 32 for full scoping). `in` cycles
-MUST be detected, and child-to-parent hierarchy contradictions (a child value
-mapping to multiple distinct parent values) MUST fail validation.
+`data` block or a top-level `set` (see [rule 32](#10-validation-requirements)
+for full scoping). `in` cycles MUST be detected, and child-to-parent hierarchy
+contradictions (a child value mapping to multiple distinct parent values) MUST
+fail validation.
 
-Indexing (rules 14–16): `index` and `index` children are mutually exclusive. At
-most one `index` declaration per `data` block. Non-unique indexing without
-`reduce` MUST fail. 17. `reduce` on a scalar parameter (one with no `index`, no
-`index` children, and no block-level `index` declaration) MUST fail validation.
-Aggregation requires at least one indexing dimension.
+Indexing (rules 14–16): The `index=` property and `index` children are mutually
+exclusive. At most one `index` declaration per `data` block. Non-unique indexing
+without `reduce` MUST fail. 17. `reduce` on a scalar parameter (one with no
+`index`, no `index` children, and no block-level `index` declaration) MUST fail
+validation. Aggregation requires at least one indexing dimension.
 
 Filtering:
 
 18. `filter` predicate references unknown column names.
 19. Numeric comparison operator on non-numeric column data.
-20. Implementations SHOULD detect contradictory filter predicates for simple
-    single-variable range conditions (e.g.,
-    `capacity >= 30 and capacity <= 20`). Complex multi-variable contradictions
-    MAY be left undetected.
+20. Implementations MUST detect contradictory filter predicates when a single
+    variable has range bounds that form an empty interval (e.g.,
+    `capacity >= 30 and capacity <= 20`). Specifically: if all predicates in a
+    conjunction reference the same variable and the resulting interval is empty,
+    validation MUST fail. Contradictions involving multiple variables or
+    disjunctions (`or`) MAY be left undetected.
 
 Type and metadata:
 
@@ -1830,8 +1928,8 @@ Ergonomic profile resolution:
     block name (see
     [Appendix A.2](appendix-a-ergonomic-profile.md#a2-use_data-model-imports)).
 
-Top-level set members (rule 51): Duplicate members in a top-level `set` MUST
-fail validation.
+Top-level set members ([rule 51](#10-validation-requirements)): Duplicate
+members in a top-level `set` MUST fail validation.
 
 Literal type restrictions:
 
@@ -1860,12 +1958,15 @@ Logical operator context:
     bodies outside of predicate contexts (`if`, `filter`, reduction `if`) MUST
     fail validation.
 
-Structural rules (rules 56–60): Inline scalars MUST be numeric with no
-`index`/`index`/`from`/`reduce` (rule 56). Scenario-level `data` MUST NOT have a
-child block (rule 57). `control` MUST have at least one `index` or `index` (rule
-58). Top-level `set` MUST have a non-empty member list (rule 59). Literal and
-formula bounds for the same direction on a `control` MUST NOT both be specified
-(rule 60).
+Structural rules (rules 56–60): Inline scalars MUST be numeric with no `index=`
+property, `index` children, `from`, or `reduce`
+([rule 56](#10-validation-requirements)). Scenario-level `data` MUST NOT have a
+child block ([rule 57](#10-validation-requirements)). `control` MUST have at
+least one `index=` property or `index` child
+([rule 58](#10-validation-requirements)). Top-level `set` MUST have a non-empty
+member list ([rule 59](#10-validation-requirements)). Literal and formula bounds
+for the same direction on a `control` MUST NOT both be specified
+([rule 60](#10-validation-requirements)).
 
 Null values:
 
@@ -1912,6 +2013,42 @@ Empty-domain aggregation:
     error (not a pre-solve validation error, since domain emptiness may depend
     on runtime data filtering). Implementations MUST report a clear diagnostic
     identifying the empty domain.
+
+Slack naming for range constraints:
+
+69. Auto-generated slack names `<constraint>_slack_lo` and
+    `<constraint>_slack_hi` (from range constraints) MUST NOT collide with any
+    user-declared `control` name. This extends
+    [rule 39](#10-validation-requirements) to cover range-constraint slack
+    patterns.
+
+Scalar CSV rows:
+
+70. A scalar parameter (no index sets) bound to a CSV with more than one data
+    row MUST fail validation. The CSV MUST contain exactly one data row with the
+    value column (see [§7.2](#72-data-inside-scenario)).
+
+Slack penalty:
+
+71. The `slack` `penalty` property MUST be a positive numeric value (greater
+    than zero). Non-numeric, zero, negative, or missing penalty values MUST fail
+    validation (see [§6.5](#65-constraint)).
+
+Predicate form:
+
+72. `if` block bodies MUST contain an explicit comparison operator (`==`, `!=`,
+    `>`, `>=`, `<`, `<=`). Bare numeric or parameter references without a
+    comparison operator MUST fail validation.
+
+Duplicate CSV columns:
+
+73. CSV files with duplicate column names in the header row MUST fail
+    validation. Each column name MUST be unique within a single CSV file.
+
+Temporal offset ordering:
+
+74. Temporal offsets (`t-1`, `t+1`) applied to a set that is not an ordered set
+    (see [§6.5](#65-constraint), temporal offsets section) MUST fail validation.
 
 ### 10.1 Error reporting strategy
 
@@ -2280,8 +2417,11 @@ empty domain (see [§10](#10-validation-requirements), rule 67).
 
 Tuple bindings:
 
-When a domain contains composite keys (e.g., arcs defined by origin-destination
-pairs), tuple destructuring binds multiple variables simultaneously:
+In all reductions shown above, the iteration domain after `in` is a set name.
+Tuple bindings are the one exception: they iterate over a `data` block name (not
+a set name) to destructure composite keys. When a domain contains composite keys
+(e.g., arcs defined by origin-destination pairs), tuple destructuring binds
+multiple variables simultaneously:
 
 ```
 sum(flow[i,j] for (i, j) in branch_data)
