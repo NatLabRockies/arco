@@ -2,10 +2,15 @@
 
 Version: 0.1.0 (Last updated: 2026-04-09)
 
-Versioning: This specification follows [Semantic Versioning](https://semver.org/).
-Minor versions (0.x.0) MAY introduce breaking changes while the major version is
-0. Once the specification reaches 1.0.0, breaking changes require a major version
-bump and deprecated features will be documented with a removal target version.
+Versioning: This specification follows
+[Semantic Versioning](https://semver.org/). Minor versions (0.x.0) MAY introduce
+breaking changes while the major version is 0. Once the specification reaches
+1.0.0, breaking changes require a major version bump and deprecated features
+will be documented with a removal target version.
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
+"SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
+interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
 This document defines the low-level Arco DSL profile authored in KDL 2.0.
 
@@ -15,34 +20,12 @@ Scope of this specification:
 - [`data`](#5-data-declaration) declarations (CSV-backed namespaces)
 - [`param`](#54-param-inside-data) declarations (projection, indexing,
   filtering, aggregation)
+- [`model`](#6-model-declaration) declarations (optimization structure)
 - [`control`](#63-control) declarations (decision-variable families)
 - [`expression`](#64-expression) declarations (named reusable formulas)
 - [`constraint`](#65-constraint) declarations (low-level algebra rows)
+- [`minimize` / `maximize`](#66-objective) declarations (objective function)
 - [`scenario`](#7-scenario-declaration) declarations (execution entrypoints)
-
-High-level domain declarations (`technology`, `operation`, `rule`, `asset`) are
-not part of this low-level specification.
-
----
-
-## Table of Contents
-
-1. [Conformance](#1-conformance)
-2. [Terminology](#2-terminology)
-3. [Top-level declarations](#3-top-level-declarations)
-4. [`set` declaration (top-level)](#4-set-declaration-top-level)
-5. [`data` declaration](#5-data-declaration)
-   - [5.1 `map`](#51-map) | [5.2 `set`](#52-set-inside-data) | [5.3 `index`](#53-index-inside-data) | [5.4 `param`](#54-param-inside-data) | [5.5 Inline selectors](#55-inline-selectors)
-6. [`model` declaration](#6-model-declaration)
-   - [6.1 `set`](#61-set-inside-model) | [6.2 `param`](#62-param-inside-model) | [6.3 `control`](#63-control) | [6.4 `expression`](#64-expression) | [6.5 `constraint`](#65-constraint) | [6.6 Objective](#66-objective)
-7. [`scenario` declaration](#7-scenario-declaration)
-   - [7.1 `horizon`](#71-horizon) | [7.2 `use`](#72-use) | [7.3 `data`](#73-data-inside-scenario) | [7.4 `report`](#74-report-inside-scenario) | [7.5 Data scoping](#75-data-scoping)
-8. [KDL 2.0 type annotations](#8-kdl-20-type-annotations-optional)
-9. [Filter predicate semantics](#9-filter-predicate-semantics)
-10. [Validation requirements](#10-validation-requirements)
-11. [Grammar (low-level profile)](#11-grammar-low-level-profile)
-12. [Algebra expression summary](#12-algebra-expression-summary)
-- [Appendix A. Ergonomic syntax profile](#appendix-a-ergonomic-syntax-profile)
 
 ---
 
@@ -65,9 +48,36 @@ KDL comments (`//` line comments and `/-` slashdash comments) are fully
 supported. Slashdash (`/-`) comments out an entire node, property, or argument,
 which is useful for toggling declarations during development.
 
-The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD",
-"SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be
-interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+### 1.1 KDL compatibility
+
+Arco targets [KDL 2.0](https://kdl.dev) as its host syntax. The live
+specification is available at <https://kdl.dev/spec/>.
+
+Any document that is valid under this specification is also a valid KDL 2.0
+document. A conforming KDL 2.0 parser MUST be able to structurally parse an Arco
+file without error. Arco semantic rules are applied as a second pass after KDL
+parsing succeeds.
+
+KDL features used by Arco:
+
+- Nodes and children: every Arco declaration (`set`, `data`, `model`,
+  `scenario`, `control`, `expression`, `constraint`, `minimize`, `maximize`)
+  maps to a KDL node. Nested structure uses KDL child blocks (`{ ... }`).
+- Arguments and properties: positional arguments carry names and values; named
+  properties carry options (`from=`, `index_by=`, `alias=`, etc.).
+- Type annotations: KDL 2.0 type annotations (e.g., `(f64)200`) are supported
+  but optional (see [§8](#8-kdl-20-type-annotations-optional)).
+- Comments: line comments (`//`) and slashdash comments (`/-`) are fully
+  supported.
+- Multi-line strings and raw strings: KDL 2.0 multi-line and raw string literals
+  are accepted wherever a string value is expected.
+
+KDL features not used by Arco:
+
+- Multi-line nodes (line continuations with `\`): accepted by the KDL parser but
+  have no special Arco semantics.
+- Null values: KDL `null` has no defined meaning in Arco. Implementations SHOULD
+  reject `null` where a concrete value is required.
 
 Naming convention:
 
@@ -89,7 +99,7 @@ param name=capacity_mw from=cap_mw index_by=gen
 
 This applies to all named declarations: `set`, `data`, `model`, `scenario`,
 `control`, `expression`, `constraint`, `minimize`, and `maximize`. (`use_data`
-is not a named declaration — it takes data block references as arguments; see
+is not a named declaration; it takes data block references as arguments. See
 [Appendix A.2](#a2-use_data-model-imports).) The positional form is RECOMMENDED
 for brevity.
 
@@ -107,40 +117,40 @@ Alias uniqueness:
 
 This specification uses the following terms consistently:
 
-| Term                         | Meaning                                                                                                                         |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `algebra block`              | A `{ ... }` child block containing bare math. After KDL structural parsing, the normalizer converts it to a canonical `formula "..."` quoted string property before algebra interpretation. |
-| `expression`                 | A named, reusable formula declared with `expression <name> { ... }` inside a [`model`](#6-model-declaration).                   |
-| `constraint`                 | A named algebraic relation (equality or inequality) declared with `constraint <name> { ... }`.                                  |
-| `objective`                  | The single optimization target, declared with `minimize <name> { ... }` or `maximize <name> { ... }`.                           |
-| `expression` (in constraint) | The algebra body node inside a generated constraint. Written as `expression { ... }`.                                           |
-| `if`                         | A row-filter predicate inside a generated constraint. Written as `if { ... }`. Multiple `if` blocks combine with AND semantics. |
-| `control`                    | A decision-variable family.                                                                                                     |
-| `slack`                      | A child on a constraint that auto-generates a slack variable and penalty term in the objective.                                 |
-| `param`                      | A data-backed or model-declared parameter (known constant at solve time).                                                       |
-| `set`                        | A named domain of indices.                                                                                                      |
-| `over`                       | A row-generation clause in a generated constraint. Written as `over <var> in=<set>`.                                            |
-| `bounds`                     | Ergonomic declarative bound override for a control family (see [Appendix A.4](#a4-declarative-bounds-and-fix)).                  |
-| `fix`                        | Ergonomic declarative variable fix (equal lower and upper bounds; see [Appendix A.4](#a4-declarative-bounds-and-fix)).           |
-| `use_data`                   | Ergonomic model import of sets/params from `data` blocks (see [Appendix A.2](#a2-use_data-model-imports)).                      |
-| `map`                        | Binds a logical name to a CSV header inside a [`data`](#5-data-declaration) block.                                              |
-| `index` (data-block)         | Default indexing declaration for all `param` nodes in a [`data`](#53-index-inside-data) block.                                  |
-| `index` (param/control)      | Per-declaration index child specifying which set(s) a `param` or `control` is indexed over.                                     |
-| `horizon`                    | Scenario child that defines the active time set (steps and resolution). See [§7.1](#71-horizon).                                |
-| `report`                     | Scenario child requesting post-solve output (expression values or constraint duals). See [§7.4](#74-report-inside-scenario).    |
+| Term                         | Meaning                                                                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `algebra block`              | A `{ ... }` child block containing bare math. This is the syntax used for `expression`, `constraint`, `lower`, `upper`, `if`, and `filter` bodies.                                   |
+| `expression`                 | A named, reusable formula declared with `expression <name> { ... }` inside a [`model`](#6-model-declaration).                                                                        |
+| `constraint`                 | A named algebraic relation (equality or inequality) declared with `constraint <name> { ... }`.                                                                                       |
+| `objective`                  | The single optimization target, declared with `minimize <name> { ... }` or `maximize <name> { ... }`.                                                                                |
+| `expression` (in constraint) | The algebra body node inside a generated constraint. Written as `expression { ... }`.                                                                                                |
+| `if`                         | A row-filter predicate inside a generated constraint. Written as `if { ... }`. Multiple `if` blocks combine with AND semantics.                                                      |
+| `control`                    | A decision-variable family.                                                                                                                                                          |
+| `slack`                      | A child on a constraint that auto-generates a slack variable and penalty term in the objective.                                                                                      |
+| `param`                      | A data-backed or model-declared parameter (known constant at solve time).                                                                                                            |
+| `set`                        | A named domain of indices.                                                                                                                                                           |
+| `over`                       | A row-generation clause in a generated constraint. Written as `over <var> in=<set>`.                                                                                                 |
+| `bounds`                     | Ergonomic declarative bound override for a control family (see [Appendix A.4](#a4-declarative-bounds-and-fix)).                                                                      |
+| `fix`                        | Ergonomic declarative variable fix (equal lower and upper bounds; see [Appendix A.4](#a4-declarative-bounds-and-fix)).                                                               |
+| `use_data`                   | Ergonomic model import of sets/params from `data` blocks (see [Appendix A.2](#a2-use_data-model-imports)).                                                                           |
+| `map`                        | Binds a logical name to a CSV header inside a [`data`](#5-data-declaration) block.                                                                                                   |
+| `index` (data-block)         | Default indexing declaration for all `param` nodes in a [`data`](#53-index-inside-data) block.                                                                                       |
+| `index` (param/control)      | Per-declaration index child specifying which set(s) a `param` or `control` is indexed over.                                                                                          |
+| `horizon`                    | Scenario child that defines the active time set (steps and resolution). See [§7.1](#71-horizon).                                                                                     |
+| `report`                     | Scenario child requesting post-solve output (expression values or constraint duals). See [§7.4](#74-report-inside-scenario).                                                         |
 | `reduce` / `reducer`         | Aggregation function applied when indexing is non-unique (`sum`, `avg`, `min`, `max`, `first`, `last`). Two equivalent forms: `reduce=sum` (property) and `reduce sum` (child node). |
 
 `expression` as declaration vs inside constraint: `expression` serves two roles
 depending on context. As a model child, it declares a named reusable formula.
 Inside a generated [`constraint`](#65-constraint), `expression { ... }` contains
-the constraint's algebra body. Both use the same keyword — context determines
-the meaning.
+the constraint's algebra body. Both use the same keyword; context determines the
+meaning.
 
 `index` as data-block default vs param/control child: Inside a `data` block,
-`index` (§5.3) declares the default indexing columns for all `param` declarations
-in that block. Inside a `param` or `control` declaration, `index` children
-(§5.4, §6.3) specify per-declaration indexing that overrides the block default.
-Both use the same keyword — the parent node determines the meaning.
+`index` (§5.3) declares the default indexing columns for all `param`
+declarations in that block. Inside a `param` or `control` declaration, `index`
+children (§5.4, §6.3) specify per-declaration indexing that overrides the block
+default. Both use the same keyword; the parent node determines the meaning.
 
 `if` in algebra vs `if` in constraints: Inside algebra expressions, `if` is a
 filter clause on reductions (`sum(x for a in set if cond)`). Inside generated
@@ -149,12 +159,12 @@ generated. Both use the same predicate syntax but serve different purposes.
 
 ```kdl
 model dispatch {
-  // "expression" — named reusable formula (model-level declaration)
+  // "expression" - named reusable formula (model-level declaration)
   expression TotalFuelCost {
     sum(fuel_cost[g] * dispatch[g,t] for g in generators for t in time)
   }
 
-  // "expression" inside constraint — the constraint's algebra body
+  // "expression" inside constraint - the constraint's algebra body
   constraint capacity_limit {
     over g in=generators
     over t in=time
@@ -173,11 +183,16 @@ model dispatch {
 A low-level document MAY contain these top-level declarations:
 
 - [`set`](#4-set-declaration-top-level) (explicit domain)
+- [`param`](#54-param-inside-data) (inline scalar constant)
 - [`data`](#5-data-declaration) (CSV-backed namespace)
 - [`model`](#6-model-declaration)
 - [`scenario`](#7-scenario-declaration)
 
 ```kdl
+// global scalar constants
+param voll 9000 units="$/MWh"
+param big_m 1e6
+
 // explicit sets with inline members
 set bus { 1; 2; 3; 4; 5 }
 
@@ -208,7 +223,7 @@ All names are resolved after the full document is parsed.
 ## 4. `set` declaration (top-level)
 
 A top-level `set` declares a named domain with explicit members listed inline.
-This is useful for sets that are not backed by a CSV file — for example, index
+This is useful for sets that are not backed by a CSV file, for example index
 ranges, scenario labels, or piecewise segments.
 
 Explicit member list:
@@ -242,7 +257,7 @@ MUST NOT have the same name as a set declared inside a `data` block.
 ## 5. `data` declaration
 
 `data` declares one CSV-backed namespace. Sets and parameters declared inside
-the block are globally visible — any `model` or algebra expression in the
+the block are globally visible. Any `model` or algebra expression in the
 document can reference them by name. A single `data` block can supply sets and
 parameters to multiple models.
 
@@ -326,7 +341,7 @@ set mid_gen {
 
 Set resolution:
 
-A set is always resolved from exactly one CSV file — the `data` block that
+A set is always resolved from exactly one CSV file: the `data` block that
 declares it. The members of the set are the unique values found in the
 corresponding column of that CSV. There is no implicit union or merge across
 files.
@@ -338,14 +353,24 @@ have two options:
    set.
 2. Declare separate sets per file and iterate over each one independently.
 
+```csv
+thermal_gen,heat_rate
+gen-01,10.5
+gen-02,11.2
+gen-03,9.8
+```
+
+```csv
+renewable_gen,capacity_factor
+gen-04,0.35
+```
+
 ```kdl
-// generators.csv contains: gen-01, gen-02, gen-03
 data thermal from="data/thermal.csv" {
   set thermal_gen
   param heat_rate index_by=thermal_gen
 }
 
-// renewables.csv contains: gen-04
 data renewable from="data/renewables.csv" {
   set renewable_gen
   param capacity_factor index_by=renewable_gen
@@ -368,12 +393,15 @@ To iterate over all generators with a single set, consolidate into one CSV with
 a shared column (e.g., `generator_id`) and use `in` with `filter` to distinguish
 subgroups:
 
+```csv
+generator_id,type,heat_rate,capacity_factor
+gen-01,thermal,10.5,
+gen-02,thermal,11.2,
+gen-03,thermal,9.8,
+gen-04,renewable,,0.35
+```
+
 ```kdl
-// all_generators.csv: generator_id, type, ...
-// gen-01, thermal, ...
-// gen-02, thermal, ...
-// gen-03, thermal, ...
-// gen-04, renewable, ...
 data generators from="data/all_generators.csv" {
   map gen from=generator_id
   set gen
@@ -402,7 +430,7 @@ index <set_a> <set_b> <set_c>
 Semantics:
 
 - `index` is optional.
-- If omitted, default index is numeric row order.
+- If omitted, default index is 1-based numeric row order (row 1, 2, 3, ...).
 - Every index symbol MUST be a declared set.
 - At most one `index` declaration is allowed per `data` block. To index by
   multiple columns, list them all as arguments to a single `index` node.
@@ -430,13 +458,19 @@ data plants from="data/plants.csv" {
 
 ### 5.4 `param` (inside `data`)
 
-`param` projects values from dataset fields.
+`param` projects values from CSV columns into named parameters.
+
+By default, the param name is used to match the CSV column header. If the CSV
+column has a different name, use `from=<column>` to specify which CSV column
+supplies the values. The param's logical name (used in algebra) is always the
+`<name>` given to the `param` declaration. `from=` only controls where the data
+is read from.
 
 Single-dimension indexing (property form):
 
 ```kdl
 param <name>
-param <name> from=<field>
+param <name> from=<csv_column>
 param <name> index_by=<set>
 ```
 
@@ -444,8 +478,30 @@ Multi-dimension indexing (child node form):
 
 ```kdl
 param <name> { index <set_a>; index <set_b> }
-param <name> from=<field> { index <set_a>; index <set_b> }
+param <name> from=<csv_column> { index <set_a>; index <set_b> }
 ```
+
+Example, given this CSV:
+
+```csv
+gen_id,capacity_mw,heat_rate
+g1,500,10.5
+g2,300,11.2
+g3,150,9.8
+```
+
+```kdl
+data generators from="data/generators.csv" {
+  set gen_id
+  // reads from the "capacity_mw" column (name matches)
+  param capacity_mw index_by=gen_id
+  // reads from the "heat_rate" column but exposes it as "hr" in algebra
+  param hr from=heat_rate index_by=gen_id
+}
+```
+
+In algebra, reference `capacity_mw[g]` and `hr[g]`. The `from=` property only
+affects which CSV column is read, not the param's logical name.
 
 `index_by` and `index` children are mutually exclusive. Using both on the same
 `param` MUST fail validation.
@@ -492,6 +548,8 @@ param <name> from=<field> { filter { <predicate> } }
 The `filter` block uses the same bare-math algebra syntax as `set` filters and
 constraint `if` blocks:
 
+Given a CSV with columns `gen_id`, `capacity_mw`, and `prime_mover`:
+
 ```kdl
 param cc_capacity from=capacity_mw { filter { prime_mover == CC } }
 param large_units from=capacity_mw { filter { capacity_mw >= 200 } }
@@ -518,24 +576,59 @@ param fuel_cost units="$/MMBtu"
 ```
 
 The `units` property accepts freeform string values. There is no predefined
-vocabulary of valid unit tokens — any KDL string or identifier is accepted.
-Units serve as documentation metadata and are preserved in solver output and
+vocabulary of valid unit tokens; any KDL string or identifier is accepted. Units
+serve as documentation metadata and are preserved in solver output and
 diagnostics. Implementations MAY use units for dimensional consistency checks
 but are not required to validate unit semantics.
 
 Scalar parameters:
 
 A `param` with no `index_by`, no `index` children, and no block-level `index`
-declaration is a scalar parameter. The CSV MUST contain exactly one data row
-with the value column. For how scalar parameters are bound at scenario time,
-see [§7.3](#73-data-inside-scenario).
+declaration is a scalar parameter.
+
+Inline scalar form:
+
+A scalar param MAY be declared with an inline literal value as its first
+positional argument, without requiring a CSV file:
+
+```kdl
+param voll 9000 units="$/MWh"
+param discount_rate 0.05
+param big_m 1e6
+```
+
+The value MUST be a numeric literal. In algebra, reference the param by name as
+a constant (no index brackets): `voll`, `discount_rate`, `big_m`.
+
+Inline scalars (literal constants) are valid at the top level (as global
+constants) and inside `model` blocks (as model-local constants). They MUST NOT
+appear inside `data` blocks — `data` blocks are strictly CSV-backed, so every
+`param` inside a `data` block MUST read its value from the CSV file (either
+indexed or scalar via a single-row CSV). Inline scalars MUST NOT have
+`index_by`, `index` children, `from`, or `reduce` properties.
+
+CSV-backed scalar form:
+
+When the scalar value comes from a CSV file, the CSV MUST contain exactly one
+data row with the value column. For how scalar parameters are bound at scenario
+time, see [§7.3](#73-data-inside-scenario).
+
+```csv
+discount_rate,value_of_lost_load
+0.05,9000
+```
 
 ```kdl
 data settings from="data/settings.csv" {
+  // column name matches param name, no from= needed
   param discount_rate
-  param voll units="$/MWh"
+  // column name differs, use from= to read "value_of_lost_load" as "voll"
+  param voll from=value_of_lost_load units="$/MWh"
 }
 ```
+
+In algebra, reference these as scalar constants: `discount_rate` and `voll` (no
+index brackets needed since they are not indexed over any set).
 
 Semantics:
 
@@ -578,10 +671,10 @@ model <name> { ... }
 
 Allowed children:
 
-- [`use_data`](#a2-use_data-model-imports) — **ergonomic profile only** (import
+- [`use_data`](#a2-use_data-model-imports) - ergonomic profile only (import
   sets/params from `data` blocks; defined in
-  [Appendix A.2](#a2-use_data-model-imports), not part of the canonical low-level
-  grammar)
+  [Appendix A.2](#a2-use_data-model-imports), not part of the canonical
+  low-level grammar)
 - [`set`](#61-set-inside-model)
 - [`param`](#62-param-inside-model)
 - [`control`](#63-control)
@@ -601,14 +694,15 @@ set <name> from=horizon
 
 Notes:
 
-- `from=horizon` binds a set to scenario horizon steps. The built-in `time` set
-  is created automatically from `from=horizon`. When a model declares
-  `set time from=horizon`, the alias `t` is auto-assigned unless the declaration
-  explicitly provides a different alias (e.g., `set time alias=step from=horizon`
-  assigns `step` instead of `t`). The auto-assigned `t` alias follows the same
-  uniqueness rules as explicit aliases (see §1) — if another set already uses
-  `alias=t`, validation MUST fail. The only supported `from=` source for model
-  sets is `horizon`. Other `from=` values MUST fail validation.
+- `from=horizon` binds a set to scenario horizon steps. When a model declares
+  `set time from=horizon`, the set is populated at solve time with members
+  `1, 2, ..., steps` from the scenario's `horizon` declaration. The alias `t` is
+  auto-assigned unless the declaration explicitly provides a different alias
+  (e.g., `set time alias=step from=horizon` assigns `step` instead of `t`). The
+  auto-assigned `t` alias follows the same uniqueness rules as explicit aliases
+  (see §1). If another set already uses `alias=t`, validation MUST fail. The
+  only supported `from=` source for model sets is `horizon`. Other `from=`
+  values MUST fail validation.
 - `alias` provides a short iteration variable name. Example:
   `set asset_id alias=a`.
 - Model sets are abstract. They acquire concrete members from scenario data
@@ -620,9 +714,9 @@ Notes:
   The same applies to data-level parameters.
 - Name conflict rule: If a `model` declares a `set` with the same name as a
   `set` already declared in a `data` block, the model-level declaration MUST
-  fail validation. Model sets and data sets share a single global namespace —
-  a model cannot shadow or override a data-level set. To use a data-level set
-  in a model, reference it directly without redeclaration.
+  fail validation. Model sets and data sets share a single global namespace; a
+  model cannot shadow or override a data-level set. To use a data-level set in a
+  model, reference it directly without redeclaration.
 
 ```kdl
 // data declares gen, capacity_mw, fuel_cost, and the thermal_gen subset
@@ -634,7 +728,7 @@ data generators from="data/generators.csv" {
   param fuel_cost index_by=gen
 }
 
-// model uses gen, thermal_gen, and capacity_mw directly — no redeclaration
+// model uses gen, thermal_gen, and capacity_mw directly, no redeclaration
 model dispatch {
   set time from=horizon
   control output { index gen; index time; lower=0 }
@@ -775,7 +869,7 @@ control output {
 ```
 
 The algebra inside `lower { ... }` and `upper { ... }` uses the same bare-math
-block syntax as `expression` and `constraint` bodies — no quoting needed.
+block syntax as `expression` and `constraint` bodies. No quoting is needed.
 
 Specifying both a literal value and a formula block for the same direction MUST
 fail validation:
@@ -820,11 +914,11 @@ expression <name> {
 }
 ```
 
-The algebra body is written directly inside `{ ... }` as bare math — no quoting
-is needed. The normalizer automatically converts this to the canonical KDL form
-(`formula "..."`) before parsing. This bare-math block syntax is available on
-all algebra-bearing nodes: `expression`, `constraint`, `minimize`, `maximize`,
-`lower`, and `upper`.
+The algebra body is written directly inside `{ ... }` as bare math. No quoting
+is needed. The normalizer automatically converts the bare-math content into a
+canonical internal representation before parsing. This bare-math block syntax is
+available on all algebra-bearing nodes: `expression`, `constraint`, `minimize`,
+`maximize`, `lower`, and `upper`.
 
 Expressions MAY reference other named expressions by identifier. Circular
 references MUST fail validation.
@@ -843,14 +937,14 @@ constraint <name> {
 
 In the simple form, iteration variables are inferred from indexed references in
 the body. The compiler resolves each variable to its corresponding declared set
-by matching against `control` index signatures. For example, if `dispatch` is
-declared as `control dispatch { index asset_id; index time }`, then `a` resolves
-to `asset_id` (first index position) and `t` resolves to `time` (second index
-position). The simple form implicitly generates one constraint row per
-combination of resolved index sets — it is equivalent to a generated form with
-`over` clauses for each inferred variable. If a variable appears in multiple
-controls with conflicting index signatures, validation MUST fail with an
-ambiguity error.
+by matching against `control` and `param` index signatures. For example, if
+`dispatch` is declared as `control dispatch { index asset_id; index time }`,
+then `a` resolves to `asset_id` (first index position) and `t` resolves to
+`time` (second index position). The simple form implicitly generates one
+constraint row per combination of resolved index sets. It is equivalent to a
+generated form with `over` clauses for each inferred variable. If a variable
+appears in multiple declarations (`control` or `param`) with conflicting index
+signatures, validation MUST fail with an ambiguity error.
 
 Generated row form:
 
@@ -876,9 +970,9 @@ when row filtering is required.
 Row filters with `if`:
 
 The `if` block filters which rows are generated. The predicate MUST reference at
-least one of the iteration variables declared by the `over` clauses — a
-condition that does not depend on any loop variable is a static condition and
-SHOULD be handled outside the constraint:
+least one of the iteration variables declared by the `over` clauses. A condition
+that does not depend on any loop variable is a static condition and SHOULD be
+handled outside the constraint:
 
 ```kdl
 // valid: condition references loop variable `t`
@@ -907,15 +1001,16 @@ constraint ramp_up {
 
 Common `if` patterns:
 
-- `if { t > 1 }` — skip the first time step (required when using `t-1`)
-- `if { t < 24 }` — skip the last time step (required when using `t+1`; `24` here assumes a 24-step horizon — use the actual `steps` value)
-- `if { t == 1 }` — apply only at the first time step
-- `if { active[a] }` — filter by a boolean parameter
+- `if { t > 1 }` - skip the first time step (required when using `t-1`)
+- `if { t < steps }` - skip the last time step (required when using `t+1`;
+  `steps` refers to the horizon's step count)
+- `if { t == 1 }` - apply only at the first time step
+- `if { active[a] }` - filter by a boolean parameter
 
 Nested `if` conditions:
 
 Multiple `if` blocks MAY appear in the same constraint. They are combined with
-AND semantics — all conditions must be true for the row to be generated:
+AND semantics. All conditions must be true for the row to be generated:
 
 ```kdl
 constraint conditional_ramp {
@@ -963,8 +1058,8 @@ constraint angle_bounds {
 
 Range constraints expand to two linear rows internally. The outer operators MUST
 be `<=` or `>=` (both operators must be non-strict). Strict inequality operators
-(`<`, `>`) are not allowed in range constraints — see [§10 rule 39](#10-validation-requirements).
-The general form is:
+(`<`, `>`) in range constraints MUST fail validation (see
+[§10 rule 39](#10-validation-requirements)). The general form is:
 
 ```
 <lower_expr> <op1> <middle_expr> <op2> <upper_expr>
@@ -1085,10 +1180,8 @@ scenario <name> {
 }
 ```
 
-Every `scenario` MUST contain exactly one `use` declaration. A `horizon`
-declaration is REQUIRED only when the referenced model declares a time set
-(`set time from=horizon`). If the model has no temporal dimension, `horizon` MAY
-be omitted.
+Every `scenario` MUST contain exactly one `use` declaration. See
+[§7.1](#71-horizon) for when `horizon` is required.
 
 ```kdl
 // valid: non-temporal model, no horizon needed
@@ -1106,9 +1199,10 @@ scenario day_ahead {
 
 ### 7.1 `horizon`
 
-Conditionally required. Defines the active time set. This produces the built-in `time` set
-(alias `t`) with members `1, 2, ..., steps` (inclusive). Any model set declared with `from=horizon`
-resolves to this set.
+Conditionally required. Defines the active time set. This populates any model
+set declared with `from=horizon` with members `1, 2, ..., steps` (inclusive).
+For example, a model declaring `set time from=horizon` resolves to members
+`1, 2, ..., steps` at solve time.
 
 `horizon` is REQUIRED when the referenced model declares `set time from=horizon`
 or any set bound to the horizon. If the model has no temporal sets, `horizon`
@@ -1116,12 +1210,13 @@ MAY be omitted. A `horizon` on a non-temporal model is allowed but has no
 effect.
 
 ```kdl
-horizon steps=24 resolution="PT1H"
+horizon steps=24 resolution=PT1H
 ```
 
-Note: `resolution` values are ISO 8601 durations (e.g., `PT1H`, `PT15M`) and
-MUST be quoted in KDL since bare identifiers starting with `P` followed by
-digits are not valid KDL identifiers.
+Note: `resolution` values are
+[ISO 8601 durations](https://en.wikipedia.org/wiki/ISO_8601#Durations) (e.g.,
+`PT1H`, `PT15M`). Quoting is not required — KDL 2.0 accepts these as valid bare
+identifiers.
 
 ### 7.2 `use`
 
@@ -1142,9 +1237,10 @@ data capacity from="data/capacity.csv"
 data fuel_cost from="data/fuel_cost.csv"
 ```
 
-The `<name>` of each binding MUST match a `param` declared in the referenced
-model. The CSV structure determines how the parameter is indexed according to
-the following rules:
+The `<name>` of each binding MUST match either a `param` declared in the
+referenced model or a `param` declared in a top-level `data` block (which are
+globally visible, see [§7.5](#75-data-scoping)). The CSV structure determines
+how the parameter is indexed according to the following rules:
 
 Column-to-index matching:
 
@@ -1152,7 +1248,7 @@ Column-to-index matching:
    over (via `index_by` or `index` children).
 2. Each index set MUST correspond to a column in the bound CSV file. Column
    matching uses the set name (after any `map` resolution in the source `data`
-   block). If the set has an `alias`, the alias is NOT used for column matching —
+   block). If the set has an `alias`, the alias is NOT used for column matching;
    only the canonical set name.
 3. The value column is matched by the `param` name (or its `from` override).
 4. Extra columns in the CSV that do not match any index set or the param name
@@ -1161,15 +1257,15 @@ Column-to-index matching:
 
 Example: A model declares `param demand { index region; index time }`. The
 scenario binds `data demand from="data/demand.csv"`. The CSV must contain
-columns `region`, `time`, and `demand` (or the column specified by `from`).
-Each row provides one value of `demand` for a `(region, time)` pair.
+columns `region`, `time`, and `demand` (or the column specified by `from`). Each
+row provides one value of `demand` for a `(region, time)` pair.
 
-For scalar parameters (no index sets), the CSV MUST contain exactly one data
-row with the value column. Multiple rows for a scalar parameter MUST fail
-validation unless `reduce` is specified.
+For scalar parameters (no index sets), the CSV MUST contain exactly one data row
+with the value column. Multiple rows for a scalar parameter MUST fail validation
+unless `reduce` is specified.
 
-For data scoping and override rules between top-level and scenario-level
-`data`, see [§7.5](#75-data-scoping).
+For data scoping and override rules between top-level and scenario-level `data`,
+see [§7.5](#75-data-scoping).
 
 ### 7.4 `report` (inside `scenario`)
 
@@ -1215,18 +1311,17 @@ Dual report output structure:
 `data` can appear at two levels:
 
 - Top-level `data` with children (`map`, `set`, `param`) declares a shared
-  namespace. Sets and parameters declared inside are globally visible — any
-  model in the document can use them directly in algebra without redeclaration.
+  namespace. Sets and parameters declared inside are globally visible. Any model
+  in the document can use them directly in algebra without redeclaration.
 - Scenario-level `data` without children is a simple CSV-to-model-parameter
   binding scoped to that scenario only.
 
 The parser distinguishes these by context: top-level `data` has a `{ ... }`
 block, scenario-level `data` does not.
 
-If a scenario-level `data` binding resolves the same **param name** as a
-top-level `data` block, the scenario-level binding takes precedence for that
-parameter within that scenario. The override is by param name, not by data block
-name:
+If a scenario-level `data` binding resolves the same param name as a top-level
+`data` block, the scenario-level binding takes precedence for that parameter
+within that scenario. The override is by param name, not by data block name:
 
 ```kdl
 // top-level: declares a param named "demand" inside block "demand_data"
@@ -1261,7 +1356,7 @@ enforced across all `data` blocks:
   `map` to give them distinct names, or consolidate into one `data` block.
 
 Global namespace design note: All set and param names share a single flat
-namespace by design. This simplifies algebra expression resolution — every
+namespace by design. This simplifies algebra expression resolution since every
 identifier resolves unambiguously without requiring qualified names. For
 projects that compose models from multiple teams or libraries, use naming
 conventions (e.g., prefixes like `gen_capacity`, `line_capacity`) to avoid
@@ -1282,15 +1377,31 @@ data lines from="data/lines.csv" {
 }
 ```
 
-To resolve, rename one of the parameters:
+To resolve, rename one of the parameters. Use `from=` to specify which CSV
+column supplies the values. Here both CSVs happen to have a column called
+`capacity`, but the logical param names are now distinct:
+
+```csv
+gen_id,capacity
+g1,500
+g2,300
+```
+
+```csv
+line_id,capacity
+l1,200
+l2,150
+```
 
 ```kdl
 data generators from="data/generators.csv" {
   set gen_id
+  // reads from CSV column "capacity", exposes as "gen_capacity" in algebra
   param gen_capacity from=capacity index_by=gen_id
 }
 data lines from="data/lines.csv" {
   set line_id
+  // reads from CSV column "capacity", exposes as "line_capacity" in algebra
   param line_capacity from=capacity index_by=line_id
 }
 ```
@@ -1315,7 +1426,7 @@ model dispatch_model {
   }
 }
 
-// no set or param declarations needed — plant_id and capacity_mw
+// no set or param declarations needed, plant_id and capacity_mw
 // are globally visible from the data block above (see §6.1)
 model planning_model {
   control build kind=binary { index plant_id }
@@ -1411,6 +1522,7 @@ data generators from="data/generators.csv" {
   set thermal { in gen; filter { type == thermal } }
   set large { in gen; filter { capacity >= 200 } }
   set large_thermal { in gen; filter { type == thermal and capacity >= 200 } }
+  set flexible { in gen; filter { type == hydro or type == battery } }
   param capacity index_by=gen
 }
 ```
@@ -1436,7 +1548,8 @@ Column and field resolution:
 
 8. `map` without `from` MUST resolve to an existing CSV column.
 9. Unknown source columns in `map from=...` or `param from=...`.
-10. Unknown symbols in `index` / `index_by` / `index` children.
+10. Unknown symbols in block-level `index` declarations, `index_by` properties,
+    or `index` children of `param`/`control`.
 
 Set hierarchy:
 
@@ -1457,8 +1570,9 @@ Filtering:
 17. `filter` predicate references unknown column names.
 18. Numeric comparison operator on non-numeric column data.
 19. Implementations SHOULD detect contradictory filter predicates for simple
-    single-variable range conditions (e.g., `capacity >= 30 and capacity <= 20`).
-    Complex multi-variable contradictions MAY be left undetected.
+    single-variable range conditions (e.g.,
+    `capacity >= 30 and capacity <= 20`). Complex multi-variable contradictions
+    MAY be left undetected.
 
 Type and metadata:
 
@@ -1485,7 +1599,8 @@ Scenario resolution:
 Subset resolution:
 
 31. `in` parent set MUST be declared in the same `data` block or a top-level
-    `set` declaration.
+    `set` declaration. Model-level sets MUST NOT be used as `in` parents (data
+    is resolved before models).
 32. Filtered subset members MUST be a subset of the parent set members. If a
     filter produces an empty set, implementations SHOULD emit a warning
     diagnostic.
@@ -1519,9 +1634,11 @@ Slack variable naming:
 
 Strict inequalities:
 
-39. Strict inequality operators (`<`, `>`) in constraint bodies SHOULD produce a
-    diagnostic warning, since LP/MIP solvers only support non-strict inequalities
-    (`<=`, `>=`, `=`). Prefer `<=` or `>=` in all constraint algebra.
+39. Strict inequality operators (`<`, `>`) in range constraints (chained
+    inequalities) MUST fail validation. In non-range constraint bodies, strict
+    inequalities SHOULD produce a diagnostic warning, since LP/MIP solvers only
+    support non-strict inequalities (`<=`, `>=`, `=`). Prefer `<=` or `>=` in
+    all constraint algebra.
 
 Bound algebra scoping:
 
@@ -1536,14 +1653,31 @@ Alias uniqueness:
 Not-equal operators in constraint bodies:
 
 42. The not-equal operator (`!=`) in constraint bodies MUST fail validation.
-    This operator has no representation in LP/MIP solvers. It is valid only
-    in predicate contexts (`if` blocks, `filter` blocks, reduction `if` clauses).
+    This operator has no representation in LP/MIP solvers. It is valid only in
+    predicate contexts (`if` blocks, `filter` blocks, reduction `if` clauses).
 
 Model/data set name conflicts:
 
 43. A `model` set declaration MUST NOT use the same name as a `set` already
     declared in a `data` block or at the top level. Model sets and data sets
     share a single global namespace (see [§6.1](#61-set-inside-model)).
+
+Row filter scoping:
+
+44. `if` predicates in generated constraints MUST reference at least one
+    iteration variable declared by the constraint's `over` clauses. A predicate
+    that does not depend on any loop variable is a static condition and MUST
+    fail validation.
+
+Ergonomic profile resolution:
+
+45. `use_data` references in a `model` block MUST resolve to a top-level `data`
+    block name (see [Appendix A.2](#a2-use_data-model-imports)).
+46. `bounds` and `fix` targets MUST resolve to a declared `control` name in the
+    same `model` block (see [Appendix A.4](#a4-declarative-bounds-and-fix)).
+47. Conflicting bound assignments for the same control variable index (e.g., two
+    `bounds` declarations or a `bounds` and an inline `lower`/`upper` on the
+    same `control`) MUST fail validation.
 
 ### 10.1 Error reporting strategy
 
@@ -1571,11 +1705,15 @@ profile. It describes Arco declarations layered on top of valid KDL 2.0 syntax.
 Appendix A defines ergonomic authoring syntax that desugars into this grammar.
 
 ```ebnf
-document          := { toplevel_set_decl | data_decl | model_decl
-                     | scenario_decl }
+document          := { toplevel_set_decl | toplevel_param_decl
+                     | data_decl | model_decl | scenario_decl }
 
 toplevel_set_decl := "set" name [ "alias" "=" name ]
                      "{" { value } "}"
+
+toplevel_param_decl := [ type_annot ] "param" name numeric_literal
+                       [ "units" "=" value ]
+                       (* inline scalar constant, no CSV backing *)
 
 data_decl         := "data" name from_prop data_block
 data_block        := "{" { map_decl | data_set_decl | index_decl
@@ -1591,13 +1729,26 @@ index_decl        := "index" name { name }
 
 data_param_decl   := [ type_annot ] "param" name
                      [ from_prop ]
-                     ( [ "index_by" "=" name ] | [ index_children ] )
-                     [ "reduce" "=" reducer ]
+                     [ "index_by" "=" name [ "reduce" "=" reducer ]
+                     | param_block
+                     ]
                      [ "{" filter_block "}" ]
                      [ "units" "=" value ]
+                     (* inline scalars are NOT valid inside data blocks;
+                        use toplevel_param_decl or model_param_decl instead *)
 
-index_children    := "{" index_child ";" { index_child ";" } "}"
-index_child       := "index" name | "reduce" reducer
+                     (* index_by (property form) and param_block (child form)
+                        are mutually exclusive. A filter_block MAY follow
+                        either form. When index_by is used, the filter block
+                        appears as a child block on the param node:
+                        param x index_by=s reduce=sum { filter { ... } }
+                        When param_block is used, the filter block appears
+                        inside the same block:
+                        param x { index s; reduce sum; filter { ... } } *)
+
+param_block       := "{" param_block_child ";" { param_block_child ";" }
+                     [ filter_block ] "}"
+param_block_child := "index" name | "reduce" reducer
 
 model_decl        := "model" name model_block
 model_block       := "{" { model_set_decl
@@ -1612,14 +1763,16 @@ model_block       := "{" { model_set_decl
 model_set_decl    := "set" name [ "alias" "=" name ] [ "from" "=" "horizon" ]
 
 model_param_decl  := [ type_annot ] "param" name
-                     ( [ "index_by" "=" name ] | [ index_children ] )
+                     ( numeric_literal              (* inline scalar *)
+                     | [ "index_by" "=" name | param_block ]
+                     )
 
 control_decl      := [ type_annot ] "control" name
                      ( compact_control | block_control )
-                     [ "kind" "=" kind ]
 
 compact_control   := "index_by" "=" name
                      [ "lower" "=" value ] [ "upper" "=" value ]
+                     [ "kind" "=" kind ]
 
 block_control     := "{" ctrl_index_child ";" { ctrl_index_child ";" }
                      [ lower_decl ] [ upper_decl ]
@@ -1627,7 +1780,7 @@ block_control     := "{" ctrl_index_child ";" { ctrl_index_child ";" }
 ctrl_index_child  := "index" name [ "in" "=" name ]
 
                      (* For each direction (lower/upper), exactly one form
-                        is allowed — property OR block, not both.
+                        is allowed: property OR block, not both.
                         algebra_expr is defined below in the algebra
                         expression sub-grammar. *)
 lower_decl        := "lower" "=" value | "lower" "{" algebra_expr "}"
@@ -1641,14 +1794,17 @@ generated_body    := "{" { over_decl } { if_decl } [ slack_decl ]
                      expression_body "}"
 over_decl         := "over" name "in" "=" name
 if_decl           := "if" "{" algebra_expr "}"
-slack_decl        := "slack" "penalty" "=" value
+slack_decl        := "slack" slack_props
+slack_props       := "penalty" "=" value
                      [ "name" "=" name ]
                      [ "lower" "=" value ] [ "upper" "=" value ]
+                     (* penalty, name, lower, upper are KDL properties
+                        on the slack node: slack penalty=1000 name=my_slack *)
 expression_body   := "expression" "{" constraint_expr "}"
 
                      (* constraint_expr uses the shared comp_op production,
                         which is intentionally permissive. Validation rules
-                        restrict operators by context — see §10, rules 35,
+                        restrict operators by context. See §10, rules 35,
                         39, and 42 for constraint-specific restrictions. *)
 constraint_expr   := algebra_expr
                    | algebra_expr comp_op algebra_expr
@@ -1775,24 +1931,24 @@ Standard arithmetic precedence applies: `*` and `/` bind tighter than `+` and
 
 ### 12.3 Comparison operators
 
-| Operator | Description               |
-| -------- | ------------------------- |
-| `<=`     | less than or equal        |
-| `>=`     | greater than or equal     |
-| `<`      | strict less than          |
-| `>`      | strict greater than       |
-| `=`      | equality (in constraints) |
-| `==`     | equality (in predicates)  |
-| `!=`     | not equal (predicates only)                |
+| Operator | Description                 |
+| -------- | --------------------------- |
+| `<=`     | less than or equal          |
+| `>=`     | greater than or equal       |
+| `<`      | strict less than            |
+| `>`      | strict greater than         |
+| `=`      | equality (in constraints)   |
+| `==`     | equality (in predicates)    |
+| `!=`     | not equal (predicates only) |
 
 `!=` is valid only in predicate contexts (`if` blocks, `filter` blocks,
-reduction `if` clauses). Using it in constraint bodies MUST fail validation
-(see [§10](#10-validation-requirements), rule 42).
+reduction `if` clauses). Using it in constraint bodies MUST fail validation (see
+[§10](#10-validation-requirements), rule 42).
 
 `=` and `==` serve distinct roles and MUST NOT be interchanged:
 
-- In constraint bodies, `=` denotes an equality constraint (a linear relation the
-  solver enforces). Using `==` in a constraint body MUST fail validation.
+- In constraint bodies, `=` denotes an equality constraint (a linear relation
+  the solver enforces). Using `==` in a constraint body MUST fail validation.
 - In `if` predicates and reduction filters, `==` is used for boolean equality
   tests. Using `=` in a predicate context MUST fail validation.
 
@@ -1821,13 +1977,13 @@ boundary steps where the offset would be out-of-range (see
 
 ### 12.5 Reductions
 
-| Form                                   | Description            |
-| -------------------------------------- | ---------------------- |
-| `sum(expr for v in set)`               | summation over one set |
-| `sum(expr for v in set for w in set2)` | nested summation       |
-| `sum(expr for v in set if cond)`       | filtered summation     |
-| `sum(expr for v in set if c1 if c2)`   | multiple filters (AND; use `==` not `=` — see [§10 rule 36](#10-validation-requirements)) |
-| `sum(expr for (i, j) in arc_set)`      | tuple binding          |
+| Form                                   | Description                                                                              |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `sum(expr for v in set)`               | summation over one set                                                                   |
+| `sum(expr for v in set for w in set2)` | nested summation                                                                         |
+| `sum(expr for v in set if cond)`       | filtered summation                                                                       |
+| `sum(expr for v in set if c1 if c2)`   | multiple filters (AND; use `==` not `=`, see [§10 rule 36](#10-validation-requirements)) |
+| `sum(expr for (i, j) in arc_set)`      | tuple binding                                                                            |
 
 Reductions iterate over sets declared in [`data`](#5-data-declaration) blocks or
 [`model`](#6-model-declaration) blocks. Data-level sets (including
@@ -1839,14 +1995,15 @@ When a domain contains composite keys (e.g., arcs defined by origin-destination
 pairs), tuple destructuring binds multiple variables simultaneously:
 
 ```
-sum(flow[i,j] for (i, j) in branches)
+sum(flow[i,j] for (i, j) in branch_data)
 ```
 
-Declaring a tuple-keyed set: The corresponding `data` block must declare the
-composite set using multiple `index` children to define the key columns:
+Declaring a tuple-keyed domain: The corresponding `data` block must declare sets
+for the component domains and use a multi-column `index` to define the composite
+key:
 
 ```kdl
-data branches from="data/branches.csv" {
+data branch_data from="data/branches.csv" {
   // CSV has columns: from_bus, to_bus, capacity, ...
   set from_bus
   set to_bus
@@ -1855,9 +2012,10 @@ data branches from="data/branches.csv" {
 }
 ```
 
-The tuple binding `for (i, j) in branches` iterates over the unique `(from_bus,
-to_bus)` pairs found in the CSV. Each binding variable maps positionally to the
-index columns in declaration order.
+The tuple binding `for (i, j) in branch_data` iterates over the unique
+`(from_bus, to_bus)` pairs found in the CSV. Each binding variable maps
+positionally to the index columns in declaration order (`i` → `from_bus`, `j` →
+`to_bus`).
 
 Multiple filters:
 
@@ -1934,13 +2092,13 @@ references MUST fail validation.
 
 Constraint algebra supports two body forms:
 
-Comparison form — a single relational operator:
+Comparison form, a single relational operator:
 
 ```
 dispatch[a,t] <= capacity_mw[a]
 ```
 
-Range form — chained inequalities:
+Range form, chained inequalities:
 
 ```
 -3.14159 <= theta[b,t] <= 3.14159
@@ -1961,13 +2119,12 @@ All forms in this section are valid KDL 2.0 nodes, properties, and child blocks.
 
 ### A.1 Capability summary
 
-| Capability         | Form                                  | Canonical expansion target                       |
-| ------------------ | ------------------------------------- | ------------------------------------------------ |
-| Data imports       | `use_data` in `model`                 | model-local `set` and `param` declarations       |
-| Row predicates     | `if { ... }` in generated constraints | generated constraints with row filter            |
-| Declarative bounds | `bounds <var> { ... }`                | control bounds metadata                          |
-| Declarative fix    | `fix <var> { ... }`                   | equal lower and upper bounds (or equivalent row) |
-| Edge domains       | network-topology naming conventions   | reusable filtered domains for graph structures   |
+| Capability         | Form                                | Canonical expansion target                       |
+| ------------------ | ----------------------------------- | ------------------------------------------------ |
+| Data imports       | `use_data` in `model`               | model-local `set` and `param` declarations       |
+| Declarative bounds | `bounds <var> { ... }`              | control bounds metadata                          |
+| Declarative fix    | `fix <var> { ... }`                 | equal lower and upper bounds (or equivalent row) |
+| Edge domains       | network-topology naming conventions | reusable filtered domains for graph structures   |
 
 Note: The `set { in <parent>; filter { ... } }` syntax itself is canonical
 (§5.2). The "Edge domains" capability here refers to recommended patterns for
@@ -1994,20 +2151,10 @@ Semantics:
 
 ### A.3 Row filters in generated constraints
 
-The `if { ... }` block is the standard row-filter syntax. Multiple `if` blocks
-combine with AND semantics (see [§6.5](#65-constraint)).
-
-```kdl
-constraint <name> {
-  over a in=assets
-  over t in=time
-  if { active[a] }
-  if { t > 1 }
-  expression {
-    dispatch[a,t] <= capacity[a]
-  }
-}
-```
+Row filters (`if { ... }`) are part of the canonical grammar (see
+[§6.5](#65-constraint) and [§11](#11-grammar-low-level-profile)). They are
+documented here for completeness alongside the other ergonomic features but
+require no lowering.
 
 ### A.4 Declarative bounds and fix
 
@@ -2038,8 +2185,8 @@ Semantics:
 
 This section documents recommended patterns for modeling network topology (graph
 structures such as transmission lines, pipelines, or transport arcs) using the
-canonical `set { in ...; filter { ... } }` syntax defined in §5.2. No
-additional syntax is introduced — this is a usage guide, not new grammar.
+canonical `set { in ...; filter { ... } }` syntax defined in §5.2. No additional
+syntax is introduced. This is a usage guide, not new grammar.
 
 ```kdl
 data branch_data from="data/branches.csv" {
