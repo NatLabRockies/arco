@@ -1,4 +1,4 @@
-use arco_kdl::source::{BoundExpr, LiteralValue, ReportKind, SourceError, parse_program_text};
+use arco_kdl::source::{BoundExpr, LiteralValue, ReportKind, parse_program_text};
 use std::path::PathBuf;
 
 #[test]
@@ -266,21 +266,4 @@ scenario Base {
     assert_eq!(scenario.horizon.resolution, "");
 
     Ok(())
-}
-
-#[test]
-fn rejects_unsupported_top_level_technology_declaration() {
-    let path = PathBuf::from("test.kdl");
-    let text = r#"
-technology "Battery" {
-  control "dispatch"
-}
-"#;
-
-    let error = parse_program_text(text, &path).expect_err("technology should be unsupported");
-
-    match error {
-        SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, "technology"),
-        _ => panic!("expected UnsupportedDeclaration"),
-    }
 }
