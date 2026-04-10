@@ -14,8 +14,11 @@
 //
 // Objective:
 // $$
-// \min \; costThermal = \sum_{g,t}(StC_{gt}+SDC_{gt})
+// costThermal = \sum_{g,t}(StC_{gt}+SDC_{gt})
 // + \sum_{g,t}\left(u_{gt}\,Mincost_g + \sum_k slope_{gk}\,Pk_{gtk}\right)
+// $$
+// $$
+// \max \; OF = \sum_{g,t}(\lambda_t\,p_{gt}) - costThermal
 // $$
 //
 // Commitment logic:
@@ -79,7 +82,7 @@
 //
 // System balance:
 // $$
-// \sum_g p_{gt}=Load_t,\quad \forall t
+// \sum_g p_{gt}\le Load_t,\quad \forall t
 // $$
 data generators_data from="data/generators.csv" {
   map generators from=generator
@@ -120,6 +123,7 @@ data temporal_sets from="data/temporal_sets.csv" {
 }
 
 data demand_data from="data/load.csv" {
+  param lambda { index t }
   param load { index t }
 }
 
@@ -393,17 +397,22 @@ model UCGamsParity {
   constraint balance {
     index tt { in t }
     expression {
-      sum(p[g,tt] for g in g) = load[tt]
+      sum(p[g,tt] for g in g) <= load[tt]
     }
   }
 
-  minimize costThermal {
+  expression costThermal {
     sum(stc[g,tt] + sdc[g,tt] for g in g for tt in t)
     + sum(u[g,tt] * mincost[g] + sum(slope[g,kk] * pk[g,tt,kk] for kk in k) for g in g for tt in t)
+  }
+
+  maximize OF {
+    sum(lambda[tt] * sum(p[g,tt] for g in g) for tt in t) - costThermal
   }
 }
 
 scenario UCGamsParityCase {
   use UCGamsParity
-  report CostThermal
+  report costThermal
+  report OF
 }
