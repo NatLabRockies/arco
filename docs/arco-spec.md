@@ -26,7 +26,6 @@ Scope of this specification:
 - [`constraint`](#65-constraint) declarations (low-level algebra rows)
 - [`minimize` / `maximize`](#66-objective) declarations (objective function)
 - [`scenario`](#7-scenario-declaration) declarations (execution entrypoints)
-- [`bind_set`](#76-bind_set-inside-scenario) declarations (scenario-time set rebinding)
 
 ---
 
@@ -115,7 +114,7 @@ Alias uniqueness:
 Alias references:
 
 - Anywhere this specification expects a set reference (`index`, `index_by`,
-  `over ... in=...`, control index domain bindings), implementations MUST accept
+  `index ... { in ... }`), implementations MUST accept
   either the canonical set name or its alias.
 - Alias references MUST be resolved to the canonical set name before semantic
   validation and lowering.
@@ -141,16 +140,16 @@ This specification uses the following terms consistently:
 | `slack`                      | A child on a constraint that auto-generates a slack variable and penalty term in the objective.                                                                                      |
 | `param`                      | A data-backed or model-declared parameter (known constant at solve time).                                                                                                            |
 | `set`                        | A named domain of indices.                                                                                                                                                           |
-| `over`                       | A row-generation clause in a generated constraint. Written as `over <var> in=<set_or_alias>`.                                                                                        |
-| `bounds`                     | Ergonomic declarative bound override for a control family (see [Appendix A.4](#a4-declarative-bounds-and-fix)).                                                                      |
-| `fix`                        | Ergonomic declarative variable fix (equal lower and upper bounds; see [Appendix A.4](#a4-declarative-bounds-and-fix)).                                                               |
+| `index` (constraint)         | Row-generation index in a generated constraint. Written as `index <var> { in <set> }` or `index <set>` when variable name matches the set.                                           |
+| `bounds`                     | Ergonomic declarative bound override for a control family (see [Appendix A.3](#a3-declarative-bounds-and-fix)).                                                                      |
+| `fix`                        | Ergonomic declarative variable fix (equal lower and upper bounds; see [Appendix A.3](#a3-declarative-bounds-and-fix)).                                                               |
 | `use_data`                   | Ergonomic model import of sets/params from `data` blocks (see [Appendix A.2](#a2-use_data-model-imports)).                                                                           |
 | `map`                        | Binds a logical name to a CSV header inside a [`data`](#5-data-declaration) block.                                                                                                   |
 | `index` (data-block)         | Default indexing declaration for all `param` nodes in a [`data`](#53-index-inside-data) block.                                                                                       |
-| `index` (param/control)      | Per-declaration index child specifying which set(s) a `param` or `control` is indexed over.                                                                                          |
+| `index` (param/control)      | Per-declaration index child specifying which set(s) a `param` or `control` is indexed over. Written as `index <set>` or `index <var> { in <set> }`.                                  |
 | `horizon`                    | Scenario child that defines the active time set (steps and resolution). See [§7.1](#71-horizon).                                                                                     |
 | `report`                     | Scenario child requesting post-solve output (expression values or constraint duals). See [§7.4](#74-report-inside-scenario).                                                         |
-| `bind_set`                   | Scenario child that rebinds a set's active members for that scenario (for example to horizon-derived ranges). See [§7.6](#76-bind_set-inside-scenario).                              |
+| `use`                        | Required scenario child that references the model to solve. Written as `use <model_name>`. See [§7.2](#72-use).                                                                      |
 | `reduce` / `reducer`         | Aggregation function applied when indexing is non-unique (`sum`, `avg`, `min`, `max`, `first`, `last`). Two equivalent forms: `reduce=sum` (property) and `reduce sum` (child node). |
 
 `expression` as declaration vs inside constraint: `expression` serves two roles
@@ -179,8 +178,8 @@ model dispatch {
 
   // "expression" inside constraint - the constraint's algebra body
   constraint capacity_limit {
-    over g in=generators
-    over t in=time
+    index g { in generators }
+    index t { in time }
     if { active[g] }
     expression {
       dispatch[g,t] <= capacity[g]
@@ -196,7 +195,7 @@ model dispatch {
 A low-level document MAY contain these top-level declarations:
 
 - [`set`](#4-set-declaration-top-level) (explicit domain)
-- [`param`](#54-param-inside-data) (inline scalar constant)
+- [`param`](#31-inline-scalar-parameters) (inline scalar constant)
 - [`data`](#5-data-declaration) (CSV-backed namespace)
 - [`model`](#6-model-declaration)
 - [`scenario`](#7-scenario-declaration)
@@ -230,6 +229,27 @@ scenario day_ahead {
 Declaration order: top-level declarations MAY appear in any order. Forward
 references are allowed (a `scenario` may reference a `model` declared after it).
 All names are resolved after the full document is parsed.
+
+### 3.1 Inline scalar parameters
+
+A scalar `param` MAY be declared with an inline literal value as its first
+positional argument, without requiring a CSV file:
+
+```kdl
+param voll 9000 units="$/MWh"
+param discount_rate 0.05
+param big_m 1e6
+```
+
+The value MUST be a numeric literal. In algebra, reference the param by name as
+a constant (no index brackets): `voll`, `discount_rate`, `big_m`.
+
+Inline scalars (literal constants) are valid at the top level (as global
+constants) and inside `model` blocks (as model-local constants). They MUST NOT
+appear inside `data` blocks — `data` blocks are strictly CSV-backed, so every
+`param` inside a `data` block MUST read its value from the CSV file (either
+indexed or scalar via a single-row CSV). Inline scalars MUST NOT have
+`index_by`, `index` children, `from`, or `reduce` properties.
 
 ---
 
@@ -328,9 +348,9 @@ Semantics:
 
 - `set class` extracts unique values from the `class` column.
 - `alias` provides a short set reference that MAY be used wherever a set
-  reference is expected (`index`, `index_by`, `over ... in=...`, and algebra
-  iteration domains). Example: `set asset_id alias=a` allows
-  `param capacity { index a }`, `over a_idx in=a`, and `dispatch[a,t]`.
+  reference is expected (`index`, `index_by`, `index ... { in ... }`, and
+  algebra iteration domains). Example: `set asset_id alias=a` allows
+  `param capacity { index a }`, `index a_idx { in a }`, and `dispatch[a,t]`.
 - `in <parent>` declares that this set is contained within `<parent>`. Each
   child value maps to exactly one parent value, forming a hierarchy edge.
 - `filter { ... }` narrows set members using an algebra predicate block. The
@@ -605,24 +625,9 @@ declaration is a scalar parameter.
 
 Inline scalar form:
 
-A scalar param MAY be declared with an inline literal value as its first
-positional argument, without requiring a CSV file:
-
-```kdl
-param voll 9000 units="$/MWh"
-param discount_rate 0.05
-param big_m 1e6
-```
-
-The value MUST be a numeric literal. In algebra, reference the param by name as
-a constant (no index brackets): `voll`, `discount_rate`, `big_m`.
-
-Inline scalars (literal constants) are valid at the top level (as global
-constants) and inside `model` blocks (as model-local constants). They MUST NOT
-appear inside `data` blocks — `data` blocks are strictly CSV-backed, so every
-`param` inside a `data` block MUST read its value from the CSV file (either
-indexed or scalar via a single-row CSV). Inline scalars MUST NOT have
-`index_by`, `index` children, `from`, or `reduce` properties.
+Inline scalar parameters (literal constants without CSV backing) are defined in
+[§3.1](#31-inline-scalar-parameters). They are valid at the top level and inside
+`model` blocks, but MUST NOT appear inside `data` blocks.
 
 CSV-backed scalar form:
 
@@ -721,7 +726,7 @@ Notes:
   only supported `from=` source for model sets is `horizon`. Other `from=`
   values MUST fail validation.
 - `alias` provides a short set reference usable in set-reference positions
-  (`index`, `index_by`, `over ... in=...`) and algebra iteration domains.
+  (`index`, `index_by`, `index ... { in ... }`) and algebra iteration domains.
   Example: `set asset_id alias=a`.
 - Model sets are abstract. They acquire concrete members from scenario data
   bindings and `data` block sets at solve time. Hierarchy and filtering are
@@ -752,8 +757,8 @@ model dispatch {
   control output { index gen; index time; lower=0 }
 
   constraint cap_limit {
-    over g in=gen
-    over t in=time
+    index g { in gen }
+    index t { in time }
     expression {
       output[g,t] <= capacity_mw[g]
     }
@@ -814,19 +819,18 @@ parameter name MUST match either a scenario `data` binding name or a top-level
 Decision-variable families. A `control` declaration defines a family of decision
 variables indexed over one or more sets.
 
-The preferred form uses a child block with `index`, bounds, and `kind`:
+The preferred form uses a child block with `index` children, and bounds and
+`kind` as properties on the `control` node:
 
 ```kdl
-control <name> {
+control <name> lower=0 upper=100 kind=continuous {
   index <set_a>
   index <set_b>
-  lower=0
-  upper=100
-  kind=continuous
 }
 ```
 
-All children are optional except at least one `index`.
+All children are optional except at least one `index`. Bounds and `kind` are
+properties on the `control` node line (not child nodes).
 
 Compact single-dimension form:
 
@@ -840,14 +844,14 @@ control <name> index_by=<set> kind=binary lower=0 upper=1
 
 Index domain binding:
 
-The `in=` property on `index` children binds the index variable to a named
+The `{ in <set> }` child block on `index` binds the index variable to a named
 domain set (canonical name or alias). This is useful when the iteration domain
 differs from the index name:
 
 ```kdl
 control <name> {
-  index <set_a> in=<domain_a>
-  index <set_b> in=<domain_b>
+  index <set_a> { in <domain_a> }
+  index <set_b> { in <domain_b> }
 }
 ```
 
@@ -866,25 +870,23 @@ Bounds:
 Bounds can be literal values or parameter-dependent algebra expressions:
 
 ```kdl
-// literal bounds
-control dispatch {
+// literal bounds (properties on the control node)
+control dispatch lower=0 {
   index gen
   index time
-  lower=0
 }
 
-// formula bounds using algebra blocks
+// formula bounds (child nodes with algebra blocks)
 control flow {
   index lines
   lower { -capacity[l] }
   upper { capacity[l] }
 }
 
-// mixed: literal lower, formula upper
-control output {
-  index gen
+// mixed: literal lower (property), formula upper (child node)
+control output lower=0 {
+  index g { in gen }
   index time
-  lower=0
   upper { capacity[g] }
 }
 ```
@@ -897,10 +899,9 @@ fail validation:
 
 ```kdl
 // INVALID: two lower bounds on the same control
-control flow {
+control flow lower=0 {
   index lines
-  lower=0
-  lower { -capacity[l] }  // validation error
+  lower { -capacity[l] }  // validation error: conflicts with lower=0
 }
 ```
 
@@ -913,14 +914,14 @@ variables MUST fail validation.
 
 ```kdl
 control flow {
-  index l in=lines
+  index l { in lines }
   lower { -capacity[l] }   // valid: `l` matches the index name
   upper { capacity[l] }    // valid
 }
 
 // INVALID: `x` is not a declared index on this control
 control flow {
-  index l in=lines
+  index l { in lines }
   upper { capacity[x] }    // validation error: unknown variable `x`
 }
 ```
@@ -963,7 +964,7 @@ by matching against `control` and `param` index signatures. For example, if
 then `a` resolves to `asset_id` (first index position) and `t` resolves to
 `time` (second index position). The simple form implicitly generates one
 constraint row per combination of resolved index sets. It is equivalent to a
-generated form with `over` clauses for each inferred variable. If a variable
+generated form with `index` clauses for each inferred variable. If a variable
 appears in multiple declarations (`control` or `param`) with conflicting index
 signatures, validation MUST fail with an ambiguity error.
 
@@ -971,8 +972,8 @@ Generated row form:
 
 ```kdl
 constraint <name> {
-  over a in=asset_id
-  over t in=time
+  index a { in asset_id }
+  index t { in time }
   if { active[a] }
   expression {
     dispatch[a,t] <= capacity_mw[a]
@@ -980,7 +981,7 @@ constraint <name> {
 }
 ```
 
-- `over` creates explicit row generation domains.
+- `index` creates explicit row generation domains.
 - `if { ... }` filters generated rows (optional). The body is an algebra
   predicate that MUST evaluate to a boolean or truthy numeric result.
 - `expression` contains the constraint algebra body.
@@ -991,7 +992,7 @@ when row filtering is required.
 Row filters with `if`:
 
 The `if` block filters which rows are generated. The predicate MUST reference at
-least one of the iteration variables declared by the `over` clauses. A condition
+least one of the iteration variables declared by the `index` clauses. A condition
 that does not depend on any loop variable is a static condition and SHOULD be
 handled outside the constraint:
 
@@ -1002,7 +1003,7 @@ if { t > 1 }
 // valid: condition references loop variable `g`
 if { active[g] }
 
-// INVALID: condition does not reference any over variable
+// INVALID: condition does not reference any index variable
 if { 1 > 0 }  // validation error
 ```
 
@@ -1011,8 +1012,8 @@ comparisons and temporal conditions:
 
 ```kdl
 constraint ramp_up {
-  over g in=generators
-  over t in=time
+  index g { in generators }
+  index t { in time }
   if { t > 1 }
   expression {
     dispatch[g,t] - dispatch[g,t-1] <= ramp_up_rate[g]
@@ -1035,8 +1036,8 @@ AND semantics. All conditions must be true for the row to be generated:
 
 ```kdl
 constraint conditional_ramp {
-  over g in=generators
-  over t in=time
+  index g { in generators }
+  index t { in time }
   if { t > 1 }
   if { active[g] }
   expression {
@@ -1055,8 +1056,8 @@ out-of-range. Failing to guard temporal offsets is a validation error.
 ```kdl
 // INVALID: t-1 without a guard on the first time step
 constraint unguarded_ramp {
-  over g in=generators
-  over t in=time
+  index g { in generators }
+  index t { in time }
   expression {
     dispatch[g,t] - dispatch[g,t-1] <= ramp_rate[g]  // validation error
   }
@@ -1069,8 +1070,8 @@ Constraint bodies MAY use chained inequalities to express range bounds:
 
 ```kdl
 constraint angle_bounds {
-  over b in=buses
-  over t in=time
+  index b { in buses }
+  index t { in time }
   expression {
     -3.14159 <= theta[b,t] <= 3.14159
   }
@@ -1094,7 +1095,7 @@ the inequality and a penalty term is added to the objective.
 
 ```kdl
 constraint balance {
-  over t in=time
+  index t { in time }
   slack penalty=1000
   expression {
     sum(dispatch[g,t] for g in gen) = demand[t]
@@ -1110,7 +1111,7 @@ constraint body, and adding a penalty to the objective:
 control balance_slack { index time; lower=0 }
 
 constraint balance {
-  over t in=time
+  index t { in time }
   expression {
     sum(dispatch[g,t] for g in gen) + balance_slack[t] = demand[t]
   }
@@ -1195,7 +1196,6 @@ data, defines the time horizon, and activates execution.
 scenario <name> {
   horizon steps=<int> resolution=<iso_duration>
   use <model_name>
-  bind_set <set_or_alias> from=horizon
   data <name> from=<path>
   report <expression_name>
   report dual <constraint_name>
@@ -1203,8 +1203,7 @@ scenario <name> {
 ```
 
 Every `scenario` MUST contain exactly one `use` declaration. See
-[§7.1](#71-horizon) for when `horizon` is required. `bind_set` declarations are
-optional and apply scenario-local set rebinding (see [§7.6](#76-bind_set-inside-scenario)).
+[§7.1](#71-horizon) for when `horizon` is required.
 
 ```kdl
 // valid: non-temporal model, no horizon needed
@@ -1277,9 +1276,6 @@ Column-to-index matching:
 4. Extra columns in the CSV that do not match any index set or the param name
    are ignored.
 5. Missing required columns (index sets or value column) MUST fail validation.
-6. If a set used by the parameter is rebound by scenario `bind_set`, only rows
-   whose index values are members of the rebound set are active for that
-   scenario.
 
 Example: A model declares `param demand { index region; index time }`. The
 scenario binds `data demand from="data/demand.csv"`. The CSV must contain
@@ -1322,15 +1318,15 @@ Semantics:
 
 Dual report output structure:
 
-- For generated constraints (those with `over` clauses), the dual report
+- For generated constraints (those with `index` clauses), the dual report
   produces one shadow price per generated row. The output is indexed by the same
-  sets declared in the constraint's `over` clauses.
+  sets declared in the constraint's `index` clauses.
 - For simple (non-generated) constraints, the dual report produces a single
   scalar value.
 - The output format (CSV columns, JSON keys, etc.) is implementation-defined but
   MUST include the index values and the corresponding dual value for each row.
-  The RECOMMENDED default format is CSV with one column per `over` index set
-  followed by a `dual` value column.
+  The RECOMMENDED default format is CSV with one column per `index` set followed
+  by a `dual` value column.
 
 ### 7.5 Data scoping
 
@@ -1479,49 +1475,6 @@ scenario high_demand {
 }
 ```
 
-### 7.6 `bind_set` (inside `scenario`)
-
-`bind_set` rebinds a set's active members for one scenario. This is especially
-useful for temporal sets so the same model can run with different horizons (for
-example 24 hours, 12 hours, or rolling windows) without changing model algebra.
-
-```kdl
-bind_set <set_or_alias> from=horizon
-bind_set <set_or_alias> from=horizon start=<int_expr> end=<int_expr>
-```
-
-Semantics:
-
-- `<set_or_alias>` MUST resolve to an existing set name or set alias.
-- `from=horizon` uses the scenario horizon sequence `1..steps`.
-- `start` and `end` are inclusive bounds over the horizon sequence.
-  - Defaults: `start=1`, `end=steps`.
-  - `start`/`end` MAY reference `steps` and simple arithmetic (for example
-    `end=steps-1`).
-- Rebinding is scenario-local and MUST NOT mutate global set declarations.
-- If multiple `bind_set` declarations target the same set in one scenario,
-  validation MUST fail.
-- If `start`/`end` produce an invalid or empty range (`start > end`, `end < 1`,
-  etc.), validation MUST fail.
-
-Common pattern (remove boundary guards from algebra):
-
-```kdl
-scenario half_day {
-  horizon steps=12 resolution=PT1H
-  use UCGamsParity
-  bind_set ts from=horizon
-  bind_set taf from=horizon start=2 end=steps
-  bind_set tbl from=horizon start=1 end=steps-1
-}
-```
-
-In this pattern, constraints that reference `t-1` iterate over `taf` and
-constraints that reference `t+1` iterate over `tbl`, avoiding per-constraint
-`if { t > 1 }` / `if { t < steps }` guards.
-
----
-
 ## 8. KDL 2.0 type annotations (optional)
 
 Arco supports KDL 2.0 type annotations for users who want stronger metadata and
@@ -1652,8 +1605,8 @@ Model structure:
 22. `model` MUST contain exactly one objective.
 23. Circular `expression` references.
 24. `control kind=<value>` MUST be one of `continuous`, `integer`, `binary`.
-25. Constraint generation references (`over in=...`) MUST resolve to known
-    sets (canonical names or aliases).
+25. Constraint generation references (`index` / `index { in ... }`) MUST
+    resolve to known sets (canonical names or aliases).
 
 Scenario resolution:
 
@@ -1734,7 +1687,7 @@ Model/data set name conflicts:
 Row filter scoping:
 
 44. `if` predicates in generated constraints MUST reference at least one
-    iteration variable declared by the constraint's `over` clauses. A predicate
+    iteration variable declared by the constraint's `index` clauses. A predicate
     that does not depend on any loop variable is a static condition and MUST
     fail validation.
 
@@ -1743,20 +1696,10 @@ Ergonomic profile resolution:
 45. `use_data` references in a `model` block MUST resolve to a top-level `data`
     block name (see [Appendix A.2](#a2-use_data-model-imports)).
 46. `bounds` and `fix` targets MUST resolve to a declared `control` name in the
-    same `model` block (see [Appendix A.4](#a4-declarative-bounds-and-fix)).
+    same `model` block (see [Appendix A.3](#a3-declarative-bounds-and-fix)).
 47. Conflicting bound assignments for the same control variable index (e.g., two
     `bounds` declarations or a `bounds` and an inline `lower`/`upper` on the
     same `control`) MUST fail validation.
-
-Scenario set rebinding:
-
-48. `bind_set` targets in a `scenario` MUST resolve to known sets (canonical
-    names or aliases).
-49. `bind_set ... from=<source>` currently supports only `from=horizon`.
-50. Duplicate `bind_set` declarations for the same target set in one scenario
-    MUST fail validation.
-51. `bind_set` ranges (`start`, `end`) MUST be valid inclusive bounds within
-    the horizon domain and MUST NOT produce empty ranges.
 
 ### 10.1 Error reporting strategy
 
@@ -1856,7 +1799,7 @@ compact_control   := "index_by" "=" name
 block_control     := "{" ctrl_index_child ";" { ctrl_index_child ";" }
                      [ lower_decl ] [ upper_decl ]
                      [ "kind" "=" kind ] "}"
-ctrl_index_child  := "index" name [ "in" "=" name ]
+ctrl_index_child  := "index" name [ "{" "in" name "}" ]
 
                      (* For each direction (lower/upper), exactly one form
                         is allowed: property OR block, not both.
@@ -1869,9 +1812,9 @@ expression_decl   := "expression" name "{" algebra_expr "}"
 
 constraint_decl   := "constraint" name ( simple_body | generated_body )
 simple_body       := "{" constraint_expr "}"
-generated_body    := "{" { over_decl } { if_decl } [ slack_decl ]
+generated_body    := "{" { index_child } { if_decl } [ slack_decl ]
                      expression_body "}"
-over_decl         := "over" name "in" "=" name
+index_child       := "index" name [ "{" "in" name "}" ]
 if_decl           := "if" "{" algebra_expr "}"
 slack_decl        := "slack" slack_props
 slack_props       := "penalty" "=" value
@@ -1896,13 +1839,10 @@ scenario_block    := "{" { scenario_child } "}"
                      (* Children may appear in any order. Exactly one use_decl
                         is required. horizon_decl is required when the model
                         declares a temporal set. *)
-scenario_child    := horizon_decl | use_decl | bind_set_decl
-                   | scenario_data_decl | report_decl
+scenario_child    := horizon_decl | use_decl | scenario_data_decl | report_decl
 
 horizon_decl      := "horizon" "steps" "=" integer "resolution" "=" string
 use_decl          := "use" name
-bind_set_decl     := "bind_set" name "from" "=" "horizon"
-                     [ "start" "=" value ] [ "end" "=" value ]
 scenario_data_decl:= "data" name from_prop
 report_decl       := "report" ( name | "dual" name )
 
@@ -1961,8 +1901,9 @@ Notes:
 
 - `name`, `field_name`, and `path` follow KDL string rules (identifier or
   quoted).
-- In productions where a set is referenced (`index`, `index_by`, `over ...
-  in=...`), a `name` token MAY be either the canonical set name or a set alias.
+- In productions where a set is referenced (`index`, `index_by`,
+  `index ... { in ... }`), a `name` token MAY be either the canonical set name
+  or a set alias.
   Implementations MUST normalize aliases to canonical set names before
   validation/lowering.
 - `kdl_value` MAY be annotated (example `(f64)200`, `(unit)"$/MWh"`).
@@ -1975,8 +1916,6 @@ Notes:
 - `model_block` MUST contain exactly one `objective_decl`.
 - `scenario_block` MUST contain one `use_decl`. `horizon_decl` is required only
   when the referenced model uses a temporal set (`from=horizon`).
-- `bind_set_decl` is optional and scenario-local. It rebinds existing set
-  memberships for the scenario execution context.
 - `inline_selector` is Arco-specific syntax valid only inside algebra expression
   strings. It is distinguished from variable indexing by the presence of `=`
   inside brackets. For named filtered domains, use `set subset_of` inside
@@ -2237,26 +2176,19 @@ Semantics:
   declarations.
 - Duplicate imports that remain ambiguous after overrides MUST fail validation.
 
-### A.3 Row filters in generated constraints
-
-Row filters (`if { ... }`) are part of the canonical grammar (see
-[§6.5](#65-constraint) and [§11](#11-grammar-low-level-profile)). They are
-documented here for completeness alongside the other ergonomic features but
-require no lowering.
-
-### A.4 Declarative bounds and fix
+### A.3 Declarative bounds and fix
 
 Syntax:
 
 ```kdl
 bounds <control_name> {
-  over i in=<set>
+  index i { in <set> }
   lower { <algebra_expr> }
   upper { <algebra_expr> }
 }
 
 fix <control_name> {
-  over i in=<set>
+  index i { in <set> }
   value <kdl_value>
 }
 ```
@@ -2269,7 +2201,7 @@ Semantics:
 - Conflicting bound assignments for the same variable index MUST fail
   validation.
 
-### A.5 Edge-domain patterns
+### A.4 Edge-domain patterns
 
 This section documents recommended patterns for modeling network topology (graph
 structures such as transmission lines, pipelines, or transport arcs) using the
@@ -2291,7 +2223,7 @@ Recommendations:
 - Use `filter` to distinguish connected vs. disconnected edges, directional
   subsets, or capacity tiers.
 
-### A.6 Ergonomic grammar
+### A.5 Ergonomic grammar
 
 The following EBNF productions define the ergonomic forms introduced in this
 appendix. These desugar into the canonical grammar defined in §11.
@@ -2300,12 +2232,12 @@ appendix. These desugar into the canonical grammar defined in §11.
 use_data_decl     := "use_data" name { name }
 
 bounds_decl       := "bounds" name "{"
-                     { over_decl }
+                     { index_child }
                      [ lower_decl ] [ upper_decl ]
                      "}"
 
 fix_decl          := "fix" name "{"
-                     { over_decl }
+                     { index_child }
                      "value" value
                      "}"
 ```
@@ -2317,7 +2249,7 @@ Notes:
   children defined in §11.
 - `bounds_decl` and `fix_decl` are valid only inside `model_block`.
 
-### A.7 Lowering and diagnostics requirements
+### A.6 Lowering and diagnostics requirements
 
 - Ergonomic forms MUST preserve semantics of canonical expansion.
 - Diagnostics SHOULD reference the original ergonomic source span.
