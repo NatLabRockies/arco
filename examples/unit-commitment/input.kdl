@@ -1,0 +1,425 @@
+// Adapted from GAMS PSOPTLIB model UC (Gcode5.1).
+// Soroudi, Alireza. Power System Optimization Modeling in GAMS. Springer, 2017.
+// DOI: doi.org/10.1007/978-3-319-62350-4
+// Source: https://www.gams.com/latest/psoptlib_ml/libhtml/psoptlib_UC.html
+//
+// Full LaTeX formulation (matching the implemented model)
+//
+// Index sets:
+// $g\in\mathcal{G}$ (units), $t\in\mathcal{T}=\{1,\dots,24\}$ (hours), $k\in\mathcal{K}$ (cost segments)
+//
+// Decision variables:
+// $u_{gt},y_{gt},z_{gt}\in\{0,1\}$, and continuous $p_{gt},pu_{gt},Pk_{gtk},StC_{gt},SDC_{gt}\ge 0$
+//
+// Objective:
+// $$
+// \min \; costThermal = \sum_{g,t}(StC_{gt}+SDC_{gt})
+// + \sum_{g,t}\left(u_{gt}\,Mincost_g + \sum_k slope_{gk}\,Pk_{gtk}\right)
+// $$
+//
+// Commitment logic:
+// $$
+// u_{g1}=Uini_g+y_{g1}-z_{g1},\qquad
+// u_{gt}=u_{g,t-1}+y_{gt}-z_{gt}\;\forall t>1
+// $$
+//
+// Startup and shutdown costs:
+// $$
+// StC_{gt}\ge costst_g\,y_{gt},\qquad SDC_{gt}\ge costsd_g\,z_{gt}
+// $$
+//
+// Production decomposition and segment limits:
+// $$
+// p_{gt}=u_{gt}Pmin_g+\sum_k Pk_{gtk}
+// $$
+// $$
+// Pk_{gtk}\le u_{gt}DP_{gk},\qquad Pk_{gtk}\le DP_{gk}
+// $$
+// $$
+// p_{gt}\le Pmax_g,\qquad pu_{gt}\le Pmax_g
+// $$
+//
+// Min up and min down time families (mask/window encoded):
+// $$
+// \sum_t (1-u_{gt})\,uptime1\_mask_{gt}=0,
+// \quad
+// \sum_t (u_{gt}-y_{gt})\,uptime2\_mask_{gt}\ge 0
+// $$
+// $$
+// \sum_h u_{gh}\,uptime\_window_{gth}\ge UT_g\,y_{gt}
+// \quad \text{for active }(g,t)
+// $$
+// $$
+// \sum_t u_{gt}\,dntime1\_mask_{gt}=0,
+// \quad
+// \sum_t (1-u_{gt}-z_{gt})\,dntime2\_mask_{gt}\ge 0
+// $$
+// $$
+// \sum_h (1-u_{gh})\,dntime\_window_{gth}\ge DT_g\,z_{gt}
+// \quad \text{for active }(g,t)
+// $$
+//
+// Ramp and envelope constraints:
+// $$
+// -p_{g1}\le u_{g1}RD_g+z_{g1}SD_g
+// $$
+// $$
+// p_{g,t-1}-p_{gt}\le u_{gt}RD_g+z_{gt}SD_g\quad \forall t>1
+// $$
+// $$
+// p_{gt}\le pu_{gt}
+// $$
+// $$
+// pu_{gt}\le (u_{gt}-z_{g,t+1})Pmax_g+z_{g,t+1}SD_g\quad \forall t<24
+// $$
+// $$
+// pu_{gt}\le p_{g,t-1}+u_{g,t-1}RU_g+y_{gt}SU_g\quad \forall t>1
+// $$
+//
+// System balance:
+// $$
+// \sum_g p_{gt}=Load_t,\quad \forall t
+// $$
+data generators_data from="data/generators.csv" {
+  map generators from=generator
+
+  // Unit domain from generators.csv (column mapped as `generators`).
+  // Alias `g` is used in set-reference positions and algebra iteration.
+  set generators alias=g
+
+  param a { index g }
+  param b { index g }
+  param c { index g }
+  param costsd { index g }
+  param costst { index g }
+  param ru { index g }
+  param rd { index g }
+  param ut { index g }
+  param dt { index g }
+  param sd { index g }
+  param su { index g }
+  param pmin { index g }
+  param pmax { index g }
+  param u0 { index g }
+  param uini { index g }
+  param initial_commitment from=uini { index g }
+  param s0 { index g }
+  param lj { index g }
+  param fj { index g }
+  param mincost { index g }
+}
+
+data demand_data from="data/load.csv" {
+  // Hour domain from load.csv column `t`.
+  set t
+
+  param load { index t }
+}
+
+data segment_set from="data/segments.csv" {
+  // Piecewise cost segment domain from segments.csv column `k`.
+  set k
+}
+
+data segment_data from="data/segment_data.csv" {
+  map generators from=generator
+
+  param dp {
+    index g
+    index k
+  }
+  param slope from=s {
+    index g
+    index k
+  }
+}
+
+data time_masks_data from="data/time_masks.csv" {
+  map generators from=generator
+
+  param uptime1_mask {
+    index g
+    index t
+  }
+  param uptime2_mask {
+    index g
+    index t
+  }
+  param uptime3_active {
+    index g
+    index t
+  }
+  param dntime1_mask {
+    index g
+    index t
+  }
+  param dntime2_mask {
+    index g
+    index t
+  }
+  param dntime3_active {
+    index g
+    index t
+  }
+}
+
+data time_windows_data from="data/time_windows.csv" {
+  map generators from=generator
+  map window_hour from=h
+
+  // `t` is the anchor hour for the row, `window_hour` is the compared hour.
+  set window_hour alias=th
+
+  param uptime_window {
+    index g
+    index t
+    index th
+  }
+  param dntime_window {
+    index g
+    index t
+    index th
+  }
+}
+
+model UCGamsParity {
+  // `g`, `k`, and `th` are global sets from data blocks.
+  // Scenario can rebind temporal sets via `bind_set`.
+  set time alias=ts from=horizon
+  set time_after_first alias=taf from=horizon
+  set time_before_last alias=tbl from=horizon
+
+  control pu {
+    index g
+    index ts
+    lower=0
+  }
+
+  control p {
+    index g
+    index ts
+    lower=0
+  }
+
+  control stc {
+    index g
+    index ts
+    lower=0
+  }
+
+  control sdc {
+    index g
+    index ts
+    lower=0
+  }
+
+  control pk {
+    index g
+    index ts
+    index k
+    lower=0
+  }
+
+  control u {
+    index g
+    index ts
+    kind=binary
+  }
+
+  control y {
+    index g
+    index ts
+    kind=binary
+  }
+
+  control z {
+    index g
+    index ts
+    kind=binary
+  }
+
+  constraint uptime1 {
+    over g in=g
+    expression {
+      sum((1 - u[g,t]) * uptime1_mask[g,t] for t in ts) = 0
+    }
+  }
+
+  constraint uptime2 {
+    over g in=g
+    expression {
+      sum((u[g,t] - y[g,t]) * uptime2_mask[g,t] for t in ts) >= 0
+    }
+  }
+
+  constraint uptime3 {
+    over g in=g
+    over t in=ts
+    if { uptime3_active[g,t] > 0 }
+    expression {
+      sum(u[g,hh] * uptime_window[g,t,hh] for hh in th) >= ut[g] * y[g,t]
+    }
+  }
+
+  constraint dntime1 {
+    over g in=g
+    expression {
+      sum(u[g,t] * dntime1_mask[g,t] for t in ts) = 0
+    }
+  }
+
+  constraint dntime2 {
+    over g in=g
+    expression {
+      sum((1 - u[g,t] - z[g,t]) * dntime2_mask[g,t] for t in ts) >= 0
+    }
+  }
+
+  constraint dntime3 {
+    over g in=g
+    over t in=ts
+    if { dntime3_active[g,t] > 0 }
+    expression {
+      sum((1 - u[g,hh]) * dntime_window[g,t,hh] for hh in th) >= dt[g] * z[g,t]
+    }
+  }
+
+  constraint startc {
+    over g in=g
+    over t in=ts
+    expression {
+      stc[g,t] >= costst[g] * y[g,t]
+    }
+  }
+
+  constraint shtdnc {
+    over g in=g
+    over t in=ts
+    expression {
+      sdc[g,t] >= costsd[g] * z[g,t]
+    }
+  }
+
+  constraint genconst1 {
+    over g in=g
+    over t in=ts
+    expression {
+      p[g,t] = u[g,t] * pmin[g] + sum(pk[g,t,kk] for kk in k)
+    }
+  }
+
+  constraint genconst2_initial {
+    over g in=g
+    expression {
+      u[g,1] = initial_commitment[g] + y[g,1] - z[g,1]
+    }
+  }
+
+  constraint genconst2 {
+    over g in=g
+    over t in=taf
+    expression {
+      u[g,t] = u[g,t-1] + y[g,t] - z[g,t]
+    }
+  }
+
+  constraint genconst3 {
+    over g in=g
+    over t in=ts
+    over kk in=k
+    expression {
+      pk[g,t,kk] <= u[g,t] * dp[g,kk]
+    }
+  }
+
+  constraint pk_physical_limit {
+    over g in=g
+    over t in=ts
+    over kk in=k
+    expression {
+      pk[g,t,kk] <= dp[g,kk]
+    }
+  }
+
+  constraint p_upper_bound {
+    over g in=g
+    over t in=ts
+    expression {
+      p[g,t] <= pmax[g]
+    }
+  }
+
+  constraint pu_upper_bound {
+    over g in=g
+    over t in=ts
+    expression {
+      pu[g,t] <= pmax[g]
+    }
+  }
+
+  constraint ramp1_initial {
+    over g in=g
+    expression {
+      -p[g,1] <= u[g,1] * rd[g] + z[g,1] * sd[g]
+    }
+  }
+
+  constraint ramp1 {
+    over g in=g
+    over t in=taf
+    expression {
+      p[g,t-1] - p[g,t] <= u[g,t] * rd[g] + z[g,t] * sd[g]
+    }
+  }
+
+  constraint ramp2 {
+    over g in=g
+    over t in=ts
+    expression {
+      p[g,t] <= pu[g,t]
+    }
+  }
+
+  constraint ramp3 {
+    over g in=g
+    over t in=tbl
+    expression {
+      pu[g,t] <= (u[g,t] - z[g,t+1]) * pmax[g] + z[g,t+1] * sd[g]
+    }
+  }
+
+  constraint ramp4 {
+    over g in=g
+    over t in=taf
+    expression {
+      pu[g,t] <= p[g,t-1] + u[g,t-1] * ru[g] + y[g,t] * su[g]
+    }
+  }
+
+  constraint balance {
+    over t in=ts
+    expression {
+      sum(p[g,t] for g in g) = load[t]
+    }
+  }
+
+  minimize costThermal {
+    sum(stc[g,t] + sdc[g,t] for g in g for t in ts)
+    + sum(u[g,t] * mincost[g] + sum(slope[g,kk] * pk[g,t,kk] for kk in k) for g in g for t in ts)
+  }
+}
+
+scenario UCGamsParityCase {
+  // Set steps=12 for a 12-hour run, or any other horizon length.
+  horizon steps=24 resolution=PT1H
+  use UCGamsParity
+
+  // Scenario-level temporal rebinding.
+  bind_set ts from=horizon
+  bind_set taf from=horizon start=2 end=steps
+  bind_set tbl from=horizon start=1 end=steps-1
+  bind_set t from=horizon
+  bind_set th from=horizon
+
+  report CostThermal
+}
