@@ -6,7 +6,8 @@
 // Full LaTeX formulation (matching the implemented model)
 //
 // Index sets:
-// $g\in\mathcal{G}$ (units), $t\in\mathcal{T}=\{1,\dots,24\}$ (hours), $k\in\mathcal{K}$ (cost segments)
+// $g\in\mathcal{G}$ (units), $t\in\mathcal{T}$ (anchor time/day index),
+// $h\in\mathcal{H}$ (hour index used by window parameters), $k\in\mathcal{K}$ (cost segments)
 //
 // Decision variables:
 // $u_{gt},y_{gt},z_{gt}\in\{0,1\}$, and continuous $p_{gt},pu_{gt},Pk_{gtk},StC_{gt},SDC_{gt}\ge 0$
@@ -109,10 +110,16 @@ data generators_data from="data/generators.csv" {
   param mincost { index g }
 }
 
-data demand_data from="data/load.csv" {
-  // Hour domain from load.csv column `t`.
+data temporal_sets from="data/temporal_sets.csv" {
+  // Temporal domains are user-provided at the data layer.
+  // t: primary time/day index used by the model.
+  // taf/tbl: user-provided helper subsets for t-1 / t+1 constraints.
   set t
+  set taf { in t }
+  set tbl { in t }
+}
 
+data demand_data from="data/load.csv" {
   param load { index t }
 }
 
@@ -165,261 +172,238 @@ data time_masks_data from="data/time_masks.csv" {
 
 data time_windows_data from="data/time_windows.csv" {
   map generators from=generator
-  map window_hour from=h
 
-  // `t` is the anchor hour for the row, `window_hour` is the compared hour.
-  set window_hour alias=th
+  // `t` is the anchor index (day/time bucket), `h` is the hour index.
+  set h
 
   param uptime_window {
     index g
     index t
-    index th
+    index h
   }
   param dntime_window {
     index g
     index t
-    index th
+    index h
   }
 }
 
 model UCGamsParity {
-  // `g`, `k`, and `th` are global sets from data blocks.
-  // Scenario can rebind temporal sets via `bind_set`.
-  set time alias=ts from=horizon
-  set time_after_first alias=taf from=horizon
-  set time_before_last alias=tbl from=horizon
+  // `g`, `k`, `t`, `taf`, `tbl`, and `h` are global sets from data blocks.
 
-  control pu {
+  control pu lower=0 {
     index g
-    index ts
-    lower=0
+    index t
   }
 
-  control p {
+  control p lower=0 {
     index g
-    index ts
-    lower=0
+    index t
   }
 
-  control stc {
+  control stc lower=0 {
     index g
-    index ts
-    lower=0
+    index t
   }
 
-  control sdc {
+  control sdc lower=0 {
     index g
-    index ts
-    lower=0
+    index t
   }
 
-  control pk {
+  control pk lower=0 {
     index g
-    index ts
+    index t
     index k
-    lower=0
   }
 
-  control u {
+  control u kind=binary {
     index g
-    index ts
-    kind=binary
+    index t
   }
 
-  control y {
+  control y kind=binary {
     index g
-    index ts
-    kind=binary
+    index t
   }
 
-  control z {
+  control z kind=binary {
     index g
-    index ts
-    kind=binary
+    index t
   }
 
   constraint uptime1 {
-    over g in=g
+    index g
     expression {
-      sum((1 - u[g,t]) * uptime1_mask[g,t] for t in ts) = 0
+      sum((1 - u[g,tt]) * uptime1_mask[g,tt] for tt in t) = 0
     }
   }
 
   constraint uptime2 {
-    over g in=g
+    index g
     expression {
-      sum((u[g,t] - y[g,t]) * uptime2_mask[g,t] for t in ts) >= 0
+      sum((u[g,tt] - y[g,tt]) * uptime2_mask[g,tt] for tt in t) >= 0
     }
   }
 
   constraint uptime3 {
-    over g in=g
-    over t in=ts
-    if { uptime3_active[g,t] > 0 }
+    index g
+    index tt { in t }
+    if { uptime3_active[g,tt] > 0 }
     expression {
-      sum(u[g,hh] * uptime_window[g,t,hh] for hh in th) >= ut[g] * y[g,t]
+      sum(u[g,hh] * uptime_window[g,tt,hh] for hh in h) >= ut[g] * y[g,tt]
     }
   }
 
   constraint dntime1 {
-    over g in=g
+    index g
     expression {
-      sum(u[g,t] * dntime1_mask[g,t] for t in ts) = 0
+      sum(u[g,tt] * dntime1_mask[g,tt] for tt in t) = 0
     }
   }
 
   constraint dntime2 {
-    over g in=g
+    index g
     expression {
-      sum((1 - u[g,t] - z[g,t]) * dntime2_mask[g,t] for t in ts) >= 0
+      sum((1 - u[g,tt] - z[g,tt]) * dntime2_mask[g,tt] for tt in t) >= 0
     }
   }
 
   constraint dntime3 {
-    over g in=g
-    over t in=ts
-    if { dntime3_active[g,t] > 0 }
+    index g
+    index tt { in t }
+    if { dntime3_active[g,tt] > 0 }
     expression {
-      sum((1 - u[g,hh]) * dntime_window[g,t,hh] for hh in th) >= dt[g] * z[g,t]
+      sum((1 - u[g,hh]) * dntime_window[g,tt,hh] for hh in h) >= dt[g] * z[g,tt]
     }
   }
 
   constraint startc {
-    over g in=g
-    over t in=ts
+    index g
+    index tt { in t }
     expression {
-      stc[g,t] >= costst[g] * y[g,t]
+      stc[g,tt] >= costst[g] * y[g,tt]
     }
   }
 
   constraint shtdnc {
-    over g in=g
-    over t in=ts
+    index g
+    index tt { in t }
     expression {
-      sdc[g,t] >= costsd[g] * z[g,t]
+      sdc[g,tt] >= costsd[g] * z[g,tt]
     }
   }
 
   constraint genconst1 {
-    over g in=g
-    over t in=ts
+    index g
+    index tt { in t }
     expression {
-      p[g,t] = u[g,t] * pmin[g] + sum(pk[g,t,kk] for kk in k)
+      p[g,tt] = u[g,tt] * pmin[g] + sum(pk[g,tt,kk] for kk in k)
     }
   }
 
   constraint genconst2_initial {
-    over g in=g
+    index g
     expression {
       u[g,1] = initial_commitment[g] + y[g,1] - z[g,1]
     }
   }
 
   constraint genconst2 {
-    over g in=g
-    over t in=taf
+    index g
+    index tt { in taf }
     expression {
-      u[g,t] = u[g,t-1] + y[g,t] - z[g,t]
+      u[g,tt] = u[g,tt-1] + y[g,tt] - z[g,tt]
     }
   }
 
   constraint genconst3 {
-    over g in=g
-    over t in=ts
-    over kk in=k
+    index g
+    index tt { in t }
+    index kk { in k }
     expression {
-      pk[g,t,kk] <= u[g,t] * dp[g,kk]
+      pk[g,tt,kk] <= u[g,tt] * dp[g,kk]
     }
   }
 
   constraint pk_physical_limit {
-    over g in=g
-    over t in=ts
-    over kk in=k
+    index g
+    index tt { in t }
+    index kk { in k }
     expression {
-      pk[g,t,kk] <= dp[g,kk]
+      pk[g,tt,kk] <= dp[g,kk]
     }
   }
 
   constraint p_upper_bound {
-    over g in=g
-    over t in=ts
+    index g
+    index tt { in t }
     expression {
-      p[g,t] <= pmax[g]
+      p[g,tt] <= pmax[g]
     }
   }
 
   constraint pu_upper_bound {
-    over g in=g
-    over t in=ts
+    index g
+    index tt { in t }
     expression {
-      pu[g,t] <= pmax[g]
+      pu[g,tt] <= pmax[g]
     }
   }
 
   constraint ramp1_initial {
-    over g in=g
+    index g
     expression {
       -p[g,1] <= u[g,1] * rd[g] + z[g,1] * sd[g]
     }
   }
 
   constraint ramp1 {
-    over g in=g
-    over t in=taf
+    index g
+    index tt { in taf }
     expression {
-      p[g,t-1] - p[g,t] <= u[g,t] * rd[g] + z[g,t] * sd[g]
+      p[g,tt-1] - p[g,tt] <= u[g,tt] * rd[g] + z[g,tt] * sd[g]
     }
   }
 
   constraint ramp2 {
-    over g in=g
-    over t in=ts
+    index g
+    index tt { in t }
     expression {
-      p[g,t] <= pu[g,t]
+      p[g,tt] <= pu[g,tt]
     }
   }
 
   constraint ramp3 {
-    over g in=g
-    over t in=tbl
+    index g
+    index tt { in tbl }
     expression {
-      pu[g,t] <= (u[g,t] - z[g,t+1]) * pmax[g] + z[g,t+1] * sd[g]
+      pu[g,tt] <= (u[g,tt] - z[g,tt+1]) * pmax[g] + z[g,tt+1] * sd[g]
     }
   }
 
   constraint ramp4 {
-    over g in=g
-    over t in=taf
+    index g
+    index tt { in taf }
     expression {
-      pu[g,t] <= p[g,t-1] + u[g,t-1] * ru[g] + y[g,t] * su[g]
+      pu[g,tt] <= p[g,tt-1] + u[g,tt-1] * ru[g] + y[g,tt] * su[g]
     }
   }
 
   constraint balance {
-    over t in=ts
+    index tt { in t }
     expression {
-      sum(p[g,t] for g in g) = load[t]
+      sum(p[g,tt] for g in g) = load[tt]
     }
   }
 
   minimize costThermal {
-    sum(stc[g,t] + sdc[g,t] for g in g for t in ts)
-    + sum(u[g,t] * mincost[g] + sum(slope[g,kk] * pk[g,t,kk] for kk in k) for g in g for t in ts)
+    sum(stc[g,tt] + sdc[g,tt] for g in g for tt in t)
+    + sum(u[g,tt] * mincost[g] + sum(slope[g,kk] * pk[g,tt,kk] for kk in k) for g in g for tt in t)
   }
 }
 
 scenario UCGamsParityCase {
-  // Set steps=12 for a 12-hour run, or any other horizon length.
-  horizon steps=24 resolution=PT1H
   use UCGamsParity
-
-  // Scenario-level temporal rebinding.
-  bind_set ts from=horizon
-  bind_set taf from=horizon start=2 end=steps
-  bind_set tbl from=horizon start=1 end=steps-1
-  bind_set t from=horizon
-  bind_set th from=horizon
-
   report CostThermal
 }
