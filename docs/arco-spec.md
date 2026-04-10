@@ -26,6 +26,7 @@ Scope of this specification:
 - [`constraint`](#65-constraint) declarations (low-level algebra rows)
 - [`minimize` / `maximize`](#66-objective) declarations (objective function)
 - [`scenario`](#7-scenario-declaration) declarations (execution entrypoints)
+- [`bind_set`](#76-bind_set-inside-scenario) declarations (scenario-time set rebinding)
 
 ---
 
@@ -111,6 +112,17 @@ Alias uniqueness:
   named `time`, no other set may use `alias=time`.
 - If a conflict is detected, validation MUST fail.
 
+Alias references:
+
+- Anywhere this specification expects a set reference (`index`, `index_by`,
+  `over ... in=...`, control index domain bindings), implementations MUST accept
+  either the canonical set name or its alias.
+- Alias references MUST be resolved to the canonical set name before semantic
+  validation and lowering.
+- When both a canonical set name and an alias could match, implementations MUST
+  prefer exact canonical-name matches first, then alias matches. With required
+  alias uniqueness, resolution is unambiguous.
+
 ---
 
 ## 2. Terminology
@@ -129,7 +141,7 @@ This specification uses the following terms consistently:
 | `slack`                      | A child on a constraint that auto-generates a slack variable and penalty term in the objective.                                                                                      |
 | `param`                      | A data-backed or model-declared parameter (known constant at solve time).                                                                                                            |
 | `set`                        | A named domain of indices.                                                                                                                                                           |
-| `over`                       | A row-generation clause in a generated constraint. Written as `over <var> in=<set>`.                                                                                                 |
+| `over`                       | A row-generation clause in a generated constraint. Written as `over <var> in=<set_or_alias>`.                                                                                        |
 | `bounds`                     | Ergonomic declarative bound override for a control family (see [Appendix A.4](#a4-declarative-bounds-and-fix)).                                                                      |
 | `fix`                        | Ergonomic declarative variable fix (equal lower and upper bounds; see [Appendix A.4](#a4-declarative-bounds-and-fix)).                                                               |
 | `use_data`                   | Ergonomic model import of sets/params from `data` blocks (see [Appendix A.2](#a2-use_data-model-imports)).                                                                           |
@@ -138,6 +150,7 @@ This specification uses the following terms consistently:
 | `index` (param/control)      | Per-declaration index child specifying which set(s) a `param` or `control` is indexed over.                                                                                          |
 | `horizon`                    | Scenario child that defines the active time set (steps and resolution). See [§7.1](#71-horizon).                                                                                     |
 | `report`                     | Scenario child requesting post-solve output (expression values or constraint duals). See [§7.4](#74-report-inside-scenario).                                                         |
+| `bind_set`                   | Scenario child that rebinds a set's active members for that scenario (for example to horizon-derived ranges). See [§7.6](#76-bind_set-inside-scenario).                              |
 | `reduce` / `reducer`         | Aggregation function applied when indexing is non-unique (`sum`, `avg`, `min`, `max`, `first`, `last`). Two equivalent forms: `reduce=sum` (property) and `reduce sum` (child node). |
 
 `expression` as declaration vs inside constraint: `expression` serves two roles
@@ -314,9 +327,10 @@ set <name> {
 Semantics:
 
 - `set class` extracts unique values from the `class` column.
-- `alias` provides a short iteration variable name for use in algebra
-  expressions. Example: `set asset_id alias=a` allows `dispatch[a,t]` instead of
-  `dispatch[asset_id,time]`.
+- `alias` provides a short set reference that MAY be used wherever a set
+  reference is expected (`index`, `index_by`, `over ... in=...`, and algebra
+  iteration domains). Example: `set asset_id alias=a` allows
+  `param capacity { index a }`, `over a_idx in=a`, and `dispatch[a,t]`.
 - `in <parent>` declares that this set is contained within `<parent>`. Each
   child value maps to exactly one parent value, forming a hierarchy edge.
 - `filter { ... }` narrows set members using an algebra predicate block. The
@@ -431,7 +445,7 @@ Semantics:
 
 - `index` is optional.
 - If omitted, default index is 1-based numeric row order (row 1, 2, 3, ...).
-- Every index symbol MUST be a declared set.
+- Every index symbol MUST resolve to a declared set name or set alias.
 - At most one `index` declaration is allowed per `data` block. To index by
   multiple columns, list them all as arguments to a single `index` node.
 - The declared `index` sets the default indexing for all `param` declarations in
@@ -480,6 +494,9 @@ Multi-dimension indexing (child node form):
 param <name> { index <set_a>; index <set_b> }
 param <name> from=<csv_column> { index <set_a>; index <set_b> }
 ```
+
+`<set>` references in `index_by` and `index` MAY use either canonical set names
+or aliases. Implementations MUST normalize aliases to canonical set names.
 
 Example, given this CSV:
 
@@ -703,8 +720,9 @@ Notes:
   (see §1). If another set already uses `alias=t`, validation MUST fail. The
   only supported `from=` source for model sets is `horizon`. Other `from=`
   values MUST fail validation.
-- `alias` provides a short iteration variable name. Example:
-  `set asset_id alias=a`.
+- `alias` provides a short set reference usable in set-reference positions
+  (`index`, `index_by`, `over ... in=...`) and algebra iteration domains.
+  Example: `set asset_id alias=a`.
 - Model sets are abstract. They acquire concrete members from scenario data
   bindings and `data` block sets at solve time. Hierarchy and filtering are
   defined in `data` blocks, not in models.
@@ -781,6 +799,9 @@ Multi-dimension:
 param <name> { index <set_a>; index <set_b> }
 ```
 
+`<set>` references in `index_by` and `index` MAY use either canonical set names
+or aliases. Implementations MUST normalize aliases to canonical set names.
+
 `index_by` and `index` children are mutually exclusive.
 
 Model parameters are resolved at scenario time. The scenario binds concrete
@@ -820,8 +841,8 @@ control <name> index_by=<set> kind=binary lower=0 upper=1
 Index domain binding:
 
 The `in=` property on `index` children binds the index variable to a named
-domain set. This is useful when the iteration domain differs from the index
-name:
+domain set (canonical name or alias). This is useful when the iteration domain
+differs from the index name:
 
 ```kdl
 control <name> {
@@ -1174,6 +1195,7 @@ data, defines the time horizon, and activates execution.
 scenario <name> {
   horizon steps=<int> resolution=<iso_duration>
   use <model_name>
+  bind_set <set_or_alias> from=horizon
   data <name> from=<path>
   report <expression_name>
   report dual <constraint_name>
@@ -1181,7 +1203,8 @@ scenario <name> {
 ```
 
 Every `scenario` MUST contain exactly one `use` declaration. See
-[§7.1](#71-horizon) for when `horizon` is required.
+[§7.1](#71-horizon) for when `horizon` is required. `bind_set` declarations are
+optional and apply scenario-local set rebinding (see [§7.6](#76-bind_set-inside-scenario)).
 
 ```kdl
 // valid: non-temporal model, no horizon needed
@@ -1246,14 +1269,17 @@ Column-to-index matching:
 
 1. The model `param` declaration specifies which sets the parameter is indexed
    over (via `index_by` or `index` children).
-2. Each index set MUST correspond to a column in the bound CSV file. Column
-   matching uses the set name (after any `map` resolution in the source `data`
-   block). If the set has an `alias`, the alias is NOT used for column matching;
-   only the canonical set name.
+2. Each index set MUST correspond to a column in the bound CSV file. If an
+   alias is used in `index` or `index_by`, it MUST first resolve to its
+   canonical set name. Column matching then uses that canonical set name (after
+   any `map` resolution in the source `data` block).
 3. The value column is matched by the `param` name (or its `from` override).
 4. Extra columns in the CSV that do not match any index set or the param name
    are ignored.
 5. Missing required columns (index sets or value column) MUST fail validation.
+6. If a set used by the parameter is rebound by scenario `bind_set`, only rows
+   whose index values are members of the rebound set are active for that
+   scenario.
 
 Example: A model declares `param demand { index region; index time }`. The
 scenario binds `data demand from="data/demand.csv"`. The CSV must contain
@@ -1453,6 +1479,47 @@ scenario high_demand {
 }
 ```
 
+### 7.6 `bind_set` (inside `scenario`)
+
+`bind_set` rebinds a set's active members for one scenario. This is especially
+useful for temporal sets so the same model can run with different horizons (for
+example 24 hours, 12 hours, or rolling windows) without changing model algebra.
+
+```kdl
+bind_set <set_or_alias> from=horizon
+bind_set <set_or_alias> from=horizon start=<int_expr> end=<int_expr>
+```
+
+Semantics:
+
+- `<set_or_alias>` MUST resolve to an existing set name or set alias.
+- `from=horizon` uses the scenario horizon sequence `1..steps`.
+- `start` and `end` are inclusive bounds over the horizon sequence.
+  - Defaults: `start=1`, `end=steps`.
+  - `start`/`end` MAY reference `steps` and simple arithmetic (for example
+    `end=steps-1`).
+- Rebinding is scenario-local and MUST NOT mutate global set declarations.
+- If multiple `bind_set` declarations target the same set in one scenario,
+  validation MUST fail.
+- If `start`/`end` produce an invalid or empty range (`start > end`, `end < 1`,
+  etc.), validation MUST fail.
+
+Common pattern (remove boundary guards from algebra):
+
+```kdl
+scenario half_day {
+  horizon steps=12 resolution=PT1H
+  use UCGamsParity
+  bind_set ts from=horizon
+  bind_set taf from=horizon start=2 end=steps
+  bind_set tbl from=horizon start=1 end=steps-1
+}
+```
+
+In this pattern, constraints that reference `t-1` iterate over `taf` and
+constraints that reference `t+1` iterate over `tbl`, avoiding per-constraint
+`if { t > 1 }` / `if { t < steps }` guards.
+
 ---
 
 ## 8. KDL 2.0 type annotations (optional)
@@ -1548,8 +1615,9 @@ Column and field resolution:
 
 8. `map` without `from` MUST resolve to an existing CSV column.
 9. Unknown source columns in `map from=...` or `param from=...`.
-10. Unknown symbols in block-level `index` declarations, `index_by` properties,
-    or `index` children of `param`/`control`.
+10. Unknown set references (neither canonical set names nor aliases) in
+    block-level `index` declarations, `index_by` properties, or `index`
+    children of `param`/`control`.
 
 Set hierarchy:
 
@@ -1584,7 +1652,8 @@ Model structure:
 22. `model` MUST contain exactly one objective.
 23. Circular `expression` references.
 24. `control kind=<value>` MUST be one of `continuous`, `integer`, `binary`.
-25. Constraint generation references (`over in=...`) MUST resolve to known sets.
+25. Constraint generation references (`over in=...`) MUST resolve to known
+    sets (canonical names or aliases).
 
 Scenario resolution:
 
@@ -1678,6 +1747,16 @@ Ergonomic profile resolution:
 47. Conflicting bound assignments for the same control variable index (e.g., two
     `bounds` declarations or a `bounds` and an inline `lower`/`upper` on the
     same `control`) MUST fail validation.
+
+Scenario set rebinding:
+
+48. `bind_set` targets in a `scenario` MUST resolve to known sets (canonical
+    names or aliases).
+49. `bind_set ... from=<source>` currently supports only `from=horizon`.
+50. Duplicate `bind_set` declarations for the same target set in one scenario
+    MUST fail validation.
+51. `bind_set` ranges (`start`, `end`) MUST be valid inclusive bounds within
+    the horizon domain and MUST NOT produce empty ranges.
 
 ### 10.1 Error reporting strategy
 
@@ -1817,10 +1896,13 @@ scenario_block    := "{" { scenario_child } "}"
                      (* Children may appear in any order. Exactly one use_decl
                         is required. horizon_decl is required when the model
                         declares a temporal set. *)
-scenario_child    := horizon_decl | use_decl | scenario_data_decl | report_decl
+scenario_child    := horizon_decl | use_decl | bind_set_decl
+                   | scenario_data_decl | report_decl
 
 horizon_decl      := "horizon" "steps" "=" integer "resolution" "=" string
 use_decl          := "use" name
+bind_set_decl     := "bind_set" name "from" "=" "horizon"
+                     [ "start" "=" value ] [ "end" "=" value ]
 scenario_data_decl:= "data" name from_prop
 report_decl       := "report" ( name | "dual" name )
 
@@ -1879,6 +1961,10 @@ Notes:
 
 - `name`, `field_name`, and `path` follow KDL string rules (identifier or
   quoted).
+- In productions where a set is referenced (`index`, `index_by`, `over ...
+  in=...`), a `name` token MAY be either the canonical set name or a set alias.
+  Implementations MUST normalize aliases to canonical set names before
+  validation/lowering.
 - `kdl_value` MAY be annotated (example `(f64)200`, `(unit)"$/MWh"`).
 - Single-dimension indexing uses the `index_by=<set>` property form.
   Multi-dimension indexing uses child nodes: `{ index <set_a>; index <set_b> }`.
@@ -1889,6 +1975,8 @@ Notes:
 - `model_block` MUST contain exactly one `objective_decl`.
 - `scenario_block` MUST contain one `use_decl`. `horizon_decl` is required only
   when the referenced model uses a temporal set (`from=horizon`).
+- `bind_set_decl` is optional and scenario-local. It rebinds existing set
+  memberships for the scenario execution context.
 - `inline_selector` is Arco-specific syntax valid only inside algebra expression
   strings. It is distinguished from variable indexing by the presence of `=`
   inside brackets. For named filtered domains, use `set subset_of` inside
