@@ -130,10 +130,10 @@ Download the FICO Xpress Community Edition from
 [fico.com](https://www.fico.com/en/products/fico-xpress-optimization). The
 community edition is free and supports models up to ~5000 variables/constraints.
 
-| Platform | Typical `XPRESSDIR`                                   |
-| -------- | ----------------------------------------------------- |
+| Platform | Typical `XPRESSDIR`                                                        |
+| -------- | -------------------------------------------------------------------------- |
 | macOS    | `~/User Apps/FICO Xpress/xpressmp` or `/Applications/FICO Xpress/xpressmp` |
-| Linux    | `/opt/xpressmp`                                       |
+| Linux    | `/opt/xpressmp`                                                            |
 
 The installer generates two license files in `$XPRESSDIR/bin/`:
 
@@ -170,15 +170,15 @@ solution = model.solve(solver=solver)
 
 ### Settings mapping
 
-| Setting          | Xpress control            | Notes                             |
-| ---------------- | ------------------------- | --------------------------------- |
-| `time_limit`     | `XPRS_MAXTIME`            |                                   |
-| `mip_gap`        | `XPRS_MIPRELSTOP`         |                                   |
-| `tolerance`      | `XPRS_FEASTOL`            |                                   |
-| `presolve`       | `XPRS_PRESOLVE`           | 1 = on, 0 = off                   |
-| `threads`        | `XPRS_THREADS`            |                                   |
-| `log_to_console` | `XPRS_OUTPUTLOG`          | 1 = on, 0 = off                   |
-| `verbosity`      | --                        | Ignored                           |
+| Setting          | Xpress control    | Notes           |
+| ---------------- | ----------------- | --------------- |
+| `time_limit`     | `XPRS_MAXTIME`    |                 |
+| `mip_gap`        | `XPRS_MIPRELSTOP` |                 |
+| `tolerance`      | `XPRS_FEASTOL`    |                 |
+| `presolve`       | `XPRS_PRESOLVE`   | 1 = on, 0 = off |
+| `threads`        | `XPRS_THREADS`    |                 |
+| `log_to_console` | `XPRS_OUTPUTLOG`  | 1 = on, 0 = off |
+| `verbosity`      | --                | Ignored         |
 
 ## IPOPT (nonlinear / continuous solver)
 
@@ -218,15 +218,15 @@ solution = model.solve(solver=solver)
 The following table shows how `SolverSettings` map to IPOPT options. Settings
 that do not apply to IPOPT are silently ignored.
 
-| Setting          | IPOPT option                  | Notes                         |
-| ---------------- | ----------------------------- | ----------------------------- |
-| `time_limit`     | `max_cpu_time`                |                               |
-| `tolerance`      | `tol` + `constr_viol_tol`     |                               |
-| `verbosity`      | `print_level`                 | Clamped to 0--12              |
-| `log_to_console` | `print_level` (0 when false)  |                               |
-| `presolve`       | --                            | Ignored                       |
-| `threads`        | --                            | Ignored                       |
-| `mip_gap`        | --                            | Ignored (continuous only)     |
+| Setting          | IPOPT option                 | Notes                     |
+| ---------------- | ---------------------------- | ------------------------- |
+| `time_limit`     | `max_cpu_time`               |                           |
+| `tolerance`      | `tol` + `constr_viol_tol`    |                           |
+| `verbosity`      | `print_level`                | Clamped to 0--12          |
+| `log_to_console` | `print_level` (0 when false) |                           |
+| `presolve`       | --                           | Ignored                   |
+| `threads`        | --                           | Ignored                   |
+| `mip_gap`        | --                           | Ignored (continuous only) |
 
 ---
 

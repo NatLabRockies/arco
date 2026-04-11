@@ -113,8 +113,7 @@ jobs:
 
       - name: Install system dependencies
         if: matrix.target.apt-deps != ''
-        run:
-          sudo apt-get update -qq && sudo apt-get install -y
+        run: sudo apt-get update -qq && sudo apt-get install -y
           --no-install-recommends ${{ matrix.target.apt-deps }}
 
       - name: Set up build environment
@@ -162,8 +161,7 @@ jobs:
 
       - name: Install system dependencies
         if: matrix.target.apt-deps != ''
-        run:
-          sudo apt-get update -qq && sudo apt-get install -y
+        run: sudo apt-get update -qq && sudo apt-get install -y
           --no-install-recommends ${{ matrix.target.apt-deps }}
 
       - name: Set up build environment

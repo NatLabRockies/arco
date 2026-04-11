@@ -31,10 +31,10 @@ Every release version is shared across:
 
 ## Workflow Topology
 
-| Workflow               | Trigger                                                                              | Purpose                                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `release-please.yaml`  | `push` to `main`                                                                     | Maintains release PRs, creates tag + draft release, dispatches `cargo-dist-release.yml`, then builds and publishes Python package to PyPI |
-| `cargo-dist-release.yml` | `workflow_dispatch` from `release-please.yaml` (with tag) or `pull_request` (dry-run) | Builds CLI artifacts via cargo-dist, uploads them to the draft release, and publishes it                   |
+| Workflow                 | Trigger                                                                               | Purpose                                                                                                                                   |
+| ------------------------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `release-please.yaml`    | `push` to `main`                                                                      | Maintains release PRs, creates tag + draft release, dispatches `cargo-dist-release.yml`, then builds and publishes Python package to PyPI |
+| `cargo-dist-release.yml` | `workflow_dispatch` from `release-please.yaml` (with tag) or `pull_request` (dry-run) | Builds CLI artifacts via cargo-dist, uploads them to the draft release, and publishes it                                                  |
 
 ### Reusable workflow call
 

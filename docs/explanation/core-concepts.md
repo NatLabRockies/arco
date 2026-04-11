@@ -16,7 +16,7 @@ Expressions and constraints
 
 Expressions in Arco are algebraic combinations of variables and constants. They support the standard arithmetic operators: addition, subtraction, multiplication by constants, and negation. Multiplication of two variables is not supported because Arco is a linear programming framework, not a general nonlinear one.
 
-Expressions are built lazily. When you write 3.0 * x + 2.0 * y, you are constructing a small expression tree. This tree is not immediately evaluated. It is stored in the model and normalized later, during the solve phase. The lazy construction allows Arco to perform algebraic simplifications and common subexpression elimination that would be difficult if expressions were eagerly converted to matrix form.
+Expressions are built lazily. When you write 3.0 _ x + 2.0 _ y, you are constructing a small expression tree. This tree is not immediately evaluated. It is stored in the model and normalized later, during the solve phase. The lazy construction allows Arco to perform algebraic simplifications and common subexpression elimination that would be difficult if expressions were eagerly converted to matrix form.
 
 Constraints relate an expression to a bound. The simplest form is an equality or inequality constraint: x + y >= 5.0. Behind the scenes, this creates a constraint object that references the expression and the bound. Like variables, constraints are handles to internal model storage.
 

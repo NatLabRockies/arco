@@ -228,14 +228,14 @@ just stop-torc
 
 Recipe reference:
 
-| Recipe | Description |
-| --- | --- |
-| `just install-torc` | Download Torc binary to `~/.local/bin/` |
-| `just bootstrap` | `uv sync` + install Julia JuMP/HiGHS packages |
-| `just start-torc` | Start the Torc server (job scheduling + resource monitoring) |
-| `just run-benchmark` | Submit all jobs from `workflows/benchmark.yaml` |
-| `just export-results` | Extract timing/memory data to `results/benchmark_points.csv` |
-| `just export-results-id <id>` | Export results for a specific workflow ID |
-| `just plot` | Generate plots in `plots/` |
-| `just stop-torc` | Stop the Torc server |
-| `just smoke` | Run the full pipeline (start, benchmark, export, plot) |
+| Recipe                        | Description                                                  |
+| ----------------------------- | ------------------------------------------------------------ |
+| `just install-torc`           | Download Torc binary to `~/.local/bin/`                      |
+| `just bootstrap`              | `uv sync` + install Julia JuMP/HiGHS packages                |
+| `just start-torc`             | Start the Torc server (job scheduling + resource monitoring) |
+| `just run-benchmark`          | Submit all jobs from `workflows/benchmark.yaml`              |
+| `just export-results`         | Extract timing/memory data to `results/benchmark_points.csv` |
+| `just export-results-id <id>` | Export results for a specific workflow ID                    |
+| `just plot`                   | Generate plots in `plots/`                                   |
+| `just stop-torc`              | Stop the Torc server                                         |
+| `just smoke`                  | Run the full pipeline (start, benchmark, export, plot)       |
