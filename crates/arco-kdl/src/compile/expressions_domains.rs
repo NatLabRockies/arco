@@ -3,7 +3,7 @@ fn expand_generation_bindings(
     inputs: &ScenarioInputs,
     program: &SemanticProgram,
     entrypoint: &Path,
-) -> Result<Vec<LinearizationBindings>, LoweringError> {
+) -> Result<Vec<LinearizationBindings>, CompileError> {
     let mut scopes = vec![LinearizationBindings::default()];
     for binding in bindings {
         let values = reduction_domain_values(&binding.domain, inputs, program, entrypoint)?;
@@ -25,7 +25,7 @@ fn reduction_domain_values(
     inputs: &ScenarioInputs,
     program: &SemanticProgram,
     entrypoint: &Path,
-) -> Result<Vec<FilterValue>, LoweringError> {
+) -> Result<Vec<FilterValue>, CompileError> {
     if let Some((base, selectors)) = parse_inline_selector_domain(domain, entrypoint)? {
         let base_values = reduction_domain_values(base.as_str(), inputs, program, entrypoint)?;
         let filtered = base_values
@@ -67,7 +67,7 @@ fn reduction_domain_values(
                         .collect());
                 }
             }
-            Err(LoweringError::InvalidFormulation {
+            Err(CompileError::InvalidFormulation {
                 message: format!("unsupported reduction domain `{domain}`"),
                 path: entrypoint.to_path_buf(),
             })
@@ -81,18 +81,18 @@ type InlineSelectorDomain = (String, Vec<InlineSelector>);
 fn parse_inline_selector_domain(
     domain: &str,
     entrypoint: &Path,
-) -> Result<Option<InlineSelectorDomain>, LoweringError> {
+) -> Result<Option<InlineSelectorDomain>, CompileError> {
     let Some(start) = domain.find('[') else {
         return Ok(None);
     };
     let Some(end) = domain.rfind(']') else {
-        return Err(LoweringError::InvalidFormulation {
+        return Err(CompileError::InvalidFormulation {
             message: format!("invalid inline selector domain `{domain}`"),
             path: entrypoint.to_path_buf(),
         });
     };
     if end <= start || !domain[end + 1..].trim().is_empty() {
-        return Err(LoweringError::InvalidFormulation {
+        return Err(CompileError::InvalidFormulation {
             message: format!("invalid inline selector domain `{domain}`"),
             path: entrypoint.to_path_buf(),
         });
@@ -100,7 +100,7 @@ fn parse_inline_selector_domain(
 
     let base = domain[..start].trim().to_string();
     if base.is_empty() {
-        return Err(LoweringError::InvalidFormulation {
+        return Err(CompileError::InvalidFormulation {
             message: format!("invalid inline selector domain `{domain}`"),
             path: entrypoint.to_path_buf(),
         });
@@ -129,7 +129,7 @@ fn parse_inline_selector_domain(
         }
         let key = body[key_start..index].trim();
         if key.is_empty() {
-            return Err(LoweringError::InvalidFormulation {
+            return Err(CompileError::InvalidFormulation {
                 message: format!("invalid inline selector domain `{domain}`"),
                 path: entrypoint.to_path_buf(),
             });
@@ -139,7 +139,7 @@ fn parse_inline_selector_domain(
             index += 1;
         }
         if index >= bytes.len() || bytes[index] as char != '=' {
-            return Err(LoweringError::InvalidFormulation {
+            return Err(CompileError::InvalidFormulation {
                 message: format!("invalid inline selector domain `{domain}`"),
                 path: entrypoint.to_path_buf(),
             });
@@ -150,7 +150,7 @@ fn parse_inline_selector_domain(
         }
 
         if index >= bytes.len() {
-            return Err(LoweringError::InvalidFormulation {
+            return Err(CompileError::InvalidFormulation {
                 message: format!("invalid inline selector domain `{domain}`"),
                 path: entrypoint.to_path_buf(),
             });
@@ -179,7 +179,7 @@ fn parse_inline_selector_domain(
                 }
             }
             if escaped || !terminated {
-                return Err(LoweringError::InvalidFormulation {
+                return Err(CompileError::InvalidFormulation {
                     message: format!("invalid inline selector domain `{domain}`"),
                     path: entrypoint.to_path_buf(),
                 });
@@ -198,7 +198,7 @@ fn parse_inline_selector_domain(
         };
 
         if value.is_empty() {
-            return Err(LoweringError::InvalidFormulation {
+            return Err(CompileError::InvalidFormulation {
                 message: format!("invalid inline selector domain `{domain}`"),
                 path: entrypoint.to_path_buf(),
             });
@@ -208,7 +208,7 @@ fn parse_inline_selector_domain(
     }
 
     if selectors.is_empty() {
-        return Err(LoweringError::InvalidFormulation {
+        return Err(CompileError::InvalidFormulation {
             message: format!("invalid inline selector domain `{domain}`"),
             path: entrypoint.to_path_buf(),
         });
@@ -274,7 +274,7 @@ fn linearize_indexed_expr(
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
-) -> Result<AffineExpr, LoweringError> {
+) -> Result<AffineExpr, CompileError> {
     let resolved = indices
         .iter()
         .map(|index| resolve_index_expr(index, bindings, entrypoint))
@@ -308,7 +308,7 @@ fn linearize_indexed_expr(
             {
                 return Ok(AffineExpr::constant(value));
             }
-            return Err(LoweringError::InvalidFormulation {
+            return Err(CompileError::InvalidFormulation {
                 message: format!("time index `{time}` is out of range for `{target}`"),
                 path: entrypoint.to_path_buf(),
             });
@@ -320,7 +320,7 @@ fn linearize_indexed_expr(
         if !(1..=program.sets.time.steps as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
         {
-            return Err(LoweringError::InvalidFormulation {
+            return Err(CompileError::InvalidFormulation {
                 message: format!("time index `{time}` is out of range for `{target}`"),
                 path: entrypoint.to_path_buf(),
             });

@@ -7,10 +7,10 @@ fn linearize_value_expr(
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
-) -> Result<AffineExpr, LoweringError> {
+) -> Result<AffineExpr, CompileError> {
     match expr {
         Expr::Number(value) => value.parse::<f64>().map(AffineExpr::constant).map_err(|_| {
-            LoweringError::InvalidFormulation {
+            CompileError::InvalidFormulation {
                 message: format!("invalid numeric literal `{value}`"),
                 path: entrypoint.to_path_buf(),
             }
@@ -35,7 +35,7 @@ fn linearize_value_expr(
                     entrypoint,
                 );
             }
-            Err(LoweringError::InvalidFormulation {
+            Err(CompileError::InvalidFormulation {
                 message: format!("unresolved symbol `{name}` in linear expression"),
                 path: entrypoint.to_path_buf(),
             })
@@ -99,7 +99,7 @@ fn linearize_value_expr(
                     } else if right.terms.is_empty() {
                         Ok(left.scale(right.constant))
                     } else {
-                        Err(LoweringError::InvalidFormulation {
+                        Err(CompileError::InvalidFormulation {
                             message: "non-linear multiplication is not supported".to_string(),
                             path: entrypoint.to_path_buf(),
                         })
@@ -142,7 +142,7 @@ fn linearize_value_expr(
             entrypoint,
         ),
         Expr::String(_) | Expr::Boolean(_) | Expr::Comparison { .. } => {
-            Err(LoweringError::InvalidFormulation {
+            Err(CompileError::InvalidFormulation {
                 message: "boolean and string expressions cannot appear in linear algebra"
                     .to_string(),
                 path: entrypoint.to_path_buf(),
@@ -155,14 +155,14 @@ fn evaluate_builtin_function(
     name: &str,
     args: &[f64],
     entrypoint: &Path,
-) -> Result<f64, LoweringError> {
+) -> Result<f64, CompileError> {
     match (name, args.len()) {
         ("sqrt", 1) => Ok(args[0].sqrt()),
         ("abs", 1) => Ok(args[0].abs()),
         ("exp", 1) => Ok(args[0].exp()),
         ("ln", 1) => Ok(args[0].ln()),
         ("pow", 2) => Ok(args[0].powf(args[1])),
-        (name, n) => Err(LoweringError::InvalidFormulation {
+        (name, n) => Err(CompileError::InvalidFormulation {
             message: format!(
                 "{name}() received {n} argument(s), expected {}",
                 if name == "pow" { 2 } else { 1 }
@@ -182,7 +182,7 @@ fn linearize_reduction(
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
-) -> Result<AffineExpr, LoweringError> {
+) -> Result<AffineExpr, CompileError> {
     let expanded =
         expand_reduction_bindings(&reduction.bindings, bindings, inputs, program, entrypoint)?;
     let mut total = AffineExpr::default();
@@ -225,7 +225,7 @@ fn evaluate_reduction_filter(
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
-) -> Result<bool, LoweringError> {
+) -> Result<bool, CompileError> {
     if let Expr::Comparison { op, left, right } = filter {
         let left_affine = linearize_value_expr(
             left,
@@ -281,7 +281,7 @@ fn expand_reduction_bindings(
     inputs: &ScenarioInputs,
     program: &SemanticProgram,
     entrypoint: &Path,
-) -> Result<Vec<LinearizationBindings>, LoweringError> {
+) -> Result<Vec<LinearizationBindings>, CompileError> {
     let mut scopes = vec![current.clone()];
     for binding in bindings {
         let values = reduction_domain_values(&binding.domain, inputs, program, entrypoint)?;
@@ -296,7 +296,7 @@ fn expand_reduction_bindings(
                     }
                 }
                 crate::algebra::BindingPattern::Tuple(_) => {
-                    return Err(LoweringError::InvalidFormulation {
+                    return Err(CompileError::InvalidFormulation {
                         message: "tuple reduction bindings are not lowered yet".to_string(),
                         path: entrypoint.to_path_buf(),
                     });

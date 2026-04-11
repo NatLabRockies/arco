@@ -50,7 +50,7 @@ where
 pub use arrays::{PyConstraintArray, PyExprArray, PyVariableArray};
 pub use bounds::{BoundsSpec, PyBounds};
 pub use constraint::PyConstraint;
-pub use enums::{PySense, PySimplifyLevel};
+pub use enums::{PyComparisonSense, PySense, PySimplifyLevel};
 pub use expr::{PyConstraintExpr, PyExpr};
 pub use handles::{PyElasticHandle, PySlackHandle};
 pub use index_set::PyIndexSet;
@@ -726,17 +726,17 @@ impl PyModel {
     /// Returns a `ConstraintArray` representing the added constraints.
     /// Uses compact insertion when possible (zero per-element allocation),
     /// falling back to a batch path for materialized expressions.
-    #[pyo3(signature = (expr, *, sense="ge", rhs=None, name=None))]
+    #[pyo3(signature = (expr, *, sense=PyComparisonSense::GreaterEqual, rhs=None, name=None))]
     fn add_constraints(
         &mut self,
         expr: &Bound<'_, PyAny>,
-        sense: &str,
+        sense: PyComparisonSense,
         rhs: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyConstraintArray> {
         // Branch 1: ConstraintArray input
         if let Ok(array) = expr.extract::<PyRef<'_, PyConstraintArray>>() {
-            if rhs.is_some() || !sense.eq_ignore_ascii_case("ge") {
+            if rhs.is_some() || sense != PyComparisonSense::GreaterEqual {
                 return Err(errors::ConstraintSenseError::new_err(
                     "sense/rhs are not supported for comparison arrays",
                 ));
@@ -757,7 +757,7 @@ impl PyModel {
         }
 
         // Branch 2: VariableArray or ExprArray input
-        let sense = parse_comparison_sense(sense)?;
+        let sense: ComparisonSense = sense.into();
         let rhs_obj = rhs.ok_or_else(|| {
             errors::ConstraintBoundsMissingError::new_err("rhs is required for add_constraints")
         })?;
@@ -1649,17 +1649,6 @@ fn parse_slack_bound(bound: &str) -> PyResult<SlackBound> {
         _ => Err(errors::SlackBoundError::new_err(format!(
             "Invalid slack bound '{}' (expected 'lower', 'upper', or 'both')",
             bound
-        ))),
-    }
-}
-
-fn parse_comparison_sense(sense: &str) -> PyResult<ComparisonSense> {
-    match sense.to_lowercase().as_str() {
-        "ge" | ">=" => Ok(ComparisonSense::GreaterEqual),
-        "le" | "<=" => Ok(ComparisonSense::LessEqual),
-        "eq" | "==" => Ok(ComparisonSense::Equal),
-        _ => Err(errors::ConstraintSenseError::new_err(format!(
-            "Invalid sense '{sense}' (expected 'ge', 'le', or 'eq')",
         ))),
     }
 }

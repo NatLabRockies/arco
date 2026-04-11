@@ -2,7 +2,7 @@ fn candidate_instance_name(
     target: &str,
     resolved: &[FilterValue],
     entrypoint: &Path,
-) -> Result<String, LoweringError> {
+) -> Result<String, CompileError> {
     match resolved {
         [FilterValue::String(a), FilterValue::Number(_)] => {
             let time = integer_time_index(&resolved[1], entrypoint)?;
@@ -27,7 +27,7 @@ fn candidate_instance_name(
                             Ok(n.to_string())
                         }
                     }
-                    FilterValue::Boolean(_) => Err(LoweringError::InvalidFormulation {
+                    FilterValue::Boolean(_) => Err(CompileError::InvalidFormulation {
                         message: format!("unsupported boolean index in reference to `{target}`"),
                         path: entrypoint.to_path_buf(),
                     }),
@@ -57,13 +57,13 @@ fn parameter_reference_expr(
     resolved: &[FilterValue],
     inputs: &ScenarioInputs,
     entrypoint: &Path,
-) -> Result<AffineExpr, LoweringError> {
+) -> Result<AffineExpr, CompileError> {
     let references_generic_table = inputs.generic_data.contains_key(target);
     if let Some(value) = generic_data_value(&inputs.generic_data, target, resolved, entrypoint)? {
         return Ok(AffineExpr::constant(value));
     }
     if references_generic_table {
-        return Err(LoweringError::MissingDataPoint {
+        return Err(CompileError::MissingDataPoint {
             name: target.to_string(),
             key: format_filter_lookup_key(resolved, entrypoint)?,
             path: entrypoint.to_path_buf(),
@@ -86,7 +86,7 @@ fn parameter_reference_expr(
                 } else if let Some(member_params) = inputs.set_params.get(name) {
                     member_params.get(target).copied().unwrap_or(0.0)
                 } else {
-                    return Err(LoweringError::MissingAsset {
+                    return Err(CompileError::MissingAsset {
                         name: name.clone(),
                         path: entrypoint.to_path_buf(),
                     });
@@ -98,7 +98,7 @@ fn parameter_reference_expr(
         }
         [FilterValue::String(asset_name), FilterValue::Number(time)] => {
             if time.fract() != 0.0 || *time < 0.0 {
-                return Err(LoweringError::InvalidFormulation {
+                return Err(CompileError::InvalidFormulation {
                     message: format!("time index `{time}` must be a non-negative integer"),
                     path: entrypoint.to_path_buf(),
                 });
@@ -112,7 +112,7 @@ fn parameter_reference_expr(
             )?
         }
         _ => {
-            return Err(LoweringError::InvalidFormulation {
+            return Err(CompileError::InvalidFormulation {
                 message: format!("unsupported parameter reference `{target}`"),
                 path: entrypoint.to_path_buf(),
             });
@@ -128,9 +128,9 @@ fn chronology_boundary_value(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     entrypoint: &Path,
-) -> Result<Option<f64>, LoweringError> {
+) -> Result<Option<f64>, CompileError> {
     if time == 0 && target == "soc" && program.chronology.initial_boundary.is_some() {
-        let asset = find_asset(inputs, asset_name).ok_or_else(|| LoweringError::MissingAsset {
+        let asset = find_asset(inputs, asset_name).ok_or_else(|| CompileError::MissingAsset {
             name: asset_name.to_string(),
             path: entrypoint.to_path_buf(),
         })?;
@@ -149,7 +149,7 @@ fn chronology_boundary_value(
         && target == "generation"
         && program.chronology.initial_commitment_boundary.is_some()
     {
-        let asset = find_asset(inputs, asset_name).ok_or_else(|| LoweringError::MissingAsset {
+        let asset = find_asset(inputs, asset_name).ok_or_else(|| CompileError::MissingAsset {
             name: asset_name.to_string(),
             path: entrypoint.to_path_buf(),
         })?;

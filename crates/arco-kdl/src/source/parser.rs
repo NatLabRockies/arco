@@ -1,3 +1,4 @@
+use crate::ObjectiveSense;
 use crate::algebra::parse_value_formula;
 use crate::source::ast::{
     BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, ModelDecl, ParsedSource,
@@ -97,7 +98,7 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
                         context,
                     ));
                 }
-                optimize = Some(parse_optimize(child, "minimize", context)?);
+                optimize = Some(parse_optimize(child, ObjectiveSense::Minimize, context)?);
             }
             "maximize" => {
                 if optimize.is_some() {
@@ -107,7 +108,7 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
                         context,
                     ));
                 }
-                optimize = Some(parse_optimize(child, "maximize", context)?);
+                optimize = Some(parse_optimize(child, ObjectiveSense::Maximize, context)?);
             }
             other => {
                 return Err(SourceError::UnsupportedDeclaration {

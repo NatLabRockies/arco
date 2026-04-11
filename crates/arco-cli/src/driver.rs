@@ -6,6 +6,7 @@ use crate::execution::{
     ExecutionError, RustArcoAdapter, SolveStatus, execute_problem_with_options,
     render_problem_model,
 };
+use arco_kdl::ObjectiveSense;
 use arco_kdl::pipeline::{PipelineError, compile_file, validate_file};
 use miette::Diagnostic;
 use serde::Serialize;
@@ -44,7 +45,7 @@ pub struct RunSummary {
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ObjectiveSummary {
     pub name: String,
-    pub sense: String,
+    pub sense: ObjectiveSense,
     pub value: f64,
 }
 
@@ -91,7 +92,7 @@ pub struct ProblemCounts {
 pub struct TimingSummary {
     pub parse_ms: f64,
     pub validate_ms: f64,
-    pub lower_ms: f64,
+    pub compile_ms: f64,
     pub solve_ms: f64,
     pub total_ms: f64,
     pub peak_memory_bytes: Option<u64>,
@@ -177,12 +178,12 @@ pub fn run_file_with_options_and_backend(
         "compile timings: parse={:.2} ms validate={:.2} ms lower={:.2} ms",
         compiled.timing.parse.as_secs_f64() * 1000.0,
         compiled.timing.validate.as_secs_f64() * 1000.0,
-        compiled.timing.lower.as_secs_f64() * 1000.0
+        compiled.timing.compile.as_secs_f64() * 1000.0
     );
     debug!(
         "lowered problem size: {} variable instances, {} constraint rows",
-        compiled.lowered_problem.algebra.variable_instances.len(),
-        compiled.lowered_problem.algebra.constraints.len()
+        compiled.compiled_problem.algebra.variable_instances.len(),
+        compiled.compiled_problem.algebra.constraints.len()
     );
 
     let solve_start = Instant::now();
@@ -194,13 +195,13 @@ pub fn run_file_with_options_and_backend(
     );
     let execution_result = match backend {
         SolverBackend::Highs => execute_problem_with_options(
-            &compiled.lowered_problem,
+            &compiled.compiled_problem,
             &RustArcoAdapter::with_console_log(options.solver_log),
             include_variable_values,
         )?,
         #[cfg(feature = "xpress")]
         SolverBackend::Xpress => execute_problem_with_options(
-            &compiled.lowered_problem,
+            &compiled.compiled_problem,
             &XpressArcoAdapter::with_console_log(options.solver_log),
             include_variable_values,
         )?,
@@ -258,14 +259,14 @@ pub fn run_file_with_options_and_backend(
             .collect(),
         variables,
         counts: ProblemCounts {
-            parameters: compiled.lowered_problem.parameters.len(),
-            variables: compiled.lowered_problem.variables.len(),
-            constraints: compiled.lowered_problem.constraints.len(),
+            parameters: compiled.compiled_problem.parameters.len(),
+            variables: compiled.compiled_problem.variables.len(),
+            constraints: compiled.compiled_problem.constraints.len(),
         },
         timing: TimingSummary {
             parse_ms: compiled.timing.parse.as_secs_f64() * 1000.0,
             validate_ms: compiled.timing.validate.as_secs_f64() * 1000.0,
-            lower_ms: compiled.timing.lower.as_secs_f64() * 1000.0,
+            compile_ms: compiled.timing.compile.as_secs_f64() * 1000.0,
             solve_ms: solve.as_secs_f64() * 1000.0,
             total_ms: total.as_secs_f64() * 1000.0,
             peak_memory_bytes: peak_rss_bytes(),
@@ -298,7 +299,7 @@ pub fn run_file_json_with_options_and_backend(
 
 pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
     let compiled = compile_file(path)?;
-    render_problem_model(&compiled.lowered_problem).map_err(DriverError::from)
+    render_problem_model(&compiled.compiled_problem).map_err(DriverError::from)
 }
 
 pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, DriverError> {
@@ -353,12 +354,12 @@ fn summarize_variables(
                 .iter()
                 .filter(|value| {
                     options.filter_asset.as_deref().is_none_or(|pattern| {
-                        extract_asset_name(&value.lowered_name)
+                        extract_asset_name(&value.compiled_name)
                             .is_some_and(|asset| wildcard_match(pattern, asset))
                     })
                 })
                 .map(|value| VariableValueSummary {
-                    name: trim_family_prefix(&variable.dsl_name, &value.lowered_name),
+                    name: trim_family_prefix(&variable.dsl_name, &value.compiled_name),
                     value: value.value,
                 })
                 .collect::<Vec<_>>();

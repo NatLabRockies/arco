@@ -20,30 +20,30 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LoweredProblem {
-    pub parameters: Vec<LoweredParameter>,
-    pub variables: Vec<LoweredVariable>,
-    pub constraints: Vec<LoweredConstraint>,
-    pub objective: LoweredObjective,
-    pub reports: Vec<LoweredReport>,
-    pub dual_reports: Vec<LoweredDualReport>,
+pub struct CompiledProblem {
+    pub parameters: Vec<CompiledParameter>,
+    pub variables: Vec<CompiledVariable>,
+    pub constraints: Vec<CompiledConstraint>,
+    pub objective: CompiledObjective,
+    pub reports: Vec<CompiledReport>,
+    pub dual_reports: Vec<CompiledDualReport>,
     pub traceability: Vec<TraceabilityRecord>,
     pub algebra: AlgebraicProblem,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoweredParameter {
+pub struct CompiledParameter {
     pub name: String,
     pub binding_kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoweredVariable {
+pub struct CompiledVariable {
     pub family: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoweredConstraint {
+pub struct CompiledConstraint {
     pub name: String,
     pub source_kind: String,
     pub source_name: String,
@@ -51,20 +51,20 @@ pub struct LoweredConstraint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoweredObjective {
+pub struct CompiledObjective {
     pub name: String,
-    pub sense: String,
+    pub sense: ObjectiveSense,
     pub expression: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoweredReport {
+pub struct CompiledReport {
     pub name: String,
     pub formula: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LoweredDualReport {
+pub struct CompiledDualReport {
     pub constraint_name: String,
 }
 
@@ -72,7 +72,7 @@ pub struct LoweredDualReport {
 pub struct TraceabilityRecord {
     pub dsl_name: String,
     pub artifact_kind: String,
-    pub lowered_name: String,
+    pub compiled_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -135,11 +135,7 @@ pub struct LinearTerm {
     pub coefficient: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ObjectiveSense {
-    Minimize,
-    Maximize,
-}
+pub use crate::ObjectiveSense;
 
 #[derive(Debug)]
 struct ScenarioInputs {
@@ -180,22 +176,22 @@ enum FilterValue {
 
 include!("error.rs");
 
-pub fn lower_program(
+pub fn compile_program(
     program: &SemanticProgram,
     source_program: &SourceProgram,
     entrypoint: &Path,
-) -> Result<LoweredProblem, LoweringError> {
-    info!("lowering program");
+) -> Result<CompiledProblem, CompileError> {
+    info!("compiling program");
 
     let scenario = source_program
         .scenario(&program.active_scenario)
-        .ok_or_else(|| LoweringError::MissingScenario {
+        .ok_or_else(|| CompileError::MissingScenario {
             name: program.active_scenario.clone(),
             path: entrypoint.to_path_buf(),
         })?;
     let mut inputs = load_inputs(program, source_program, scenario, entrypoint)?;
     inputs.set_params.extend(program.set_params.clone());
-    let algebra = lower_algebra(program, &inputs, entrypoint)?;
+    let algebra = compile_algebra(program, &inputs, entrypoint)?;
 
     let parameters = [
         ("series", &program.parameters.series),
@@ -204,7 +200,7 @@ pub fn lower_program(
     ]
     .into_iter()
     .flat_map(|(kind, names)| {
-        names.iter().map(move |name| LoweredParameter {
+        names.iter().map(move |name| CompiledParameter {
             name: name.clone(),
             binding_kind: kind.to_string(),
         })
@@ -214,7 +210,7 @@ pub fn lower_program(
     let variables = program
         .variable_families
         .iter()
-        .map(|family| LoweredVariable {
+        .map(|family| CompiledVariable {
             family: family.render(),
         })
         .collect::<Vec<_>>();
@@ -222,19 +218,19 @@ pub fn lower_program(
     let constraints = program
         .active_constraints
         .iter()
-        .map(lower_constraint)
+        .map(compile_constraint)
         .collect::<Vec<_>>();
-    let objective = lower_objective(&program.active_objective);
+    let objective = compile_objective(&program.active_objective);
     let reports = program
         .active_reports
         .iter()
-        .map(lower_report)
+        .map(compile_report)
         .collect::<Vec<_>>();
 
     let dual_reports = program
         .active_dual_reports
         .iter()
-        .map(|dr| LoweredDualReport {
+        .map(|dr| CompiledDualReport {
             constraint_name: dr.constraint_name.clone(),
         })
         .collect::<Vec<_>>();
@@ -243,20 +239,20 @@ pub fn lower_program(
     traceability.extend(variables.iter().map(|variable| TraceabilityRecord {
         dsl_name: variable.family.clone(),
         artifact_kind: "variable".to_string(),
-        lowered_name: variable.family.clone(),
+        compiled_name: variable.family.clone(),
     }));
     traceability.push(TraceabilityRecord {
         dsl_name: objective.name.clone(),
         artifact_kind: "objective".to_string(),
-        lowered_name: objective.name.clone(),
+        compiled_name: objective.name.clone(),
     });
     traceability.extend(reports.iter().map(|report| TraceabilityRecord {
         dsl_name: report.name.clone(),
         artifact_kind: "report".to_string(),
-        lowered_name: report.name.clone(),
+        compiled_name: report.name.clone(),
     }));
 
-    let lowered = LoweredProblem {
+    let compiled = CompiledProblem {
         parameters,
         variables,
         constraints,
@@ -268,16 +264,16 @@ pub fn lower_program(
     };
     debug!(
         "generated {} variables, {} constraints, {} reports",
-        lowered.algebra.variable_instances.len(),
-        lowered.algebra.constraints.len(),
-        lowered.reports.len()
+        compiled.algebra.variable_instances.len(),
+        compiled.algebra.constraints.len(),
+        compiled.reports.len()
     );
 
-    Ok(lowered)
+    Ok(compiled)
 }
 
-fn lower_constraint(constraint: &ResolvedConstraint) -> LoweredConstraint {
-    LoweredConstraint {
+fn compile_constraint(constraint: &ResolvedConstraint) -> CompiledConstraint {
+    CompiledConstraint {
         name: constraint.name.clone(),
         source_kind: constraint.source_kind.clone(),
         source_name: constraint.source_name.clone(),
@@ -285,16 +281,16 @@ fn lower_constraint(constraint: &ResolvedConstraint) -> LoweredConstraint {
     }
 }
 
-fn lower_objective(objective: &ResolvedObjective) -> LoweredObjective {
-    LoweredObjective {
+fn compile_objective(objective: &ResolvedObjective) -> CompiledObjective {
+    CompiledObjective {
         name: objective.name.clone(),
         sense: objective.sense.clone(),
         expression: objective.expression_text.clone(),
     }
 }
 
-fn lower_report(report: &ResolvedReport) -> LoweredReport {
-    LoweredReport {
+fn compile_report(report: &ResolvedReport) -> CompiledReport {
+    CompiledReport {
         name: report.name.clone(),
         formula: report.formula_text.clone(),
     }

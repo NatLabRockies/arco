@@ -3,10 +3,10 @@ fn load_inputs(
     source_program: &SourceProgram,
     scenario: &ScenarioDecl,
     entrypoint: &Path,
-) -> Result<ScenarioInputs, LoweringError> {
+) -> Result<ScenarioInputs, CompileError> {
     let entry_dir = entrypoint
         .parent()
-        .ok_or_else(|| LoweringError::MissingScenario {
+        .ok_or_else(|| CompileError::MissingScenario {
             name: program.active_scenario.clone(),
             path: entrypoint.to_path_buf(),
         })?;
@@ -35,7 +35,7 @@ fn load_inputs(
         let model =
             source_program
                 .model(model_name)
-                .ok_or_else(|| LoweringError::MissingDeclaration {
+                .ok_or_else(|| CompileError::MissingDeclaration {
                     kind: "model",
                     name: model_name.clone(),
                     path: entrypoint.to_path_buf(),
@@ -89,7 +89,7 @@ fn load_inputs(
         let csv_path = entry_dir.join(&binding.source);
         let rows = read_csv_rows(&csv_path)?;
         let Some(first_row) = rows.first() else {
-            return Err(LoweringError::MissingData {
+            return Err(CompileError::MissingData {
                 name: binding.name.clone(),
                 path: csv_path,
             });
@@ -101,7 +101,7 @@ fn load_inputs(
                 let asset_name =
                     row.get("asset_name")
                         .cloned()
-                        .ok_or_else(|| LoweringError::MissingColumn {
+                        .ok_or_else(|| CompileError::MissingColumn {
                             column: "asset_name".to_string(),
                             path: csv_path.clone(),
                         })?;
@@ -116,7 +116,7 @@ fn load_inputs(
                 let asset_name =
                     row.get("asset_name")
                         .cloned()
-                        .ok_or_else(|| LoweringError::MissingColumn {
+                        .ok_or_else(|| CompileError::MissingColumn {
                             column: "asset_name".to_string(),
                             path: csv_path.clone(),
                         })?;
@@ -159,14 +159,14 @@ struct LinearizationBindings {
     values: BTreeMap<String, FilterValue>,
 }
 
-fn read_csv_rows(path: &Path) -> Result<Vec<HashMap<String, String>>, LoweringError> {
-    let mut reader = csv::Reader::from_path(path).map_err(|source| LoweringError::Csv {
+fn read_csv_rows(path: &Path) -> Result<Vec<HashMap<String, String>>, CompileError> {
+    let mut reader = csv::Reader::from_path(path).map_err(|source| CompileError::Csv {
         path: path.to_path_buf(),
         source,
     })?;
     let headers = reader
         .headers()
-        .map_err(|source| LoweringError::Csv {
+        .map_err(|source| CompileError::Csv {
             path: path.to_path_buf(),
             source,
         })?
@@ -175,7 +175,7 @@ fn read_csv_rows(path: &Path) -> Result<Vec<HashMap<String, String>>, LoweringEr
     reader
         .records()
         .map(|record| {
-            let record = record.map_err(|source| LoweringError::Csv {
+            let record = record.map_err(|source| CompileError::Csv {
                 path: path.to_path_buf(),
                 source,
             })?;
@@ -188,7 +188,7 @@ fn record_to_map(
     path: &Path,
     headers: &StringRecord,
     record: StringRecord,
-) -> Result<HashMap<String, String>, LoweringError> {
+) -> Result<HashMap<String, String>, CompileError> {
     let mut row = HashMap::with_capacity(headers.len());
     for i in 0..headers.len() {
         if let Some(value) = record.get(i) {
@@ -196,7 +196,7 @@ fn record_to_map(
         }
     }
     if row.is_empty() {
-        return Err(LoweringError::MissingData {
+        return Err(CompileError::MissingData {
             name: "csv".to_string(),
             path: path.to_path_buf(),
         });
@@ -208,16 +208,16 @@ fn parse_usize_field(
     row: &HashMap<String, String>,
     field: &str,
     path: &Path,
-) -> Result<usize, LoweringError> {
+) -> Result<usize, CompileError> {
     let raw = row
         .get(field)
         .cloned()
-        .ok_or_else(|| LoweringError::MissingColumn {
+        .ok_or_else(|| CompileError::MissingColumn {
             column: field.to_string(),
             path: path.to_path_buf(),
         })?;
     raw.parse::<usize>()
-        .map_err(|_| LoweringError::InvalidNumber {
+        .map_err(|_| CompileError::InvalidNumber {
             value: raw,
             field: field.to_string(),
             path: path.to_path_buf(),
@@ -228,17 +228,17 @@ fn parse_data_value(
     row: &HashMap<String, String>,
     name: &str,
     path: &Path,
-) -> Result<f64, LoweringError> {
+) -> Result<f64, CompileError> {
     let raw = row
         .get(name)
         .cloned()
         .or_else(|| row.get("value").cloned())
-        .ok_or_else(|| LoweringError::MissingColumn {
+        .ok_or_else(|| CompileError::MissingColumn {
             column: name.to_string(),
             path: path.to_path_buf(),
         })?;
     raw.parse::<f64>()
-        .map_err(|_| LoweringError::InvalidNumber {
+        .map_err(|_| CompileError::InvalidNumber {
             value: raw,
             field: name.to_string(),
             path: path.to_path_buf(),
@@ -251,7 +251,7 @@ fn load_data_decl_params(
     entry_dir: &Path,
     generic_data: &mut BTreeMap<String, GenericDataTable>,
     set_params: &mut BTreeMap<String, BTreeMap<String, f64>>,
-) -> Result<(), LoweringError> {
+) -> Result<(), CompileError> {
     let csv_path = entry_dir.join(&data_decl.source);
     let rows = read_csv_rows(&csv_path)?;
     if rows.is_empty() {
@@ -276,13 +276,13 @@ fn load_data_decl_params(
                 .get(&value_column)
                 .cloned()
                 .or_else(|| row.get("value").cloned())
-                .ok_or_else(|| LoweringError::MissingColumn {
+                .ok_or_else(|| CompileError::MissingColumn {
                     column: value_column.clone(),
                     path: csv_path.clone(),
                 })?;
             let value = value_raw
                 .parse::<f64>()
-                .map_err(|_| LoweringError::InvalidNumber {
+                .map_err(|_| CompileError::InvalidNumber {
                     value: value_raw,
                     field: value_column.clone(),
                     path: csv_path.clone(),
@@ -293,7 +293,7 @@ fn load_data_decl_params(
                 .map(|column| {
                     row.get(column)
                         .cloned()
-                        .ok_or_else(|| LoweringError::MissingColumn {
+                        .ok_or_else(|| CompileError::MissingColumn {
                             column: column.clone(),
                             path: csv_path.clone(),
                         })

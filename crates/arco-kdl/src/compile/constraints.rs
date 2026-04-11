@@ -1,11 +1,11 @@
-fn lower_constraint_instances(
+fn compile_constraint_instances(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
-) -> Result<Vec<LinearConstraint>, LoweringError> {
+) -> Result<Vec<LinearConstraint>, CompileError> {
     let mut constraints = Vec::new();
     for constraint in &program.active_constraints {
         if constraint.generation_bindings.is_empty() {
@@ -84,7 +84,7 @@ fn linearize_constraint_body(
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
-) -> Result<Vec<LinearConstraint>, LoweringError> {
+) -> Result<Vec<LinearConstraint>, CompileError> {
     let suffix = constraint_binding_suffix(bindings, entrypoint)?;
     match &constraint.expression {
         ConstraintBody::Comparison { op, left, right } => Ok(vec![linearize_comparison(
@@ -150,7 +150,7 @@ fn linearize_comparison(
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
-) -> Result<LinearConstraint, LoweringError> {
+) -> Result<LinearConstraint, CompileError> {
     let left = linearize_value_expr(
         left,
         bindings,
@@ -184,13 +184,13 @@ fn linearize_comparison(
 fn comparison_to_constraint_sense(
     op: ComparisonOp,
     path: &Path,
-) -> Result<ConstraintSense, LoweringError> {
+) -> Result<ConstraintSense, CompileError> {
     match op {
         ComparisonOp::Equal | ComparisonOp::DoubleEqual => Ok(ConstraintSense::Equal),
         ComparisonOp::LessEqual => Ok(ConstraintSense::LessEqual),
         ComparisonOp::GreaterEqual => Ok(ConstraintSense::GreaterEqual),
         ComparisonOp::Less | ComparisonOp::Greater | ComparisonOp::NotEqual => {
-            Err(LoweringError::InvalidFormulation {
+            Err(CompileError::InvalidFormulation {
                 message: format!(
                     "strict or not-equal comparison `{op}` is not supported in linear constraints"
                 ),

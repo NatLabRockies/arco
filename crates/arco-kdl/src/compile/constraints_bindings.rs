@@ -3,7 +3,7 @@ fn emit_terminal_boundary_constraints(
     inputs: &ScenarioInputs,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     entrypoint: &Path,
-) -> Result<Vec<LinearConstraint>, LoweringError> {
+) -> Result<Vec<LinearConstraint>, CompileError> {
     if program.chronology.terminal_boundary.is_none()
         || !variable_signatures.contains_key("soc[a,t]")
     {
@@ -143,7 +143,7 @@ fn bindings_asset<'a>(
 fn bindings_time(
     bindings: &LinearizationBindings,
     entrypoint: &Path,
-) -> Result<Option<usize>, LoweringError> {
+) -> Result<Option<usize>, CompileError> {
     bindings
         .values
         .get("t")
@@ -154,7 +154,7 @@ fn bindings_time(
 fn constraint_binding_suffix(
     bindings: &LinearizationBindings,
     entrypoint: &Path,
-) -> Result<String, LoweringError> {
+) -> Result<String, CompileError> {
     let mut indices = Vec::new();
     if let Some(value) = bindings.values.get("a") {
         indices.push(string_filter_value(

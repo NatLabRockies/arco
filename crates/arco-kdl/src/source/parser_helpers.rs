@@ -1,3 +1,4 @@
+use crate::ObjectiveSense;
 use crate::algebra::{parse_constraint_formula, parse_value_formula};
 use crate::source::ast::{GenerationBinding, IndexDecl, LiteralValue, ObjectiveDecl};
 use crate::source::error::SourceError;
@@ -32,13 +33,13 @@ pub(super) fn parse_constraint_index_binding(
 
 pub(super) fn parse_optimize(
     node: &KdlNode,
-    sense: &str,
+    sense: ObjectiveSense,
     context: &ParseContext<'_>,
 ) -> Result<ObjectiveDecl, SourceError> {
     let expression = property_string(node, "expression", context)?;
     Ok(ObjectiveDecl {
         name: first_arg_string(node, 0, context)?,
-        sense: sense.to_string(),
+        sense,
         parsed_expression: parse_value_formula(&expression)
             .map_err(|error| algebra_error(node, error.to_string(), context))?,
         expression,
