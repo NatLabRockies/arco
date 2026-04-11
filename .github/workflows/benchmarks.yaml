@@ -68,7 +68,9 @@ jobs:
             --output bench-results.jsonl
 
       - name: Convert results to benchmark action format
-        run: uv run scripts/convert_bench_to_github.py bench-results.jsonl benchmark-results.json
+        run:
+          uv run scripts/convert_bench_to_github.py bench-results.jsonl
+          benchmark-results.json
 
       - name: Restore previous benchmark data
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
