@@ -245,8 +245,7 @@ fn is_asset_domain(
     let effective_name = signature
         .index_domains
         .get(index_name)
-        .map(|s| s.as_str())
-        .unwrap_or(index_name);
+        .map_or(index_name, |s| s.as_str());
     resolve_set_by_name(effective_name, program).is_some_and(|vals| {
         let set: BTreeSet<&str> = vals.iter().map(|v| v.as_str()).collect();
         set == *asset_names
@@ -265,8 +264,7 @@ fn resolve_single_index_domain(
     let effective_name = signature
         .index_domains
         .get(index_name)
-        .map(|s| s.as_str())
-        .unwrap_or(index_name);
+        .map_or(index_name, |s| s.as_str());
 
     resolve_set_by_name(effective_name, program).ok_or_else(|| CompileError::InvalidFormulation {
         message: format!(

@@ -653,7 +653,7 @@ pub fn execute_problem_with_options(
     Ok(ExecutionResult {
         backend,
         status: solve_output.status,
-        objective_sense: problem.objective.sense.clone(),
+        objective_sense: problem.objective.sense,
         objective,
         reports,
         variables,

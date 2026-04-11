@@ -242,7 +242,7 @@ fn to_e2e_summary(
         expect_solve_success: case.solvable && execution_result.status == SolveStatus::Optimal,
         objective: Some(ExpectedObjective {
             name: execution_result.objective.dsl_name.clone(),
-            sense: execution_result.objective_sense.clone(),
+            sense: execution_result.objective_sense,
         }),
         reports: execution_result
             .reports
