@@ -1,5 +1,6 @@
 name: Setup Build Environment
-description: Install Python tooling, Rust toolchain, cache, and sync packaging licenses.
+description:
+  Install Python tooling, Rust toolchain, cache, and sync packaging licenses.
 
 inputs:
   python-version:
@@ -32,7 +33,8 @@ inputs:
     required: false
     default: "true"
   rust-cache-shared-key:
-    description: Shared key for Swatinem/rust-cache to avoid cache thrashing between jobs.
+    description:
+      Shared key for Swatinem/rust-cache to avoid cache thrashing between jobs.
     required: false
     default: "rust-workspace"
 
@@ -45,7 +47,9 @@ runs:
       uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ${{ github.workspace }}/.uv-cache
-        key: ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{ inputs.python-version }}-${{ hashFiles('bindings/python/uv.lock') }}
+        key:
+          ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{
+          inputs.python-version }}-${{ hashFiles('bindings/python/uv.lock') }}
         restore-keys: |
           ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{ inputs.python-version }}-
           ${{ runner.os }}-uv-${{ inputs.uv-version }}-
@@ -89,15 +93,21 @@ runs:
         just-version: ${{ inputs.just-version }}
 
     - name: Sync Python license files
-      if: ${{ inputs.sync-python-licenses == 'true' && inputs.install-uv == 'true' }}
+      if:
+        ${{ inputs.sync-python-licenses == 'true' && inputs.install-uv == 'true'
+        }}
       env:
         UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
       shell: bash
       run: uv run python scripts/sync_python_licenses.py
 
     - name: Save uv cache
-      if: ${{ inputs.install-uv == 'true' && inputs.save-uv-cache == 'true' && steps.uv-cache-restore.outputs.cache-hit != 'true' }}
+      if:
+        ${{ inputs.install-uv == 'true' && inputs.save-uv-cache == 'true' &&
+        steps.uv-cache-restore.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ${{ github.workspace }}/.uv-cache
-        key: ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{ inputs.python-version }}-${{ hashFiles('bindings/python/uv.lock') }}
+        key:
+          ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{
+          inputs.python-version }}-${{ hashFiles('bindings/python/uv.lock') }}
