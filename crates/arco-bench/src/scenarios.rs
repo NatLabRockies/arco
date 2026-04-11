@@ -55,7 +55,6 @@ pub(crate) fn resolve_cases(
         }],
         Scenario::KdlCompile => KDL_EXAMPLES
             .iter()
-            .copied()
             .map(|name| CaseConfig {
                 name: name.to_string(),
                 variables: 0,
