@@ -10,8 +10,8 @@
 The SDOM formulation is based on:
 
 > O. J. Guerra, J. Eichman, and P. Denholm, "Optimal energy storage portfolio
-> for high and ultrahigh carbon-free and renewable power systems," *Energy &
-> Environmental Science*, vol. 14, no. 10, pp. 5132--5146, 2021.
+> for high and ultrahigh carbon-free and renewable power systems," _Energy &
+> Environmental Science_, vol. 14, no. 10, pp. 5132--5146, 2021.
 > [doi:10.1039/D1EE01835C](https://doi.org/10.1039/D1EE01835C)
 
 The reference implementation is available at

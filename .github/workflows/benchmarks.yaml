@@ -62,14 +62,13 @@ jobs:
         timeout-minutes: 20
         run: |
           cargo run --release -p arco-bench -- run \
-            --scenario model-build \
+            --scenario model-build,kdl-compile \
             --cases 100,1000,10000,100000 \
             --repetitions 3 \
             --output bench-results.jsonl
 
       - name: Convert results to benchmark action format
-        run:
-          uv run scripts/convert_bench_to_github.py bench-results.jsonl
+        run: uv run scripts/convert_bench_to_github.py bench-results.jsonl
           benchmark-results.json
 
       - name: Restore previous benchmark data
