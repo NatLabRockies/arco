@@ -202,11 +202,11 @@ jobs:
           fi
       # MODIFIED: musl-tools only ships a C wrapper (musl-gcc); highs-sys needs
       # a C++ compiler that links against musl's libstdc++, not glibc's.
-      # We install a full musl cross-toolchain from musl.cc which includes
-      # x86_64-linux-musl-g++ and a musl-compatible libstdc++.a.
+      # For container-based builds (messense/rust-musl-cross), the toolchain is pre-installed.
+      # For non-container builds, we download from musl.cc (may timeout - consider using container).
       # Re-apply after running `cargo dist init`.
       - name: Install musl cross-toolchain
-        if: ${{ contains(join(matrix.targets, ','), 'musl') }}
+        if: ${{ contains(join(matrix.targets, ','), 'musl') && !matrix.container }}
         shell: bash
         run: |
           curl -fsSL https://musl.cc/x86_64-linux-musl-cross.tgz | sudo tar xz -C /opt
@@ -214,16 +214,28 @@ jobs:
           sudo ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/x86_64-linux-musl-gcc
       # MODIFIED: Point cc/cargo at the musl cross-toolchain so that C/C++
       # code (highs-sys) compiles and links against musl, not glibc.
+      # For container builds, the x86_64-unknown-linux-musl-gcc/g++ are in PATH.
+      # For non-container builds, we use the /usr/local/bin symlinks.
       # Re-apply after running `cargo dist init`.
       - name: Configure musl cross-compilation env
         if: ${{ contains(join(matrix.targets, ','), 'musl') }}
         shell: bash
         run: |
-          {
-            echo "CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc"
-            echo "CXX_x86_64_unknown_linux_musl=x86_64-linux-musl-g++"
-            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc"
-          } >> "$GITHUB_ENV"
+          if [[ -n "${{ matrix.container }}" ]]; then
+            # Container has musl toolchain in PATH
+            {
+              echo "CC_x86_64_unknown_linux_musl=x86_64-unknown-linux-musl-gcc"
+              echo "CXX_x86_64_unknown_linux_musl=x86_64-unknown-linux-musl-g++"
+              echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-unknown-linux-musl-gcc"
+            } >> "$GITHUB_ENV"
+          else
+            # Non-container: use the downloaded toolchain
+            {
+              echo "CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc"
+              echo "CXX_x86_64_unknown_linux_musl=x86_64-linux-musl-g++"
+              echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc"
+            } >> "$GITHUB_ENV"
+          fi
       - name: Build artifacts
         shell: bash
         env:

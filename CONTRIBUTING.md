@@ -6,6 +6,14 @@ latest `main` so manifests, docs, and active work stay aligned.
 
 ## Development workflow
 
+Use workspace `just` targets as the default contributor entry point. This repository requires `just >= 1.43.0` because the root `justfile` uses recipe group attributes unsupported by older releases.
+
+If needed, install a compatible version with:
+
+```bash
+cargo install just --locked --version 1.43.0
+```
+
 Use workspace `just` targets as the default contributor entry point:
 
 ```bash

@@ -172,8 +172,11 @@ For development or to build everything locally:
 git clone https://github.com/NatLabRockies/arco.git
 cd arco
 
-# Install just (command runner)
-cargo install just
+# Install just (command runner, version 1.43.0 or newer)
+cargo install just --locked --version 1.43.0
+
+# Verify your just version
+just --version
 
 # Build CLI
 just build
