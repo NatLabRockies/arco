@@ -15,6 +15,7 @@ pub(crate) enum OutputFormat {
 pub(crate) enum Scenario {
     ModelBuild,
     Fac25,
+    KdlCompile,
 }
 
 impl Scenario {
@@ -22,6 +23,7 @@ impl Scenario {
         match self {
             Scenario::ModelBuild => "model-build",
             Scenario::Fac25 => "fac25",
+            Scenario::KdlCompile => "kdl-compile",
         }
     }
 }

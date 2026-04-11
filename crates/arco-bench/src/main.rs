@@ -8,7 +8,7 @@ use comparison::{build_comparison_rows, has_regressions, summarize_records};
 use reporting::{
     load_records_jsonl, render_compare_output, render_output, write_csc_matrix, write_records_jsonl,
 };
-use scenarios::{build_run_id, case_records, execute_case, resolve_cases};
+use scenarios::{build_run_id, case_records, execute_case, execute_kdl_case, resolve_cases};
 use std::path::PathBuf;
 use types::{OutputFormat, Scenario};
 
@@ -163,12 +163,15 @@ fn run_command(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         let cases = resolve_cases(*scenario, variables, constraints, cases.as_deref());
         for case in cases {
             for rep_idx in 0..repetitions {
-                let execution = execute_case(
-                    case.variables,
-                    case.constraints,
-                    constraint_ratio,
-                    write_csc.is_some(),
-                );
+                let execution = match scenario {
+                    Scenario::KdlCompile => execute_kdl_case(&case.name),
+                    _ => execute_case(
+                        case.variables,
+                        case.constraints,
+                        constraint_ratio,
+                        write_csc.is_some(),
+                    ),
+                };
                 if let (Some(base_dir), Some(csc)) = (write_csc.as_ref(), execution.csc.as_ref()) {
                     let dir = base_dir
                         .join(scenario.as_str())
