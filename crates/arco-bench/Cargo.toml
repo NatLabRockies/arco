@@ -17,6 +17,7 @@ workspace = true
 [dependencies]
 arco-core = { workspace = true }
 arco-expr = { workspace = true }
+arco-kdl = { workspace = true }
 arco-tools = { workspace = true }
 clap = { version = "4.5.23", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }

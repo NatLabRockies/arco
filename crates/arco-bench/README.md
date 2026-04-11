@@ -1,6 +1,5 @@
 # arco-bench
 
-
 `arco-bench` provides a consistent interface for:
 
 - running benchmark scenarios
@@ -104,5 +103,18 @@ Each record includes:
 Example record:
 
 ```json
-{"schema_version":1,"run_id":"bench_1770608719570","scenario":"model-build","case_name":"vars_10","repetition":1,"variables":10,"constraints":2,"stage":"total","duration_ms":14.928255,"rss_before_bytes":6320128,"rss_after_bytes":6918144,"rss_delta_bytes":598016}
+{
+  "schema_version": 1,
+  "run_id": "bench_1770608719570",
+  "scenario": "model-build",
+  "case_name": "vars_10",
+  "repetition": 1,
+  "variables": 10,
+  "constraints": 2,
+  "stage": "total",
+  "duration_ms": 14.928255,
+  "rss_before_bytes": 6320128,
+  "rss_after_bytes": 6918144,
+  "rss_delta_bytes": 598016
+}
 ```
