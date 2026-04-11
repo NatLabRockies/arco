@@ -67,8 +67,7 @@ jobs:
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
       tag: ${{ (inputs.tag != 'dry-run' && inputs.tag) || '' }}
-      tag-flag:
-        ${{ inputs.tag && inputs.tag != 'dry-run' && format('--tag={0}',
+      tag-flag: ${{ inputs.tag && inputs.tag != 'dry-run' && format('--tag={0}',
         inputs.tag) || '' }}
       publishing: ${{ inputs.tag && inputs.tag != 'dry-run' }}
     permissions:
@@ -86,8 +85,7 @@ jobs:
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
         shell: bash
-        run:
-          "curl --proto '=https' --tlsv1.2 -LsSf
+        run: "curl --proto '=https' --tlsv1.2 -LsSf
           https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh
           | sh"
       - name: Cache dist
@@ -152,8 +150,7 @@ jobs:
     container: ${{ matrix.container && matrix.container.image || null }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      BUILD_MANIFEST_NAME:
-        target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+      BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
     steps:
       - name: enable windows longpaths
         run: |
@@ -204,16 +201,16 @@ jobs:
             bash -euo pipefail -c "${MATRIX_PACKAGES_INSTALL}"
           fi
       # MODIFIED: musl-tools only ships a C wrapper (musl-gcc); highs-sys needs
-      # a C++ compiler to build HiGHS via CMake. Create an equivalent g++ wrapper.
-      # Re-apply after running `cargo dist init`.
+      # a C++ compiler to build HiGHS via CMake. The wrapper delegates to the
+      # host g++ (without musl-gcc.specs, which strips C++ headers and breaks
+      # std::atomic detection). This is safe because CMake produces a static
+      # archive (.a) — the object code is ABI-compatible and Rust handles the
+      # final musl link. Re-apply after running `cargo dist init`.
       - name: Create musl C++ wrapper
         if: ${{ contains(join(matrix.targets, ','), 'musl') }}
         shell: bash
         run: |
-          cat <<'WRAPPER' | sudo tee /usr/bin/x86_64-linux-musl-g++
-          #!/bin/sh
-          exec g++ "$@" -specs "/usr/lib/x86_64-linux-musl/musl-gcc.specs"
-          WRAPPER
+          printf '#!/bin/sh\nexec g++ "$@"\n' | sudo tee /usr/bin/x86_64-linux-musl-g++
           sudo chmod +x /usr/bin/x86_64-linux-musl-g++
       - name: Build artifacts
         shell: bash
@@ -312,8 +309,7 @@ jobs:
       - build-local-artifacts
       - build-global-artifacts
     # Only run if we're "publishing", and only if plan, local and global didn't fail (skipped is fine)
-    if:
-      ${{ always() && needs.plan.result == 'success' &&
+    if: ${{ always() && needs.plan.result == 'success' &&
       needs.plan.outputs.publishing == 'true' &&
       (needs.build-global-artifacts.result == 'skipped' ||
       needs.build-global-artifacts.result == 'success') &&
@@ -377,8 +373,7 @@ jobs:
       # instead of creating a new release. Re-apply after running `cargo dist init`.
       - name: Upload to GitHub Release and publish
         env:
-          PRERELEASE_FLAG:
-            "${{
+          PRERELEASE_FLAG: "${{
             fromJson(steps.host.outputs.manifest).announcement_is_prerelease &&
             '--prerelease' || '' }}"
           NEEDS_PLAN_OUTPUTS_TAG: ${{ needs.plan.outputs.tag }}
