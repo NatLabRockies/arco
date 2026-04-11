@@ -51,6 +51,12 @@ jobs:
       - name: Install tree-sitter CLI
         run: npm install --global tree-sitter-cli
 
+      - name: Regenerate parser from latest grammar
+        working-directory: tools/tree-sitter-arco-kdl
+        run: |
+          npm install
+          tree-sitter generate
+
       - name: Run filtered prek hook
         run: uvx --from prek==0.3.6 prek run --all-files --hook-stage manual
           --show-diff-on-failure --color always kdl-overlay-check
