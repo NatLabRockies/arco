@@ -588,6 +588,3 @@ benchmarks/output/
 !examples/capacity-expansion/data/*.csv
 !examples/price-taker-battery/data/*.csv
 !examples/simple-electricity-market-storage/data/*.csv
-
-# Keep tree-sitter grammar package.json (required for npm install)
-!tools/tree-sitter-arco-kdl/package.json
