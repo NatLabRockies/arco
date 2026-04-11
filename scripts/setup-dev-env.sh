@@ -4,7 +4,14 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
 if ! command -v just >/dev/null 2>&1; then
-  echo "just is required" >&2
+  echo "just >= 1.43.0 is required; install it with: cargo install just --locked --version 1.43.0" >&2
+  exit 1
+fi
+
+just_version="$(just --version | awk '{print $2}')"
+if ! printf '%s\n%s\n' "1.43.0" "$just_version" | sort -V -C; then
+  echo "just >= 1.43.0 is required; found $just_version" >&2
+  echo "Upgrade with: cargo install just --locked --version 1.43.0" >&2
   exit 1
 fi
 
