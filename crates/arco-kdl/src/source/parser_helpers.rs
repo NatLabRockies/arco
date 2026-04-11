@@ -1,7 +1,5 @@
 use crate::algebra::{parse_constraint_formula, parse_value_formula};
-use crate::source::ast::{
-    FilterComparators, GenerationBinding, IndexDecl, LiteralValue, ObjectiveDecl,
-};
+use crate::source::ast::{GenerationBinding, IndexDecl, LiteralValue, ObjectiveDecl};
 use crate::source::error::SourceError;
 use kdl::{KdlNode, KdlValue};
 use miette::NamedSource;
@@ -47,19 +45,6 @@ pub(super) fn parse_optimize(
     })
 }
 
-pub(super) fn parse_filter_comparators(
-    node: &KdlNode,
-    context: &ParseContext<'_>,
-) -> Result<FilterComparators, SourceError> {
-    Ok(FilterComparators {
-        eq: parse_optional_literal_property(node, "eq", context)?,
-        ge: parse_optional_literal_property(node, "ge", context)?,
-        geq: parse_optional_literal_property(node, "geq", context)?,
-        le: parse_optional_literal_property(node, "le", context)?,
-        leq: parse_optional_literal_property(node, "leq", context)?,
-    })
-}
-
 pub(super) fn parse_optional_filter_expression(
     node: &KdlNode,
     context: &ParseContext<'_>,
@@ -96,7 +81,7 @@ pub(super) fn declaration_indices(
 ) -> Result<Vec<IndexDecl>, SourceError> {
     let mut indices = Vec::new();
 
-    if let Some(property_index) = optional_property_string(node, "index_by", context)? {
+    if let Some(property_index) = optional_property_string(node, "index", context)? {
         indices.push(IndexDecl {
             name: property_index.clone(),
             domain: Some(property_index),
@@ -105,7 +90,7 @@ pub(super) fn declaration_indices(
 
     for child in node.iter_children() {
         match child.name().value() {
-            "lower" | "upper" | "filter" => {}
+            "filter" | "bounds" => {}
             "index" => {
                 let index_name = first_arg_string(child, 0, context)?;
                 let domain = child
@@ -144,17 +129,6 @@ pub(super) fn algebra_text_from_node(
     }
 
     Err(missing_property_error(node, "expression", context))
-}
-
-pub(super) fn parse_optional_literal_property(
-    node: &KdlNode,
-    property: &'static str,
-    context: &ParseContext<'_>,
-) -> Result<Option<LiteralValue>, SourceError> {
-    let Some(value) = node.get(property) else {
-        return Ok(None);
-    };
-    literal_from_arg(node, value, context).map(Some)
 }
 
 pub(super) fn positional_value(
@@ -281,19 +255,6 @@ pub(super) fn optional_property_literal(
     }
 
     Err(invalid_value_error(node, property.to_string(), context))
-}
-
-pub(super) fn property_usize(
-    node: &KdlNode,
-    property: &'static str,
-    context: &ParseContext<'_>,
-) -> Result<usize, SourceError> {
-    let integer = node
-        .get(property)
-        .and_then(KdlValue::as_integer)
-        .ok_or_else(|| missing_property_error(node, property, context))?;
-
-    usize::try_from(integer).map_err(|_| invalid_value_error(node, property.to_string(), context))
 }
 
 pub(super) fn missing_node_error(

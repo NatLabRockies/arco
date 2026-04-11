@@ -1,11 +1,10 @@
 use crate::algebra::{ConstraintBody, Expr};
 use miette::NamedSource;
-use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceProgram {
+    pub params: Vec<ParamDecl>,
     pub data: Vec<DataDecl>,
-    pub subsets: Vec<SubsetDecl>,
     pub models: Vec<ModelDecl>,
     pub sets: Vec<SetDecl>,
     pub scenarios: Vec<ScenarioDecl>,
@@ -43,15 +42,6 @@ pub struct DataIndexDecl {
     pub columns: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubsetDecl {
-    pub name: String,
-    pub source: String,
-    pub field_filters: BTreeMap<String, LiteralValue>,
-    pub filter_by: Option<String>,
-    pub comparators: FilterComparators,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FilterComparators {
     pub eq: Option<LiteralValue>,
@@ -65,13 +55,10 @@ pub struct FilterComparators {
 pub struct SetDecl {
     pub name: String,
     pub alias: Option<String>,
-    pub source: Option<String>,
     pub subset_of: Option<String>,
     pub members: Vec<LiteralValue>,
     pub filter_expression: Option<String>,
     pub parsed_filter_expression: Option<Expr>,
-    pub filter_by: Option<String>,
-    pub comparators: FilterComparators,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,13 +67,11 @@ pub struct ParamDecl {
     pub indices: Vec<String>,
     pub value: Option<LiteralValue>,
     pub from: Option<String>,
-    pub index_by: Option<String>,
+    pub index: Option<String>,
     pub uses_index_children: bool,
     pub reduce: Option<String>,
     pub filter_expression: Option<String>,
     pub parsed_filter_expression: Option<Expr>,
-    pub filter_by: Option<String>,
-    pub comparators: FilterComparators,
     pub units: Option<String>,
 }
 
@@ -172,28 +157,13 @@ pub struct ReportDecl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScenarioDecl {
     pub name: String,
-    pub horizon: HorizonDecl,
     pub data: Vec<DataBindingDecl>,
-    pub set_bindings: Vec<SetBindingDecl>,
     pub model_use: Option<String>,
     pub reports: Vec<ReportDecl>,
-    pub custom_sets: BTreeMap<String, Vec<String>>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct HorizonDecl {
-    pub steps: usize,
-    pub resolution: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataBindingDecl {
-    pub name: String,
-    pub source: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SetBindingDecl {
     pub name: String,
     pub source: String,
 }
@@ -211,10 +181,6 @@ impl SourceProgram {
 
     pub fn data(&self, name: &str) -> Option<&DataDecl> {
         self.data.iter().find(|decl| decl.name == name)
-    }
-
-    pub fn subset(&self, name: &str) -> Option<&SubsetDecl> {
-        self.subsets.iter().find(|decl| decl.name == name)
     }
 
     pub fn model(&self, name: &str) -> Option<&ModelDecl> {
@@ -249,12 +215,9 @@ mod tests {
         });
         program.scenarios.push(ScenarioDecl {
             name: "Base".to_string(),
-            horizon: HorizonDecl::default(),
             data: Vec::new(),
-            set_bindings: Vec::new(),
             model_use: Some("ModelA".to_string()),
             reports: Vec::new(),
-            custom_sets: BTreeMap::new(),
         });
 
         assert!(program.model("ModelA").is_some());

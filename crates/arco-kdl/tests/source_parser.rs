@@ -5,15 +5,16 @@ use std::path::PathBuf;
 fn parses_top_level_low_level_declarations() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
     let text = r#"
+param "voll" 9000 units="$/MWh"
+
+set "time" { "1"; "2"; "3" }
+
 data "generator_data" from="data/generator.csv" {
   map "asset_id" from="asset"
 }
 
-subset "solar_assets" from="generator_data"
-
 model "Dispatch" {
-  set "time" from="horizon"
-  control "dispatch" index_by="asset_id" lower=0
+  control "dispatch" index="asset_id" lower=0
   constraint "limit" {
     dispatch[a] <= 100
   }
@@ -23,7 +24,6 @@ model "Dispatch" {
 }
 
 scenario "Base" {
-  horizon steps=24 resolution="PT1H"
   use "Dispatch"
 }
 "#;
@@ -31,8 +31,9 @@ scenario "Base" {
     let parsed = parse_program_text(text, &path)?;
     let program = parsed.program;
 
+    assert_eq!(program.params.len(), 1);
+    assert_eq!(program.sets.len(), 1);
     assert_eq!(program.data.len(), 1);
-    assert_eq!(program.subsets.len(), 1);
     assert_eq!(program.models.len(), 1);
     assert_eq!(program.scenarios.len(), 1);
 
@@ -45,10 +46,10 @@ fn parses_data_children_including_index_forms() -> Result<(), Box<dyn std::error
     let text = r#"
 data "generator_data" from="data/generator.csv" {
   map "asset_id" from="asset"
-  set "asset_id" subset_of="zone" filter_by="is_active" eq=#true
+  set "asset_id"
   index "asset_id" "zone_id"
 
-  param "capacity_mw" index_by="asset_id" from="capacity_col" units="MW"
+  param "capacity_mw" index="asset_id" from="capacity_col" units="MW"
   param "availability" {
     index "asset_id"
     index "time"
@@ -63,7 +64,6 @@ data "generator_data" from="data/generator.csv" {
     assert_eq!(data.maps[0].name, "asset_id");
     assert_eq!(data.maps[0].source.as_deref(), Some("asset"));
     assert_eq!(data.sets[0].name, "asset_id");
-    assert_eq!(data.sets[0].subset_of.as_deref(), Some("zone"));
     assert_eq!(data.indices[0].columns, vec!["asset_id", "zone_id"]);
 
     assert_eq!(data.parameters[0].name, "capacity_mw");
@@ -84,14 +84,14 @@ fn parses_model_children_with_indexing_and_algebra() -> Result<(), Box<dyn std::
     let text = r#"
 model "Dispatch" {
   set "assets" alias="a"
-  set "time" from="horizon" alias="t"
+  set "time" alias="t"
 
   param "demand" {
     index "time"
   }
-  param "capacity_mw" index_by="assets"
+  param "capacity_mw" index="assets"
 
-  control "dispatch" index_by="assets" lower=0
+  control "dispatch" index="assets" lower=0
   control "on" {
     index "assets"
     index "time"
@@ -138,7 +138,7 @@ fn parses_scenario_reports_scalar_and_dual() -> Result<(), Box<dyn std::error::E
     let text = r#"
 model "Dispatch" {
   set "assets"
-  control "dispatch" index_by="assets"
+  control "dispatch" index="assets"
   constraint "balance" {
     dispatch[a] <= 100
   }
@@ -148,7 +148,6 @@ model "Dispatch" {
 }
 
 scenario "Base" {
-  horizon steps=24 resolution="PT1H"
   use "Dispatch"
   data "demand" from="data/demand.csv"
   report FuelCost
@@ -164,33 +163,6 @@ scenario "Base" {
     assert_eq!(scenario.reports[0].target, "FuelCost");
     assert_eq!(scenario.reports[1].kind, ReportKind::Dual);
     assert_eq!(scenario.reports[1].target, "balance");
-
-    Ok(())
-}
-
-#[test]
-fn parses_subset_property_filters_and_comparators() -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text = r#"
-subset "solar_north" from="generator_data" class="solar" area="north"
-subset "large_units" from="units" filter_by="capacity_mw" geq=200 leq=500
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
-
-    assert_eq!(parsed.program.subsets.len(), 2);
-    let subset = &parsed.program.subsets[0];
-    assert_eq!(subset.source, "generator_data");
-    assert_eq!(subset.field_filters.len(), 2);
-    assert_eq!(
-        subset.field_filters.get("class"),
-        Some(&LiteralValue::String("solar".to_string()))
-    );
-
-    let bounded = &parsed.program.subsets[1];
-    assert_eq!(bounded.filter_by.as_deref(), Some("capacity_mw"));
-    assert_eq!(bounded.comparators.geq, Some(LiteralValue::Integer(200)));
-    assert_eq!(bounded.comparators.leq, Some(LiteralValue::Integer(500)));
 
     Ok(())
 }
@@ -255,6 +227,7 @@ fn rejects_unsupported_top_level_declarations() {
         ("expression", "expression Cost { 1 }"),
         ("minimize", "minimize Obj { 1 }"),
         ("maximize", "maximize Obj { 1 }"),
+        ("subset", "subset legacy from=\"x\""),
     ];
 
     for (decl, text) in cases {
@@ -268,50 +241,42 @@ fn rejects_unsupported_top_level_declarations() {
 }
 
 #[test]
-fn rejects_unsupported_scenario_set_binding() {
+fn rejects_legacy_index_by_property() {
     let path = PathBuf::from("test.kdl");
     let text = r#"
 model "Dispatch" {
-  control "p" index_by="g"
+  param "demand" index_by="t"
+  control "x" index="t"
+  minimize "Obj" { x[t] }
+}
+scenario "Base" { use "Dispatch" }
+"#;
+
+    let error = parse_program_text(text, &path)
+        .expect_err("legacy index_by should be rejected at parse time");
+    assert!(error.to_string().contains("index_by"));
+}
+
+#[test]
+fn rejects_unsupported_scenario_horizon_and_set_binding() {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+model "Dispatch" {
+  control "p" index="g"
   maximize "Obj" { p[g] }
 }
 
 scenario "Base" {
   use "Dispatch"
-  set "assets" from="generator_data"
+  horizon steps=24 resolution="PT1H"
 }
 "#;
 
     let error = parse_program_text(text, &path)
-        .expect_err("scenario-level set binding should be rejected at parse time");
+        .expect_err("scenario-level horizon should be rejected at parse time");
 
     match error {
-        SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, "set"),
+        SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, "horizon"),
         other => panic!("expected UnsupportedDeclaration, got {other:?}"),
     }
-}
-
-#[test]
-fn parses_scenario_without_horizon_block() -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text = r"
-model Dispatch {
-  control p index_by=g
-  maximize Obj {
-    p[g]
-  }
-}
-
-scenario Base {
-  use Dispatch
-  report Obj
-}
-";
-
-    let parsed = parse_program_text(text, &path)?;
-    let scenario = parsed.program.scenario("Base").ok_or("missing scenario")?;
-    assert_eq!(scenario.horizon.steps, 0);
-    assert_eq!(scenario.horizon.resolution, "");
-
-    Ok(())
 }
