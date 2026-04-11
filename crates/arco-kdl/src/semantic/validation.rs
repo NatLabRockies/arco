@@ -83,7 +83,7 @@ pub fn validate_program(
 
     let active_objective = ResolvedObjective {
         name: model.optimize.name.clone(),
-        sense: model.optimize.sense.clone(),
+        sense: model.optimize.sense,
         expression_text: model.optimize.expression.clone(),
         expression: model.optimize.parsed_expression.clone(),
     };

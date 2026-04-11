@@ -284,7 +284,7 @@ fn compile_constraint(constraint: &ResolvedConstraint) -> CompiledConstraint {
 fn compile_objective(objective: &ResolvedObjective) -> CompiledObjective {
     CompiledObjective {
         name: objective.name.clone(),
-        sense: objective.sense.clone(),
+        sense: objective.sense,
         expression: objective.expression_text.clone(),
     }
 }

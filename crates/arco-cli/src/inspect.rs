@@ -1030,7 +1030,7 @@ fn build_objective_record(
 
     ObjectiveRecord {
         name: objective.name.clone(),
-        sense: objective.sense.clone(),
+        sense: objective.sense,
         term: terms,
     }
 }
