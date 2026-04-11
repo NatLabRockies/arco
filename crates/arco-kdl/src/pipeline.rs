@@ -1,4 +1,4 @@
-use crate::lowering::{LoweredProblem, LoweringError, lower_program};
+use crate::compile::{CompileError, CompiledProblem, compile_program};
 use crate::semantic::{SemanticError, SemanticProgram, validate_program};
 use crate::source::{SourceError, parse_program_file};
 use miette::Diagnostic;
@@ -10,7 +10,7 @@ use thiserror::Error;
 pub struct CompiledProgram {
     pub entrypoint: PathBuf,
     pub semantic_program: SemanticProgram,
-    pub lowered_problem: LoweredProblem,
+    pub compiled_problem: CompiledProblem,
     pub timing: PipelineTiming,
 }
 
@@ -31,7 +31,7 @@ struct ValidatedSource {
 pub struct PipelineTiming {
     pub parse: Duration,
     pub validate: Duration,
-    pub lower: Duration,
+    pub compile: Duration,
 }
 
 #[derive(Debug, Error)]
@@ -41,7 +41,7 @@ pub enum PipelineError {
     #[error(transparent)]
     Semantic(#[from] SemanticError),
     #[error(transparent)]
-    Lowering(#[from] LoweringError),
+    Compile(#[from] CompileError),
 }
 
 impl Diagnostic for PipelineError {
@@ -53,7 +53,7 @@ impl Diagnostic for PipelineError {
         match self {
             Self::Source(error) => Some(error),
             Self::Semantic(error) => Some(error),
-            Self::Lowering(error) => Some(error),
+            Self::Compile(error) => Some(error),
         }
     }
 }
@@ -73,22 +73,22 @@ pub fn compile_file(path: &Path) -> Result<CompiledProgram, PipelineError> {
         semantic_program,
     };
 
-    let lower_start = Instant::now();
-    let lowered_problem = lower_program(
+    let compile_start = Instant::now();
+    let compiled_problem = compile_program(
         &validated.semantic_program,
         &validated.parsed_source.program,
         &validated.entrypoint,
     )?;
-    let lower = lower_start.elapsed();
+    let compile = compile_start.elapsed();
 
     Ok(CompiledProgram {
         entrypoint: validated.entrypoint,
         semantic_program: validated.semantic_program,
-        lowered_problem,
+        compiled_problem,
         timing: PipelineTiming {
             parse,
             validate,
-            lower,
+            compile,
         },
     })
 }

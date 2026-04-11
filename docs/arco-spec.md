@@ -59,34 +59,11 @@ compatibility is explicit: new node types require a spec version bump.
 Arco targets [KDL 2.0](https://kdl.dev) as its host syntax. The live
 specification is available at <https://kdl.dev/spec/>.
 
-Certain Arco nodes contain **algebra blocks** — math expressions like
-`dispatch[a,t] <= capacity[a]` or `type == thermal`. These expressions are not
-KDL nodes. To maintain strict KDL 2.0 conformance, algebra block content MAY be
-written as a quoted string argument:
-
-```kdl
-// KDL 2.0 conformant — algebra as a quoted string
-filter "type == thermal"
-expression "dispatch[a,t] <= capacity[a]"
-minimize total_cost "sum(fuel_cost[g] * dispatch[g,t] for g in gen for t in time)"
-```
-
-For readability, the Arco parser also accepts **bare (unquoted) algebra blocks**
-using `{ ... }` syntax:
-
-```arco
-// Arco extended syntax — bare algebra blocks (not valid KDL 2.0)
-filter { type == thermal }
-expression { dispatch[a,t] <= capacity[a] }
-minimize total_cost {
-  sum(fuel_cost[g] * dispatch[g,t] for g in gen for t in time)
-}
-```
-
-Both forms are semantically identical. The bare form is RECOMMENDED for
-readability. The quoted form exists so that standard KDL 2.0 tooling (linters,
-formatters, syntax highlighters) can process Arco files without modification. An
-Arco-aware parser MUST accept both forms.
+Arco's structural layer — declarations, properties, arguments, and nesting — is
+KDL 2.0. Certain nodes, however, contain **algebra blocks**: `{ ... }` bodies
+with bare math expressions (e.g., `dispatch[a,t] <= capacity[a]`) that are not
+KDL nodes. This makes Arco a **superset** of KDL 2.0 — a standard KDL parser
+cannot parse algebra block content.
 
 Algebra blocks occur in the following contexts (exhaustive list):
 
@@ -105,6 +82,12 @@ Algebra blocks occur in the following contexts (exhaustive list):
 All other `{ ... }` blocks in Arco (children of `data`, `model`, `scenario`,
 `control`, `set`, `param`, `bounds`, `index`, `slack`, `report`) contain
 standard KDL nodes and are parsed with normal KDL 2.0 rules.
+
+Editor support: The `tree-sitter-arco-kdl` grammar (see
+`tools/tree-sitter-arco-kdl/`) extends `tree-sitter-kdl` to recognize algebra
+blocks. Editors configured with this grammar parse Arco files without errors.
+The grammar exposes algebra content as `arco_math_text` nodes for language
+injection and syntax highlighting.
 
 KDL features used by Arco (structural layer):
 

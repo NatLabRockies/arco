@@ -1,3 +1,4 @@
+use crate::ObjectiveSense;
 use crate::algebra::{ConstraintBody, Expr};
 use crate::source::{BoundExpr, GenerationBinding, VariableKindDecl};
 use std::collections::BTreeMap;
@@ -124,7 +125,7 @@ pub struct ResolvedExpression {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedObjective {
     pub name: String,
-    pub sense: String,
+    pub sense: ObjectiveSense,
     pub expression_text: String,
     pub expression: Expr,
 }

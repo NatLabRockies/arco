@@ -8,13 +8,13 @@ fn coerce_numeric_filter_value(value: FilterValue) -> FilterValue {
     }
 }
 
-fn integer_time_index(value: &FilterValue, entrypoint: &Path) -> Result<i64, LoweringError> {
+fn integer_time_index(value: &FilterValue, entrypoint: &Path) -> Result<i64, CompileError> {
     match value {
         FilterValue::Number(number) => {
             if number.fract() == 0.0 {
                 Ok(*number as i64)
             } else {
-                Err(LoweringError::InvalidFormulation {
+                Err(CompileError::InvalidFormulation {
                     message: format!("time index `{number}` must be integral"),
                     path: entrypoint.to_path_buf(),
                 })
@@ -23,12 +23,12 @@ fn integer_time_index(value: &FilterValue, entrypoint: &Path) -> Result<i64, Low
         FilterValue::String(value) => {
             value
                 .parse::<i64>()
-                .map_err(|_| LoweringError::InvalidFormulation {
+                .map_err(|_| CompileError::InvalidFormulation {
                     message: format!("time index `{value}` must be integral"),
                     path: entrypoint.to_path_buf(),
                 })
         }
-        FilterValue::Boolean(value) => Err(LoweringError::InvalidFormulation {
+        FilterValue::Boolean(value) => Err(CompileError::InvalidFormulation {
             message: format!("time index `{value}` must be numeric"),
             path: entrypoint.to_path_buf(),
         }),
@@ -39,19 +39,19 @@ fn resolve_index_expr(
     expr: &Expr,
     bindings: &LinearizationBindings,
     entrypoint: &Path,
-) -> Result<FilterValue, LoweringError> {
+) -> Result<FilterValue, CompileError> {
     match expr {
         Expr::Identifier(name) => bindings
             .values
             .get(name)
             .cloned()
             .map(coerce_numeric_filter_value)
-            .ok_or_else(|| LoweringError::InvalidFormulation {
+            .ok_or_else(|| CompileError::InvalidFormulation {
                 message: format!("unbound index identifier `{name}`"),
                 path: entrypoint.to_path_buf(),
             }),
         Expr::Number(value) => value.parse::<f64>().map(FilterValue::Number).map_err(|_| {
-            LoweringError::InvalidFormulation {
+            CompileError::InvalidFormulation {
                 message: format!("invalid numeric index `{value}`"),
                 path: entrypoint.to_path_buf(),
             }
@@ -76,8 +76,8 @@ fn resolve_index_expr(
                 BinaryOp::Divide => left / right,
             }))
         }
-        _ => Err(LoweringError::InvalidFormulation {
-            message: "unsupported index expression during lowering".to_string(),
+        _ => Err(CompileError::InvalidFormulation {
+            message: "unsupported index expression during compilation".to_string(),
             path: entrypoint.to_path_buf(),
         }),
     }
@@ -86,7 +86,7 @@ fn resolve_index_expr(
 fn synthetic_constraint(name: &str) -> ResolvedConstraint {
     ResolvedConstraint {
         name: name.to_string(),
-        source_kind: "lowering".to_string(),
+        source_kind: "compile".to_string(),
         source_name: "synthetic".to_string(),
         expression_text: String::new(),
         expression: ConstraintBody::Comparison {

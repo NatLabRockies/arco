@@ -4,7 +4,7 @@ fn evaluate_constraint_filter(
     scope: FilterScope<'_>,
     inputs: &ScenarioInputs,
     path: &Path,
-) -> Result<bool, LoweringError> {
+) -> Result<bool, CompileError> {
     let value = evaluate_filter_expr(expr, constraint, scope, inputs, path)?;
     truthy_filter_value(&value, constraint, path)
 }
@@ -15,7 +15,7 @@ fn evaluate_filter_expr(
     scope: FilterScope<'_>,
     inputs: &ScenarioInputs,
     path: &Path,
-) -> Result<FilterValue, LoweringError> {
+) -> Result<FilterValue, CompileError> {
     match expr {
         Expr::Number(value) => value
             .parse::<f64>()
@@ -73,7 +73,7 @@ fn evaluate_identifier(
     constraint: &ResolvedConstraint,
     scope: FilterScope<'_>,
     path: &Path,
-) -> Result<FilterValue, LoweringError> {
+) -> Result<FilterValue, CompileError> {
     match name {
         "a" => scope
             .asset
@@ -110,7 +110,7 @@ fn evaluate_indexed_value(
     scope: FilterScope<'_>,
     inputs: &ScenarioInputs,
     path: &Path,
-) -> Result<FilterValue, LoweringError> {
+) -> Result<FilterValue, CompileError> {
     let values = indices
         .iter()
         .map(|index| evaluate_filter_expr(index, constraint, scope, inputs, path))
@@ -194,7 +194,7 @@ fn compare_filter_values(
     right: &FilterValue,
     constraint: &ResolvedConstraint,
     path: &Path,
-) -> Result<bool, LoweringError> {
+) -> Result<bool, CompileError> {
     match op {
         ComparisonOp::Equal | ComparisonOp::DoubleEqual => {
             compare_for_equality(left, right, constraint, path)
@@ -226,7 +226,7 @@ fn compare_for_equality(
     right: &FilterValue,
     constraint: &ResolvedConstraint,
     path: &Path,
-) -> Result<bool, LoweringError> {
+) -> Result<bool, CompileError> {
     match (left, right) {
         (FilterValue::String(left), FilterValue::String(right)) => Ok(left == right),
         (FilterValue::Boolean(left), FilterValue::Boolean(right)) => Ok(left == right),
@@ -242,7 +242,7 @@ fn truthy_filter_value(
     value: &FilterValue,
     constraint: &ResolvedConstraint,
     path: &Path,
-) -> Result<bool, LoweringError> {
+) -> Result<bool, CompileError> {
     match value {
         FilterValue::Boolean(value) => Ok(*value),
         FilterValue::Number(value) => Ok(*value != 0.0),
@@ -258,7 +258,7 @@ fn numeric_filter_value(
     value: &FilterValue,
     constraint: &ResolvedConstraint,
     path: &Path,
-) -> Result<f64, LoweringError> {
+) -> Result<f64, CompileError> {
     match value {
         FilterValue::Number(value) => Ok(*value),
         FilterValue::Boolean(value) => Ok(if *value { 1.0 } else { 0.0 }),
@@ -274,7 +274,7 @@ fn string_filter_value(
     value: &FilterValue,
     constraint: &ResolvedConstraint,
     path: &Path,
-) -> Result<String, LoweringError> {
+) -> Result<String, CompileError> {
     match value {
         FilterValue::String(value) => Ok(value.clone()),
         _ => Err(invalid_constraint_filter(
@@ -289,7 +289,7 @@ fn usize_filter_value(
     value: &FilterValue,
     constraint: &ResolvedConstraint,
     path: &Path,
-) -> Result<usize, LoweringError> {
+) -> Result<usize, CompileError> {
     let number = numeric_filter_value(value, constraint, path)?;
     if number.fract() == 0.0 && number >= 0.0 {
         Ok(number as usize)
@@ -318,8 +318,8 @@ fn invalid_constraint_filter(
     constraint: &ResolvedConstraint,
     path: &Path,
     message: impl Into<String>,
-) -> LoweringError {
-    LoweringError::InvalidConstraintFilter {
+) -> CompileError {
+    CompileError::InvalidConstraintFilter {
         constraint: format!(
             "{}:{}:{}",
             constraint.source_kind, constraint.source_name, constraint.name

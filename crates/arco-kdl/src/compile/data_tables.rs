@@ -27,9 +27,9 @@ fn load_generic_data_table(
     binding_name: &str,
     rows: &[HashMap<String, String>],
     path: &Path,
-) -> Result<GenericDataTable, LoweringError> {
+) -> Result<GenericDataTable, CompileError> {
     let Some(first_row) = rows.first() else {
-        return Err(LoweringError::MissingData {
+        return Err(CompileError::MissingData {
             name: binding_name.to_string(),
             path: path.to_path_buf(),
         });
@@ -52,7 +52,7 @@ fn load_generic_data_table(
             .map(|column| {
                 row.get(column)
                     .cloned()
-                    .ok_or_else(|| LoweringError::MissingColumn {
+                    .ok_or_else(|| CompileError::MissingColumn {
                         column: column.clone(),
                         path: path.to_path_buf(),
                     })
@@ -63,12 +63,12 @@ fn load_generic_data_table(
             let raw = row
                 .get(column)
                 .cloned()
-                .ok_or_else(|| LoweringError::MissingColumn {
+                .ok_or_else(|| CompileError::MissingColumn {
                     column: column.clone(),
                     path: path.to_path_buf(),
                 })?;
             raw.parse::<f64>()
-                .map_err(|_| LoweringError::InvalidNumber {
+                .map_err(|_| CompileError::InvalidNumber {
                     value: raw,
                     field: column.clone(),
                     path: path.to_path_buf(),

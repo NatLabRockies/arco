@@ -1,4 +1,5 @@
 use crate::execution::{ExecutionError, RustArcoAdapter, SolveStatus, execute_problem};
+use arco_kdl::ObjectiveSense;
 use arco_kdl::pipeline::{PipelineError, compile_file};
 use arco_kdl::semantic::SemanticProgram;
 use serde::Deserialize;
@@ -100,7 +101,7 @@ pub struct ExpectedE2eSummary {
     pub case_id: String,
     pub expect_parse_success: bool,
     pub expect_semantic_validation_success: bool,
-    pub expect_lowering_success: bool,
+    pub expect_compile_success: bool,
     pub expect_solve_success: bool,
     #[serde(default)]
     pub objective: Option<ExpectedObjective>,
@@ -111,7 +112,7 @@ pub struct ExpectedE2eSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ExpectedObjective {
     pub name: String,
-    pub sense: String,
+    pub sense: ObjectiveSense,
 }
 
 #[derive(Debug)]
@@ -149,7 +150,7 @@ fn evaluate_case(
 ) -> Result<CaseOutcome, BenchmarkError> {
     let entrypoint = repo_root.join(&case.entrypoint);
     let compiled = compile_file(&entrypoint)?;
-    let execution_result = execute_problem(&compiled.lowered_problem, &RustArcoAdapter::new())?;
+    let execution_result = execute_problem(&compiled.compiled_problem, &RustArcoAdapter::new())?;
 
     let actual_semantic_program =
         to_semantic_expectation(case, &compiled.semantic_program, &entrypoint)?;
@@ -237,7 +238,7 @@ fn to_e2e_summary(
         case_id: case.id.clone(),
         expect_parse_success: true,
         expect_semantic_validation_success: true,
-        expect_lowering_success: true,
+        expect_compile_success: true,
         expect_solve_success: case.solvable && execution_result.status == SolveStatus::Optimal,
         objective: Some(ExpectedObjective {
             name: execution_result.objective.dsl_name.clone(),
@@ -292,7 +293,7 @@ mod tests {
             active_expressions: Vec::new(),
             active_objective: ResolvedObjective {
                 name: "Obj".to_string(),
-                sense: "minimize".to_string(),
+                sense: ObjectiveSense::Minimize,
                 expression_text: "0".to_string(),
                 expression: Expr::Number("0".to_string()),
             },

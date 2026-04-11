@@ -1,3 +1,4 @@
+use crate::ObjectiveSense;
 use crate::algebra::{ConstraintBody, Expr};
 use miette::NamedSource;
 
@@ -137,7 +138,7 @@ pub struct ExpressionDecl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectiveDecl {
     pub name: String,
-    pub sense: String,
+    pub sense: ObjectiveSense,
     pub expression: String,
     pub parsed_expression: Expr,
 }
@@ -208,7 +209,7 @@ mod tests {
             constraints: Vec::new(),
             optimize: ObjectiveDecl {
                 name: "Obj".to_string(),
-                sense: "minimize".to_string(),
+                sense: ObjectiveSense::Minimize,
                 expression: "0".to_string(),
                 parsed_expression: Expr::Number("0".to_string()),
             },

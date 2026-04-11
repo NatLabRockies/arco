@@ -1,3 +1,4 @@
+use arco_kdl::ObjectiveSense;
 use arco_kdl::source::{BoundExpr, LiteralValue, ReportKind, SourceError, parse_program_text};
 use std::path::PathBuf;
 
@@ -122,7 +123,7 @@ model "Dispatch" {
     assert_eq!(model.controls[1].indices[1].name, "time");
     assert_eq!(model.expressions[0].name, "FuelCost");
     assert_eq!(model.constraints[0].name, "balance");
-    assert_eq!(model.optimize.sense, "maximize");
+    assert_eq!(model.optimize.sense, ObjectiveSense::Maximize);
     assert_eq!(model.optimize.expression, "FuelCost");
     assert_eq!(
         model.controls[0].lower,

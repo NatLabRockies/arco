@@ -3,7 +3,7 @@ fn generic_data_value(
     target: &str,
     resolved: &[FilterValue],
     entrypoint: &Path,
-) -> Result<Option<f64>, LoweringError> {
+) -> Result<Option<f64>, CompileError> {
     let Some(table) = generic_data.get(target) else {
         return Ok(None);
     };
@@ -29,7 +29,7 @@ fn generic_data_value(
 fn format_filter_lookup_key(
     resolved: &[FilterValue],
     entrypoint: &Path,
-) -> Result<String, LoweringError> {
+) -> Result<String, CompileError> {
     let parts = resolved
         .iter()
         .map(|value| filter_value_to_key_component(value, entrypoint))
@@ -40,7 +40,7 @@ fn format_filter_lookup_key(
 fn filter_value_to_key_component(
     value: &FilterValue,
     entrypoint: &Path,
-) -> Result<String, LoweringError> {
+) -> Result<String, CompileError> {
     match value {
         FilterValue::String(value) => Ok(value.clone()),
         FilterValue::Number(value) => {
@@ -50,7 +50,7 @@ fn filter_value_to_key_component(
                 Ok(value.to_string())
             }
         }
-        FilterValue::Boolean(_) => Err(LoweringError::InvalidFormulation {
+        FilterValue::Boolean(_) => Err(CompileError::InvalidFormulation {
             message: "boolean indices are not supported for data lookups".to_string(),
             path: entrypoint.to_path_buf(),
         }),
@@ -60,20 +60,20 @@ fn filter_value_to_key_component(
 /// Convert a `BoundExpr::Literal` to `f64`. Returns `None` for
 /// `BoundExpr::Formula` (parameter-based bounds need a linearization context
 /// that isn't available yet).
-fn literal_bound_to_f64(bound: &BoundExpr, path: &Path) -> Result<Option<f64>, LoweringError> {
+fn literal_bound_to_f64(bound: &BoundExpr, path: &Path) -> Result<Option<f64>, CompileError> {
     match bound {
         BoundExpr::Literal(literal) => literal_to_f64("bound", literal, path).map(Some),
         BoundExpr::Formula(_) => Ok(None),
     }
 }
 
-fn literal_to_f64(name: &str, value: &LiteralValue, path: &Path) -> Result<f64, LoweringError> {
+fn literal_to_f64(name: &str, value: &LiteralValue, path: &Path) -> Result<f64, CompileError> {
     match value {
         LiteralValue::Integer(value) => Ok(*value as f64),
         LiteralValue::Decimal(value) | LiteralValue::String(value) => {
             value
                 .parse::<f64>()
-                .map_err(|_| LoweringError::InvalidNumber {
+                .map_err(|_| CompileError::InvalidNumber {
                     value: value.clone(),
                     field: name.to_string(),
                     path: path.to_path_buf(),
@@ -83,12 +83,12 @@ fn literal_to_f64(name: &str, value: &LiteralValue, path: &Path) -> Result<f64, 
     }
 }
 
-fn asset_parameter(asset: &AssetInputs, name: &str, path: &Path) -> Result<f64, LoweringError> {
+fn asset_parameter(asset: &AssetInputs, name: &str, path: &Path) -> Result<f64, CompileError> {
     asset
         .parameters
         .get(name)
         .copied()
-        .ok_or_else(|| LoweringError::MissingParameter {
+        .ok_or_else(|| CompileError::MissingParameter {
             name: name.to_string(),
             asset: asset.name.clone(),
             path: path.to_path_buf(),
@@ -104,16 +104,16 @@ fn series_value(
     name: &str,
     time: usize,
     path: &Path,
-) -> Result<f64, LoweringError> {
+) -> Result<f64, CompileError> {
     series
         .get(name)
-        .ok_or_else(|| LoweringError::MissingData {
+        .ok_or_else(|| CompileError::MissingData {
             name: name.to_string(),
             path: path.to_path_buf(),
         })?
         .get(&time)
         .copied()
-        .ok_or_else(|| LoweringError::MissingDataPoint {
+        .ok_or_else(|| CompileError::MissingDataPoint {
             name: name.to_string(),
             key: time.to_string(),
             path: path.to_path_buf(),
@@ -126,16 +126,16 @@ fn indexed_value(
     asset_name: &str,
     time: usize,
     path: &Path,
-) -> Result<f64, LoweringError> {
+) -> Result<f64, CompileError> {
     indexed
         .get(name)
-        .ok_or_else(|| LoweringError::MissingData {
+        .ok_or_else(|| CompileError::MissingData {
             name: name.to_string(),
             path: path.to_path_buf(),
         })?
         .get(&(asset_name.to_string(), time))
         .copied()
-        .ok_or_else(|| LoweringError::MissingDataPoint {
+        .ok_or_else(|| CompileError::MissingDataPoint {
             name: name.to_string(),
             key: format!("{asset_name},{time}"),
             path: path.to_path_buf(),
@@ -147,16 +147,16 @@ fn asset_data_value(
     name: &str,
     asset_name: &str,
     path: &Path,
-) -> Result<f64, LoweringError> {
+) -> Result<f64, CompileError> {
     asset_data
         .get(name)
-        .ok_or_else(|| LoweringError::MissingData {
+        .ok_or_else(|| CompileError::MissingData {
             name: name.to_string(),
             path: path.to_path_buf(),
         })?
         .get(asset_name)
         .copied()
-        .ok_or_else(|| LoweringError::MissingDataPoint {
+        .ok_or_else(|| CompileError::MissingDataPoint {
             name: name.to_string(),
             key: asset_name.to_string(),
             path: path.to_path_buf(),

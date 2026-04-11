@@ -1,6 +1,7 @@
 //! Python enum wrappers for Arco types.
 
 use arco_core::{Sense, SimplifyLevel};
+use arco_expr::ComparisonSense;
 use pyo3::prelude::*;
 
 /// Python enum for optimization sense
@@ -29,6 +30,78 @@ impl From<Sense> for PySense {
         match sense {
             Sense::Minimize => PySense::Minimize,
             Sense::Maximize => PySense::Maximize,
+        }
+    }
+}
+
+/// Python enum for constraint comparison sense.
+///
+/// Accepts enum variants (`ComparisonSense.GE`) or string aliases
+/// (`"ge"`, `">="`, `"le"`, `"<="`, `"eq"`, `"=="`).
+#[pyclass(name = "ComparisonSense", eq, eq_int, skip_from_py_object)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyComparisonSense {
+    /// Greater than or equal (`>=`)
+    #[pyo3(name = "GE")]
+    GreaterEqual,
+    /// Less than or equal (`<=`)
+    #[pyo3(name = "LE")]
+    LessEqual,
+    /// Exactly equal (`==`)
+    #[pyo3(name = "EQ")]
+    Equal,
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyComparisonSense {
+    type Error = PyErr;
+
+    fn extract(ob: pyo3::Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let ob = ob.to_owned();
+        // Try extracting as the enum variant first
+        if let Ok(val) = ob.extract::<i64>() {
+            // PyO3 eq_int enum: variant ordinals
+            return match val {
+                0 => Ok(PyComparisonSense::GreaterEqual),
+                1 => Ok(PyComparisonSense::LessEqual),
+                2 => Ok(PyComparisonSense::Equal),
+                _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Invalid ComparisonSense value: {val}"
+                ))),
+            };
+        }
+        // Try extracting as a string alias
+        if let Ok(s) = ob.extract::<String>() {
+            return match s.to_lowercase().as_str() {
+                "ge" | ">=" => Ok(PyComparisonSense::GreaterEqual),
+                "le" | "<=" => Ok(PyComparisonSense::LessEqual),
+                "eq" | "==" => Ok(PyComparisonSense::Equal),
+                _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "Invalid sense '{s}' (expected 'ge', 'le', 'eq', '>=', '<=', or '==')",
+                ))),
+            };
+        }
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "expected ComparisonSense enum or string ('ge', 'le', 'eq', '>=', '<=', or '==')",
+        ))
+    }
+}
+
+impl From<PyComparisonSense> for ComparisonSense {
+    fn from(sense: PyComparisonSense) -> Self {
+        match sense {
+            PyComparisonSense::GreaterEqual => ComparisonSense::GreaterEqual,
+            PyComparisonSense::LessEqual => ComparisonSense::LessEqual,
+            PyComparisonSense::Equal => ComparisonSense::Equal,
+        }
+    }
+}
+
+impl From<ComparisonSense> for PyComparisonSense {
+    fn from(sense: ComparisonSense) -> Self {
+        match sense {
+            ComparisonSense::GreaterEqual => PyComparisonSense::GreaterEqual,
+            ComparisonSense::LessEqual => PyComparisonSense::LessEqual,
+            ComparisonSense::Equal => PyComparisonSense::Equal,
         }
     }
 }
@@ -64,6 +137,7 @@ impl From<SimplifyLevel> for PySimplifyLevel {
 /// Register enum classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySense>()?;
+    m.add_class::<PyComparisonSense>()?;
     m.add_class::<PySimplifyLevel>()?;
     Ok(())
 }

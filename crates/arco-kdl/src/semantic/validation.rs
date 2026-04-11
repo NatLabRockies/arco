@@ -98,7 +98,10 @@ pub fn validate_program(
         extend_set_registry_from_low_level_declarations(program, entry_dir, &mut set_registry)?;
     }
 
-    let time_steps = set_registry.get("time").map_or(0, |set| set.values.len());
+    let time_steps = set_registry
+        .get("time")
+        .or_else(|| set_registry.get("t"))
+        .map_or(0, |set| set.values.len());
     let resolved_sets = ResolvedSets {
         time: ResolvedTimeSet {
             steps: time_steps,

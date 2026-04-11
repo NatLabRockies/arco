@@ -1,6 +1,6 @@
 #![allow(clippy::float_cmp)]
 
-use arco_kdl::lowering::{LoweringError, lower_program};
+use arco_kdl::compile::{CompileError, compile_program};
 use arco_kdl::semantic::validate_program;
 use arco_kdl::source::parse_program_file;
 use std::fs;
@@ -40,6 +40,8 @@ data "inputs" from="data/inputs.csv" {
 }
 
 model "Dispatch" {
+  set time alias="t"
+
   param "capacity" {
     index "t"
   }
@@ -72,15 +74,15 @@ scenario "S1" {
 
     let parsed = parse_program_file(&path)?;
     let semantic = validate_program(&parsed.program, &path)?;
-    let lowered = lower_program(&semantic, &parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
 
-    let cap_1 = lowered
+    let cap_1 = compiled
         .algebra
         .constraints
         .iter()
         .find(|c| c.name == "cap_limit[t][1]")
         .ok_or("missing cap constraint at t=1")?;
-    let bal_1 = lowered
+    let bal_1 = compiled
         .algebra
         .constraints
         .iter()
@@ -114,6 +116,8 @@ data "defaults" from="data/top.csv" {
 }
 
 model "Dispatch" {
+  set time alias="t"
+
   param "capacity" {
     index "t"
   }
@@ -140,9 +144,9 @@ scenario "S1" {
 
     let parsed = parse_program_file(&path)?;
     let semantic = validate_program(&parsed.program, &path)?;
-    let lowered = lower_program(&semantic, &parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
 
-    let cap = lowered
+    let cap = compiled
         .algebra
         .constraints
         .iter()
@@ -206,11 +210,11 @@ scenario "SparseDistanceCase" {
 
     let parsed = parse_program_file(&path)?;
     let semantic = validate_program(&parsed.program, &path)?;
-    let err = lower_program(&semantic, &parsed.program, &path)
+    let err = compile_program(&semantic, &parsed.program, &path)
         .expect_err("sparse data table should fail lowering with a missing key");
 
     match err {
-        LoweringError::MissingDataPoint { name, key, .. } => {
+        CompileError::MissingDataPoint { name, key, .. } => {
             assert_eq!(name, "distance_km");
             assert_eq!(key, "g2,b2");
         }

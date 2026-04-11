@@ -1,8 +1,8 @@
-fn lower_algebra(
+fn compile_algebra(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     entrypoint: &Path,
-) -> Result<AlgebraicProblem, LoweringError> {
+) -> Result<AlgebraicProblem, CompileError> {
     let named_expressions = program
         .active_expressions
         .iter()
@@ -18,7 +18,7 @@ fn lower_algebra(
         instantiate_variable_instances(program, inputs, &variable_signatures, entrypoint)?;
     let instantiated_names: BTreeSet<String> =
         variable_instances.iter().map(|i| i.name.clone()).collect();
-    let mut constraints = lower_constraint_instances(
+    let mut constraints = compile_constraint_instances(
         program,
         inputs,
         &named_expressions,
@@ -73,7 +73,7 @@ fn lower_algebra(
         constraints,
         objective: LinearObjective {
             name: program.active_objective.name.clone(),
-            sense: objective_sense(&program.active_objective.sense),
+            sense: program.active_objective.sense,
             constant: objective.constant,
             terms: objective.into_terms(),
         },
@@ -124,11 +124,11 @@ impl AffineExpr {
         self
     }
 
-    fn as_scalar(&self, path: &Path, context: &str) -> Result<f64, LoweringError> {
+    fn as_scalar(&self, path: &Path, context: &str) -> Result<f64, CompileError> {
         if self.terms.is_empty() {
             Ok(self.constant)
         } else {
-            Err(LoweringError::InvalidFormulation {
+            Err(CompileError::InvalidFormulation {
                 message: format!("{context} must remain scalar"),
                 path: path.to_path_buf(),
             })
@@ -152,86 +152,46 @@ fn instantiate_variable_instances(
     inputs: &ScenarioInputs,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     entrypoint: &Path,
-) -> Result<Vec<VariableInstance>, LoweringError> {
+) -> Result<Vec<VariableInstance>, CompileError> {
     let mut instances = Vec::new();
     for (family, signature) in variable_signatures {
         let overrides = program.variable_overrides.get(&signature.target);
-        match signature.indices.as_slice() {
-            [asset_index, time_index] if asset_index == "a" && time_index == "t" => {
-                for asset in &inputs.assets {
-                    if !variable_instance_is_active(&signature.target, Some(asset)) {
-                        continue;
-                    }
-                    for time in 1..=program.sets.time.steps {
-                        instances.push(variable_instance_from_signature(
-                            family,
-                            signature,
-                            Some(asset),
-                            Some(time),
-                            overrides,
-                            entrypoint,
-                        )?);
-                    }
-                }
-            }
-            [asset_index] if asset_index == "a" => {
-                for asset in &inputs.assets {
-                    if !variable_instance_is_active(&signature.target, Some(asset)) {
-                        continue;
-                    }
-                    instances.push(variable_instance_from_signature(
-                        family,
-                        signature,
-                        Some(asset),
-                        None,
-                        overrides,
-                        entrypoint,
-                    )?);
-                }
-            }
-            [time_index] if time_index == "t" => {
-                for time in 1..=program.sets.time.steps {
-                    instances.push(variable_instance_from_signature(
-                        family,
-                        signature,
-                        None,
-                        Some(time),
-                        overrides,
-                        entrypoint,
-                    )?);
-                }
-            }
-            _ => {
-                // Try to resolve custom index domains via the set registry.
-                let resolved = resolve_custom_index_domains(
-                    signature, program, inputs, family, overrides, entrypoint,
-                )?;
-                instances.extend(resolved);
-            }
-        }
+        let resolved = resolve_variable_domains(
+            signature, program, inputs, family, overrides, entrypoint,
+        )?;
+        instances.extend(resolved);
     }
     Ok(instances)
 }
 
-/// Expand variable instances for families with custom index domains that
-/// don't match the built-in "a"/"t" patterns. Each index is resolved by
-/// checking its explicit domain binding (from `IndexDecl`) or falling back
-/// to the set_registry. Indices bound to "time" produce numeric time steps;
-/// all others produce string-named instances.
-fn resolve_custom_index_domains(
+/// Expand variable instances by resolving each index domain via the set
+/// registry and alias system. Produces the cartesian product of all
+/// resolved domains, applying asset-based filtering where applicable.
+fn resolve_variable_domains(
     signature: &FamilySignature,
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     family: &str,
     overrides: Option<&VariableDeclOverrides>,
     entrypoint: &Path,
-) -> Result<Vec<VariableInstance>, LoweringError> {
-    // Resolve each index to its domain values.
+) -> Result<Vec<VariableInstance>, CompileError> {
+    let asset_names: BTreeSet<&str> = inputs.assets.iter().map(|a| a.name.as_str()).collect();
+    let asset_lookup: BTreeMap<&str, &AssetInputs> = inputs
+        .assets
+        .iter()
+        .map(|a| (a.name.as_str(), a))
+        .collect();
+
+    // Resolve each index to its domain values and track which are asset domains.
     let mut domain_values: Vec<Vec<String>> = Vec::new();
-    for index_name in &signature.indices {
+    let mut asset_index: Option<usize> = None;
+    for (i, index_name) in signature.indices.iter().enumerate() {
         let values = resolve_single_index_domain(
-            index_name, signature, program, inputs, family, entrypoint,
+            index_name, signature, program, family, entrypoint,
         )?;
+        if is_asset_domain(index_name, signature, program, &asset_names) {
+            asset_index = Some(i);
+        }
         domain_values.push(values);
     }
 
@@ -251,9 +211,15 @@ fn resolve_custom_index_domains(
 
     let mut instances = Vec::new();
     for combo in &combos {
+        let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx].as_str()).copied());
+
+        if !variable_instance_is_active(&signature.target, asset) {
+            continue;
+        }
+
         let name = format!("{}[{}]", signature.target, combo.join(","));
         let (lower, upper, kind) =
-            variable_domain_policy(&signature.target, None, overrides, entrypoint)?;
+            variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
         instances.push(VariableInstance {
             name,
             family: family.to_string(),
@@ -265,91 +231,78 @@ fn resolve_custom_index_domains(
     Ok(instances)
 }
 
+/// Determine whether an index resolves to the assets domain by checking
+/// if the resolved set values match the known asset names.
+fn is_asset_domain(
+    index_name: &str,
+    signature: &FamilySignature,
+    program: &SemanticProgram,
+    asset_names: &BTreeSet<&str>,
+) -> bool {
+    if asset_names.is_empty() {
+        return false;
+    }
+    let effective_name = signature
+        .index_domains
+        .get(index_name)
+        .map(|s| s.as_str())
+        .unwrap_or(index_name);
+    resolve_set_by_name(effective_name, program).is_some_and(|vals| {
+        let set: BTreeSet<&str> = vals.iter().map(|v| v.as_str()).collect();
+        set == *asset_names
+    })
+}
+
 /// Resolve values for a single index. Checks the signature's explicit domain
-/// binding first, then falls back to known index names ("a" -> assets,
-/// "t" -> time), and finally looks up any set matching the index name in
-/// the registry.
+/// binding first, then looks up the set registry and alias system.
 fn resolve_single_index_domain(
     index_name: &str,
     signature: &FamilySignature,
     program: &SemanticProgram,
-    inputs: &ScenarioInputs,
     family: &str,
     entrypoint: &Path,
-) -> Result<Vec<String>, LoweringError> {
-    // Check explicit domain binding from IndexDecl.
-    if let Some(domain) = signature.index_domains.get(index_name) {
-        if domain == "time" {
-            return Ok((1..=program.sets.time.steps)
-                .map(|t| t.to_string())
-                .collect());
-        }
-        if domain == "assets" {
-            return Ok(inputs.assets.iter().map(|a| a.name.clone()).collect());
-        }
-        if let Some(set) = program.set_registry.get(domain.as_str()) {
-            return Ok(set.values.clone());
-        }
-        if let Some(canonical) = program.set_aliases.get(domain.as_str()) {
-            if let Some(set) = program.set_registry.get(canonical.as_str()) {
-                return Ok(set.values.clone());
-            }
-        }
-        return Err(LoweringError::InvalidFormulation {
-            message: format!(
-                "index `{index_name}` in `{family}` references unknown set `{domain}`"
-            ),
-            path: entrypoint.to_path_buf(),
-        });
-    }
+) -> Result<Vec<String>, CompileError> {
+    let effective_name = signature
+        .index_domains
+        .get(index_name)
+        .map(|s| s.as_str())
+        .unwrap_or(index_name);
 
-    // Fallback: infer from conventional index names.
-    match index_name {
-        "a" => Ok(inputs.assets.iter().map(|a| a.name.clone()).collect()),
-        "t" => Ok((1..=program.sets.time.steps)
-            .map(|t| t.to_string())
-            .collect()),
-        _ => {
-            // Last resort: check if the index name itself is a set in the registry.
-            if let Some(set) = program.set_registry.get(index_name) {
-                return Ok(set.values.clone());
-            }
-            if let Some(canonical) = program.set_aliases.get(index_name) {
-                if let Some(set) = program.set_registry.get(canonical.as_str()) {
-                    return Ok(set.values.clone());
-                }
-            }
-            Err(LoweringError::InvalidFormulation {
-                message: format!("unsupported variable family domain `{family}`"),
-                path: entrypoint.to_path_buf(),
-            })
-        }
-    }
+    resolve_set_by_name(effective_name, program).ok_or_else(|| CompileError::InvalidFormulation {
+        message: format!(
+            "index `{index_name}` in `{family}` references unknown set `{effective_name}`"
+        ),
+        path: entrypoint.to_path_buf(),
+    })
 }
 
-fn variable_instance_from_signature(
-    family: &str,
-    signature: &FamilySignature,
-    asset: Option<&AssetInputs>,
-    time: Option<usize>,
-    overrides: Option<&VariableDeclOverrides>,
-    entrypoint: &Path,
-) -> Result<VariableInstance, LoweringError> {
-    let (lower, upper, kind) =
-        variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
-    let name = match (asset, time) {
-        (Some(asset), Some(time)) => indexed_name(&signature.target, &asset.name, time),
-        (Some(asset), None) => asset_indexed_name(&signature.target, &asset.name),
-        (None, Some(time)) => time_name(&signature.target, time),
-        (None, None) => signature.target.clone(),
-    };
-    Ok(VariableInstance {
-        name,
-        family: family.to_string(),
-        lower,
-        upper,
-        kind,
-    })
+/// Resolve a set name to its values, checking the registry and alias system.
+fn resolve_set_by_name(name: &str, program: &SemanticProgram) -> Option<Vec<String>> {
+    // Direct registry lookup.
+    if let Some(set) = program.set_registry.get(name) {
+        if !set.values.is_empty() {
+            return Some(set.values.clone());
+        }
+    }
+    // Alias lookup: name -> canonical -> registry.
+    if let Some(canonical) = program.set_aliases.get(name) {
+        if let Some(set) = program.set_registry.get(canonical.as_str()) {
+            if !set.values.is_empty() {
+                return Some(set.values.clone());
+            }
+        }
+    }
+    // Reverse alias: check if name is a canonical form whose alias has registry entries.
+    for (alias, canonical) in &program.set_aliases {
+        if canonical == name {
+            if let Some(set) = program.set_registry.get(alias.as_str()) {
+                if !set.values.is_empty() {
+                    return Some(set.values.clone());
+                }
+            }
+        }
+    }
+    None
 }
 
 fn variable_domain_policy(
@@ -357,12 +310,12 @@ fn variable_domain_policy(
     asset: Option<&AssetInputs>,
     overrides: Option<&VariableDeclOverrides>,
     path: &Path,
-) -> Result<(f64, Option<f64>, VariableKind), LoweringError> {
+) -> Result<(f64, Option<f64>, VariableKind), CompileError> {
     let (mut lower, mut upper, mut kind) = match target {
         "build" => (
             0.0,
             Some(asset_parameter(
-                asset.ok_or_else(|| LoweringError::InvalidFormulation {
+                asset.ok_or_else(|| CompileError::InvalidFormulation {
                     message: "`build[a]` requires an asset scope".to_string(),
                     path: path.to_path_buf(),
                 })?,
@@ -410,17 +363,15 @@ fn variable_domain_policy(
 }
 
 fn variable_instance_is_active(target: &str, asset: Option<&AssetInputs>) -> bool {
-    match target {
-        "build" => asset.is_some_and(|asset| asset.candidate),
-        "unserved_energy" => true,
-        _ => asset.is_some_and(|asset| asset.families.contains(target)),
-    }
-}
-
-fn objective_sense(value: &str) -> ObjectiveSense {
-    match value {
-        "maximize" => ObjectiveSense::Maximize,
-        _ => ObjectiveSense::Minimize,
+    match (target, asset) {
+        ("build", Some(asset)) => asset.candidate,
+        ("build", None) => true,
+        (_, None) => true,
+        (_, Some(asset)) => {
+            // If the asset has family information, filter by it;
+            // otherwise assume the variable is active for all assets.
+            asset.families.is_empty() || asset.families.contains(target)
+        }
     }
 }
 

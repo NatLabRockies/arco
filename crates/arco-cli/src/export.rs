@@ -2,7 +2,7 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
-use arco_kdl::lowering::{
+use arco_kdl::compile::{
     AlgebraicProblem, ConstraintSense, LinearTerm, ObjectiveSense, VariableInstance, VariableKind,
 };
 use miette::Diagnostic;
