@@ -2,8 +2,8 @@ data units from="data/units.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
-  param capacity_mw index_by="asset_id"
-  param marginal_cost index_by="asset_id"
+  param capacity_mw index="asset_id"
+  param marginal_cost index="asset_id"
 }
 
 data availability_data from="data/availability.csv" {
@@ -19,20 +19,20 @@ data availability_data from="data/availability.csv" {
 
 data load_data from="data/load.csv" {
   set t
-  param load index_by="t"
+  param load index="t"
 }
 
 model SouthAfricaSingleZoneDispatch {
   set asset_id alias="a"
-  set time alias="t" from="horizon"
+  set time alias="t"
 
-  param capacity_mw index_by="asset_id"
-  param marginal_cost index_by="asset_id"
+  param capacity_mw index="asset_id"
+  param marginal_cost index="asset_id"
   param availability {
     index asset_id
     index time
   }
-  param load index_by="time"
+  param load index="time"
 
   control dispatch {
     index asset_id
@@ -44,16 +44,16 @@ model SouthAfricaSingleZoneDispatch {
   }
 
   constraint dispatch_limit {
-    over asset in=asset_id
-    over t in=time
-    expr {
+    index asset { in asset_id }
+    index t { in time }
+    expression {
       dispatch[asset,t] <= capacity_mw[asset] * availability[asset,t]
     }
   }
 
   constraint balance {
-    over t in=time
-    expr {
+    index t { in time }
+    expression {
       sum(dispatch[asset,t] for asset in asset_id) = load[t]
     }
   }
@@ -64,7 +64,6 @@ model SouthAfricaSingleZoneDispatch {
 }
 
 scenario SouthAfricaSingleZoneWithStorage {
-  horizon steps=4 resolution=PT1H
   use SouthAfricaSingleZoneDispatch
   report DispatchCost
 }
