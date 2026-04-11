@@ -2,44 +2,42 @@ data assets_data from="data/all_assets.csv" {
   map asset_id from="asset_name"
 
   set asset_id alias="a"
-  param existing_capacity_mw index_by="asset_id"
-  param max_build_mw index_by="asset_id"
-  param build_cost index_by="asset_id"
-  param variable_cost index_by="asset_id"
-  param is_candidate index_by="asset_id"
+  param existing_capacity_mw index="asset_id"
+  param max_build_mw index="asset_id"
+  param build_cost index="asset_id"
+  param variable_cost index="asset_id"
+  param is_candidate index="asset_id"
 }
-
-subset candidate_assets from="assets_data" filter_by="is_candidate" eq=1
 
 data demand_data from="data/demand.csv" {
   set t
-  param demand index_by="t"
+  param demand index="t"
 }
 
 data voll_data from="data/voll.csv" {
   set t
-  param voll index_by="t"
+  param voll index="t"
 }
 
 model CapacityExpansion {
   set asset_id alias="a"
-  set time alias="t" from="horizon"
+  set time alias="t"
 
-  param existing_capacity_mw index_by="asset_id"
-  param max_build_mw index_by="asset_id"
-  param build_cost index_by="asset_id"
-  param variable_cost index_by="asset_id"
-  param is_candidate index_by="asset_id"
-  param demand index_by="time"
-  param voll index_by="time"
+  param existing_capacity_mw index="asset_id"
+  param max_build_mw index="asset_id"
+  param build_cost index="asset_id"
+  param variable_cost index="asset_id"
+  param is_candidate index="asset_id"
+  param demand index="time"
+  param voll index="time"
 
   control dispatch {
     index asset_id
     index time
   }
 
-  control expansion index_by="asset_id" lower=0
-  control unserved_energy index_by="time" lower=0
+  control expansion index="asset_id" lower=0
+  control unserved_energy index="time" lower=0
 
   expression InvestmentCost {
     sum(build_cost[asset] * expansion[asset] for asset in candidate_assets)
@@ -54,23 +52,23 @@ model CapacityExpansion {
   }
 
   constraint dispatch_limit {
-    over asset in=asset_id
-    over t in=time
-    expr {
+    index asset { in asset_id }
+    index t { in time }
+    expression {
       dispatch[asset,t] <= existing_capacity_mw[asset] + expansion[asset]
     }
   }
 
   constraint candidate_build_limit {
-    over asset in=asset_id
-    expr {
+    index asset { in asset_id }
+    expression {
       expansion[asset] <= max_build_mw[asset] * is_candidate[asset]
     }
   }
 
   constraint balance {
-    over t in=time
-    expr {
+    index t { in time }
+    expression {
       sum(dispatch[asset,t] for asset in asset_id) + unserved_energy[t] = demand[t]
     }
   }
@@ -81,6 +79,5 @@ model CapacityExpansion {
 }
 
 scenario ExpansionCase {
-  horizon steps=24 resolution=PT1H
   use CapacityExpansion
 }
