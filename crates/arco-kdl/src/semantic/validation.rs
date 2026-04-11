@@ -1,15 +1,11 @@
-use crate::algebra::constraint_mentions_previous_time;
 use crate::semantic::error::SemanticError;
 use crate::semantic::resolution::{
     resolve_active_model_expressions, resolve_model_scenario_reports,
 };
-use crate::semantic::sets::{
-    build_set_registry, collect_set_aliases, extend_set_registry_from_low_level_declarations,
-    load_set_csv,
-};
+use crate::semantic::sets::{collect_set_aliases, extend_set_registry_from_low_level_declarations};
 use crate::semantic::types::{
     FamilySignature, ResolvedChronology, ResolvedConstraint, ResolvedObjective, ResolvedParameters,
-    ResolvedSet, ResolvedSets, ResolvedTimeSet, SemanticProgram, VariableDeclOverrides,
+    ResolvedSets, ResolvedTimeSet, SemanticProgram, VariableDeclOverrides,
 };
 use crate::source::{BoundExpr, ModelDecl, ScenarioDecl, SourceProgram, VariableKindDecl};
 use std::collections::{BTreeMap, BTreeSet};
@@ -44,7 +40,8 @@ pub fn validate_program(
             path: entrypoint.to_path_buf(),
         })?;
 
-    validate_scenario_data_bindings_match_model_params(scenario, model, entrypoint)?;
+    validate_scenario_data_bindings_match_known_params(scenario, model, program, entrypoint)?;
+    validate_model_parameters_resolved(scenario, model, program, entrypoint)?;
 
     let mut seen_data_bindings = BTreeSet::new();
     for binding in &scenario.data {
@@ -84,18 +81,6 @@ pub fn validate_program(
         })
         .collect::<Vec<_>>();
 
-    let chronology = detect_model_chronology(&asset_parameters, scenario);
-    if active_constraints
-        .iter()
-        .any(|constraint| constraint_mentions_previous_time(&constraint.expression))
-        && chronology.initial_boundary.is_none()
-        && chronology.initial_commitment_boundary.is_none()
-    {
-        return Err(SemanticError::MissingInitialBoundary {
-            path: entrypoint.to_path_buf(),
-        });
-    }
-
     let active_objective = ResolvedObjective {
         name: model.optimize.name.clone(),
         sense: model.optimize.sense.clone(),
@@ -108,39 +93,25 @@ pub fn validate_program(
     let active_expressions =
         resolve_active_model_expressions(model, &active_objective, &active_reports, entrypoint)?;
 
-    let resolved_sets = ResolvedSets {
-        time: ResolvedTimeSet {
-            steps: scenario.horizon.steps,
-            resolution: scenario.horizon.resolution.clone(),
-        },
-    };
-
-    let mut set_registry = build_set_registry(&resolved_sets, &scenario.custom_sets);
+    let mut set_registry = BTreeMap::new();
     if let Some(entry_dir) = entrypoint.parent() {
         extend_set_registry_from_low_level_declarations(program, entry_dir, &mut set_registry)?;
     }
 
-    let mut set_params: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
-    if let Some(entry_dir) = entrypoint.parent() {
-        for set_binding in &scenario.set_bindings {
-            let csv_path = entry_dir.join(&set_binding.source);
-            let set_csv = load_set_csv(&csv_path)?;
-            set_registry.insert(
-                set_binding.name.clone(),
-                ResolvedSet {
-                    values: set_csv.members,
-                },
-            );
-            set_params.extend(set_csv.params);
-        }
-    }
+    let time_steps = set_registry.get("time").map_or(0, |set| set.values.len());
+    let resolved_sets = ResolvedSets {
+        time: ResolvedTimeSet {
+            steps: time_steps,
+            resolution: String::new(),
+        },
+    };
 
     Ok(SemanticProgram {
         active_scenario: scenario.name.clone(),
         sets: resolved_sets,
         set_registry,
         set_aliases: collect_set_aliases(program, Some(model)),
-        set_params,
+        set_params: BTreeMap::new(),
         parameters: ResolvedParameters {
             series: series_parameters.into_iter().collect(),
             indexed: indexed_parameters.into_iter().collect(),
@@ -157,7 +128,7 @@ pub fn validate_program(
                 .iter()
                 .map(|c| (c.name.as_str(), c.kind, c.lower.as_ref(), c.upper.as_ref())),
         ),
-        chronology,
+        chronology: ResolvedChronology::default(),
         active_constraints,
         active_expressions,
         active_objective,
@@ -182,18 +153,32 @@ fn resolve_scenario<'a>(
     }
 }
 
-fn validate_scenario_data_bindings_match_model_params(
+fn validate_scenario_data_bindings_match_known_params(
     scenario: &ScenarioDecl,
     model: &ModelDecl,
+    program: &SourceProgram,
     entrypoint: &Path,
 ) -> Result<(), SemanticError> {
-    let parameter_names = model
+    let model_param_names = model
         .parameters
         .iter()
         .map(|parameter| parameter.name.as_str())
         .collect::<BTreeSet<_>>();
+    let data_param_names = program
+        .data
+        .iter()
+        .flat_map(|data_decl| {
+            data_decl
+                .parameters
+                .iter()
+                .map(|parameter| parameter.name.as_str())
+        })
+        .collect::<BTreeSet<_>>();
+
     for binding in &scenario.data {
-        if !parameter_names.contains(binding.name.as_str()) {
+        if !model_param_names.contains(binding.name.as_str())
+            && !data_param_names.contains(binding.name.as_str())
+        {
             return Err(SemanticError::UnknownScenarioDataBinding {
                 scenario: scenario.name.clone(),
                 binding: binding.name.clone(),
@@ -202,6 +187,48 @@ fn validate_scenario_data_bindings_match_model_params(
             });
         }
     }
+
+    Ok(())
+}
+
+fn validate_model_parameters_resolved(
+    scenario: &ScenarioDecl,
+    model: &ModelDecl,
+    program: &SourceProgram,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    let scenario_bindings = scenario
+        .data
+        .iter()
+        .map(|binding| binding.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let data_param_names = program
+        .data
+        .iter()
+        .flat_map(|data_decl| {
+            data_decl
+                .parameters
+                .iter()
+                .map(|parameter| parameter.name.as_str())
+        })
+        .collect::<BTreeSet<_>>();
+
+    for parameter in &model.parameters {
+        if parameter.value.is_some() {
+            continue;
+        }
+
+        if !scenario_bindings.contains(parameter.name.as_str())
+            && !data_param_names.contains(parameter.name.as_str())
+        {
+            return Err(SemanticError::MissingDeclaration {
+                kind: "param",
+                name: parameter.name.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -243,30 +270,6 @@ fn render_signature(name: &str, indices: &[String]) -> String {
 
     let normalized = indices.join(",");
     format!("{name}[{normalized}]")
-}
-
-fn detect_model_chronology(
-    asset_parameters: &BTreeSet<String>,
-    scenario: &ScenarioDecl,
-) -> ResolvedChronology {
-    let has_param = |name: &str| -> Option<String> {
-        if asset_parameters
-            .iter()
-            .any(|p| p == name || p.starts_with(&format!("{name}[")))
-        {
-            return Some(name.to_string());
-        }
-        if scenario.data.iter().any(|d| d.name == name) {
-            return Some(name.to_string());
-        }
-        None
-    };
-
-    ResolvedChronology {
-        initial_boundary: has_param("initial_soc_mwh"),
-        terminal_boundary: has_param("terminal_soc_mwh"),
-        initial_commitment_boundary: has_param("initial_commitment"),
-    }
 }
 
 pub(crate) fn collect_control_overrides<'a>(

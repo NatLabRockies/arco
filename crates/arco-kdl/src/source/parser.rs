@@ -1,21 +1,19 @@
 use crate::algebra::parse_value_formula;
 use crate::source::ast::{
-    BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, HorizonDecl, ModelDecl,
-    ParsedSource, ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram, SubsetDecl,
-    VariableKindDecl,
+    BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, ModelDecl, ParsedSource,
+    ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram, VariableKindDecl,
 };
 use crate::source::error::SourceError;
 use crate::source::parser_constraints::parse_constraints;
 use crate::source::parser_helpers::{
-    ParseContext, algebra_error, child_arg_string, declaration_indices, first_arg_string,
+    ParseContext, algebra_error, algebra_text_from_node, declaration_indices, first_arg_string,
     invalid_value_error, missing_node_error, optional_property_literal, optional_property_string,
-    parse_filter_comparators, parse_optimize, parse_optional_filter_expression, parse_reduce,
-    positional_value, property_string, property_usize,
+    parse_optimize, parse_optional_filter_expression, parse_reduce, positional_value,
+    property_string,
 };
 use crate::source::surface::normalize_surface_syntax;
 use kdl::{KdlDocument, KdlNode, KdlValue};
 use miette::NamedSource;
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use tracing::info;
@@ -59,7 +57,7 @@ fn parse_document(
         match node.name().value() {
             "set" => program.sets.push(parse_set(node, context)?),
             "data" => program.data.push(parse_data(node, context)?),
-            "subset" => program.subsets.push(parse_subset(node, context)?),
+            "param" => program.params.push(parse_param(node, context)?),
             "model" => program.models.push(parse_model(node, context)?),
             "scenario" => program.scenarios.push(parse_scenario(node, context)?),
             other => {
@@ -91,8 +89,26 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
             "control" => controls.push(parse_control(child, context)?),
             "expression" => expressions.push(parse_expression(child, context)?),
             "constraint" => {}
-            "minimize" => optimize = Some(parse_optimize(child, "minimize", context)?),
-            "maximize" => optimize = Some(parse_optimize(child, "maximize", context)?),
+            "minimize" => {
+                if optimize.is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "multiple objectives are not allowed".to_string(),
+                        context,
+                    ));
+                }
+                optimize = Some(parse_optimize(child, "minimize", context)?);
+            }
+            "maximize" => {
+                if optimize.is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "multiple objectives are not allowed".to_string(),
+                        context,
+                    ));
+                }
+                optimize = Some(parse_optimize(child, "maximize", context)?);
+            }
             other => {
                 return Err(SourceError::UnsupportedDeclaration {
                     name: other.to_string(),
@@ -167,42 +183,24 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
     })
 }
 
-fn parse_subset(node: &KdlNode, context: &ParseContext<'_>) -> Result<SubsetDecl, SourceError> {
-    let mut field_filters = BTreeMap::new();
-    for entry in node.entries() {
-        let Some(entry_name) = entry.name() else {
-            continue;
-        };
-        let key = entry_name.value();
-        if matches!(
-            key,
-            "from" | "filter_by" | "eq" | "ge" | "geq" | "le" | "leq"
-        ) {
-            continue;
-        }
-        let value = crate::source::parser_helpers::literal_from_arg(node, entry.value(), context)?;
-        field_filters.insert(key.to_string(), value);
-    }
-
-    Ok(SubsetDecl {
-        name: first_arg_string(node, 0, context)?,
-        source: property_string(node, "from", context)?,
-        field_filters,
-        filter_by: optional_property_string(node, "filter_by", context)?,
-        comparators: parse_filter_comparators(node, context)?,
-    })
-}
-
 fn parse_param(
     node: &KdlNode,
     context: &ParseContext<'_>,
 ) -> Result<crate::source::ParamDecl, SourceError> {
+    if node.get("index_by").is_some() {
+        return Err(invalid_value_error(
+            node,
+            "`index_by` is not supported; use `index`".to_string(),
+            context,
+        ));
+    }
+
     let declaration_indices = declaration_indices(node, context)?;
     let indices = declaration_indices
         .iter()
         .map(|index| index.name.clone())
         .collect::<Vec<_>>();
-    let index_by = optional_property_string(node, "index_by", context)?;
+    let index = optional_property_string(node, "index", context)?;
     let uses_index_children = node
         .iter_children()
         .any(|child| child.name().value() == "index");
@@ -219,29 +217,37 @@ fn parse_param(
         value: positional_value(node, &indices, context)?,
         indices,
         from: optional_property_string(node, "from", context)?,
-        index_by,
+        index,
         uses_index_children,
         reduce: parse_reduce(node, context)?,
         filter_expression,
         parsed_filter_expression,
-        filter_by: optional_property_string(node, "filter_by", context)?,
-        comparators: parse_filter_comparators(node, context)?,
         units: optional_property_string(node, "units", context)?,
     })
 }
 
 fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, SourceError> {
-    let mut subset_of = optional_property_string(node, "subset_of", context)?;
+    if node.get("from").is_some() {
+        return Err(invalid_value_error(
+            node,
+            "`from` is not supported on `set` declarations".to_string(),
+            context,
+        ));
+    }
+
+    let mut subset_of = None;
     let mut filter_expression = parse_optional_filter_expression(node, context)?;
     let mut members = Vec::new();
 
+    if let Some(parent) = optional_property_string(node, "in", context)? {
+        subset_of = Some(parent);
+    }
+
     for child in node.iter_children() {
         match child.name().value() {
-            "in" => {
-                subset_of = Some(first_arg_string(child, 0, context)?);
-            }
+            "in" => subset_of = Some(first_arg_string(child, 0, context)?),
             "filter" => {
-                filter_expression = Some(property_string(child, "expression", context)?);
+                filter_expression = Some(algebra_text_from_node(child, context)?);
             }
             member => {
                 if !child.entries().is_empty() {
@@ -269,13 +275,10 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
             .get("alias")
             .and_then(KdlValue::as_string)
             .map(ToString::to_string),
-        source: optional_property_string(node, "from", context)?,
         subset_of,
         members,
         filter_expression,
         parsed_filter_expression,
-        filter_by: optional_property_string(node, "filter_by", context)?,
-        comparators: parse_filter_comparators(node, context)?,
     })
 }
 
@@ -283,30 +286,66 @@ fn parse_control(
     node: &KdlNode,
     context: &ParseContext<'_>,
 ) -> Result<crate::source::ControlDecl, SourceError> {
+    if node.get("index_by").is_some() {
+        return Err(invalid_value_error(
+            node,
+            "`index_by` is not supported; use `index`".to_string(),
+            context,
+        ));
+    }
+
     let kind = optional_property_string(node, "kind", context)?
         .map(|value| parse_variable_kind_decl(node, &value, context))
         .transpose()?;
 
+    let value = optional_property_literal(node, "value", context)?;
     let mut lower = optional_property_literal(node, "lower", context)?.map(BoundExpr::Literal);
     let mut upper = optional_property_literal(node, "upper", context)?.map(BoundExpr::Literal);
 
+    if let Some(value) = value {
+        lower = Some(BoundExpr::Literal(value.clone()));
+        upper = Some(BoundExpr::Literal(value));
+    }
+
     for child in node.iter_children() {
         match child.name().value() {
-            "lower" => {
-                let formula_text = property_string(child, "expression", context)?;
-                lower = Some(BoundExpr::Formula(
-                    parse_value_formula(&formula_text)
-                        .map_err(|e| algebra_error(child, e.to_string(), context))?,
-                ));
+            "bounds" => {
+                for bound in child.iter_children() {
+                    match bound.name().value() {
+                        "lower" => {
+                            let formula_text = algebra_text_from_node(bound, context)?;
+                            lower = Some(BoundExpr::Formula(
+                                parse_value_formula(&formula_text)
+                                    .map_err(|e| algebra_error(bound, e.to_string(), context))?,
+                            ));
+                        }
+                        "upper" => {
+                            let formula_text = algebra_text_from_node(bound, context)?;
+                            upper = Some(BoundExpr::Formula(
+                                parse_value_formula(&formula_text)
+                                    .map_err(|e| algebra_error(bound, e.to_string(), context))?,
+                            ));
+                        }
+                        other => {
+                            return Err(SourceError::UnsupportedDeclaration {
+                                name: other.to_string(),
+                                path: context.path.to_path_buf(),
+                                source_text: Box::new(context.source_text.clone()),
+                                span: bound.span(),
+                            });
+                        }
+                    }
+                }
             }
-            "upper" => {
-                let formula_text = property_string(child, "expression", context)?;
-                upper = Some(BoundExpr::Formula(
-                    parse_value_formula(&formula_text)
-                        .map_err(|e| algebra_error(child, e.to_string(), context))?,
-                ));
+            "index" => {}
+            other => {
+                return Err(SourceError::UnsupportedDeclaration {
+                    name: other.to_string(),
+                    path: context.path.to_path_buf(),
+                    source_text: Box::new(context.source_text.clone()),
+                    span: child.span(),
+                });
             }
-            _ => {}
         }
     }
 
@@ -336,7 +375,7 @@ fn parse_expression(
     node: &KdlNode,
     context: &ParseContext<'_>,
 ) -> Result<ExpressionDecl, SourceError> {
-    let formula = child_arg_string(node, "formula", 0, context)?;
+    let formula = algebra_text_from_node(node, context)?;
     Ok(ExpressionDecl {
         name: first_arg_string(node, 0, context)?,
         parsed_formula: parse_value_formula(&formula)
@@ -346,7 +385,6 @@ fn parse_expression(
 }
 
 fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<ScenarioDecl, SourceError> {
-    let mut horizon = HorizonDecl::default();
     let mut data = Vec::new();
     let mut model_use = None;
     let mut reports = Vec::new();
@@ -387,10 +425,6 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
                     }
                 }
             }
-            "horizon" => {
-                horizon.steps = property_usize(child, "steps", context)?;
-                horizon.resolution = property_string(child, "resolution", context)?;
-            }
             other => {
                 return Err(SourceError::UnsupportedDeclaration {
                     name: other.to_string(),
@@ -404,12 +438,9 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
 
     Ok(ScenarioDecl {
         name: first_arg_string(node, 0, context)?,
-        horizon,
         data,
-        set_bindings: Vec::new(),
         model_use,
         reports,
-        custom_sets: BTreeMap::new(),
     })
 }
 

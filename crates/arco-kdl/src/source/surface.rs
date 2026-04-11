@@ -4,7 +4,6 @@ pub fn normalize_surface_syntax(text: &str) -> String {
         "expression",
         "minimize",
         "maximize",
-        "expr",
         "lower",
         "upper",
         "if",
@@ -119,7 +118,6 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
         "constraint" => format!("{header} expression={encoded_body}"),
         "expression" => format!("{header} {{ formula {encoded_body} }}"),
         "minimize" | "maximize" => format!("{header} expression={encoded_body}"),
-        "expr" => format!("{header} expression={encoded_body}"),
         "lower" | "upper" | "if" | "filter" => {
             format!("{header} expression={encoded_body}")
         }
@@ -131,7 +129,7 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
 
 fn body_starts_with_generation_keyword(text: &str, opening_brace: usize) -> bool {
     let trimmed = text[opening_brace + 1..].trim_start();
-    for keyword in ["index", "if", "slack", "expression", "over", "when", "expr"] {
+    for keyword in ["index", "if", "slack", "expression"] {
         let Some(rest) = trimmed.strip_prefix(keyword) else {
             continue;
         };

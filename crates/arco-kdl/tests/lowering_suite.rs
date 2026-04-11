@@ -30,11 +30,13 @@ fn lowering_loads_top_level_data_block_params() -> Result<(), Box<dyn std::error
     fs::write(
         &path,
         r#"
+set "time" { "1"; "2" }
+
 data "inputs" from="data/inputs.csv" {
   map "time" from="time"
 
-  param "capacity" index_by="time" from="cap" reduce="sum"
-  param "demand" index_by="time" from="demand"
+  param "capacity" index="time" from="cap" reduce="sum"
+  param "demand" index="time" from="demand"
 }
 
 model "Dispatch" {
@@ -63,7 +65,6 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=2 resolution="PT1H"
   use "Dispatch"
 }
 "#,
@@ -105,9 +106,11 @@ fn lowering_prefers_scenario_data_bindings_over_top_level_data_params()
     fs::write(
         &path,
         r#"
+set "time" { "1" }
+
 data "defaults" from="data/top.csv" {
   map "time" from="time"
-  param "capacity" index_by="time" from="cap"
+  param "capacity" index="time" from="cap"
 }
 
 model "Dispatch" {
@@ -129,7 +132,6 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=1 resolution="PT1H"
   use "Dispatch"
   data "capacity" from="data/override.csv"
 }
@@ -166,6 +168,8 @@ fn lowering_reports_missing_data_point_for_sparse_generic_data_table()
     fs::write(
         &path,
         r#"
+set "time" { "1" }
+
 data "distance" from="data/dist.csv" {
   set "g"
   set "b"
@@ -195,7 +199,6 @@ model "SparseDistance" {
 }
 
 scenario "SparseDistanceCase" {
-  horizon steps=1 resolution="PT1H"
   use "SparseDistance"
 }
 "#,

@@ -35,7 +35,6 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=1 resolution="PT1H"
   use "Dispatch"
   report MissingExpr
 }
@@ -78,7 +77,6 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=1 resolution="PT1H"
   use "Dispatch"
 }
 "#;

@@ -15,109 +15,11 @@ fn resolve_data_column(data_decl: &DataDecl, logical_name: &str) -> String {
 }
 
 fn matches_data_param_filter(
-    row: &HashMap<String, String>,
-    data_decl: &DataDecl,
-    parameter: &ParamDecl,
+    _row: &HashMap<String, String>,
+    _data_decl: &DataDecl,
+    _parameter: &ParamDecl,
 ) -> bool {
-    if parameter.comparators.eq.is_none()
-        && parameter.comparators.ge.is_none()
-        && parameter.comparators.geq.is_none()
-        && parameter.comparators.le.is_none()
-        && parameter.comparators.leq.is_none()
-    {
-        return true;
-    }
-
-    let filter_column = parameter
-        .filter_by
-        .as_ref()
-        .or(parameter.from.as_ref())
-        .map_or_else(
-            || resolve_data_column(data_decl, &parameter.name),
-            |logical_name| resolve_data_column(data_decl, logical_name),
-        );
-    let Some(raw_value) = row.get(&filter_column) else {
-        return false;
-    };
-
-    compare_data_param_comparators(raw_value, &parameter.comparators)
-}
-
-fn compare_data_param_comparators(raw_value: &str, comparators: &FilterComparators) -> bool {
-    if let Some(expected) = &comparators.eq {
-        if !literal_filter_match(raw_value, expected) {
-            return false;
-        }
-    }
-    if let Some(expected) = &comparators.ge {
-        if !numeric_filter_compare(raw_value, expected, |left, right| left > right) {
-            return false;
-        }
-    }
-    if let Some(expected) = &comparators.geq {
-        if !numeric_filter_compare(raw_value, expected, |left, right| left >= right) {
-            return false;
-        }
-    }
-    if let Some(expected) = &comparators.le {
-        if !numeric_filter_compare(raw_value, expected, |left, right| left < right) {
-            return false;
-        }
-    }
-    if let Some(expected) = &comparators.leq {
-        if !numeric_filter_compare(raw_value, expected, |left, right| left <= right) {
-            return false;
-        }
-    }
     true
-}
-
-fn literal_filter_match(raw_value: &str, literal: &LiteralValue) -> bool {
-    match literal {
-        LiteralValue::String(value) => raw_value == value,
-        LiteralValue::Integer(value) => raw_value.parse::<i128>() == Ok(*value),
-        LiteralValue::Decimal(value) => {
-            let Ok(expected) = value.parse::<f64>() else {
-                return false;
-            };
-            raw_value
-                .parse::<f64>()
-                .map(|actual| (actual - expected).abs() < 1e-9)
-                .unwrap_or(false)
-        }
-        LiteralValue::Boolean(value) => {
-            let normalized = raw_value.trim().to_ascii_lowercase();
-            (*value && (normalized == "true" || normalized == "1"))
-                || (!*value && (normalized == "false" || normalized == "0"))
-        }
-    }
-}
-
-fn numeric_filter_compare(
-    raw_value: &str,
-    literal: &LiteralValue,
-    comparator: impl Fn(f64, f64) -> bool,
-) -> bool {
-    let Ok(actual) = raw_value.parse::<f64>() else {
-        return false;
-    };
-    let expected = match literal {
-        LiteralValue::Integer(value) => *value as f64,
-        LiteralValue::Decimal(value) | LiteralValue::String(value) => {
-            let Ok(parsed) = value.parse::<f64>() else {
-                return false;
-            };
-            parsed
-        }
-        LiteralValue::Boolean(value) => {
-            if *value {
-                1.0
-            } else {
-                0.0
-            }
-        }
-    };
-    comparator(actual, expected)
 }
 
 fn load_generic_data_table(

@@ -1,8 +1,8 @@
 use crate::algebra::parse_value_formula;
-use crate::source::ast::{ConstraintDecl, GenerationBinding};
+use crate::source::ast::ConstraintDecl;
 use crate::source::error::SourceError;
 use crate::source::parser_helpers::{
-    ParseContext, algebra_error, algebra_text_from_node, first_arg_string, missing_node_error,
+    ParseContext, algebra_error, algebra_text_from_node, missing_node_error,
     optional_property_string, parse_constraint_formula_decl, parse_constraint_index_binding,
     property_string,
 };
@@ -27,17 +27,10 @@ pub(super) fn parse_constraints(
                 "index" => {
                     generation_bindings.push(parse_constraint_index_binding(grandchild, context)?);
                 }
-                "over" => {
-                    generation_bindings.push(GenerationBinding {
-                        variable: first_arg_string(grandchild, 0, context)?,
-                        domain: property_string(grandchild, "in", context)?,
-                    });
-                }
                 "if" => {
                     generation_filters.push(property_string(grandchild, "expression", context)?);
                 }
-                "when" => generation_filters.push(first_arg_string(grandchild, 0, context)?),
-                "expression" | "expr" => {
+                "expression" => {
                     expression = Some(algebra_text_from_node(grandchild, context)?);
                 }
                 "slack" => {}

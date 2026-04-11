@@ -370,8 +370,8 @@ fn resolve_param_key_columns(
             .collect();
     }
 
-    if let Some(index_by) = &parameter.index_by {
-        let canonical = canonical_data_set_name(source_program, data_decl, index_by);
+    if let Some(index) = &parameter.index {
+        let canonical = canonical_data_set_name(source_program, data_decl, index);
         return vec![resolve_data_column(data_decl, &canonical)];
     }
 

@@ -8,8 +8,8 @@ use crate::semantic::{
     VariableDeclOverrides,
 };
 use crate::source::{
-    BoundExpr, DataDecl, FilterComparators, GenerationBinding, LiteralValue, ParamDecl,
-    ScenarioDecl, SourceProgram, VariableKindDecl,
+    BoundExpr, DataDecl, GenerationBinding, LiteralValue, ParamDecl, ScenarioDecl, SourceProgram,
+    VariableKindDecl,
 };
 use csv::StringRecord;
 use miette::Diagnostic;
