@@ -20,18 +20,28 @@ const nodeShape = ($, nameRule, childrenRule) =>
 module.exports = grammar(kdl, {
   name: "arco_kdl",
 
+  externals: ($, previous) => [...previous, $._implicit_terminator],
+
   rules: {
+    // Allow nodes to be implicitly terminated before `}`.
+    _node_terminator: ($, previous) =>
+      choice(previous, $._implicit_terminator),
+
     value: ($) =>
       seq(
         optional($.type),
-        choice($.string, $.number, $.keyword, $._bare_identifier),
+        choice($.string, $.number, $.keyword, $.bare_identifier),
       ),
 
-    node: ($) => choice($.arco_math_node, $.kdl_node),
+    bare_identifier: ($) => $._bare_identifier,
+
+    node: ($) =>
+      choice($.arco_pure_math_node, $.arco_constraint_node, $.kdl_node),
 
     kdl_node: ($) => prec(1, nodeShape($, $.identifier, $.node_children)),
 
-    arco_math_node: ($) =>
+    // Nodes whose { } body is always algebra text.
+    arco_pure_math_node: ($) =>
       prec(
         2,
         nodeShape(
@@ -39,20 +49,33 @@ module.exports = grammar(kdl, {
           field(
             "name",
             choice(
-              "constraint",
               "expression",
               "minimize",
               "maximize",
               "expr",
+              "filter",
+              "if",
               "lower",
               "upper",
             ),
           ),
-          $.arco_node_children,
+          $.arco_pure_math_children,
         ),
       ),
 
-    arco_node_children: ($) =>
+    // Constraint nodes can have either KDL children or a math body.
+    arco_constraint_node: ($) =>
+      prec(
+        2,
+        nodeShape(
+          $,
+          field("name", "constraint"),
+          choice($.arco_pure_math_children, $.node_children),
+        ),
+      ),
+
+    // Math body.
+    arco_pure_math_children: ($) =>
       prec(
         2,
         seq(
@@ -60,23 +83,15 @@ module.exports = grammar(kdl, {
             seq(alias("/-", $.node_children_comment), repeat($._node_space)),
           ),
           "{",
-          choice(
-            prec(
-              2,
-              seq(
-                repeat($._linespace),
-                $.node,
-                repeat(seq(repeat($._linespace), $.node)),
-                repeat($._linespace),
-              ),
-            ),
-            prec(1, field("math", $.arco_math_text)),
-            seq(repeat($._linespace)),
-          ),
+          choice(field("math", $.arco_math_text), seq(repeat($._linespace))),
           "}",
         ),
       ),
 
-    arco_math_text: (_) => token(prec(10, /[^{}"']*[<>+\-*\/\[\]][^{}"']*/)),
+    // Single opaque token for algebra text.
+    // Explicitly rejects { } " ' so that KDL children bodies are never
+    // consumed as math text. Requires at least one operator or bracket.
+    arco_math_text: (_) =>
+      token(prec(10, /[^{}"']*[<>=!+\-*\/\[\]][^{}"']*/)),
   },
 });
