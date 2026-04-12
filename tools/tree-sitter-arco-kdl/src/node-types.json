@@ -5,7 +5,7 @@
     "fields": {}
   },
   {
-    "type": "arco_math_node",
+    "type": "arco_constraint_node",
     "named": true,
     "fields": {
       "children": {
@@ -13,7 +13,11 @@
         "required": false,
         "types": [
           {
-            "type": "arco_node_children",
+            "type": "arco_pure_math_children",
+            "named": true
+          },
+          {
+            "type": "node_children",
             "named": true
           }
         ]
@@ -25,13 +29,103 @@
           {
             "type": "constraint",
             "named": false
-          },
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "multi_line_comment",
+          "named": true
+        },
+        {
+          "type": "node_comment",
+          "named": true
+        },
+        {
+          "type": "node_field",
+          "named": true
+        },
+        {
+          "type": "single_line_comment",
+          "named": true
+        },
+        {
+          "type": "type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "arco_pure_math_children",
+    "named": true,
+    "fields": {
+      "math": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "arco_math_text",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "multi_line_comment",
+          "named": true
+        },
+        {
+          "type": "node_children_comment",
+          "named": true
+        },
+        {
+          "type": "single_line_comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "arco_pure_math_node",
+    "named": true,
+    "fields": {
+      "children": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "arco_pure_math_children",
+            "named": true
+          }
+        ]
+      },
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
           {
             "type": "expr",
             "named": false
           },
           {
             "type": "expression",
+            "named": false
+          },
+          {
+            "type": "filter",
+            "named": false
+          },
+          {
+            "type": "if",
             "named": false
           },
           {
@@ -81,42 +175,9 @@
     }
   },
   {
-    "type": "arco_node_children",
+    "type": "bare_identifier",
     "named": true,
-    "fields": {
-      "math": {
-        "multiple": false,
-        "required": false,
-        "types": [
-          {
-            "type": "arco_math_text",
-            "named": true
-          }
-        ]
-      }
-    },
-    "children": {
-      "multiple": true,
-      "required": false,
-      "types": [
-        {
-          "type": "multi_line_comment",
-          "named": true
-        },
-        {
-          "type": "node",
-          "named": true
-        },
-        {
-          "type": "node_children_comment",
-          "named": true
-        },
-        {
-          "type": "single_line_comment",
-          "named": true
-        }
-      ]
-    }
+    "fields": {}
   },
   {
     "type": "boolean",
@@ -242,7 +303,11 @@
       "required": true,
       "types": [
         {
-          "type": "arco_math_node",
+          "type": "arco_constraint_node",
+          "named": true
+        },
+        {
+          "type": "arco_pure_math_node",
           "named": true
         },
         {
@@ -446,8 +511,12 @@
     "fields": {},
     "children": {
       "multiple": true,
-      "required": false,
+      "required": true,
       "types": [
+        {
+          "type": "bare_identifier",
+          "named": true
+        },
         {
           "type": "keyword",
           "named": true
@@ -624,6 +693,10 @@
     "named": false
   },
   {
+    "type": "filter",
+    "named": false
+  },
+  {
     "type": "hostname",
     "named": false
   },
@@ -649,6 +722,10 @@
   },
   {
     "type": "idn-hostname",
+    "named": false
+  },
+  {
+    "type": "if",
     "named": false
   },
   {

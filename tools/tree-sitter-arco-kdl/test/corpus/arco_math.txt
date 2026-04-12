@@ -1,5 +1,5 @@
 ==================
-Constraint math body
+Constraint math body (simple form)
 ==================
 
 constraint balance {
@@ -10,8 +10,177 @@ constraint balance {
 
 (document
   (node
-    (arco_math_node
+    (arco_constraint_node
       (node_field
-        (value))
-      (arco_node_children
+        (value
+          (bare_identifier)))
+      (arco_pure_math_children
         (arco_math_text)))))
+
+==================
+Filter math body
+==================
+
+set thermal {
+  in gen
+  filter { type == thermal }
+}
+
+---
+
+(document
+  (node
+    (kdl_node
+      (identifier)
+      (node_field
+        (value
+          (bare_identifier)))
+      (node_children
+        (node
+          (kdl_node
+            (identifier)
+            (node_field
+              (value
+                (bare_identifier)))))
+        (node
+          (arco_pure_math_node
+            (arco_pure_math_children
+              (arco_math_text))))))))
+
+==================
+If and expression inside constraint (generated form)
+==================
+
+constraint cap {
+  index g { in gen }
+  if { active[g] }
+  expression { dispatch[g,t] <= capacity[g] }
+}
+
+---
+
+(document
+  (node
+    (arco_constraint_node
+      (node_field
+        (value
+          (bare_identifier)))
+      (node_children
+        (node
+          (kdl_node
+            (identifier)
+            (node_field
+              (value
+                (bare_identifier)))
+            (node_children
+              (node
+                (kdl_node
+                  (identifier)
+                  (node_field
+                    (value
+                      (bare_identifier))))))))
+        (node
+          (arco_pure_math_node
+            (arco_pure_math_children
+              (arco_math_text))))
+        (node
+          (arco_pure_math_node
+            (arco_pure_math_children
+              (arco_math_text))))))))
+
+==================
+Filter with compound predicate
+==================
+
+set mid_gen {
+  in gen
+  filter { capacity_mw >= 100 and capacity_mw <= 500 }
+}
+
+---
+
+(document
+  (node
+    (kdl_node
+      (identifier)
+      (node_field
+        (value
+          (bare_identifier)))
+      (node_children
+        (node
+          (kdl_node
+            (identifier)
+            (node_field
+              (value
+                (bare_identifier)))))
+        (node
+          (arco_pure_math_node
+            (arco_pure_math_children
+              (arco_math_text))))))))
+
+==================
+Minimize with reduction
+==================
+
+minimize total_cost {
+  sum(fuel_cost[g] * dispatch[g,t] for g in gen for t in time)
+}
+
+---
+
+(document
+  (node
+    (arco_pure_math_node
+      (node_field
+        (value
+          (bare_identifier)))
+      (arco_pure_math_children
+        (arco_math_text)))))
+
+==================
+Lower and upper bounds
+==================
+
+control flow {
+  index l { in lines }
+  bounds {
+    lower { -capacity[l] }
+    upper { capacity[l] }
+  }
+}
+
+---
+
+(document
+  (node
+    (kdl_node
+      (identifier)
+      (node_field
+        (value
+          (bare_identifier)))
+      (node_children
+        (node
+          (kdl_node
+            (identifier)
+            (node_field
+              (value
+                (bare_identifier)))
+            (node_children
+              (node
+                (kdl_node
+                  (identifier)
+                  (node_field
+                    (value
+                      (bare_identifier))))))))
+        (node
+          (kdl_node
+            (identifier)
+            (node_children
+              (node
+                (arco_pure_math_node
+                  (arco_pure_math_children
+                    (arco_math_text))))
+              (node
+                (arco_pure_math_node
+                  (arco_pure_math_children
+                    (arco_math_text)))))))))))
