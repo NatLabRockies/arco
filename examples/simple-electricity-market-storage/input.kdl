@@ -1,13 +1,17 @@
-data units from="data/units.csv" {
-  map asset_id from="asset"
+data units source="data/units.csv" {
+  map asset_id source="asset"
 
   set asset_id alias="a"
-  param capacity_mw index="asset_id"
-  param marginal_cost index="asset_id"
+  param capacity_mw {
+    index asset_id
+  }
+  param marginal_cost {
+    index asset_id
+  }
 }
 
-data availability_data from="data/availability.csv" {
-  map asset_id from="asset_name"
+data availability_data source="data/availability.csv" {
+  map asset_id source="asset_name"
 
   set asset_id
   set t
@@ -17,29 +21,38 @@ data availability_data from="data/availability.csv" {
   }
 }
 
-data load_data from="data/load.csv" {
+data load_data source="data/load.csv" {
   set t
-  param load index="t"
+  param load {
+    index t
+  }
 }
 
 model SouthAfricaSingleZoneDispatch {
   set asset_id alias="a"
   set time alias="t"
 
-  param capacity_mw index="asset_id"
-  param marginal_cost index="asset_id"
+  param capacity_mw {
+    index asset_id
+  }
+  param marginal_cost {
+    index asset_id
+  }
   param availability {
     index asset_id
     index time
   }
-  param load index="time"
+  param load {
+    index time
+  }
 
   control dispatch {
     index asset_id
     index time
+    lower 0
   }
 
-  expression DispatchCost {
+  expression dispatch_cost {
     sum(marginal_cost[asset] * dispatch[asset,t] for asset in asset_id for t in time)
   }
 
@@ -58,12 +71,12 @@ model SouthAfricaSingleZoneDispatch {
     }
   }
 
-  minimize TotalSystemCost {
-    DispatchCost
+  minimize total_system_cost {
+    dispatch_cost
   }
 }
 
-scenario SouthAfricaSingleZoneWithStorage {
+scenario south_africa_single_zone_with_storage {
   use SouthAfricaSingleZoneDispatch
-  report DispatchCost
+  report dispatch_cost
 }
