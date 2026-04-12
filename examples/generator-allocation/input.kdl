@@ -1,11 +1,11 @@
-data units from="data/units.csv" {
+data units source="data/units.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
   param variable_cost index="asset_id"
 }
 
-data demand_data from="data/demand.csv" {
+data demand_data source="data/demand.csv" {
   set t
   param demand index="t"
 }

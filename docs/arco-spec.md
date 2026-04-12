@@ -246,7 +246,7 @@ param big_m 1e6
 set bus { 1; 2; 3; 4; 5 }
 
 // CSV-backed data with subsets via set { in ... }
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   set gen
   set solar { in gen; filter { type == solar } }
   param pmax index=gen
@@ -258,7 +258,7 @@ model dispatch_model {
 
 scenario day_ahead {
   use dispatch_model
-  data demand from="data/demand.csv"
+  data demand source="data/demand.csv"
 }
 ```
 
@@ -337,7 +337,7 @@ document can reference them by name. A single `data` block can supply sets and
 parameters to multiple models.
 
 ```
-data <name> from=<path> { ... }
+data <name> source=<path> { ... }
 ```
 
 Required properties:
@@ -382,7 +382,7 @@ Semantics:
 
 `set` extracts unique values from a dataset column and exposes them as a named
 domain. The column used is the one matching `<name>` (after `map` resolution).
-Unlike `param`, `set` declarations inside a `data` block do not accept a `from=`
+Unlike `param`, `set` declarations inside a `data` block do not accept a `source=`
 property; the set name itself determines the column. Sets declared inside a
 `data` block are globally visible and can be referenced by any model,
 constraint, or algebra expression in the document.
@@ -492,7 +492,7 @@ Semantics:
 
 ```kdl
 // valid: multi-column index on a single declaration
-data plants from="data/plants.csv" {
+data plants source="data/plants.csv" {
   set plant_id
   set unit_id { in plant_id }
   index plant_id unit_id
@@ -500,7 +500,7 @@ data plants from="data/plants.csv" {
 }
 
 // INVALID: two separate index declarations
-data plants from="data/plants.csv" {
+data plants source="data/plants.csv" {
   set plant_id
   set unit_id
   index plant_id
@@ -548,7 +548,7 @@ g3,150,9.8
 ```
 
 ```kdl
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   set gen_id
   // reads from the "capacity_mw" column (name matches)
   param capacity_mw index=gen_id
@@ -673,7 +673,7 @@ discount_rate,value_of_lost_load
 ```
 
 ```kdl
-data settings from="data/settings.csv" {
+data settings source="data/settings.csv" {
   // column name matches param name, no from= needed
   param discount_rate
   // column name differs, use source= to read "value_of_lost_load" as "voll"
@@ -787,7 +787,7 @@ set <name> alias=<short>
 
 ```arco
 // data declares gen, capacity_mw, fuel_cost, and the thermal_gen subset
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   map gen from=generator_id
   set gen alias=g
   set thermal_gen { in gen; filter { type == thermal } }
@@ -1345,7 +1345,7 @@ data and activates execution.
 ```
 scenario <name> {
   use <model_name>
-  data <name> from=<path>
+  data <name> source=<path>
   report <expression_name>
   report dual <constraint_name>
 }
@@ -1361,13 +1361,13 @@ share mutable state with other scenarios.
 ```kdl
 scenario distance_check {
   use distance_model
-  data distances from="data/distances.csv"
+  data distances source="data/distances.csv"
 }
 
 scenario day_ahead {
   use dispatch_model
-  data demand from="data/demand.csv"
-  data gen_data from="data/generators.csv"
+  data demand source="data/demand.csv"
+  data gen_data source="data/generators.csv"
 }
 ```
 
@@ -1387,14 +1387,14 @@ declarations MUST NOT have a child block (`{ ... }`). They are simple
 name-to-CSV bindings, not namespaced declarations like top-level `data` blocks.
 
 ```kdl
-data demand from="data/demand.csv"
-data capacity from="data/capacity.csv"
-data fuel_cost from="data/fuel_cost.csv"
+data demand source="data/demand.csv"
+data capacity source="data/capacity.csv"
+data fuel_cost source="data/fuel_cost.csv"
 ```
 
 The `<name>` of each binding MUST match either a `param` declared in the
 referenced model or a `param` declared in a top-level `data` block. Top-level
-`data` block params are already resolved from their own `from=` path and do not
+`data` block params are already resolved from their own `source=` path and do not
 need scenario-level bindings, but a scenario MAY override them by providing a
 binding with the same param name (see [§7.4](#74-data-scoping) for override
 rules). Scenario `data` bindings that match neither a model param nor a
@@ -1416,7 +1416,7 @@ Column-to-index matching:
 5. Missing required columns (index sets or value column) MUST fail validation.
 
 Example: A model declares `param demand { index region; index time }`. The
-scenario binds `data demand from="data/demand.csv"`. The CSV MUST contain
+scenario binds `data demand source="data/demand.csv"`. The CSV MUST contain
 columns `region`, `time`, and `demand` (or the column specified by `from`). Each
 row provides one value of `demand` for a `(region, time)` pair.
 
@@ -1518,7 +1518,7 @@ param, so users are aware of the override:
 
 ```kdl
 // top-level: declares a param named "demand" inside block "demand_data"
-data demand_data from="data/demand_base.csv" {
+data demand_data source="data/demand_base.csv" {
   set region
   param demand index=region
 }
@@ -1526,7 +1526,7 @@ data demand_data from="data/demand_base.csv" {
 scenario stress_test {
   use dispatch_model
   // overrides the "demand" param (originally from demand_data) for this scenario
-  data demand from="data/demand_stress.csv"
+  data demand source="data/demand_stress.csv"
 }
 ```
 
@@ -1563,12 +1563,12 @@ If two CSV files have a column with the same logical name, use `from=` to give
 them distinct param names, or consolidate into one `data` block:
 
 ```kdl
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   set gen_id
   // reads from CSV column "capacity", exposes as "gen_capacity" in algebra
   param gen_capacity from=capacity index=gen_id
 }
-data lines from="data/lines.csv" {
+data lines source="data/lines.csv" {
   set line_id
   // reads from CSV column "capacity", exposes as "line_capacity" in algebra
   param line_capacity from=capacity index=line_id
@@ -1579,7 +1579,7 @@ data lines from="data/lines.csv" {
 
 ```arco
 // sets and params here are globally visible to all models
-data units from="data/units.csv" {
+data units source="data/units.csv" {
   set plant_id
   set unit_id alias=u { in plant_id }
   param capacity_mw index=unit_id
@@ -1619,13 +1619,13 @@ model planning_model {
 scenario base_case {
   use dispatch_model
   // only available in this scenario
-  data demand from="data/demand_base.csv"
+  data demand source="data/demand_base.csv"
 }
 
 scenario high_demand {
   use dispatch_model
   // different demand for this scenario
-  data demand from="data/demand_high.csv"
+  data demand source="data/demand_high.csv"
 }
 ```
 
@@ -1704,7 +1704,7 @@ Rules:
   `map` resolution) on the left-hand side of each comparison.
 
 ```arco
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   set gen
   set thermal { in gen; filter { type == thermal } }
   set large { in gen; filter { capacity >= 200 } }
@@ -2455,7 +2455,7 @@ for the component domains and use a multi-column `index` to define the composite
 key:
 
 ```kdl
-data branch_data from="data/branches.csv" {
+data branch_data source="data/branches.csv" {
   // CSV has columns: from_bus, to_bus, capacity, ...
   set from_bus
   set to_bus

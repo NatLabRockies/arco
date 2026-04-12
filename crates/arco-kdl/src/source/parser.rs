@@ -10,7 +10,7 @@ use crate::source::parser_helpers::{
     ParseContext, algebra_error, algebra_text_from_node, declaration_indices, first_arg_string,
     invalid_value_error, missing_node_error, optional_property_literal, optional_property_string,
     parse_optimize, parse_optional_filter_expression, parse_reduce, positional_value,
-    property_string,
+    property_string_alternatives,
 };
 use crate::source::surface::normalize_surface_syntax;
 use kdl::{KdlDocument, KdlNode, KdlValue};
@@ -176,7 +176,8 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
 
     Ok(DataDecl {
         name: first_arg_string(node, 0, context)?,
-        source: property_string(node, "from", context)?,
+        // Support both `source=` (new) and `from=` (legacy) for data file paths
+        source: property_string_alternatives(node, &["source", "from"], context)?,
         maps,
         sets,
         indices,
@@ -404,7 +405,8 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
                 }
                 data.push(DataBindingDecl {
                     name: first_arg_string(child, 0, context)?,
-                    source: property_string(child, "from", context)?,
+                    // Support both `source=` (new) and `from=` (legacy) for data file paths
+                    source: property_string_alternatives(child, &["source", "from"], context)?,
                 });
             }
             "use" => model_use = Some(first_arg_string(child, 0, context)?),

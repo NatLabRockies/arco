@@ -84,7 +84,7 @@
 // $$
 // \sum_g p_{gt}\le Load_t,\quad \forall t
 // $$
-data generators_data from="data/generators.csv" {
+data generators_data source="data/generators.csv" {
   map generators from=generator
 
   // Unit domain from generators.csv (column mapped as `generators`).
@@ -113,7 +113,7 @@ data generators_data from="data/generators.csv" {
   param mincost { index g }
 }
 
-data temporal_sets from="data/temporal_sets.csv" {
+data temporal_sets source="data/temporal_sets.csv" {
   // Temporal domains are user-provided at the data layer.
   // t: primary time/day index used by the model.
   // taf/tbl: user-provided helper subsets for t-1 / t+1 constraints.
@@ -122,17 +122,17 @@ data temporal_sets from="data/temporal_sets.csv" {
   set tbl { in t }
 }
 
-data demand_data from="data/load.csv" {
+data demand_data source="data/load.csv" {
   param lambda { index t }
   param load { index t }
 }
 
-data segment_set from="data/segments.csv" {
+data segment_set source="data/segments.csv" {
   // Piecewise cost segment domain from segments.csv column `k`.
   set k
 }
 
-data segment_data from="data/segment_data.csv" {
+data segment_data source="data/segment_data.csv" {
   map generators from=generator
 
   param dp {
@@ -145,7 +145,7 @@ data segment_data from="data/segment_data.csv" {
   }
 }
 
-data time_masks_data from="data/time_masks.csv" {
+data time_masks_data source="data/time_masks.csv" {
   map generators from=generator
 
   param uptime1_mask {
@@ -174,7 +174,7 @@ data time_masks_data from="data/time_masks.csv" {
   }
 }
 
-data time_windows_data from="data/time_windows.csv" {
+data time_windows_data source="data/time_windows.csv" {
   map generators from=generator
 
   // `t` is the anchor index (day/time bucket), `h` is the hour index.

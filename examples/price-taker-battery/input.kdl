@@ -1,4 +1,4 @@
-data battery from="data/battery.csv" {
+data battery source="data/battery.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
@@ -23,7 +23,7 @@ data battery from="data/battery.csv" {
   }
 }
 
-data price_curve from="data/prices.csv" {
+data price_curve source="data/prices.csv" {
   set t
   param prices {
     index t
