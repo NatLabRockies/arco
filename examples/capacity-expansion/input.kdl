@@ -1,5 +1,5 @@
 data assets_data source="data/all_assets.csv" {
-  map asset_id source="asset_name"
+  map asset_id from="asset_name"
 
   set asset_id alias="a"
   param existing_capacity_mw {

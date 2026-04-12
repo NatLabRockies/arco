@@ -1,5 +1,5 @@
 data units source="data/units.csv" {
-  map asset_id source="asset"
+  map asset_id from="asset"
 
   set asset_id alias="a"
   param capacity_mw {
@@ -11,7 +11,7 @@ data units source="data/units.csv" {
 }
 
 data availability_data source="data/availability.csv" {
-  map asset_id source="asset_name"
+  map asset_id from="asset_name"
 
   set asset_id
   set t

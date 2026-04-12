@@ -85,7 +85,7 @@
 // \sum_g p_{gt}\le Load_t,\quad \forall t
 // $$
 data generators_data source="data/generators.csv" {
-  map generators source=generator
+  map generators from=generator
 
   // Unit domain from generators.csv (column mapped as `generators`).
   // Alias `g` is used in set-reference positions and algebra iteration.
@@ -137,7 +137,7 @@ data generators_data source="data/generators.csv" {
     index g
   }
   param initial_commitment {
-    source=uini
+    from=uini
     index g
   }
   param s0 {
@@ -178,21 +178,21 @@ data segment_set source="data/segments.csv" {
 }
 
 data segment_data source="data/segment_data.csv" {
-  map generators source=generator
+  map generators from=generator
 
   param dp {
     index g
     index k
   }
   param slope {
-    source=s
+    from=s
     index g
     index k
   }
 }
 
 data time_masks_data source="data/time_masks.csv" {
-  map generators source=generator
+  map generators from=generator
 
   param uptime1_mask {
     index g
@@ -221,7 +221,7 @@ data time_masks_data source="data/time_masks.csv" {
 }
 
 data time_windows_data source="data/time_windows.csv" {
-  map generators source=generator
+  map generators from=generator
 
   // `t` is the anchor index (day/time bucket), `h` is the hour index.
   set h

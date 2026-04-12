@@ -1,5 +1,5 @@
 data units source="data/units.csv" {
-  map asset_id source="asset"
+  map asset_id from="asset"
 
   set asset_id alias="a"
   param variable_cost {

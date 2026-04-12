@@ -125,9 +125,9 @@ forms are equivalent:
 
 ```kdl
 // positional (preferred)
-param capacity_mw source=cap_mw index=gen
+param capacity_mw from=cap_mw index=gen
 // explicit name property (also valid)
-param name=capacity_mw source=cap_mw index=gen
+param name=capacity_mw from=cap_mw index=gen
 ```
 
 This applies to all named declarations: `set`, `data`, `model`, `scenario`,
@@ -368,12 +368,12 @@ Allowed children:
 
 ```
 map <logical_name>
-map <logical_name> source=<source_header>
+map <logical_name> from=<source_header>
 ```
 
 Semantics:
 
-- If `source` is omitted, source header defaults to `<logical_name>`. The column
+- If `from` is omitted, source header defaults to `<logical_name>`. The column
   MUST exist in the CSV.
 - Mapping is optional. Unmapped columns remain available.
 - Duplicate logical targets MUST fail validation.
@@ -513,16 +513,16 @@ data plants source="data/plants.csv" {
 `param` projects values from CSV columns into named parameters.
 
 By default, the param name is used to match the CSV column header. If the CSV
-column has a different name, use `source=<column>` to specify which CSV column
+column has a different name, use `from=<column>` to specify which CSV column
 supplies the values. The param's logical name (used in algebra) is always the
-`<name>` given to the `param` declaration. `source=` only controls where the data
+`<name>` given to the `param` declaration. `from=` only controls where the data
 is read from.
 
 Single-dimension indexing (property form):
 
 ```
 param <name>
-param <name> source=<csv_column>
+param <name> from=<csv_column>
 param <name> index=<set>
 param <name> { index <set> }
 ```
@@ -531,7 +531,7 @@ Multi-dimension indexing (child node form):
 
 ```
 param <name> { index <set_a>; index <set_b> }
-param <name> source=<csv_column> { index <set_a>; index <set_b> }
+param <name> from=<csv_column> { index <set_a>; index <set_b> }
 ```
 
 `<set>` references in the `index=` property and `index` children MAY use either
@@ -553,7 +553,7 @@ data generators source="data/generators.csv" {
   // reads from the "capacity_mw" column (name matches)
   param capacity_mw index=gen_id
   // reads from the "heat_rate" column but exposes it as "hr" in algebra
-  param hr source=heat_rate index=gen_id
+  param hr from=heat_rate index=gen_id
 }
 ```
 
@@ -611,7 +611,7 @@ depend on runtime data, so those errors occur at solve time (see
 Filtering:
 
 ```
-param <name> source=<field> { filter { <predicate> } }
+param <name> from=<field> { filter { <predicate> } }
 ```
 
 The `filter` block uses the same bare-math algebra syntax as `set` filters and
@@ -620,8 +620,8 @@ constraint `if` blocks:
 Given a CSV with columns `gen_id`, `capacity_mw`, and `prime_mover`:
 
 ```arco
-param cc_capacity source=capacity_mw { filter { prime_mover == CC } }
-param large_units source=capacity_mw { filter { capacity_mw >= 200 } }
+param cc_capacity from=capacity_mw { filter { prime_mover == CC } }
+param large_units from=capacity_mw { filter { capacity_mw >= 200 } }
 ```
 
 Order of operations when `filter` and `reduce` are combined: filtering is
@@ -629,7 +629,7 @@ applied first, then the reducer operates on the filtered rows. For example:
 
 ```arco
 // first filter to thermal rows, then sum their capacity
-param total_thermal_cap source=capacity_mw index=region reduce=sum {
+param total_thermal_cap from=capacity_mw index=region reduce=sum {
   filter { type == thermal }
 }
 ```
@@ -674,10 +674,10 @@ discount_rate,value_of_lost_load
 
 ```kdl
 data settings source="data/settings.csv" {
-  // column name matches param name, no source= needed
+  // column name matches param name, no from= needed
   param discount_rate
   // column name differs, use source= to read "value_of_lost_load" as "voll"
-  param voll source=value_of_lost_load units="$/MWh"
+  param voll from=value_of_lost_load units="$/MWh"
 }
 ```
 
@@ -788,7 +788,7 @@ set <name> alias=<short>
 ```arco
 // data declares gen, capacity_mw, fuel_cost, and the thermal_gen subset
 data generators source="data/generators.csv" {
-  map gen source=generator_id
+  map gen from=generator_id
   set gen alias=g
   set thermal_gen { in gen; filter { type == thermal } }
   param capacity_mw index=gen
@@ -1566,12 +1566,12 @@ them distinct param names, or consolidate into one `data` block:
 data generators source="data/generators.csv" {
   set gen_id
   // reads from CSV column "capacity", exposes as "gen_capacity" in algebra
-  param gen_capacity source=capacity index=gen_id
+  param gen_capacity from=capacity index=gen_id
 }
 data lines source="data/lines.csv" {
   set line_id
   // reads from CSV column "capacity", exposes as "line_capacity" in algebra
-  param line_capacity source=capacity index=line_id
+  param line_capacity from=capacity index=line_id
 }
 ```
 
@@ -1643,8 +1643,8 @@ Node annotation:
 Typed value literals in filters:
 
 ```arco
-param large_units source=capacity_mw { filter { capacity_mw >= (f64)200 } }
-param cc_capacity source=capacity_mw { filter { prime_mover == (prime_mover)CC } }
+param large_units from=capacity_mw { filter { capacity_mw >= (f64)200 } }
+param cc_capacity from=capacity_mw { filter { prime_mover == (prime_mover)CC } }
 ```
 
 Typed metadata values:
@@ -1729,8 +1729,8 @@ Quick-reference index:
 | 5   | Name uniqueness           | Duplicate `set` names within one `data` block                                     |
 | 6   | Name uniqueness           | Set name collisions across `data` blocks                                          |
 | 7   | Name uniqueness           | Param name collisions across `data` blocks                                        |
-| 8   | Column resolution         | `map` without `source` must match CSV column                                      |
-| 9   | Column resolution         | Unknown source columns in `map source=` or `param source=`                        |
+| 8   | Column resolution         | `map` without `from` must match CSV column                                        |
+| 9   | Column resolution         | Unknown source columns in `map from=` or `param from=`                            |
 | 10  | Column resolution         | Unknown set references in `index=` property or `index` children                   |
 | 11  | Set hierarchy             | `in` parent must resolve (see [rule 32](#10-validation-requirements) for scoping) |
 | 12  | Set hierarchy             | `in` cycles detected                                                              |
