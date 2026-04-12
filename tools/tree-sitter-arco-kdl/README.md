@@ -33,6 +33,24 @@ correct contexts, giving editors clean parses with no red squiggles.
 - Exposes algebra text as `arco_math_text` so editor injections can apply a math
   grammar for syntax highlighting.
 
+## Highlight capture map (theme tuning)
+
+Use `examples/highlight_demo.kdl` as the visual fixture when tuning colors.
+
+| Semantic intent                         | Tree-sitter capture(s)                           |
+| --------------------------------------- | ------------------------------------------------ |
+| Predicates / declaration keywords       | `@keyword`                                       |
+| Node names (`set thermal`, `model m`)   | `@variable.parameter`                            |
+| Properties (`from=...`, `index=...`)    | `@property`                                      |
+| Operators (`=`, `+`, `-`)               | `@operator`                                      |
+| Literals (`"..."`, numbers, booleans)   | `@string`, `@number`, `@boolean`                 |
+| Braces/parens/semicolons                | `@punctuation.bracket`, `@punctuation.delimiter` |
+| Comments                                | `@comment`                                       |
+| Algebra payload text (before injection) | `@string.special`                                |
+
+If your editor supports capture inspection (e.g. Neovim `:Inspect`), open the
+fixture and verify these captures line-by-line before taking screenshots.
+
 ## Installation
 
 ### Neovim
@@ -83,6 +101,7 @@ Then run `hx --grammar build`.
 
 - `grammar.js`: KDL overlay grammar.
 - `queries/injections.scm`: marks `arco_math_text` for language injection.
+- `examples/highlight_demo.kdl`: semantic highlight fixture for theme tuning.
 - `test/corpus/arco_math.txt`: corpus examples for algebra-body parsing.
 
 ## Notes

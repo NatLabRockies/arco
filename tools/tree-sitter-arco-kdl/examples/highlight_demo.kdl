@@ -1,0 +1,35 @@
+// Predicates/keywords should share one color
+set gen alias=g
+set time alias=t { 1; 2; 3 }
+
+data generators from="data/generators.csv" {
+  map gen from=generator
+  param capacity_mw index=gen
+  param fuel_cost from=cost_per_mwh index=gen
+
+  set thermal {
+    in gen
+    filter { type == thermal }
+  }
+}
+
+model dispatch_model {
+  control dispatch lower=0 {
+    index gen
+    index time
+  }
+
+  constraint cap_limit {
+    index g { in gen }
+    index t { in time }
+    expression { dispatch[g,t] <= capacity_mw[g] }
+  }
+
+  minimize total_cost {
+    sum(fuel_cost[g] * dispatch[g,t] for g in gen for t in time)
+  }
+}
+
+scenario demo {
+  use dispatch_model
+}
