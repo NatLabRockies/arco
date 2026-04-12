@@ -113,8 +113,13 @@ jobs:
 
       - name: Install system dependencies
         if: matrix.target.apt-deps != ''
-        run: sudo apt-get update -qq && sudo apt-get install -y
-          --no-install-recommends ${{ matrix.target.apt-deps }}
+        env:
+          MATRIX_APT_DEPS: ${{ matrix.target.apt-deps }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          read -r -a apt_deps <<< "$MATRIX_APT_DEPS"
+          sudo apt-get install -y --no-install-recommends "${apt_deps[@]}"
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -128,10 +133,20 @@ jobs:
           rust-cache-shared-key: rust-clippy
 
       - name: Run clippy (${{ matrix.target.name }})
-        run: ${{ matrix.target.command }}
         env:
+          MATRIX_TARGET_NAME: ${{ matrix.target.name }}
           FFLAGS: ${{ matrix.target.fflags }}
           FCFLAGS: ${{ matrix.target.fflags }}
+        run: |
+          set -euo pipefail
+          case "$MATRIX_TARGET_NAME" in
+            core) just clippy-core ;;
+            arco-ipopt) just clippy-solver arco-ipopt ;;
+            *)
+              echo "::error::Unknown clippy target: $MATRIX_TARGET_NAME"
+              exit 1
+              ;;
+          esac
 
   rust-test:
     name: Rust tests (${{ matrix.target.name }})
@@ -161,8 +176,13 @@ jobs:
 
       - name: Install system dependencies
         if: matrix.target.apt-deps != ''
-        run: sudo apt-get update -qq && sudo apt-get install -y
-          --no-install-recommends ${{ matrix.target.apt-deps }}
+        env:
+          MATRIX_APT_DEPS: ${{ matrix.target.apt-deps }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          read -r -a apt_deps <<< "$MATRIX_APT_DEPS"
+          sudo apt-get install -y --no-install-recommends "${apt_deps[@]}"
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -177,10 +197,20 @@ jobs:
           save-rust-cache: "false"
 
       - name: Run tests (${{ matrix.target.name }})
-        run: ${{ matrix.target.command }}
         env:
+          MATRIX_TARGET_NAME: ${{ matrix.target.name }}
           FFLAGS: ${{ matrix.target.fflags }}
           FCFLAGS: ${{ matrix.target.fflags }}
+        run: |
+          set -euo pipefail
+          case "$MATRIX_TARGET_NAME" in
+            core) just test-core ;;
+            arco-ipopt) just test-solver arco-ipopt ;;
+            *)
+              echo "::error::Unknown test target: $MATRIX_TARGET_NAME"
+              exit 1
+              ;;
+          esac
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})

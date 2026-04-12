@@ -10,6 +10,10 @@ on:
     paths:
       - ".github/**"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

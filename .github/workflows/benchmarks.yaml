@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: write # Required to post benchmark summaries/comments back to the PR.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:

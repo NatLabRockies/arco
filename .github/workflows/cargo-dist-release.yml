@@ -14,6 +14,11 @@
 # title/body based on your changelogs.
 
 name: cargo dist
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   "contents": "read"
 
@@ -62,6 +67,7 @@ on:
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
+    name: Plan release artifacts
     runs-on: "ubuntu-22.04"
     timeout-minutes: 15
     outputs:
@@ -71,7 +77,7 @@ jobs:
         inputs.tag) || '' }}
       publishing: ${{ inputs.tag && inputs.tag != 'dry-run' }}
     permissions:
-      "contents": "write"
+      "contents": "write" # Required because `dist host --steps=create` may create or update release metadata.
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -220,8 +226,10 @@ jobs:
       - name: Configure musl cross-compilation env
         if: ${{ contains(join(matrix.targets, ','), 'musl') }}
         shell: bash
+        env:
+          MATRIX_CONTAINER_IMAGE: ${{ matrix.container && matrix.container.image || '' }}
         run: |
-          if [[ -n "${{ matrix.container }}" ]]; then
+          if [[ -n "${MATRIX_CONTAINER_IMAGE}" ]]; then
             # Container has musl toolchain in PATH
             {
               echo "CC_x86_64_unknown_linux_musl=x86_64-unknown-linux-musl-gcc"
@@ -273,6 +281,7 @@ jobs:
 
   # Build and package all the platform-agnostic(ish) things
   build-global-artifacts:
+    name: Build global artifacts
     needs:
       - plan
       - build-local-artifacts
@@ -327,6 +336,7 @@ jobs:
             ${{ env.BUILD_MANIFEST_NAME }}
   # Determines if we should publish/announce
   host:
+    name: Publish release artifacts
     timeout-minutes: 15
     needs:
       - plan
@@ -342,7 +352,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     permissions:
-      "contents": "write"
+      "contents": "write" # Required to upload artifacts to the GitHub Release and publish it.
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.host.outputs.manifest }}
@@ -410,6 +420,7 @@ jobs:
           gh release edit "${NEEDS_PLAN_OUTPUTS_TAG}" --draft=false ${PRERELEASE_FLAG}
 
   announce:
+    name: Announce published release
     timeout-minutes: 5
     needs:
       - plan
