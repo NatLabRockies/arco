@@ -1,53 +1,86 @@
-data assets_data from="data/all_assets.csv" {
+data assets_data source="data/all_assets.csv" {
   map asset_id from="asset_name"
 
   set asset_id alias="a"
-  param existing_capacity_mw index="asset_id"
-  param max_build_mw index="asset_id"
-  param build_cost index="asset_id"
-  param variable_cost index="asset_id"
-  param is_candidate index="asset_id"
+  param existing_capacity_mw {
+    index asset_id
+  }
+  param max_build_mw {
+    index asset_id
+  }
+  param build_cost {
+    index asset_id
+  }
+  param variable_cost {
+    index asset_id
+  }
+  param is_candidate {
+    index asset_id
+  }
 }
 
-data demand_data from="data/demand.csv" {
+data demand_data source="data/demand.csv" {
   set t
-  param demand index="t"
+  param demand {
+    index t
+  }
 }
 
-data voll_data from="data/voll.csv" {
+data voll_data source="data/voll.csv" {
   set t
-  param voll index="t"
+  param voll {
+    index t
+  }
 }
 
-model CapacityExpansion {
+model capacity_expansion {
   set asset_id alias="a"
   set time alias="t"
 
-  param existing_capacity_mw index="asset_id"
-  param max_build_mw index="asset_id"
-  param build_cost index="asset_id"
-  param variable_cost index="asset_id"
-  param is_candidate index="asset_id"
-  param demand index="time"
-  param voll index="time"
+  param existing_capacity_mw {
+    index asset_id
+  }
+  param max_build_mw {
+    index asset_id
+  }
+  param build_cost {
+    index asset_id
+  }
+  param variable_cost {
+    index asset_id
+  }
+  param is_candidate {
+    index asset_id
+  }
+  param demand {
+    index time
+  }
+  param voll {
+    index time
+  }
 
   control dispatch {
     index asset_id
     index time
   }
 
-  control expansion index="asset_id" lower=0
-  control unserved_energy index="time" lower=0
+  control expansion {
+    index asset_id
+  }
 
-  expression InvestmentCost {
+  control unserved_energy {
+    index time
+  }
+
+  expression investment_cost {
     sum(build_cost[asset] * expansion[asset] for asset in candidate_assets)
   }
 
-  expression OperatingCost {
+  expression operating_cost {
     sum(variable_cost[asset] * dispatch[asset,t] for asset in asset_id for t in time)
   }
 
-  expression PenaltyCost {
+  expression penalty_cost {
     sum(voll[t] * unserved_energy[t] for t in time)
   }
 
@@ -73,11 +106,11 @@ model CapacityExpansion {
     }
   }
 
-  minimize ExpansionCost {
-    InvestmentCost + OperatingCost + PenaltyCost
+  minimize expansion_cost {
+    investment_cost + operating_cost + penalty_cost
   }
 }
 
-scenario ExpansionCase {
-  use CapacityExpansion
+scenario expansion_case {
+  use capacity_expansion
 }

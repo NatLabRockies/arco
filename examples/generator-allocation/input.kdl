@@ -1,16 +1,16 @@
-data units from="data/units.csv" {
+data units source="data/units.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
   param variable_cost index="asset_id"
 }
 
-data demand_data from="data/demand.csv" {
+data demand_data source="data/demand.csv" {
   set t
   param demand index="t"
 }
 
-model GeneratorAllocation {
+model generator_allocation {
   set asset_id alias="a"
   set time alias="t"
 
@@ -37,11 +37,11 @@ model GeneratorAllocation {
     }
   }
 
-  minimize TotalCost {
+  minimize total_cost {
     sum(variable_cost[asset] * dispatch[asset,t] for asset in asset_id for t in time)
   }
 }
 
-scenario GeneratorAllocationDay {
-  use GeneratorAllocation
+scenario generator_allocationDay {
+  use generator_allocation
 }

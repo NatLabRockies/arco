@@ -1,32 +1,60 @@
-data battery from="data/battery.csv" {
+data battery source="data/battery.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
 
-  param power_mw index="asset_id"
-  param energy_mwh index="asset_id"
-  param charge_efficiency index="asset_id"
-  param discharge_efficiency index="asset_id"
-  param initial_soc_mwh index="asset_id"
-  param terminal_soc_mwh index="asset_id"
+  param power_mw {
+    index asset_id
+  }
+  param energy_mwh {
+    index asset_id
+  }
+  param charge_efficiency {
+    index asset_id
+  }
+  param discharge_efficiency {
+    index asset_id
+  }
+  param initial_soc_mwh {
+    index asset_id
+  }
+  param terminal_soc_mwh {
+    index asset_id
+  }
 }
 
-data price_curve from="data/prices.csv" {
+data price_curve source="data/prices.csv" {
   set t
-  param prices index="t"
+  param prices {
+    index t
+  }
 }
 
-model PriceTakerBattery {
+model price_taker_battery {
   set asset_id alias="a"
   set time alias="t"
 
-  param power_mw index="asset_id"
-  param energy_mwh index="asset_id"
-  param charge_efficiency index="asset_id"
-  param discharge_efficiency index="asset_id"
-  param initial_soc_mwh index="asset_id"
-  param terminal_soc_mwh index="asset_id"
-  param prices index="time"
+  param power_mw {
+    index asset_id
+  }
+  param energy_mwh {
+    index asset_id
+  }
+  param charge_efficiency {
+    index asset_id
+  }
+  param discharge_efficiency {
+    index asset_id
+  }
+  param initial_soc_mwh {
+    index asset_id
+  }
+  param terminal_soc_mwh {
+    index asset_id
+  }
+  param prices {
+    index time
+  }
 
   control charge {
     index asset_id
@@ -41,7 +69,7 @@ model PriceTakerBattery {
     index time
   }
 
-  expression ArbitrageRevenue {
+  expression arbitrage_revenue {
     sum(prices[t] * (discharge[asset,t] - charge[asset,t]) for asset in asset_id for t in time)
   }
 
@@ -94,12 +122,12 @@ model PriceTakerBattery {
     }
   }
 
-  maximize ArbitrageProfit {
-    ArbitrageRevenue
+  maximize arbitrage_profit {
+    arbitrage_revenue
   }
 }
 
-scenario BatteryArbitrageDay {
-  use PriceTakerBattery
-  report ArbitrageRevenue
+scenario battery_arbitrage_day {
+  use price_taker_battery
+  report arbitrage_revenue
 }
