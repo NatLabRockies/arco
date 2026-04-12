@@ -14,6 +14,11 @@
 # title/body based on your changelogs.
 
 name: cargo dist
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   "contents": "read"
 
@@ -62,6 +67,7 @@ on:
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
+    name: Plan release artifacts
     runs-on: "ubuntu-22.04"
     timeout-minutes: 15
     outputs:
@@ -71,7 +77,7 @@ jobs:
         inputs.tag) || '' }}
       publishing: ${{ inputs.tag && inputs.tag != 'dry-run' }}
     permissions:
-      "contents": "write"
+      "contents": "write" # Required because `dist host --steps=create` may create or update release metadata.
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -200,6 +206,44 @@ jobs:
           if [[ -n "${MATRIX_PACKAGES_INSTALL}" ]]; then
             bash -euo pipefail -c "${MATRIX_PACKAGES_INSTALL}"
           fi
+      # MODIFIED: musl-tools only ships a C wrapper (musl-gcc); highs-sys needs
+      # a C++ compiler that links against musl's libstdc++, not glibc's.
+      # For container-based builds (messense/rust-musl-cross), the toolchain is pre-installed.
+      # For non-container builds, we download from musl.cc (may timeout - consider using container).
+      # Re-apply after running `cargo dist init`.
+      - name: Install musl cross-toolchain
+        if: ${{ contains(join(matrix.targets, ','), 'musl') && !matrix.container }}
+        shell: bash
+        run: |
+          curl -fsSL https://musl.cc/x86_64-linux-musl-cross.tgz | sudo tar xz -C /opt
+          sudo ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-g++ /usr/local/bin/x86_64-linux-musl-g++
+          sudo ln -sf /opt/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc /usr/local/bin/x86_64-linux-musl-gcc
+      # MODIFIED: Point cc/cargo at the musl cross-toolchain so that C/C++
+      # code (highs-sys) compiles and links against musl, not glibc.
+      # For container builds, the x86_64-unknown-linux-musl-gcc/g++ are in PATH.
+      # For non-container builds, we use the /usr/local/bin symlinks.
+      # Re-apply after running `cargo dist init`.
+      - name: Configure musl cross-compilation env
+        if: ${{ contains(join(matrix.targets, ','), 'musl') }}
+        shell: bash
+        env:
+          MATRIX_CONTAINER_IMAGE: ${{ matrix.container && matrix.container.image || '' }}
+        run: |
+          if [[ -n "${MATRIX_CONTAINER_IMAGE}" ]]; then
+            # Container has musl toolchain in PATH
+            {
+              echo "CC_x86_64_unknown_linux_musl=x86_64-unknown-linux-musl-gcc"
+              echo "CXX_x86_64_unknown_linux_musl=x86_64-unknown-linux-musl-g++"
+              echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-unknown-linux-musl-gcc"
+            } >> "$GITHUB_ENV"
+          else
+            # Non-container: use the downloaded toolchain
+            {
+              echo "CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc"
+              echo "CXX_x86_64_unknown_linux_musl=x86_64-linux-musl-g++"
+              echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc"
+            } >> "$GITHUB_ENV"
+          fi
       - name: Build artifacts
         shell: bash
         env:
@@ -237,6 +281,7 @@ jobs:
 
   # Build and package all the platform-agnostic(ish) things
   build-global-artifacts:
+    name: Build global artifacts
     needs:
       - plan
       - build-local-artifacts
@@ -291,6 +336,7 @@ jobs:
             ${{ env.BUILD_MANIFEST_NAME }}
   # Determines if we should publish/announce
   host:
+    name: Publish release artifacts
     timeout-minutes: 15
     needs:
       - plan
@@ -306,7 +352,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     permissions:
-      "contents": "write"
+      "contents": "write" # Required to upload artifacts to the GitHub Release and publish it.
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.host.outputs.manifest }}
@@ -374,6 +420,7 @@ jobs:
           gh release edit "${NEEDS_PLAN_OUTPUTS_TAG}" --draft=false ${PRERELEASE_FLAG}
 
   announce:
+    name: Announce published release
     timeout-minutes: 5
     needs:
       - plan

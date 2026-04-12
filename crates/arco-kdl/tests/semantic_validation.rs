@@ -53,12 +53,10 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=1 resolution="PT1H"
   use "Dispatch"
 }
 
 scenario "S2" {
-  horizon steps=1 resolution="PT1H"
   use "Dispatch"
 }
 "#;
@@ -72,7 +70,7 @@ scenario "S2" {
 }
 
 #[test]
-fn semantic_validation_requires_scenario_data_bindings_to_match_model_params()
+fn semantic_validation_requires_scenario_data_bindings_to_match_known_params()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_root("semantic-data-param-match")?;
     let path = root.join("input.kdl");
@@ -94,7 +92,6 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=1 resolution="PT1H"
   use "Dispatch"
   data "unknown_param" from="data.csv"
 }
@@ -116,17 +113,16 @@ fn semantic_validation_resolves_reports_and_registry_for_low_level_model()
     fs::create_dir_all(root.join("data"))?;
     fs::write(
         root.join("data").join("assets.csv"),
-        "asset,is_candidate,zone\nA,1,north\nB,0,south\n",
+        "asset_id,is_candidate,zone\nA,1,north\nB,0,south\n",
     )?;
 
     let path = root.join("input.kdl");
     let text = r#"
+set "time" { "1"; "2" }
+
 data "generator_data" from="data/assets.csv" {
-  map "asset_id" from="asset"
   set "asset_id"
 }
-
-subset "candidate_assets" from="generator_data" filter_by="is_candidate" eq=1
 
 model "Dispatch" {
   control "x" {
@@ -135,7 +131,7 @@ model "Dispatch" {
   }
 
   expression "FuelCost" {
-    sum(x[a,t] for a in assets for t in time)
+    sum(x[a,t] for a in asset_id for t in time)
   }
 
   constraint "balance[a,t]" {
@@ -148,7 +144,6 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=2 resolution="PT1H"
   use "Dispatch"
   report FuelCost
   report TotalCost
@@ -174,7 +169,6 @@ scenario "S1" {
     );
     assert!(semantic.set_registry.contains_key("time"));
     assert!(semantic.set_registry.contains_key("asset_id"));
-    assert!(semantic.set_registry.contains_key("candidate_assets"));
 
     fs::remove_dir_all(&root)?;
     Ok(())

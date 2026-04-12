@@ -2,25 +2,38 @@ data units from="data/units.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
-  param variable_cost index_by="asset_id"
+  param variable_cost index="asset_id"
+}
+
+data demand_data from="data/demand.csv" {
+  set t
+  param demand index="t"
 }
 
 model GeneratorAllocation {
   set asset_id alias="a"
-  set time alias="t" from="horizon"
+  set time alias="t"
 
-  param variable_cost index_by="asset_id"
+  param variable_cost index="asset_id"
+  param demand index="time"
 
-  control dispatch {
+  control dispatch lower=0 {
     index asset_id
     index time
   }
 
   constraint capacity_limit {
-    over asset in=asset_id
-    over t in=time
-    expr {
+    index asset { in asset_id }
+    index t { in time }
+    expression {
       dispatch[asset,t] <= 10
+    }
+  }
+
+  constraint balance {
+    index t { in time }
+    expression {
+      sum(dispatch[asset,t] for asset in asset_id) = demand[t]
     }
   }
 
@@ -30,6 +43,5 @@ model GeneratorAllocation {
 }
 
 scenario GeneratorAllocationDay {
-  horizon steps=3 resolution=PT1H
   use GeneratorAllocation
 }

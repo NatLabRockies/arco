@@ -5,6 +5,40 @@
     "fields": {}
   },
   {
+    "type": "arco_constraint_math_children",
+    "named": true,
+    "fields": {
+      "math": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "arco_constraint_math_text",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "multi_line_comment",
+          "named": true
+        },
+        {
+          "type": "node_children_comment",
+          "named": true
+        },
+        {
+          "type": "single_line_comment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "arco_constraint_node",
     "named": true,
     "fields": {
@@ -13,7 +47,7 @@
         "required": false,
         "types": [
           {
-            "type": "arco_pure_math_children",
+            "type": "arco_constraint_math_children",
             "named": true
           },
           {
@@ -192,7 +226,6 @@
   {
     "type": "document",
     "named": true,
-    "root": true,
     "fields": {},
     "children": {
       "multiple": true,
@@ -609,6 +642,10 @@
     "named": false
   },
   {
+    "type": "arco_constraint_math_text",
+    "named": true
+  },
+  {
     "type": "arco_math_text",
     "named": true
   },
@@ -762,8 +799,7 @@
   },
   {
     "type": "multi_line_comment",
-    "named": true,
-    "extra": true
+    "named": true
   },
   {
     "type": "node_children_comment",

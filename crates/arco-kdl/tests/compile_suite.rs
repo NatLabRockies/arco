@@ -1,6 +1,6 @@
 #![allow(clippy::float_cmp)]
 
-use arco_kdl::lowering::lower_program;
+use arco_kdl::compile::{CompileError, compile_program};
 use arco_kdl::semantic::validate_program;
 use arco_kdl::source::parse_program_file;
 use std::fs;
@@ -30,14 +30,18 @@ fn lowering_loads_top_level_data_block_params() -> Result<(), Box<dyn std::error
     fs::write(
         &path,
         r#"
+set "time" { "1"; "2" }
+
 data "inputs" from="data/inputs.csv" {
   map "time" from="time"
 
-  param "capacity" index_by="time" from="cap" reduce="sum"
-  param "demand" index_by="time" from="demand"
+  param "capacity" index="time" from="cap" reduce="sum"
+  param "demand" index="time" from="demand"
 }
 
 model "Dispatch" {
+  set time alias="t"
+
   param "capacity" {
     index "t"
   }
@@ -63,7 +67,6 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=2 resolution="PT1H"
   use "Dispatch"
 }
 "#,
@@ -71,15 +74,15 @@ scenario "S1" {
 
     let parsed = parse_program_file(&path)?;
     let semantic = validate_program(&parsed.program, &path)?;
-    let lowered = lower_program(&semantic, &parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
 
-    let cap_1 = lowered
+    let cap_1 = compiled
         .algebra
         .constraints
         .iter()
         .find(|c| c.name == "cap_limit[t][1]")
         .ok_or("missing cap constraint at t=1")?;
-    let bal_1 = lowered
+    let bal_1 = compiled
         .algebra
         .constraints
         .iter()
@@ -105,12 +108,16 @@ fn lowering_prefers_scenario_data_bindings_over_top_level_data_params()
     fs::write(
         &path,
         r#"
+set "time" { "1" }
+
 data "defaults" from="data/top.csv" {
   map "time" from="time"
-  param "capacity" index_by="time" from="cap"
+  param "capacity" index="time" from="cap"
 }
 
 model "Dispatch" {
+  set time alias="t"
+
   param "capacity" {
     index "t"
   }
@@ -129,7 +136,6 @@ model "Dispatch" {
 }
 
 scenario "S1" {
-  horizon steps=1 resolution="PT1H"
   use "Dispatch"
   data "capacity" from="data/override.csv"
 }
@@ -138,15 +144,82 @@ scenario "S1" {
 
     let parsed = parse_program_file(&path)?;
     let semantic = validate_program(&parsed.program, &path)?;
-    let lowered = lower_program(&semantic, &parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
 
-    let cap = lowered
+    let cap = compiled
         .algebra
         .constraints
         .iter()
         .find(|c| c.name == "cap_limit[t][1]")
         .ok_or("missing capacity constraint")?;
     assert_eq!(cap.rhs, 55.0);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_reports_missing_data_point_for_sparse_generic_data_table()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("sparse-generic-data")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("dist.csv"),
+        "g,b,distance_km\ng1,b1,10\ng1,b2,20\ng2,b1,30\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+set "time" { "1" }
+
+data "distance" from="data/dist.csv" {
+  set "g"
+  set "b"
+  param "distance_km" {
+    index "g"
+    index "b"
+  }
+}
+
+model "SparseDistance" {
+  set "g"
+  set "b"
+
+  param "distance_km" {
+    index "g"
+    index "b"
+  }
+
+  control "flow" lower=0 {
+    index "g"
+    index "b"
+  }
+
+  minimize "TotalCost" {
+    sum(distance_km[g,b] * flow[g,b] for g in g for b in b)
+  }
+}
+
+scenario "SparseDistanceCase" {
+  use "SparseDistance"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let err = compile_program(&semantic, &parsed.program, &path)
+        .expect_err("sparse data table should fail lowering with a missing key");
+
+    match err {
+        CompileError::MissingDataPoint { name, key, .. } => {
+            assert_eq!(name, "distance_km");
+            assert_eq!(key, "g2,b2");
+        }
+        other => panic!("expected MissingDataPoint, got {other:?}"),
+    }
 
     fs::remove_dir_all(&root)?;
     Ok(())

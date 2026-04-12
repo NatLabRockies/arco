@@ -3,30 +3,30 @@ data battery from="data/battery.csv" {
 
   set asset_id alias="a"
 
-  param power_mw index_by="asset_id"
-  param energy_mwh index_by="asset_id"
-  param charge_efficiency index_by="asset_id"
-  param discharge_efficiency index_by="asset_id"
-  param initial_soc_mwh index_by="asset_id"
-  param terminal_soc_mwh index_by="asset_id"
+  param power_mw index="asset_id"
+  param energy_mwh index="asset_id"
+  param charge_efficiency index="asset_id"
+  param discharge_efficiency index="asset_id"
+  param initial_soc_mwh index="asset_id"
+  param terminal_soc_mwh index="asset_id"
 }
 
 data price_curve from="data/prices.csv" {
   set t
-  param prices index_by="t"
+  param prices index="t"
 }
 
 model PriceTakerBattery {
   set asset_id alias="a"
-  set time alias="t" from="horizon"
+  set time alias="t"
 
-  param power_mw index_by="asset_id"
-  param energy_mwh index_by="asset_id"
-  param charge_efficiency index_by="asset_id"
-  param discharge_efficiency index_by="asset_id"
-  param initial_soc_mwh index_by="asset_id"
-  param terminal_soc_mwh index_by="asset_id"
-  param prices index_by="time"
+  param power_mw index="asset_id"
+  param energy_mwh index="asset_id"
+  param charge_efficiency index="asset_id"
+  param discharge_efficiency index="asset_id"
+  param initial_soc_mwh index="asset_id"
+  param terminal_soc_mwh index="asset_id"
+  param prices index="time"
 
   control charge {
     index asset_id
@@ -46,50 +46,50 @@ model PriceTakerBattery {
   }
 
   constraint soc_initial {
-    over asset in=asset_id
-    expr {
+    index asset { in asset_id }
+    expression {
       soc[asset,1] = initial_soc_mwh[asset] + charge_efficiency[asset] * charge[asset,1] - discharge[asset,1] / discharge_efficiency[asset]
     }
   }
 
   constraint soc_balance {
-    over asset in=asset_id
-    over t in=time
-    when "t > 1"
-    expr {
+    index asset { in asset_id }
+    index t { in time }
+    if { t > 1 }
+    expression {
       soc[asset,t] = soc[asset,t-1] + charge_efficiency[asset] * charge[asset,t] - discharge[asset,t] / discharge_efficiency[asset]
     }
   }
 
   constraint charge_limit {
-    over asset in=asset_id
-    over t in=time
-    expr {
+    index asset { in asset_id }
+    index t { in time }
+    expression {
       charge[asset,t] <= power_mw[asset]
     }
   }
 
   constraint discharge_limit {
-    over asset in=asset_id
-    over t in=time
-    expr {
+    index asset { in asset_id }
+    index t { in time }
+    expression {
       discharge[asset,t] <= power_mw[asset]
     }
   }
 
   constraint soc_bounds {
-    over asset in=asset_id
-    over t in=time
-    expr {
+    index asset { in asset_id }
+    index t { in time }
+    expression {
       0 <= soc[asset,t] <= energy_mwh[asset]
     }
   }
 
   constraint terminal_soc {
-    over asset in=asset_id
-    over t in=time
-    when "t == 24"
-    expr {
+    index asset { in asset_id }
+    index t { in time }
+    if { t == 24 }
+    expression {
       soc[asset,t] = terminal_soc_mwh[asset]
     }
   }
@@ -100,7 +100,6 @@ model PriceTakerBattery {
 }
 
 scenario BatteryArbitrageDay {
-  horizon steps=24 resolution=PT1H
   use PriceTakerBattery
   report ArbitrageRevenue
 }

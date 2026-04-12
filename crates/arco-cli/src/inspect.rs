@@ -1,3 +1,4 @@
+use arco_kdl::ObjectiveSense;
 use arco_kdl::algebra::{self, ComparisonOp, ConstraintBody, Expr, ReductionOp};
 use arco_kdl::semantic::{
     FamilySignature, ResolvedConstraint, SemanticProgram, VariableDeclOverrides,
@@ -150,7 +151,7 @@ pub struct TermRef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectiveRecord {
     pub name: String,
-    pub sense: String,
+    pub sense: ObjectiveSense,
     pub term: Vec<ObjectiveTermRef>,
 }
 
@@ -1029,7 +1030,7 @@ fn build_objective_record(
 
     ObjectiveRecord {
         name: objective.name.clone(),
-        sense: objective.sense.clone(),
+        sense: objective.sense,
         term: terms,
     }
 }

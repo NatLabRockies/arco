@@ -40,7 +40,7 @@ bench-report path:
 
 [group: 'bench']
 bench-run:
-    cargo run -p arco-bench -- run
+    cargo run -p arco-bench -- run --scenario model-build,kdl-compile
 
 [group: 'rust']
 check:

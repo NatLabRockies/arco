@@ -167,8 +167,8 @@ fn export_model(
     let compiled = compile_file(&path)?;
     let mut buffer = Vec::new();
     match format {
-        ExportFormat::Lp => write_lp(&compiled.lowered_problem.algebra, &mut buffer)?,
-        ExportFormat::Mps => write_mps(&compiled.lowered_problem.algebra, &mut buffer)?,
+        ExportFormat::Lp => write_lp(&compiled.compiled_problem.algebra, &mut buffer)?,
+        ExportFormat::Mps => write_mps(&compiled.compiled_problem.algebra, &mut buffer)?,
     }
 
     if let Some(output_path) = output {

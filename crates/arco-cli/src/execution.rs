@@ -3,8 +3,8 @@ use arco_core::{
     SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus, Variable,
 };
 use arco_highs::Solver as HighsSolver;
-use arco_kdl::lowering::{
-    ConstraintSense, LinearReport, LinearTerm, LoweredProblem, ObjectiveSense, VariableKind,
+use arco_kdl::compile::{
+    CompiledProblem, ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind,
 };
 #[cfg(feature = "xpress")]
 use arco_xpress::Solver as XpressSolver;
@@ -43,20 +43,20 @@ pub enum SolveStatus {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScalarArtifactValue {
-    pub lowered_name: String,
+    pub compiled_name: String,
     pub value: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableArtifactValue {
-    pub lowered_name: String,
+    pub compiled_name: String,
     pub representative_value: f64,
     pub values: Vec<VariableInstanceArtifactValue>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VariableInstanceArtifactValue {
-    pub lowered_name: String,
+    pub compiled_name: String,
     pub value: f64,
 }
 
@@ -64,7 +64,7 @@ pub struct VariableInstanceArtifactValue {
 pub struct ExecutionResult {
     pub backend: &'static str,
     pub status: SolveStatus,
-    pub objective_sense: String,
+    pub objective_sense: ObjectiveSense,
     pub objective: MappedScalarResult,
     pub reports: Vec<MappedScalarResult>,
     pub variables: Vec<MappedVariableResult>,
@@ -74,14 +74,14 @@ pub struct ExecutionResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MappedScalarResult {
     pub dsl_name: String,
-    pub lowered_name: String,
+    pub compiled_name: String,
     pub value: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MappedVariableResult {
     pub dsl_name: String,
-    pub lowered_name: String,
+    pub compiled_name: String,
     pub representative_value: f64,
     pub values: Vec<MappedVariableValue>,
 }
@@ -89,7 +89,7 @@ pub struct MappedVariableResult {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MappedVariableValue {
     pub dsl_name: String,
-    pub lowered_name: String,
+    pub compiled_name: String,
     pub value: f64,
 }
 
@@ -98,7 +98,7 @@ pub trait OptimizationAdapter {
 
     fn solve(
         &self,
-        problem: &LoweredProblem,
+        problem: &CompiledProblem,
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError>;
 }
@@ -119,38 +119,38 @@ pub struct XpressArcoAdapter {
 
 #[derive(Debug, Error)]
 pub enum ExecutionError {
-    #[error("adapter backend `{backend}` failed to add variable `{lowered_name}`: {source}")]
+    #[error("adapter backend `{backend}` failed to add variable `{compiled_name}`: {source}")]
     AddVariable {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
         #[source]
         source: ArcoModelError,
     },
-    #[error("adapter backend `{backend}` failed to name variable `{lowered_name}`: {source}")]
+    #[error("adapter backend `{backend}` failed to name variable `{compiled_name}`: {source}")]
     NameVariable {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
         #[source]
         source: ArcoModelError,
     },
-    #[error("adapter backend `{backend}` failed to add constraint `{lowered_name}`: {source}")]
+    #[error("adapter backend `{backend}` failed to add constraint `{compiled_name}`: {source}")]
     AddConstraint {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
         #[source]
         source: ArcoModelError,
     },
-    #[error("adapter backend `{backend}` failed to name constraint `{lowered_name}`: {source}")]
+    #[error("adapter backend `{backend}` failed to name constraint `{compiled_name}`: {source}")]
     NameConstraint {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
         #[source]
         source: ArcoModelError,
     },
-    #[error("adapter backend `{backend}` references unknown lowered variable `{lowered_name}`")]
-    UnknownLoweredVariable {
+    #[error("adapter backend `{backend}` references unknown compiled variable `{compiled_name}`")]
+    UnknownCompiledVariable {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
     },
     #[error(
         "adapter backend `{backend}` failed to set coefficient for `{constraint_name}`: {source}"
@@ -161,17 +161,17 @@ pub enum ExecutionError {
         #[source]
         source: ArcoModelError,
     },
-    #[error("adapter backend `{backend}` failed to set objective `{lowered_name}`: {source}")]
+    #[error("adapter backend `{backend}` failed to set objective `{compiled_name}`: {source}")]
     SetObjective {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
         #[source]
         source: ArcoModelError,
     },
-    #[error("adapter backend `{backend}` failed to name objective `{lowered_name}`: {source}")]
+    #[error("adapter backend `{backend}` failed to name objective `{compiled_name}`: {source}")]
     NameObjective {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
         #[source]
         source: ArcoModelError,
     },
@@ -191,20 +191,20 @@ pub enum ExecutionError {
         "adapter backend `{backend}` produced no usable primal solution because status was `{status}`"
     )]
     NoFeasibleSolution { backend: String, status: String },
-    #[error("adapter backend `{backend}` did not return objective `{lowered_name}`")]
+    #[error("adapter backend `{backend}` did not return objective `{compiled_name}`")]
     MissingObjectiveValue {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
     },
-    #[error("adapter backend `{backend}` did not return report `{lowered_name}`")]
+    #[error("adapter backend `{backend}` did not return report `{compiled_name}`")]
     MissingReportValue {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
     },
-    #[error("adapter backend `{backend}` did not return variable `{lowered_name}`")]
+    #[error("adapter backend `{backend}` did not return variable `{compiled_name}`")]
     MissingVariableValue {
         backend: String,
-        lowered_name: String,
+        compiled_name: String,
     },
 }
 
@@ -233,20 +233,20 @@ impl OptimizationAdapter for MockArcoAdapter {
 
     fn solve(
         &self,
-        problem: &LoweredProblem,
+        problem: &CompiledProblem,
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         Ok(AdapterSolveOutput {
             status: SolveStatus::Optimal,
             objective_value: ScalarArtifactValue {
-                lowered_name: problem.objective.name.clone(),
+                compiled_name: problem.objective.name.clone(),
                 value: 0.0,
             },
             report_values: problem
                 .reports
                 .iter()
                 .map(|report| ScalarArtifactValue {
-                    lowered_name: report.name.clone(),
+                    compiled_name: report.name.clone(),
                     value: 0.0,
                 })
                 .collect(),
@@ -254,7 +254,7 @@ impl OptimizationAdapter for MockArcoAdapter {
                 .variables
                 .iter()
                 .map(|variable| VariableArtifactValue {
-                    lowered_name: variable.family.clone(),
+                    compiled_name: variable.family.clone(),
                     representative_value: 0.0,
                     values: if include_variable_values {
                         problem
@@ -263,7 +263,7 @@ impl OptimizationAdapter for MockArcoAdapter {
                             .iter()
                             .filter(|instance| instance.family == variable.family)
                             .map(|instance| VariableInstanceArtifactValue {
-                                lowered_name: instance.name.clone(),
+                                compiled_name: instance.name.clone(),
                                 value: 0.0,
                             })
                             .collect()
@@ -291,7 +291,7 @@ impl OptimizationAdapter for RustArcoAdapter {
 
     fn solve(
         &self,
-        problem: &LoweredProblem,
+        problem: &CompiledProblem,
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
@@ -341,7 +341,7 @@ impl OptimizationAdapter for RustArcoAdapter {
             .iter()
             .map(|report| {
                 Ok(ScalarArtifactValue {
-                    lowered_name: report.name.clone(),
+                    compiled_name: report.name.clone(),
                     value: evaluate_linear_report(
                         &backend,
                         report,
@@ -379,7 +379,7 @@ impl OptimizationAdapter for RustArcoAdapter {
                         .filter(|instance| instance.family == variable.family)
                         .map(|instance| {
                             Ok(VariableInstanceArtifactValue {
-                                lowered_name: instance.name.clone(),
+                                compiled_name: instance.name.clone(),
                                 value: lookup_primal_value(
                                     &backend,
                                     &instance.name,
@@ -394,7 +394,7 @@ impl OptimizationAdapter for RustArcoAdapter {
                 };
 
                 Ok(VariableArtifactValue {
-                    lowered_name: variable.family.clone(),
+                    compiled_name: variable.family.clone(),
                     representative_value,
                     values,
                 })
@@ -407,7 +407,7 @@ impl OptimizationAdapter for RustArcoAdapter {
         Ok(AdapterSolveOutput {
             status: map_solver_status(solution.core_status()),
             objective_value: ScalarArtifactValue {
-                lowered_name: problem.objective.name.clone(),
+                compiled_name: problem.objective.name.clone(),
                 value: objective_value,
             },
             report_values,
@@ -438,7 +438,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
 
     fn solve(
         &self,
-        problem: &LoweredProblem,
+        problem: &CompiledProblem,
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
@@ -488,7 +488,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
             .iter()
             .map(|report| {
                 Ok(ScalarArtifactValue {
-                    lowered_name: report.name.clone(),
+                    compiled_name: report.name.clone(),
                     value: evaluate_linear_report(
                         &backend,
                         report,
@@ -526,7 +526,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
                         .filter(|instance| instance.family == variable.family)
                         .map(|instance| {
                             Ok(VariableInstanceArtifactValue {
-                                lowered_name: instance.name.clone(),
+                                compiled_name: instance.name.clone(),
                                 value: lookup_primal_value(
                                     &backend,
                                     &instance.name,
@@ -541,7 +541,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
                 };
 
                 Ok(VariableArtifactValue {
-                    lowered_name: variable.family.clone(),
+                    compiled_name: variable.family.clone(),
                     representative_value,
                     values,
                 })
@@ -554,7 +554,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
         Ok(AdapterSolveOutput {
             status: map_solver_status(solution.core_status()),
             objective_value: ScalarArtifactValue {
-                lowered_name: problem.objective.name.clone(),
+                compiled_name: problem.objective.name.clone(),
                 value: objective_value,
             },
             report_values,
@@ -565,42 +565,42 @@ impl OptimizationAdapter for XpressArcoAdapter {
 }
 
 pub fn execute_problem(
-    problem: &LoweredProblem,
+    problem: &CompiledProblem,
     adapter: &dyn OptimizationAdapter,
 ) -> Result<ExecutionResult, ExecutionError> {
     execute_problem_with_options(problem, adapter, true)
 }
 
 pub fn execute_problem_with_options(
-    problem: &LoweredProblem,
+    problem: &CompiledProblem,
     adapter: &dyn OptimizationAdapter,
     include_variable_values: bool,
 ) -> Result<ExecutionResult, ExecutionError> {
     let solve_output = adapter.solve(problem, include_variable_values)?;
     let backend = adapter.backend_name();
 
-    let objective = if solve_output.objective_value.lowered_name == problem.objective.name {
+    let objective = if solve_output.objective_value.compiled_name == problem.objective.name {
         MappedScalarResult {
             dsl_name: problem.objective.name.clone(),
-            lowered_name: solve_output.objective_value.lowered_name.clone(),
+            compiled_name: solve_output.objective_value.compiled_name.clone(),
             value: solve_output.objective_value.value,
         }
     } else {
         return Err(ExecutionError::MissingObjectiveValue {
             backend: backend.to_string(),
-            lowered_name: problem.objective.name.clone(),
+            compiled_name: problem.objective.name.clone(),
         });
     };
 
     let report_values = solve_output
         .report_values
         .iter()
-        .map(|report| (report.lowered_name.clone(), report.value))
+        .map(|report| (report.compiled_name.clone(), report.value))
         .collect::<BTreeMap<_, _>>();
     let variable_values = solve_output
         .variable_values
         .iter()
-        .map(|variable| (variable.lowered_name.clone(), variable))
+        .map(|variable| (variable.compiled_name.clone(), variable))
         .collect::<BTreeMap<_, _>>();
 
     let reports = problem
@@ -610,12 +610,12 @@ pub fn execute_problem_with_options(
             let value = report_values.get(&report.name).copied().ok_or_else(|| {
                 ExecutionError::MissingReportValue {
                     backend: backend.to_string(),
-                    lowered_name: report.name.clone(),
+                    compiled_name: report.name.clone(),
                 }
             })?;
             Ok(MappedScalarResult {
                 dsl_name: report.name.clone(),
-                lowered_name: report.name.clone(),
+                compiled_name: report.name.clone(),
                 value,
             })
         })
@@ -631,18 +631,18 @@ pub fn execute_problem_with_options(
                     .copied()
                     .ok_or_else(|| ExecutionError::MissingVariableValue {
                         backend: backend.to_string(),
-                        lowered_name: variable.family.clone(),
+                        compiled_name: variable.family.clone(),
                     })?;
             Ok(MappedVariableResult {
                 dsl_name: variable.family.clone(),
-                lowered_name: variable.family.clone(),
+                compiled_name: variable.family.clone(),
                 representative_value: solved_variable.representative_value,
                 values: solved_variable
                     .values
                     .iter()
                     .map(|value| MappedVariableValue {
-                        dsl_name: value.lowered_name.clone(),
-                        lowered_name: value.lowered_name.clone(),
+                        dsl_name: value.compiled_name.clone(),
+                        compiled_name: value.compiled_name.clone(),
                         value: value.value,
                     })
                     .collect(),
@@ -653,7 +653,7 @@ pub fn execute_problem_with_options(
     Ok(ExecutionResult {
         backend,
         status: solve_output.status,
-        objective_sense: problem.objective.sense.clone(),
+        objective_sense: problem.objective.sense,
         objective,
         reports,
         variables,
@@ -661,7 +661,7 @@ pub fn execute_problem_with_options(
     })
 }
 
-pub fn render_problem_model(problem: &LoweredProblem) -> Result<String, ExecutionError> {
+pub fn render_problem_model(problem: &CompiledProblem) -> Result<String, ExecutionError> {
     let built = build_model(problem, "arco-rust-highs")?;
     Ok(built.model.format_ascii(PrettyPrintOptions::full()))
 }
@@ -672,7 +672,7 @@ struct BuiltModel {
     constraint_indices: BTreeMap<String, usize>,
 }
 
-fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, ExecutionError> {
+fn build_model(problem: &CompiledProblem, backend: &str) -> Result<BuiltModel, ExecutionError> {
     let mut model = Model::with_capacities(
         problem.algebra.variable_instances.len(),
         problem.algebra.constraints.len(),
@@ -692,14 +692,14 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
                 .add_variable(variable_def)
                 .map_err(|source| ExecutionError::AddVariable {
                     backend: backend.to_string(),
-                    lowered_name: variable.name.clone(),
+                    compiled_name: variable.name.clone(),
                     source,
                 })?;
         model
             .set_variable_name(variable_id, variable.name.clone())
             .map_err(|source| ExecutionError::NameVariable {
                 backend: backend.to_string(),
-                lowered_name: variable.name.clone(),
+                compiled_name: variable.name.clone(),
                 source,
             })?;
         variable_ids.insert(variable.name.clone(), variable_id);
@@ -712,14 +712,14 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
             })
             .map_err(|source| ExecutionError::AddConstraint {
                 backend: backend.to_string(),
-                lowered_name: constraint.name.clone(),
+                compiled_name: constraint.name.clone(),
                 source,
             })?;
         model
             .set_constraint_name(constraint_id, constraint.name.clone())
             .map_err(|source| ExecutionError::NameConstraint {
                 backend: backend.to_string(),
-                lowered_name: constraint.name.clone(),
+                compiled_name: constraint.name.clone(),
                 source,
             })?;
         constraint_ids.insert(constraint.name.clone(), constraint_id.inner() as usize);
@@ -728,9 +728,9 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
             let variable_id = variable_ids
                 .get(&term.variable_name)
                 .copied()
-                .ok_or_else(|| ExecutionError::UnknownLoweredVariable {
+                .ok_or_else(|| ExecutionError::UnknownCompiledVariable {
                     backend: backend.to_string(),
-                    lowered_name: term.variable_name.clone(),
+                    compiled_name: term.variable_name.clone(),
                 })?;
             model
                 .set_coefficient(variable_id, constraint_id, term.coefficient)
@@ -751,9 +751,9 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
             let variable_id = variable_ids
                 .get(&term.variable_name)
                 .copied()
-                .ok_or_else(|| ExecutionError::UnknownLoweredVariable {
+                .ok_or_else(|| ExecutionError::UnknownCompiledVariable {
                     backend: backend.to_string(),
-                    lowered_name: term.variable_name.clone(),
+                    compiled_name: term.variable_name.clone(),
                 })?;
             Ok((variable_id, term.coefficient))
         })
@@ -766,14 +766,14 @@ fn build_model(problem: &LoweredProblem, backend: &str) -> Result<BuiltModel, Ex
         })
         .map_err(|source| ExecutionError::SetObjective {
             backend: backend.to_string(),
-            lowered_name: problem.algebra.objective.name.clone(),
+            compiled_name: problem.algebra.objective.name.clone(),
             source,
         })?;
     model
         .set_objective_name(Some(problem.algebra.objective.name.clone()))
         .map_err(|source| ExecutionError::NameObjective {
             backend: backend.to_string(),
-            lowered_name: problem.algebra.objective.name.clone(),
+            compiled_name: problem.algebra.objective.name.clone(),
             source,
         })?;
 
@@ -819,27 +819,28 @@ fn evaluate_linear_terms(
 
 fn lookup_primal_value(
     backend: &str,
-    lowered_name: &str,
+    compiled_name: &str,
     variable_indices: &BTreeMap<String, usize>,
     primal_values: &[f64],
 ) -> Result<f64, ExecutionError> {
-    let index = variable_indices.get(lowered_name).copied().ok_or_else(|| {
-        ExecutionError::UnknownLoweredVariable {
+    let index = variable_indices
+        .get(compiled_name)
+        .copied()
+        .ok_or_else(|| ExecutionError::UnknownCompiledVariable {
             backend: backend.to_string(),
-            lowered_name: lowered_name.to_string(),
-        }
-    })?;
+            compiled_name: compiled_name.to_string(),
+        })?;
     primal_values
         .get(index)
         .copied()
-        .ok_or_else(|| ExecutionError::UnknownLoweredVariable {
+        .ok_or_else(|| ExecutionError::UnknownCompiledVariable {
             backend: backend.to_string(),
-            lowered_name: lowered_name.to_string(),
+            compiled_name: compiled_name.to_string(),
         })
 }
 
 fn extract_dual_report_values(
-    problem: &LoweredProblem,
+    problem: &CompiledProblem,
     constraint_indices: &BTreeMap<String, usize>,
     constraint_duals: &[f64],
 ) -> Vec<DualReportResult> {
@@ -902,23 +903,23 @@ fn map_solver_status(status: ArcoSolverStatus) -> SolveStatus {
 #[cfg(test)]
 mod tests {
     use crate::execution::{MockArcoAdapter, execute_problem_with_options};
-    use arco_kdl::lowering::{
-        AlgebraicProblem, LinearObjective, LoweredObjective, LoweredProblem, LoweredVariable,
+    use arco_kdl::compile::{
+        AlgebraicProblem, CompiledObjective, CompiledProblem, CompiledVariable, LinearObjective,
         ObjectiveSense, VariableInstance, VariableKind,
     };
 
     #[test]
     #[allow(clippy::float_cmp)]
     fn compact_execution_can_skip_detailed_variable_values() {
-        let problem = LoweredProblem {
+        let problem = CompiledProblem {
             parameters: Vec::new(),
-            variables: vec![LoweredVariable {
+            variables: vec![CompiledVariable {
                 family: "x[a,t]".to_string(),
             }],
             constraints: Vec::new(),
-            objective: LoweredObjective {
+            objective: CompiledObjective {
                 name: "obj".to_string(),
-                sense: "maximize".to_string(),
+                sense: ObjectiveSense::Maximize,
                 expression: "0".to_string(),
             },
             reports: Vec::new(),
@@ -949,7 +950,7 @@ mod tests {
         assert_eq!(execution.status, crate::execution::SolveStatus::Optimal);
         assert_eq!(execution.objective.dsl_name, "obj");
         assert_eq!(execution.objective.value, 0.0);
-        assert_eq!(execution.objective_sense, "maximize");
+        assert_eq!(execution.objective_sense, ObjectiveSense::Maximize);
         assert!(execution.reports.is_empty());
 
         assert_eq!(execution.variables.len(), 1);

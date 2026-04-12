@@ -94,7 +94,7 @@ repos:
         entry: prettier --write --ignore-unknown
         language: node
         additional_dependencies: ["prettier@3"]
-        types_or: [yaml, json5]
+        types_or: [yaml, json5, markdown]
 
   - repo: local
     hooks:

@@ -1,7 +1,5 @@
 {
-  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
   "name": "arco_kdl",
-  "inherits": "kdl",
   "word": "_normal_bare_identifier",
   "rules": {
     "document": {
@@ -1590,7 +1588,7 @@
                       "members": [
                         {
                           "type": "SYMBOL",
-                          "name": "arco_pure_math_children"
+                          "name": "arco_constraint_math_children"
                         },
                         {
                           "type": "SYMBOL",
@@ -1698,7 +1696,89 @@
         ]
       }
     },
+    "arco_constraint_math_children": {
+      "type": "PREC",
+      "value": 2,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "ALIAS",
+                    "content": {
+                      "type": "STRING",
+                      "value": "/-"
+                    },
+                    "named": true,
+                    "value": "node_children_comment"
+                  },
+                  {
+                    "type": "REPEAT",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_node_space"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": "{"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "FIELD",
+                "name": "math",
+                "content": {
+                  "type": "SYMBOL",
+                  "name": "arco_constraint_math_text"
+                }
+              },
+              {
+                "type": "SEQ",
+                "members": [
+                  {
+                    "type": "REPEAT",
+                    "content": {
+                      "type": "SYMBOL",
+                      "name": "_linespace"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "STRING",
+            "value": "}"
+          }
+        ]
+      }
+    },
     "arco_math_text": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": 10,
+        "content": {
+          "type": "PATTERN",
+          "value": "[^{}\"']+"
+        }
+      }
+    },
+    "arco_constraint_math_text": {
       "type": "TOKEN",
       "content": {
         "type": "PREC",
@@ -1743,6 +1823,5 @@
     }
   ],
   "inline": [],
-  "supertypes": [],
-  "reserved": {}
+  "supertypes": []
 }

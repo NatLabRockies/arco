@@ -3,11 +3,23 @@ use arco_core::model::{CscMatrix as CoreCscMatrix, SparseMatrixExport};
 use arco_core::types::Bounds;
 use arco_core::{Constraint, Model, Objective, Sense, Variable};
 use arco_expr::{ConstraintId, VariableId};
+use arco_kdl::compile::compile_program;
+use arco_kdl::semantic::validate_program;
+use arco_kdl::source::parse_program_file;
 use arco_tools::{MeasurementRecorder, StageMeasurement, capture_rss_bytes, rss_delta};
+use std::path::Path;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const FAC25_VARIABLES: usize = 67_651;
 const DEFAULT_CASES: [usize; 5] = [100, 1_000, 10_000, 100_000, 1_000_000];
+
+const KDL_EXAMPLES: &[&str] = &[
+    "capacity-expansion",
+    "generator-allocation",
+    "price-taker-battery",
+    "simple-electricity-market-storage",
+    "unit-commitment",
+];
 
 pub(crate) fn resolve_cases(
     scenario: Scenario,
@@ -41,6 +53,15 @@ pub(crate) fn resolve_cases(
             variables: FAC25_VARIABLES,
             constraints: None,
         }],
+        Scenario::KdlCompile => KDL_EXAMPLES
+            .iter()
+            .copied()
+            .map(|name| CaseConfig {
+                name: name.to_string(),
+                variables: 0,
+                constraints: None,
+            })
+            .collect(),
     }
 }
 
@@ -142,6 +163,51 @@ pub(crate) fn execute_case(
         constraints: model.num_constraints(),
         stage_measurements: stages,
         csc,
+    }
+}
+
+pub(crate) fn execute_kdl_case(example_name: &str) -> CaseExecution {
+    let input_path = Path::new("examples").join(example_name).join("input.kdl");
+    let mut recorder = MeasurementRecorder::new();
+
+    let total_started = Instant::now();
+    let total_rss_before = capture_rss_bytes("bench_total");
+
+    let stage_start = recorder.begin_stage("parse");
+    let parsed_source = parse_program_file(&input_path)
+        .unwrap_or_else(|e| panic!("failed to parse {}: {e}", input_path.display()));
+    recorder.end_stage(stage_start);
+
+    let stage_start = recorder.begin_stage("validate");
+    let semantic_program = validate_program(&parsed_source.program, &input_path)
+        .unwrap_or_else(|e| panic!("failed to validate {}: {e}", input_path.display()));
+    recorder.end_stage(stage_start);
+
+    let stage_start = recorder.begin_stage("compile");
+    let compiled = compile_program(&semantic_program, &parsed_source.program, &input_path)
+        .unwrap_or_else(|e| panic!("failed to compile {}: {e}", input_path.display()));
+    recorder.end_stage(stage_start);
+
+    let total_duration = total_started.elapsed();
+    let total_rss_after = capture_rss_bytes("bench_total");
+
+    let variables = compiled.algebra.variable_instances.len();
+    let constraints = compiled.algebra.constraints.len();
+
+    let mut stages = recorder.stages().to_vec();
+    stages.push(StageMeasurement {
+        stage: "total".to_string(),
+        duration: total_duration,
+        rss_before_bytes: total_rss_before,
+        rss_after_bytes: total_rss_after,
+        rss_delta_bytes: rss_delta(total_rss_before, total_rss_after),
+    });
+
+    CaseExecution {
+        variables,
+        constraints,
+        stage_measurements: stages,
+        csc: None,
     }
 }
 
