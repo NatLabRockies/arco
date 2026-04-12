@@ -39,6 +39,18 @@
   "reduce"))
 
 ; Arco-specific literal-name nodes
+[
+  "constraint"
+  "expression"
+  "expr"
+  "minimize"
+  "maximize"
+  "filter"
+  "if"
+  "lower"
+  "upper"
+] @keyword
+
 (arco_pure_math_node
   name: (
     "expression"

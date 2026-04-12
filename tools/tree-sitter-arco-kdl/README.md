@@ -55,47 +55,94 @@ fixture and verify these captures line-by-line before taking screenshots.
 
 ### Neovim
 
-Add this parser to your Neovim tree-sitter config. With `nvim-treesitter`:
+With `nvim-treesitter`, add this minimal parser registration to your config:
 
 ```lua
-local parser_config = require("nvim-treesitter.parsers").get_parser_configs()
+local function register_arco_kdl()
+  local parser_config = require("nvim-treesitter.parsers")
+  parser_config.arco_kdl = {
+    install_info = {
+      url = "https://github.com/NatLabRockies/arco.git",
+      location = "tools/tree-sitter-arco-kdl",
+      revision = "3325d6f772077397b858ae2c54af24dd61aeefe9", -- pinned commit from fix/treesitter
+      files = { "src/parser.c", "src/scanner.c" },
+      queries = "queries",
+      requires_generate_from_grammar = false,
+    },
+    filetype = "kdl",
+  }
+end
 
-parser_config.arco_kdl = {
-  install_info = {
-    url = "path/to/tools/tree-sitter-arco-kdl",
-    files = { "src/parser.c" },
-    requires_generate_from_grammar = false,
-  },
-  filetype = "kdl",
-}
+register_arco_kdl()
+vim.api.nvim_create_autocmd("User", {
+  pattern = "TSUpdate",
+  callback = register_arco_kdl,
+})
+vim.treesitter.language.register("arco_kdl", "kdl")
 ```
 
-Then run `:TSInstall arco_kdl`.
+Then install/update:
+
+```vim
+:TSInstall arco_kdl
+:TSUpdate
+```
+
+#### Notes
+
+- No custom `ftdetect` is needed.
+- No local query copies are needed.
+- Keep your colorscheme/theme mappings for captures like `@keyword`,
+  `@variable.parameter`, and `@property`.
+
+#### Quick verification in Neovim
+
+```vim
+:set filetype?
+:lua print(vim.treesitter.language.get_lang(vim.bo.filetype))
+:lua print(vim.inspect(vim.treesitter.query.get_files("arco_kdl", "highlights")))
+```
+
+Expected:
+
+- `filetype=kdl`
+- language resolves to `arco_kdl`
+- highlights query list is non-empty
+
+#### Optional sanity check
+
+```vim
+:Inspect
+```
+
+Place cursor on `set` or `constraint`; you should see `@keyword.arco_kdl`.
+
+> [!TIP]
+> If `:TSInstall arco_kdl` says "unsupported language", your registration
+> likely ran too late. Ensure the snippet above executes during startup
+> (before running `TSInstall`).
 
 ### VS Code
 
-Use the
-[Tree-sitter for VS Code](https://marketplace.visualstudio.com/items?itemName=piotrminkowski.tree-sitter-syntax)
-extension or package this grammar as a VS Code extension with a `syntaxes/`
-contribution.
+> [!IMPORTANT]
+> This repository does **not** currently ship a ready-to-install VS Code
+> extension. You have two practical options:
+>
+> 1. Use a Tree-sitter VS Code extension that supports custom/local grammars,
+>    then register this grammar directory:
+>    `tools/tree-sitter-arco-kdl`.
+> 2. Package this grammar as your own VS Code extension and contribute it for
+>    `.kdl` files.
 
-### Helix
+For either option, use these parser assets from this directory:
 
-Add to `languages.toml`:
+- parser sources: `src/parser.c`, `src/scanner.c`
+- highlight queries: `queries/highlights.scm`
+- injections: `queries/injections.scm`
 
-```toml
-[[language]]
-name = "arco-kdl"
-scope = "source.arco_kdl"
-file-types = ["kdl"]
-grammar = "arco_kdl"
-
-[[grammar]]
-name = "arco_kdl"
-source = { path = "path/to/tools/tree-sitter-arco-kdl" }
-```
-
-Then run `hx --grammar build`.
+If you are building your own extension, make sure `.kdl` files are mapped to
+this grammar (language id/scope of your choice) so Arco files use `arco_kdl`
+instead of generic KDL highlighting.
 
 ## Files
 
