@@ -8,7 +8,12 @@ fn collect_kdl_files(root: &Path, files: &mut Vec<PathBuf>) -> Result<(), std::i
         let path = entry.path();
 
         if path.is_dir() {
-            if path.ends_with(".git") || path.ends_with("target") || path.ends_with(".worktrees") {
+            // Skip git, build artifacts, and tree-sitter dev files
+            if path.ends_with(".git")
+                || path.ends_with("target")
+                || path.ends_with(".worktrees")
+                || path.ends_with("tree-sitter-arco-kdl")
+            {
                 continue;
             }
             collect_kdl_files(&path, files)?;

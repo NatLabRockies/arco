@@ -68,35 +68,46 @@ impl SparseMatrixExport for Model {
         }
     }
 
-    /// Export to CRS format with single-pass algorithm.
-    /// Reduces passes from 3 to 1 and eliminates zeroed allocations.
+    /// Export to CRS format with optimized 2-pass algorithm.
+    /// Pass 1: count entries per row
+    /// Pass 2: fill flat arrays directly (no per-row Vec allocations)
     fn export_crs(&self) -> CrsMatrix {
         let shape = self.sparse_shape();
         let nnz = self.sparse_nnz();
+        let num_rows = shape.0;
 
-        // Pre-allocate row storage without zeroing
-        let mut row_entries: Vec<Vec<(u32, f64)>> = (0..shape.0)
-            .map(|_| Vec::with_capacity(nnz / shape.0 + 1))
-            .collect();
-
-        // SINGLE PASS: Accumulate entries by row
-        for (var_id, column) in self.columns() {
-            for (constraint_id, value) in column {
+        // PASS 1: Count entries per row
+        let mut row_counts = vec![0usize; num_rows];
+        for (_var_id, column) in self.columns() {
+            for (constraint_id, _value) in column {
                 let row = constraint_id.inner() as usize;
-                row_entries[row].push((var_id.inner(), *value));
+                row_counts[row] += 1;
             }
         }
 
-        // Flatten to CRS format
-        let mut row_ptrs = Vec::with_capacity(shape.0 + 1);
-        let mut col_indices = Vec::with_capacity(nnz);
-        let mut values = Vec::with_capacity(nnz);
-
+        // Prefix sum: convert counts to row pointers
+        let mut row_ptrs = Vec::with_capacity(num_rows + 1);
         row_ptrs.push(0);
-        for row in row_entries {
-            col_indices.extend(row.iter().map(|(c, _)| *c));
-            values.extend(row.iter().map(|(_, v)| *v));
-            row_ptrs.push(col_indices.len());
+        let mut offset = 0;
+        for count in row_counts {
+            offset += count;
+            row_ptrs.push(offset);
+        }
+
+        // PASS 2: Fill col_indices and values directly
+        // Track write positions per row (reuse row_counts as write positions)
+        let mut row_write_pos: Vec<usize> = row_ptrs[..num_rows].to_vec();
+        let mut col_indices = vec![0u32; nnz];
+        let mut values = vec![0.0f64; nnz];
+
+        for (var_id, column) in self.columns() {
+            for (constraint_id, value) in column {
+                let row = constraint_id.inner() as usize;
+                let write_idx = row_write_pos[row];
+                col_indices[write_idx] = var_id.inner();
+                values[write_idx] = *value;
+                row_write_pos[row] += 1;
+            }
         }
 
         CrsMatrix {

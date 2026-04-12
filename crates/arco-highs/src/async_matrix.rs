@@ -28,7 +28,7 @@
 //! ```
 
 use arco_core::Model;
-use arco_expr::{ConstraintId, VariableId};
+use arco_expr::VariableId;
 use std::collections::BTreeMap;
 use std::time::Instant;
 use tracing::{debug, trace};
@@ -37,7 +37,8 @@ use tracing::{debug, trace};
 type VariableChunk = Vec<VariableId>;
 
 /// Type alias for processed constraint entries: (column indices, coefficients)
-pub(crate) type ConstraintEntries = BTreeMap<ConstraintId, (Vec<usize>, Vec<f64>)>;
+/// Using Vec<Option<...>> for O(1) dense indexing instead of BTreeMap O(log n)
+pub(crate) type ConstraintEntries = Vec<Option<(Vec<usize>, Vec<f64>)>>;
 
 /// Result of CRS matrix construction
 #[derive(Clone, Debug)]
@@ -124,11 +125,14 @@ impl AsyncCrsBuilder {
 
         let duration_ms = started.elapsed().as_secs_f64() * 1000.0;
 
+        let num_constraints = constraint_entries.len();
+        let num_active = constraint_entries.iter().filter(|e| e.is_some()).count();
         debug!(
             component = "async_matrix",
             operation = "build_crs",
             status = "complete",
-            num_constraints = constraint_entries.len(),
+            num_constraints = num_constraints,
+            num_active = num_active,
             duration_ms = duration_ms,
             "Completed async CRS matrix build"
         );
@@ -205,7 +209,8 @@ impl AsyncCrsBuilder {
         var_id_to_col: &BTreeMap<VariableId, usize>,
         model: &Model,
     ) -> ConstraintEntries {
-        let mut result: ConstraintEntries = BTreeMap::new();
+        let num_constraints = model.num_constraints();
+        let mut result: ConstraintEntries = vec![None; num_constraints];
 
         for var_id in chunk {
             // Check if variable is active
@@ -223,11 +228,13 @@ impl AsyncCrsBuilder {
                 };
                 // Add all coefficients from this column to their constraints
                 for (constraint_id, coeff) in column.iter().copied() {
-                    let entry = result
-                        .entry(constraint_id)
-                        .or_insert_with(|| (Vec::new(), Vec::new()));
-                    entry.0.push(col_idx);
-                    entry.1.push(coeff);
+                    let row_idx = constraint_id.inner() as usize;
+                    if let Some(entry) = result[row_idx].as_mut() {
+                        entry.0.push(col_idx);
+                        entry.1.push(coeff);
+                    } else {
+                        result[row_idx] = Some((vec![col_idx], vec![coeff]));
+                    }
                 }
             }
         }
@@ -238,15 +245,24 @@ impl AsyncCrsBuilder {
     /// Merge chunk results into a single CRS structure
     #[allow(clippy::unused_self)]
     fn merge_chunk_results(&self, chunk_results: Vec<ConstraintEntries>) -> ConstraintEntries {
-        let mut merged: ConstraintEntries = BTreeMap::new();
+        if chunk_results.is_empty() {
+            return Vec::new();
+        }
+
+        // All chunks have same size (num_constraints)
+        let num_constraints = chunk_results[0].len();
+        let mut merged: ConstraintEntries = vec![None; num_constraints];
 
         for chunk_result in chunk_results {
-            for (constraint_id, (mut col_indices, mut coefficients)) in chunk_result {
-                let entry = merged
-                    .entry(constraint_id)
-                    .or_insert_with(|| (Vec::new(), Vec::new()));
-                entry.0.append(&mut col_indices);
-                entry.1.append(&mut coefficients);
+            for (row_idx, entry_opt) in chunk_result.into_iter().enumerate() {
+                if let Some((mut col_indices, mut coefficients)) = entry_opt {
+                    if let Some(merged_entry) = merged[row_idx].as_mut() {
+                        merged_entry.0.append(&mut col_indices);
+                        merged_entry.1.append(&mut coefficients);
+                    } else {
+                        merged[row_idx] = Some((col_indices, coefficients));
+                    }
+                }
             }
         }
 
@@ -338,11 +354,12 @@ mod tests {
         let builder = AsyncCrsBuilder::new().with_chunk_count(2);
         let result = builder.build_blocking(&model, &var_id_to_col);
 
-        // Should have one constraint
+        // Should have constraints vector sized to num_constraints
         assert_eq!(result.constraint_entries.len(), 1);
 
-        // Check that constraint has correct entries
-        if let Some((col_indices, coefficients)) = result.constraint_entries.get(&constraint_id) {
+        // Check that constraint has correct entries using dense indexing
+        let row_idx = constraint_id.inner() as usize;
+        if let Some((col_indices, coefficients)) = &result.constraint_entries[row_idx] {
             // Should have exactly 2 coefficients
             assert_eq!(col_indices.len(), 2);
             assert_eq!(coefficients.len(), 2);
@@ -350,6 +367,8 @@ mod tests {
             // Coefficients should match (order might differ due to iteration order)
             let total_coeff: f64 = coefficients.iter().sum();
             assert!((total_coeff - 5.0).abs() < 1e-9); // 2.0 + 3.0 = 5.0
+        } else {
+            panic!("Expected constraint entry at index {}", row_idx);
         }
     }
 }
