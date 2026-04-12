@@ -43,15 +43,19 @@
 (multi_line_comment) @comment
 
 ; Arco-specific nodes (arco_kdl extension over base KDL)
-(arco_math_node
+(arco_pure_math_node
   name: (
-    "constraint"
     "expression"
     "minimize"
     "maximize"
     "expr"
+    "filter"
+    "if"
     "lower"
     "upper"
   ) @keyword.function)
+
+(arco_constraint_node
+  name: "constraint" @keyword.function)
 
 (arco_math_text) @string.special
