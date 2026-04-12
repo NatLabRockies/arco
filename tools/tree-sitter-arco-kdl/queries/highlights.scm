@@ -2,7 +2,6 @@
 ; Extends base KDL with Arco-specific node highlighting
 
 ; Types
-(node (identifier) @type)
 (type) @type
 (annotation_type) @type.builtin
 
@@ -59,3 +58,4 @@
   name: "constraint" @keyword.function)
 
 (arco_math_text) @string.special
+(arco_constraint_math_text) @string.special

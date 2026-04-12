@@ -14,8 +14,8 @@ constraint balance {
       (node_field
         (value
           (bare_identifier)))
-      (arco_pure_math_children
-        (arco_math_text)))))
+      (arco_constraint_math_children
+        (arco_constraint_math_text)))))
 
 ==================
 Filter math body
@@ -124,6 +124,25 @@ Minimize with reduction
 
 minimize total_cost {
   sum(fuel_cost[g] * dispatch[g,t] for g in gen for t in time)
+}
+
+---
+
+(document
+  (node
+    (arco_pure_math_node
+      (node_field
+        (value
+          (bare_identifier)))
+      (arco_pure_math_children
+        (arco_math_text)))))
+
+==================
+Maximize with identifier body
+==================
+
+maximize ArbitrageProfit {
+  ArbitrageRevenue
 }
 
 ---

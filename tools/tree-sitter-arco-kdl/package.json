@@ -1,0 +1,14 @@
+{
+  "name": "tree-sitter-arco-kdl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin overlay grammar for Arco KDL surface syntax",
+  "license": "MIT",
+  "dependencies": {
+    "tree-sitter-kdl": "^1.0.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.21.0"
+  },
+  "main": "bindings/node"
+}
