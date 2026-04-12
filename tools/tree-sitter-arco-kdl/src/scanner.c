@@ -1,16 +1,92 @@
-// Wrap the KDL scanner, adding an _implicit_terminator token
-// that matches zero characters when the next non-whitespace is '}'.
+// Vendored tree-sitter-kdl scanner with arco_kdl extensions
+// This file combines tree-sitter-kdl's scanner with arco-specific additions
+// to remove the node_modules dependency for nvim-treesitter installation
 
 #include "tree_sitter/parser.h"
+#include "wctype.h"
+#include <ctype.h>
 
-// Rename KDL scanner functions to avoid symbol clashes
+// === Begin vendored tree-sitter-kdl scanner (with renamed symbols) ===
+
+// Rename KDL scanner symbols to avoid clashes when we wrap them
 #define tree_sitter_kdl_external_scanner_create  kdl_scanner_create
 #define tree_sitter_kdl_external_scanner_destroy kdl_scanner_destroy
 #define tree_sitter_kdl_external_scanner_scan    kdl_scanner_scan
 #define tree_sitter_kdl_external_scanner_serialize   kdl_scanner_serialize
 #define tree_sitter_kdl_external_scanner_deserialize kdl_scanner_deserialize
 
-#include "../node_modules/tree-sitter-kdl/src/scanner.c"
+// KDL scanner internal enums (renamed)
+enum { KDL_INTERNAL_EOF = 0, KDL_INTERNAL_MULTI_LINE_COMMENT = 1 };
+
+static void kdl_advance(TSLexer *lexer) { lexer->advance(lexer, false); }
+
+void *kdl_scanner_create() { return NULL; }
+
+void kdl_scanner_destroy(void *payload) {}
+
+unsigned kdl_scanner_serialize(void *payload, char *buffer) {
+    return 0;
+}
+
+void kdl_scanner_deserialize(void *payload, const char *buffer, unsigned length) {}
+
+bool kdl_scanner_scan(void *payload, TSLexer *lexer, const bool *valid_symbols) {
+    // check for End-of-file
+    if (valid_symbols[KDL_INTERNAL_EOF] && lexer->lookahead == 0) {
+        lexer->result_symbol = KDL_INTERNAL_EOF;
+        kdl_advance(lexer);
+        return true;
+    }
+
+    // multi-line-comment := '/*' commented-block
+    if (lexer->lookahead == '/') {
+        kdl_advance(lexer);
+        if (lexer->lookahead != '*')
+            return false;
+        kdl_advance(lexer);
+
+        bool     after_star = false;
+        unsigned nesting_depth = 1;
+        for (;;) {
+            switch (lexer->lookahead) {
+                case '\0':
+                    return false;
+                case '*':
+                    kdl_advance(lexer);
+                    after_star = true;
+                    break;
+                case '/':
+                    if (after_star) {
+                        kdl_advance(lexer);
+                        after_star = false;
+                        nesting_depth--;
+                        if (nesting_depth == 0) {
+                            lexer->result_symbol = KDL_INTERNAL_MULTI_LINE_COMMENT;
+                            return true;
+                        }
+                    } else {
+                        kdl_advance(lexer);
+                        after_star = false;
+                        if (lexer->lookahead == '*') {
+                            nesting_depth++;
+                            kdl_advance(lexer);
+                        }
+                    }
+                    break;
+                default:
+                    kdl_advance(lexer);
+                    after_star = false;
+                    break;
+            }
+        }
+    }
+
+    return false;
+}
+
+// === End vendored tree-sitter-kdl scanner ===
+
+// === Begin arco_kdl-specific extensions ===
 
 // The external token indices must match the order in grammar.js externals.
 // externals: [_eof, multi_line_comment, _implicit_terminator]
