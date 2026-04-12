@@ -405,6 +405,11 @@ fn build_constraint_entries(
     if use_async_crs {
         let builder = AsyncCrsBuilder::new();
         let result = builder.build_blocking(model, var_id_to_col);
+        let num_active = result
+            .constraint_entries
+            .iter()
+            .filter(|e| e.is_some())
+            .count();
 
         debug!(
             component = "solver",
@@ -412,6 +417,7 @@ fn build_constraint_entries(
             status = "success",
             method = "async",
             num_constraints = result.constraint_entries.len(),
+            num_active = num_active,
             duration_ms = result.duration_ms,
             "Built constraint matrix asynchronously"
         );
@@ -427,7 +433,8 @@ fn build_constraint_entries_sequential(
     var_id_to_col: &BTreeMap<VariableId, usize>,
 ) -> ConstraintEntries {
     let matrix_build_started = Instant::now();
-    let mut constraint_entries: ConstraintEntries = BTreeMap::new();
+    let num_constraints = model.num_constraints();
+    let mut constraint_entries: ConstraintEntries = vec![None; num_constraints];
 
     for (var_id, column) in model.columns() {
         let var = if let Ok(var) = model.get_variable(var_id) {
@@ -458,21 +465,25 @@ fn build_constraint_entries_sequential(
         };
 
         for (constraint_id, coeff) in column {
-            let entry = constraint_entries
-                .entry(*constraint_id)
-                .or_insert_with(|| (Vec::new(), Vec::new()));
-            entry.0.push(col_idx);
-            entry.1.push(*coeff);
+            let row_idx = constraint_id.inner() as usize;
+            if let Some(entry) = constraint_entries[row_idx].as_mut() {
+                entry.0.push(col_idx);
+                entry.1.push(*coeff);
+            } else {
+                constraint_entries[row_idx] = Some((vec![col_idx], vec![*coeff]));
+            }
         }
     }
 
     let duration_ms = matrix_build_started.elapsed().as_secs_f64() * 1000.0;
+    let num_active = constraint_entries.iter().filter(|e| e.is_some()).count();
     debug!(
         component = "solver",
         operation = "build_rows",
         status = "success",
         method = "sequential",
         num_constraints = constraint_entries.len(),
+        num_active = num_active,
         duration_ms = duration_ms,
         "Built constraint matrix sequentially"
     );
@@ -485,13 +496,12 @@ fn add_constraints_to_highs(
     highs_model: &mut HighsModel,
     constraint_entries: &mut ConstraintEntries,
 ) -> Result<(), SolverError> {
-    for index in 0..model.num_constraints() {
+    for (index, entry) in constraint_entries.iter_mut().enumerate() {
         let constraint_id = ConstraintId::new(index as u32);
 
         if let Ok(constraint) = model.get_constraint(constraint_id) {
-            let (col_indices, coefficients) = constraint_entries
-                .remove(&constraint_id)
-                .unwrap_or_else(|| (Vec::new(), Vec::new()));
+            let (col_indices, coefficients) =
+                entry.take().unwrap_or_else(|| (Vec::new(), Vec::new()));
 
             highs_model
                 .add_row(
