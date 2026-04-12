@@ -32,7 +32,7 @@ Scope of this specification:
 
 ## 1. Conformance
 
-Arco KDL files MUST conform to [KDL 2.0](https://kdl.dev/spec/):
+Arco files are KDL-based with non-KDL subgrammars. The structural layer MUST conform to [KDL 2.0](https://kdl.dev/spec/) everywhere Arco does not define an algebra or predicate subgrammar:
 
 - UTF-8 encoding
 - KDL node/value type annotations are allowed
@@ -337,12 +337,12 @@ document can reference them by name. A single `data` block can supply sets and
 parameters to multiple models.
 
 ```
-data <name> from=<path> { ... }
+data <name> source=<path> { ... }
 ```
 
 Required properties:
 
-- `from`: CSV file path. Relative paths are resolved from the directory
+- `source`: CSV file path. Relative paths are resolved from the directory
   containing the `.kdl` file being parsed. Absolute paths are also accepted.
 
 CSV parsing: Arco expects RFC 4180-compliant CSV files (comma-delimited,
@@ -492,7 +492,7 @@ Semantics:
 
 ```kdl
 // valid: multi-column index on a single declaration
-data plants from="data/plants.csv" {
+data plants source="data/plants.csv" {
   set plant_id
   set unit_id { in plant_id }
   index plant_id unit_id
@@ -500,7 +500,7 @@ data plants from="data/plants.csv" {
 }
 
 // INVALID: two separate index declarations
-data plants from="data/plants.csv" {
+data plants source="data/plants.csv" {
   set plant_id
   set unit_id
   index plant_id
@@ -548,7 +548,7 @@ g3,150,9.8
 ```
 
 ```kdl
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   set gen_id
   // reads from the "capacity_mw" column (name matches)
   param capacity_mw index=gen_id
@@ -673,7 +673,7 @@ discount_rate,value_of_lost_load
 ```
 
 ```kdl
-data settings from="data/settings.csv" {
+data settings source="data/settings.csv" {
   // column name matches param name, no from= needed
   param discount_rate
   // column name differs, use from= to read "value_of_lost_load" as "voll"
@@ -1324,8 +1324,9 @@ scenario <name> {
 Every `scenario` MUST contain exactly one `use` declaration. When multiple
 `scenario` declarations exist in a document, the execution order is
 implementation-defined. Implementations MAY execute scenarios in parallel or
-sequentially. Each scenario is independent and MUST NOT share mutable state with
-other scenarios.
+sequentially. Authors MUST NOT rely on declaration order or any implicit
+execution ordering across scenarios. Each scenario is independent and MUST NOT
+share mutable state with other scenarios.
 
 ```kdl
 scenario distance_check {
@@ -1673,7 +1674,7 @@ Rules:
   `map` resolution) on the left-hand side of each comparison.
 
 ```arco
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   set gen
   set thermal { in gen; filter { type == thermal } }
   set large { in gen; filter { capacity >= 200 } }
@@ -1739,8 +1740,8 @@ Quick-reference index:
 | 46  | Inline selector           | Inline selector data ref must resolve to `data` block                             |
 | 47  | Inline selector           | Inline selector fields must resolve to data columns                               |
 | 48  | Ergonomic profile         | `use_data` must resolve to top-level `data` block                                 |
-| 49  | _(removed)_               | _(`bounds` is now a canonical `control` child; see rules 60, 68)_                 |
-| 50  | _(removed)_               | _(subsumed by rules 60 and 68)_                                                   |
+| 49  | Reserved                  | Former `bounds`-related slot; see rules 60 and 68                                 |
+| 50  | Reserved                  | Reserved for historical numbering stability                                       |
 | 51  | Top-level set members     | Duplicate members in top-level `set`                                              |
 | 52  | Literal type restrictions | Boolean/string literals outside predicate contexts                                |
 | 53  | Expression/objective      | Comparison operators in expression/objective bodies                               |
