@@ -1,4 +1,4 @@
-data battery source="data/battery.csv" {
+data battery from="data/battery.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
@@ -23,7 +23,7 @@ data battery source="data/battery.csv" {
   }
 }
 
-data price_curve source="data/prices.csv" {
+data price_curve from="data/prices.csv" {
   set t
   param prices {
     index t
@@ -59,17 +59,14 @@ model price_taker_battery {
   control charge {
     index asset_id
     index time
-    lower=0
   }
   control discharge {
     index asset_id
     index time
-    lower=0
   }
   control soc {
     index asset_id
     index time
-    lower=0
   }
 
   expression arbitrage_revenue {
@@ -119,7 +116,7 @@ model price_taker_battery {
   constraint terminal_soc {
     index asset { in asset_id }
     index t { in time }
-    if { t == max(x for x in time) }
+    if { t == 24 }
     expression {
       soc[asset,t] = terminal_soc_mwh[asset]
     }

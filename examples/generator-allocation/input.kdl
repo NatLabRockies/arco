@@ -1,32 +1,23 @@
-data units source="data/units.csv" {
+data units from="data/units.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
-  param variable_cost {
-    index asset_id
-  }
+  param variable_cost index="asset_id"
 }
 
-data demand_data source="data/demand.csv" {
+data demand_data from="data/demand.csv" {
   set t
-  param demand {
-    index t
-  }
+  param demand index="t"
 }
 
 model generator_allocation {
   set asset_id alias="a"
   set time alias="t"
 
-  param variable_cost {
-    index asset_id
-  }
-  param demand {
-    index time
-  }
+  param variable_cost index="asset_id"
+  param demand index="time"
 
-  control dispatch {
-    lower 0
+  control dispatch lower=0 {
     index asset_id
     index time
   }
@@ -51,6 +42,6 @@ model generator_allocation {
   }
 }
 
-scenario generator_allocation_day {
+scenario generator_allocationDay {
   use generator_allocation
 }

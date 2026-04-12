@@ -1,16 +1,12 @@
-data units source="data/units.csv" {
+data units from="data/units.csv" {
   map asset_id from="asset"
 
   set asset_id alias="a"
-  param capacity_mw {
-    index asset_id
-  }
-  param marginal_cost {
-    index asset_id
-  }
+  param capacity_mw index="asset_id"
+  param marginal_cost index="asset_id"
 }
 
-data availability_data source="data/availability.csv" {
+data availability_data from="data/availability.csv" {
   map asset_id from="asset_name"
 
   set asset_id
@@ -21,35 +17,26 @@ data availability_data source="data/availability.csv" {
   }
 }
 
-data load_data source="data/load.csv" {
+data load_data from="data/load.csv" {
   set t
-  param load {
-    index t
-  }
+  param load index="t"
 }
 
 model SouthAfricaSingleZoneDispatch {
   set asset_id alias="a"
   set time alias="t"
 
-  param capacity_mw {
-    index asset_id
-  }
-  param marginal_cost {
-    index asset_id
-  }
+  param capacity_mw index="asset_id"
+  param marginal_cost index="asset_id"
   param availability {
     index asset_id
     index time
   }
-  param load {
-    index time
-  }
+  param load index="time"
 
   control dispatch {
     index asset_id
     index time
-    lower 0
   }
 
   expression dispatch_cost {

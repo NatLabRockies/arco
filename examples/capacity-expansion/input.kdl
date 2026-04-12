@@ -1,4 +1,4 @@
-data assets_data source="data/all_assets.csv" {
+data assets_data from="data/all_assets.csv" {
   map asset_id from="asset_name"
 
   set asset_id alias="a"
@@ -19,14 +19,14 @@ data assets_data source="data/all_assets.csv" {
   }
 }
 
-data demand_data source="data/demand.csv" {
+data demand_data from="data/demand.csv" {
   set t
   param demand {
     index t
   }
 }
 
-data voll_data source="data/voll.csv" {
+data voll_data from="data/voll.csv" {
   set t
   param voll {
     index t
@@ -62,17 +62,14 @@ model capacity_expansion {
   control dispatch {
     index asset_id
     index time
-    lower=0
   }
 
   control expansion {
     index asset_id
-    lower=0
   }
 
   control unserved_energy {
     index time
-    lower=0
   }
 
   expression investment_cost {

@@ -84,77 +84,36 @@
 // $$
 // \sum_g p_{gt}\le Load_t,\quad \forall t
 // $$
-data generators_data source="data/generators.csv" {
+data generators_data from="data/generators.csv" {
   map generators from=generator
 
   // Unit domain from generators.csv (column mapped as `generators`).
   // Alias `g` is used in set-reference positions and algebra iteration.
   set generators alias=g
 
-  param a {
-    index g
-  }
-  param b {
-    index g
-  }
-  param c {
-    index g
-  }
-  param costsd {
-    index g
-  }
-  param costst {
-    index g
-  }
-  param ru {
-    index g
-  }
-  param rd {
-    index g
-  }
-  param ut {
-    index g
-  }
-  param dt {
-    index g
-  }
-  param sd {
-    index g
-  }
-  param su {
-    index g
-  }
-  param pmin {
-    index g
-  }
-  param pmax {
-    index g
-  }
-  param u0 {
-    index g
-  }
-  param uini {
-    index g
-  }
-  param initial_commitment {
-    from=uini
-    index g
-  }
-  param s0 {
-    index g
-  }
-  param lj {
-    index g
-  }
-  param fj {
-    index g
-  }
-  param mincost {
-    index g
-  }
+  param a { index g }
+  param b { index g }
+  param c { index g }
+  param costsd { index g }
+  param costst { index g }
+  param ru { index g }
+  param rd { index g }
+  param ut { index g }
+  param dt { index g }
+  param sd { index g }
+  param su { index g }
+  param pmin { index g }
+  param pmax { index g }
+  param u0 { index g }
+  param uini { index g }
+  param initial_commitment from=uini { index g }
+  param s0 { index g }
+  param lj { index g }
+  param fj { index g }
+  param mincost { index g }
 }
 
-data temporal_sets source="data/temporal_sets.csv" {
+data temporal_sets from="data/temporal_sets.csv" {
   // Temporal domains are user-provided at the data layer.
   // t: primary time/day index used by the model.
   // taf/tbl: user-provided helper subsets for t-1 / t+1 constraints.
@@ -163,35 +122,30 @@ data temporal_sets source="data/temporal_sets.csv" {
   set tbl { in t }
 }
 
-data demand_data source="data/load.csv" {
-  param lambda {
-    index t
-  }
-  param load {
-    index t
-  }
+data demand_data from="data/load.csv" {
+  param lambda { index t }
+  param load { index t }
 }
 
-data segment_set source="data/segments.csv" {
+data segment_set from="data/segments.csv" {
   // Piecewise cost segment domain from segments.csv column `k`.
   set k
 }
 
-data segment_data source="data/segment_data.csv" {
+data segment_data from="data/segment_data.csv" {
   map generators from=generator
 
   param dp {
     index g
     index k
   }
-  param slope {
-    from=s
+  param slope from=s {
     index g
     index k
   }
 }
 
-data time_masks_data source="data/time_masks.csv" {
+data time_masks_data from="data/time_masks.csv" {
   map generators from=generator
 
   param uptime1_mask {
@@ -220,7 +174,7 @@ data time_masks_data source="data/time_masks.csv" {
   }
 }
 
-data time_windows_data source="data/time_windows.csv" {
+data time_windows_data from="data/time_windows.csv" {
   map generators from=generator
 
   // `t` is the anchor index (day/time bucket), `h` is the hour index.
@@ -241,51 +195,43 @@ data time_windows_data source="data/time_windows.csv" {
 model uc_gams_parity {
   // `g`, `k`, `t`, `taf`, `tbl`, and `h` are global sets from data blocks.
 
-  control pu {
-    lower=0
+  control pu lower=0 {
     index g
     index t
   }
 
-  control p {
-    lower=0
+  control p lower=0 {
     index g
     index t
   }
 
-  control stc {
-    lower=0
+  control stc lower=0 {
     index g
     index t
   }
 
-  control sdc {
-    lower=0
+  control sdc lower=0 {
     index g
     index t
   }
 
-  control pk {
-    lower=0
+  control pk lower=0 {
     index g
     index t
     index k
   }
 
-  control u {
-    kind=binary
+  control u kind=binary {
     index g
     index t
   }
 
-  control y {
-    kind=binary
+  control y kind=binary {
     index g
     index t
   }
 
-  control z {
-    kind=binary
+  control z kind=binary {
     index g
     index t
   }
@@ -451,21 +397,21 @@ model uc_gams_parity {
   constraint balance {
     index tt { in t }
     expression {
-      sum(p[generator,tt] for generator in generators) <= load[tt]
+      sum(p[g,tt] for g in g) <= load[tt]
     }
   }
 
   expression cost_thermal {
-    sum(stc[generator,tt] + sdc[generator,tt] for generator in generators for tt in t)
-    + sum(u[generator,tt] * mincost[generator] + sum(slope[generator,kk] * pk[generator,tt,kk] for kk in k) for generator in generators for tt in t)
+    sum(stc[g,tt] + sdc[g,tt] for g in g for tt in t)
+    + sum(u[g,tt] * mincost[g] + sum(slope[g,kk] * pk[g,tt,kk] for kk in k) for g in g for tt in t)
   }
 
   maximize of {
-    sum(lambda[tt] * sum(p[generator,tt] for generator in generators) for tt in t) - cost_thermal
+    sum(lambda[tt] * sum(p[g,tt] for g in g) for tt in t) - cost_thermal
   }
 }
 
-scenario uc_gams_parity_case {
+scenario uc_gams_parityCase {
   use uc_gams_parity
   report cost_thermal
   report of
