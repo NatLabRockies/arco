@@ -95,7 +95,7 @@ KDL features used by Arco (structural layer):
   `scenario`, `control`, `expression`, `constraint`, `minimize`, `maximize`)
   maps to a KDL node. Nested structure uses KDL child blocks (`{ ... }`).
 - Arguments and properties: positional arguments carry names and values; named
-  properties carry options (`from=`, `index=`, `alias=`, etc.).
+  properties carry options (`source=`, `index=`, `alias=`, etc.).
 - Type annotations: KDL 2.0 type annotations (e.g., `(f64)200`) are supported
   but optional (see [§8](#8-kdl-20-type-annotations-optional)).
 - Comments: line comments (`//`) and slashdash comments (`/-`) are fully
@@ -109,7 +109,7 @@ KDL features not used by Arco:
   have no special Arco semantics.
 - Null values: KDL `null` has no defined meaning in Arco. Implementations MUST
   reject `null` wherever a concrete value is expected. This applies to all value
-  positions: arguments, property values (`from=`, `index=`, `units=`), and
+  positions: arguments, property values (`source=`, `index=`, `units=`), and
   algebra literals. See [§10](#10-validation-requirements), rule 61.
 
 ### 1.2 Naming convention
@@ -125,9 +125,9 @@ forms are equivalent:
 
 ```kdl
 // positional (preferred)
-param capacity_mw from=cap_mw index=gen
+param capacity_mw source=cap_mw index=gen
 // explicit name property (also valid)
-param name=capacity_mw from=cap_mw index=gen
+param name=capacity_mw source=cap_mw index=gen
 ```
 
 This applies to all named declarations: `set`, `data`, `model`, `scenario`,
@@ -246,7 +246,7 @@ param big_m 1e6
 set bus { 1; 2; 3; 4; 5 }
 
 // CSV-backed data with subsets via set { in ... }
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   set gen
   set solar { in gen; filter { type == solar } }
   param pmax index=gen
@@ -258,7 +258,7 @@ model dispatch_model {
 
 scenario day_ahead {
   use dispatch_model
-  data demand from="data/demand.csv"
+  data demand source="data/demand.csv"
 }
 ```
 
@@ -368,12 +368,12 @@ Allowed children:
 
 ```
 map <logical_name>
-map <logical_name> from=<source_header>
+map <logical_name> source=<source_header>
 ```
 
 Semantics:
 
-- If `from` is omitted, source header defaults to `<logical_name>`. The column
+- If `source` is omitted, source header defaults to `<logical_name>`. The column
   MUST exist in the CSV.
 - Mapping is optional. Unmapped columns remain available.
 - Duplicate logical targets MUST fail validation.
@@ -513,16 +513,16 @@ data plants source="data/plants.csv" {
 `param` projects values from CSV columns into named parameters.
 
 By default, the param name is used to match the CSV column header. If the CSV
-column has a different name, use `from=<column>` to specify which CSV column
+column has a different name, use `source=<column>` to specify which CSV column
 supplies the values. The param's logical name (used in algebra) is always the
-`<name>` given to the `param` declaration. `from=` only controls where the data
+`<name>` given to the `param` declaration. `source=` only controls where the data
 is read from.
 
 Single-dimension indexing (property form):
 
 ```
 param <name>
-param <name> from=<csv_column>
+param <name> source=<csv_column>
 param <name> index=<set>
 param <name> { index <set> }
 ```
@@ -531,7 +531,7 @@ Multi-dimension indexing (child node form):
 
 ```
 param <name> { index <set_a>; index <set_b> }
-param <name> from=<csv_column> { index <set_a>; index <set_b> }
+param <name> source=<csv_column> { index <set_a>; index <set_b> }
 ```
 
 `<set>` references in the `index=` property and `index` children MAY use either
@@ -553,11 +553,11 @@ data generators source="data/generators.csv" {
   // reads from the "capacity_mw" column (name matches)
   param capacity_mw index=gen_id
   // reads from the "heat_rate" column but exposes it as "hr" in algebra
-  param hr from=heat_rate index=gen_id
+  param hr source=heat_rate index=gen_id
 }
 ```
 
-In algebra, reference `capacity_mw[g]` and `hr[g]`. The `from=` property only
+In algebra, reference `capacity_mw[g]` and `hr[g]`. The `source=` property only
 affects which CSV column is read, not the param's logical name.
 
 The `index=` property and `index` children are mutually exclusive. Using both on
@@ -611,7 +611,7 @@ depend on runtime data, so those errors occur at solve time (see
 Filtering:
 
 ```
-param <name> from=<field> { filter { <predicate> } }
+param <name> source=<field> { filter { <predicate> } }
 ```
 
 The `filter` block uses the same bare-math algebra syntax as `set` filters and
@@ -620,8 +620,8 @@ constraint `if` blocks:
 Given a CSV with columns `gen_id`, `capacity_mw`, and `prime_mover`:
 
 ```arco
-param cc_capacity from=capacity_mw { filter { prime_mover == CC } }
-param large_units from=capacity_mw { filter { capacity_mw >= 200 } }
+param cc_capacity source=capacity_mw { filter { prime_mover == CC } }
+param large_units source=capacity_mw { filter { capacity_mw >= 200 } }
 ```
 
 Order of operations when `filter` and `reduce` are combined: filtering is
@@ -629,7 +629,7 @@ applied first, then the reducer operates on the filtered rows. For example:
 
 ```arco
 // first filter to thermal rows, then sum their capacity
-param total_thermal_cap from=capacity_mw index=region reduce=sum {
+param total_thermal_cap source=capacity_mw index=region reduce=sum {
   filter { type == thermal }
 }
 ```
@@ -674,10 +674,10 @@ discount_rate,value_of_lost_load
 
 ```kdl
 data settings source="data/settings.csv" {
-  // column name matches param name, no from= needed
+  // column name matches param name, no source= needed
   param discount_rate
-  // column name differs, use from= to read "value_of_lost_load" as "voll"
-  param voll from=value_of_lost_load units="$/MWh"
+  // column name differs, use source= to read "value_of_lost_load" as "voll"
+  param voll source=value_of_lost_load units="$/MWh"
 }
 ```
 
@@ -686,7 +686,7 @@ index brackets needed since they are not indexed over any set).
 
 Semantics:
 
-- If `from` is omitted, source field defaults to `<name>`. Column header
+- If `source` is omitted, source field defaults to `<name>`. Column header
   matching is case-sensitive. CSV column names MUST match exactly (after `map`
   resolution).
 - If neither the `index=` property nor `index` children are present, default is
@@ -787,8 +787,8 @@ set <name> alias=<short>
 
 ```arco
 // data declares gen, capacity_mw, fuel_cost, and the thermal_gen subset
-data generators from="data/generators.csv" {
-  map gen from=generator_id
+data generators source="data/generators.csv" {
+  map gen source=generator_id
   set gen alias=g
   set thermal_gen { in gen; filter { type == thermal } }
   param capacity_mw index=gen
@@ -798,7 +798,7 @@ data generators from="data/generators.csv" {
 // model uses gen, thermal_gen, and capacity_mw directly, no redeclaration
 model dispatch {
   set time alias=t
-  control output lower=0 { index gen; index time }
+  control output { lower 0; index gen; index time }
 
   constraint cap_limit {
     index g { in gen }
@@ -856,8 +856,21 @@ parameter name MUST match either a scenario `data` binding name or a top-level
 Decision-variable families. A `control` declaration defines a family of decision
 variables indexed over one or more sets.
 
-The preferred form uses a child block with `index` children, and bounds and
-`kind` as properties on the `control` node:
+The preferred form uses a child block with `index` children. Literal bounds MAY
+be written either as `lower=`/`upper=` properties on the `control` node or as
+child nodes inside the block, and `kind` remains a property on the `control`
+node:
+
+```
+control <name> kind=continuous {
+  lower 0
+  upper 100
+  index <set_a>
+  index <set_b>
+}
+```
+
+Equivalent property form:
 
 ```
 control <name> lower=0 upper=100 kind=continuous {
@@ -866,8 +879,7 @@ control <name> lower=0 upper=100 kind=continuous {
 }
 ```
 
-All children are optional except at least one `index`. Bounds and `kind` are
-properties on the `control` node line (not child nodes).
+All children are optional except at least one `index`.
 
 Compact single-dimension form:
 
@@ -892,13 +904,17 @@ control <name> {
 }
 ```
 
-Properties:
+Properties and children:
 
 - `index` children or `index`: indexing sets (at least one required)
-- `lower`: lower bound (optional). Accepts a literal value or an algebra block.
-- `upper`: upper bound (optional). Accepts a literal value or an algebra block.
+- `lower`: lower bound (optional). Accepts a literal value as a property
+  (`lower=0`) or child node (`lower 0`), or an algebra block inside
+  `bounds { lower { ... } }`.
+- `upper`: upper bound (optional). Accepts a literal value as a property
+  (`upper=100`) or child node (`upper 100`), or an algebra block inside
+  `bounds { upper { ... } }`.
 - `value`: fixed value (optional). Sugar for `lower=X upper=X`. Mutually
-  exclusive with `lower` and `upper`.
+  exclusive with `lower` and `upper` in any form.
 - `kind`: variable type (optional). Allowed values:
   - `continuous` (default)
   - `integer`
@@ -912,7 +928,19 @@ Bounds:
 
 There are four ways to specify bounds on a `control`:
 
-1. **Literal bounds** — scalar values as properties on the `control` node:
+1. **Literal bounds as child nodes** — scalar values inside the `control`
+   block:
+
+```kdl
+control dispatch {
+  lower 0
+  upper 500
+  index gen
+  index time
+}
+```
+
+2. **Literal bounds as properties** — scalar values on the `control` node:
 
 ```kdl
 control dispatch lower=0 upper=500 {
@@ -921,7 +949,7 @@ control dispatch lower=0 upper=500 {
 }
 ```
 
-2. **Formula bounds** — algebra expressions inside a `bounds` child block:
+3. **Formula bounds** — algebra expressions inside a `bounds` child block:
 
 ```arco
 control flow {
@@ -933,11 +961,12 @@ control flow {
 }
 ```
 
-3. **Mixed** — literal property for one direction, formula in `bounds` for the
-   other:
+4. **Mixed** — literal property or child node for one direction, formula in
+   `bounds` for the other:
 
 ```arco
-control output lower=0 {
+control output {
+  lower 0
   index g { in gen }
   index time
   bounds {
@@ -946,7 +975,7 @@ control output lower=0 {
 }
 ```
 
-4. **Fixed value** — `value=` sets both lower and upper to the same value:
+5. **Fixed value** — `value=` sets both lower and upper to the same value:
 
 ```kdl
 control dispatch value=100.0 {
@@ -967,10 +996,11 @@ MUST fail validation:
 
 ```arco
 // INVALID: two lower bounds on the same control
-control flow lower=0 {
+control flow {
+  lower 0
   index lines
   bounds {
-    lower { -capacity[l] }  // validation error: conflicts with lower=0
+    lower { -capacity[l] }  // validation error: conflicts with lower 0
   }
 }
 ```
@@ -1214,7 +1244,7 @@ constraint body, and adding a penalty to the objective:
 
 ```arco
 // what the compiler generates from the slack declaration above:
-control balance_slack lower=0 { index time }
+control balance_slack { lower 0; index time }
 
 constraint balance {
   index t { in time }
@@ -1315,7 +1345,7 @@ data and activates execution.
 ```
 scenario <name> {
   use <model_name>
-  data <name> from=<path>
+  data <name> source=<path>
   report <expression_name>
   report dual <constraint_name>
 }
@@ -1331,13 +1361,13 @@ share mutable state with other scenarios.
 ```kdl
 scenario distance_check {
   use distance_model
-  data distances from="data/distances.csv"
+  data distances source="data/distances.csv"
 }
 
 scenario day_ahead {
   use dispatch_model
-  data demand from="data/demand.csv"
-  data gen_data from="data/generators.csv"
+  data demand source="data/demand.csv"
+  data gen_data source="data/generators.csv"
 }
 ```
 
@@ -1357,9 +1387,9 @@ declarations MUST NOT have a child block (`{ ... }`). They are simple
 name-to-CSV bindings, not namespaced declarations like top-level `data` blocks.
 
 ```kdl
-data demand from="data/demand.csv"
-data capacity from="data/capacity.csv"
-data fuel_cost from="data/fuel_cost.csv"
+data demand source="data/demand.csv"
+data capacity source="data/capacity.csv"
+data fuel_cost source="data/fuel_cost.csv"
 ```
 
 The `<name>` of each binding MUST match either a `param` declared in the
@@ -1386,7 +1416,7 @@ Column-to-index matching:
 5. Missing required columns (index sets or value column) MUST fail validation.
 
 Example: A model declares `param demand { index region; index time }`. The
-scenario binds `data demand from="data/demand.csv"`. The CSV MUST contain
+scenario binds `data demand source="data/demand.csv"`. The CSV MUST contain
 columns `region`, `time`, and `demand` (or the column specified by `from`). Each
 row provides one value of `demand` for a `(region, time)` pair.
 
@@ -1488,7 +1518,7 @@ param, so users are aware of the override:
 
 ```kdl
 // top-level: declares a param named "demand" inside block "demand_data"
-data demand_data from="data/demand_base.csv" {
+data demand_data source="data/demand_base.csv" {
   set region
   param demand index=region
 }
@@ -1496,7 +1526,7 @@ data demand_data from="data/demand_base.csv" {
 scenario stress_test {
   use dispatch_model
   // overrides the "demand" param (originally from demand_data) for this scenario
-  data demand from="data/demand_stress.csv"
+  data demand source="data/demand_stress.csv"
 }
 ```
 
@@ -1533,15 +1563,15 @@ If two CSV files have a column with the same logical name, use `from=` to give
 them distinct param names, or consolidate into one `data` block:
 
 ```kdl
-data generators from="data/generators.csv" {
+data generators source="data/generators.csv" {
   set gen_id
   // reads from CSV column "capacity", exposes as "gen_capacity" in algebra
-  param gen_capacity from=capacity index=gen_id
+  param gen_capacity source=capacity index=gen_id
 }
-data lines from="data/lines.csv" {
+data lines source="data/lines.csv" {
   set line_id
   // reads from CSV column "capacity", exposes as "line_capacity" in algebra
-  param line_capacity from=capacity index=line_id
+  param line_capacity source=capacity index=line_id
 }
 ```
 
@@ -1549,7 +1579,7 @@ data lines from="data/lines.csv" {
 
 ```arco
 // sets and params here are globally visible to all models
-data units from="data/units.csv" {
+data units source="data/units.csv" {
   set plant_id
   set unit_id alias=u { in plant_id }
   param capacity_mw index=unit_id
@@ -1559,7 +1589,7 @@ data units from="data/units.csv" {
 model dispatch_model {
   set time alias=t
   param demand { index time }
-  control dispatch lower=0 { index unit_id; index time }
+  control dispatch { lower 0; index unit_id; index time }
   constraint cap_limit {
     dispatch[u,t] <= capacity_mw[u]
   }
@@ -1589,13 +1619,13 @@ model planning_model {
 scenario base_case {
   use dispatch_model
   // only available in this scenario
-  data demand from="data/demand_base.csv"
+  data demand source="data/demand_base.csv"
 }
 
 scenario high_demand {
   use dispatch_model
   // different demand for this scenario
-  data demand from="data/demand_high.csv"
+  data demand source="data/demand_high.csv"
 }
 ```
 
@@ -1613,8 +1643,8 @@ Node annotation:
 Typed value literals in filters:
 
 ```arco
-param large_units from=capacity_mw { filter { capacity_mw >= (f64)200 } }
-param cc_capacity from=capacity_mw { filter { prime_mover == (prime_mover)CC } }
+param large_units source=capacity_mw { filter { capacity_mw >= (f64)200 } }
+param cc_capacity source=capacity_mw { filter { prime_mover == (prime_mover)CC } }
 ```
 
 Typed metadata values:
@@ -1699,8 +1729,8 @@ Quick-reference index:
 | 5   | Name uniqueness           | Duplicate `set` names within one `data` block                                     |
 | 6   | Name uniqueness           | Set name collisions across `data` blocks                                          |
 | 7   | Name uniqueness           | Param name collisions across `data` blocks                                        |
-| 8   | Column resolution         | `map` without `from` must match CSV column                                        |
-| 9   | Column resolution         | Unknown source columns in `map from=` or `param from=`                            |
+| 8   | Column resolution         | `map` without `source` must match CSV column                                      |
+| 9   | Column resolution         | Unknown source columns in `map source=` or `param source=`                        |
 | 10  | Column resolution         | Unknown set references in `index=` property or `index` children                   |
 | 11  | Set hierarchy             | `in` parent must resolve (see [rule 32](#10-validation-requirements) for scoping) |
 | 12  | Set hierarchy             | `in` cycles detected                                                              |
@@ -2146,13 +2176,15 @@ block_control     := ( control_bounds | "value" "=" value )
                      [ "kind" "=" kind ]
                      "{" ctrl_index_child ";" { ctrl_index_child ";" }
                      [ bounds_block ] "}"
-                     (* Literal bounds (lower=, upper=) and kind= are KDL
-                        properties on the control node line. Formula bounds
-                        (lower { ... }, upper { ... }) are child nodes inside
-                        a bounds { ... } child block. For each direction, at
-                        most one form (property OR bounds child) is allowed,
-                        not both. value= is sugar for lower=X upper=X and
-                        MUST NOT appear with lower, upper, or bounds block. *)
+                     (* Literal bounds may be written either as properties
+                        (lower=, upper=) on the control node line or as child
+                        nodes (lower 0, upper 100) inside the control block.
+                        Formula bounds (lower { ... }, upper { ... }) are
+                        child nodes inside a bounds { ... } child block. For
+                        each direction, at most one form (property OR literal
+                        child OR bounds child) is allowed. value= is sugar for
+                        lower=X upper=X and MUST NOT appear with lower, upper,
+                        or bounds block. *)
 
 control_bounds    := [ "lower" "=" value ] [ "upper" "=" value ]
 
@@ -2423,7 +2455,7 @@ for the component domains and use a multi-column `index` to define the composite
 key:
 
 ```kdl
-data branch_data from="data/branches.csv" {
+data branch_data source="data/branches.csv" {
   // CSV has columns: from_bus, to_bus, capacity, ...
   set from_bus
   set to_bus
