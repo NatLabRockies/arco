@@ -56,6 +56,10 @@ pub(crate) struct RunArgs {
     #[arg(long, requires = "variables")]
     constraints: Option<usize>,
 
+    /// Restrict execution to the named cases for the selected scenario(s)
+    #[arg(long = "case", value_delimiter = ',')]
+    case_names: Option<Vec<String>>,
+
     /// Ratio of constraints per variable when explicit constraints are not provided
     #[arg(long, default_value_t = 0.01)]
     constraint_ratio: f64,
@@ -137,6 +141,7 @@ fn run_command(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
         cases,
         variables,
         constraints,
+        case_names,
         constraint_ratio,
         repetitions,
         output,
@@ -161,6 +166,7 @@ fn run_command(args: RunArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     for scenario in &scenarios {
         let cases = resolve_cases(*scenario, variables, constraints, cases.as_deref());
+        let cases = filter_cases(cases, case_names.as_deref())?;
         for case in cases {
             for rep_idx in 0..repetitions {
                 let execution = match scenario {
@@ -231,6 +237,34 @@ fn compare_command(args: CompareArgs) -> Result<(), Box<dyn std::error::Error>> 
     Ok(())
 }
 
+fn filter_cases(
+    cases: Vec<crate::types::CaseConfig>,
+    requested_case_names: Option<&[String]>,
+) -> Result<Vec<crate::types::CaseConfig>, Box<dyn std::error::Error>> {
+    let Some(requested_case_names) = requested_case_names else {
+        return Ok(cases);
+    };
+
+    let requested: std::collections::BTreeSet<&str> = requested_case_names
+        .iter()
+        .map(std::string::String::as_str)
+        .collect();
+    let available: std::collections::BTreeSet<&str> =
+        cases.iter().map(|case| case.name.as_str()).collect();
+    let missing: Vec<&str> = requested.difference(&available).copied().collect();
+    if !missing.is_empty() {
+        return Err(boxed_input_error(&format!(
+            "unknown case name(s): {}",
+            missing.join(", ")
+        )));
+    }
+
+    Ok(cases
+        .into_iter()
+        .filter(|case| requested.contains(case.name.as_str()))
+        .collect())
+}
+
 fn boxed_input_error(message: &str) -> Box<dyn std::error::Error> {
     Box::new(std::io::Error::new(
         std::io::ErrorKind::InvalidInput,
@@ -241,8 +275,9 @@ fn boxed_input_error(message: &str) -> Box<dyn std::error::Error> {
 #[cfg(test)]
 mod tests {
     use crate::comparison::{build_comparison_rows, has_regressions, summarize_records};
+    use crate::filter_cases;
     use crate::scenarios::execute_case;
-    use crate::types::{BenchRecord, CompareRow, SummaryRow};
+    use crate::types::{BenchRecord, CaseConfig, CompareRow, SummaryRow};
 
     fn approx_eq(left: f64, right: f64) {
         assert!((left - right).abs() < 1e-9, "left={left}, right={right}");
@@ -292,6 +327,44 @@ mod tests {
             None => panic!("mean RSS delta should be present"),
         }
         assert_eq!(row.max_rss_after_bytes, Some(3_000));
+    }
+
+    #[test]
+    fn filter_cases_rejects_unknown_names() {
+        let err = filter_cases(
+            vec![CaseConfig {
+                name: "vars_100".to_string(),
+                variables: 100,
+                constraints: None,
+            }],
+            Some(&["missing".to_string()]),
+        )
+        .expect_err("missing case should fail");
+
+        assert!(err.to_string().contains("unknown case name(s): missing"));
+    }
+
+    #[test]
+    fn filter_cases_keeps_requested_names() {
+        let filtered = filter_cases(
+            vec![
+                CaseConfig {
+                    name: "vars_100".to_string(),
+                    variables: 100,
+                    constraints: None,
+                },
+                CaseConfig {
+                    name: "vars_1000".to_string(),
+                    variables: 1_000,
+                    constraints: None,
+                },
+            ],
+            Some(&["vars_1000".to_string()]),
+        )
+        .expect("known case should succeed");
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "vars_1000");
     }
 
     #[test]

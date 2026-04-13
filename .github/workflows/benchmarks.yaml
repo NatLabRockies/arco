@@ -7,6 +7,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "justfile"
+      - "benchmarks/**"
       - ".github/workflows/benchmarks.yaml"
   push:
     branches:
@@ -16,6 +17,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "justfile"
+      - "benchmarks/**"
       - ".github/workflows/benchmarks.yaml"
   workflow_dispatch:
 
@@ -58,18 +60,20 @@ jobs:
           save-rust-cache: "false"
           rust-cache-shared-key: rust-bench
 
-      - name: Run arco-bench
+      - name: Build arco-bench
+        run: cargo build --release -p arco-bench
+
+      - name: Run monitored benchmark suite
         timeout-minutes: 20
         run: |
-          cargo run --release -p arco-bench -- run \
-            --scenario model-build,kdl-compile \
+          uv run --project benchmarks python -m arco_benchmarks.run_monitored_benchmarks \
+            --binary target/release/arco-bench \
+            --repo-root . \
+            --artifacts-dir artifacts/github-benchmarks \
+            --scenarios model-build,kdl-compile \
             --cases 100,1000,10000,100000 \
             --repetitions 3 \
-            --output bench-results.jsonl
-
-      - name: Convert results to benchmark action format
-        run: uv run scripts/convert_bench_to_github.py bench-results.jsonl
-          benchmark-results.json
+            --sample-interval-seconds 1.0
 
       - name: Restore previous benchmark data
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
@@ -82,7 +86,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@a60cea5bc7b49e15c1f58f411161f99e0df48372 # v1.22.0
         with:
           tool: customSmallerIsBetter
-          output-file-path: benchmark-results.json
+          output-file-path: artifacts/github-benchmarks/benchmark-results.json
           external-data-json-path: ./cache/benchmark-data.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           summary-always: true

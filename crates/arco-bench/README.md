@@ -47,6 +47,7 @@ Common options:
 - `--scenario model-build,fac25`
 - `--cases 1000,10000,100000`
 - `--variables 67651 --constraints 676`
+- `--case vars_10000`
 - `--constraint-ratio 0.01`
 - `--repetitions 3`
 - `--output artifacts/bench/my-run.jsonl`
@@ -56,6 +57,7 @@ Common options:
 Notes:
 
 - default scenario is `model-build`
+- `--case` filters the resolved case list by case name, which is useful for running one benchmark point under external resource monitoring
 - default output path is `artifacts/bench/<run-id>.jsonl`
 
 ### `report`
@@ -118,3 +120,9 @@ Example record:
   "rss_delta_bytes": 598016
 }
 ```
+
+## GitHub benchmark workflow
+
+The CI benchmark workflow builds `target/release/arco-bench`, runs one case at a time,
+and wraps each invocation with `resource_monitor` sampling so the workflow can publish
+both duration and peak RSS metrics to `benchmark-action`.
