@@ -203,3 +203,67 @@ control flow {
                 (arco_pure_math_node
                   (arco_pure_math_children
                     (arco_math_text)))))))))))
+
+==================
+Filter with quoted string
+==================
+
+set storage {
+  in technologies
+  filter { storage_tech == "Li-Ion" }
+}
+
+---
+
+(document
+  (node
+    (kdl_node
+      (identifier)
+      (node_field
+        (value
+          (bare_identifier)))
+      (node_children
+        (node
+          (kdl_node
+            (identifier)
+            (node_field
+              (value
+                (bare_identifier)))))
+        (node
+          (arco_pure_math_node
+            (arco_pure_math_children
+              (arco_math_text))))))))
+
+==================
+Command with multiline string
+==================
+
+job "compile-uc" {
+  command """
+    cargo run -p arco-cli -- compile
+    echo "done"
+  """
+}
+
+---
+
+(document
+  (node
+    (kdl_node
+      (identifier)
+      (node_field
+        (value
+          (string
+            (string_fragment))))
+      (node_children
+        (node
+          (kdl_node
+            (identifier)
+            (node_field
+              (value
+                (string
+                  (string_fragment)
+                  (string_fragment)
+                  (string_fragment)
+                  (string_fragment)
+                  (string_fragment))))))))))

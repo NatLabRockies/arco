@@ -1,11 +1,22 @@
 const kdl = require("tree-sitter-kdl/grammar");
 
-const nodeShape = ($, nameRule, childrenRule) =>
+const PURE_MATH_NODE_NAMES = [
+  "expression",
+  "minimize",
+  "maximize",
+  "expr",
+  "filter",
+  "if",
+  "lower",
+  "upper",
+];
+
+const nodeShape = ($, { nameRule, childrenRule, fieldRule = $.node_field }) =>
   seq(
     alias(optional(seq("/-", repeat($._node_space))), $.node_comment),
     optional($.type),
     nameRule,
-    repeat(seq(repeat1($._node_space), $.node_field)),
+    repeat(seq(repeat1($._node_space), fieldRule)),
     optional(
       seq(
         repeat($._node_space),
@@ -15,6 +26,19 @@ const nodeShape = ($, nameRule, childrenRule) =>
     ),
     repeat($._node_space),
     $._node_terminator,
+  );
+
+const mathChildren = ($, mathRule) =>
+  prec(
+    2,
+    seq(
+      optional(
+        seq(alias("/-", $.node_children_comment), repeat($._node_space)),
+      ),
+      "{",
+      choice(field("math", mathRule), seq(repeat($._linespace))),
+      "}",
+    ),
   );
 
 module.exports = grammar(kdl, {
@@ -27,6 +51,22 @@ module.exports = grammar(kdl, {
     _node_terminator: ($, previous) =>
       choice(previous, $._implicit_terminator),
 
+    string: ($, previous) =>
+      choice(previous, $._multiline_string),
+
+    _multiline_string: ($) =>
+      seq(
+        '"""',
+        optional($._newline),
+        repeat(
+          choice(
+            alias(token.immediate(prec(1, /[^"]+/)), $.string_fragment),
+            alias(token.immediate('"'), $.string_fragment),
+          ),
+        ),
+        '"""',
+      ),
+
     value: ($) =>
       seq(
         optional($.type),
@@ -36,83 +76,57 @@ module.exports = grammar(kdl, {
     bare_identifier: ($) => $._bare_identifier,
 
     node: ($) =>
-      choice($.arco_pure_math_node, $.arco_constraint_node, $.kdl_node),
+      choice(
+        $.arco_pure_math_node,
+        $.arco_constraint_node,
+        $.kdl_node,
+      ),
 
-    kdl_node: ($) => prec(1, nodeShape($, $.identifier, $.node_children)),
+    kdl_node: ($) =>
+      prec(
+        1,
+        nodeShape($, {
+          nameRule: $.identifier,
+          childrenRule: $.node_children,
+        }),
+      ),
 
     // Nodes whose { } body is always algebra text.
     arco_pure_math_node: ($) =>
       prec(
         2,
-        nodeShape(
-          $,
-          field(
-            "name",
-            choice(
-              "expression",
-              "minimize",
-              "maximize",
-              "expr",
-              "filter",
-              "if",
-              "lower",
-              "upper",
-            ),
-          ),
-          $.arco_pure_math_children,
-        ),
+        nodeShape($, {
+          nameRule: field("name", choice(...PURE_MATH_NODE_NAMES)),
+          childrenRule: $.arco_pure_math_children,
+        }),
       ),
 
     // Constraint nodes can have either KDL children or a math body.
     arco_constraint_node: ($) =>
       prec(
         2,
-        nodeShape(
-          $,
-          field("name", "constraint"),
-          choice($.arco_constraint_math_children, $.node_children),
-        ),
+        nodeShape($, {
+          nameRule: field("name", "constraint"),
+          childrenRule: choice($.arco_constraint_math_children, $.node_children),
+        }),
       ),
 
     // Math body for nodes whose braces are always algebra text.
     arco_pure_math_children: ($) =>
-      prec(
-        2,
-        seq(
-          optional(
-            seq(alias("/-", $.node_children_comment), repeat($._node_space)),
-          ),
-          "{",
-          choice(field("math", $.arco_math_text), seq(repeat($._linespace))),
-          "}",
-        ),
-      ),
+      mathChildren($, $.arco_math_text),
 
     // Constraint math body remains stricter so child-node bodies keep parsing
     // as KDL instead of being swallowed as free-form math text.
     arco_constraint_math_children: ($) =>
-      prec(
-        2,
-        seq(
-          optional(
-            seq(alias("/-", $.node_children_comment), repeat($._node_space)),
-          ),
-          "{",
-          choice(
-            field("math", $.arco_constraint_math_text),
-            seq(repeat($._linespace)),
-          ),
-          "}",
-        ),
-      ),
+      mathChildren($, $.arco_constraint_math_text),
 
     // Single opaque token for free-form algebra text in expression/minimize/
     // maximize/filter/if/lower/upper nodes.
-    arco_math_text: (_) => token(prec(10, /[^{}"']+/)),
+    arco_math_text: (_) => token(prec(10, /[^{}]+/)),
 
     // Constraint math must include an operator or bracket so bare KDL child
     // nodes like `if { ... }` still parse through node_children.
     arco_constraint_math_text: (_) =>
-      token(prec(10, /[^{}"']*[<>=!+\-*\/\[\]][^{}"']*/)),
+      token(prec(10, /[^{}]*[<>=!+\-*\/\[\]][^{}]*/)),
   },
 });

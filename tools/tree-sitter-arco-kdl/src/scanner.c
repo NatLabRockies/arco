@@ -20,17 +20,17 @@ enum { KDL_INTERNAL_EOF = 0, KDL_INTERNAL_MULTI_LINE_COMMENT = 1 };
 
 static void kdl_advance(TSLexer *lexer) { lexer->advance(lexer, false); }
 
-void *kdl_scanner_create() { return NULL; }
+static void *kdl_scanner_create() { return NULL; }
 
-void kdl_scanner_destroy(void *payload) {}
+static void kdl_scanner_destroy(void *payload) {}
 
-unsigned kdl_scanner_serialize(void *payload, char *buffer) {
+static unsigned kdl_scanner_serialize(void *payload, char *buffer) {
     return 0;
 }
 
-void kdl_scanner_deserialize(void *payload, const char *buffer, unsigned length) {}
+static void kdl_scanner_deserialize(void *payload, const char *buffer, unsigned length) {}
 
-bool kdl_scanner_scan(void *payload, TSLexer *lexer, const bool *valid_symbols) {
+static bool kdl_scanner_scan(void *payload, TSLexer *lexer, const bool *valid_symbols) {
     // check for End-of-file
     if (valid_symbols[KDL_INTERNAL_EOF] && lexer->lookahead == 0) {
         lexer->result_symbol = KDL_INTERNAL_EOF;
@@ -96,6 +96,19 @@ enum {
   IMPLICIT_TERMINATOR = 2,
 };
 
+static bool scan_implicit_terminator(TSLexer *lexer) {
+  while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
+    lexer->advance(lexer, true);
+  }
+
+  if (lexer->lookahead != '}') {
+    return false;
+  }
+
+  lexer->result_symbol = IMPLICIT_TERMINATOR;
+  return true;
+}
+
 void *tree_sitter_arco_kdl_external_scanner_create(void) {
   return kdl_scanner_create();
 }
@@ -117,20 +130,9 @@ bool tree_sitter_arco_kdl_external_scanner_scan(
   TSLexer *lexer,
   const bool *valid_symbols
 ) {
-  // If the parser is looking for an implicit terminator, check if
-  // the next non-whitespace character is '}'. If so, return true
-  // without consuming any characters (zero-width match).
-  if (valid_symbols[IMPLICIT_TERMINATOR]) {
-    // Peek ahead past whitespace
-    while (lexer->lookahead == ' ' || lexer->lookahead == '\t') {
-      lexer->advance(lexer, true);  // skip whitespace
-    }
-    if (lexer->lookahead == '}') {
-      lexer->result_symbol = IMPLICIT_TERMINATOR;
-      return true;
-    }
+  if (valid_symbols[IMPLICIT_TERMINATOR] && scan_implicit_terminator(lexer)) {
+    return true;
   }
 
-  // Otherwise, delegate to the KDL scanner for _eof and multi_line_comment.
   return kdl_scanner_scan(payload, lexer, valid_symbols);
 }
