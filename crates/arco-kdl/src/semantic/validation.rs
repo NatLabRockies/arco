@@ -90,7 +90,7 @@ pub fn validate_program(
         expression: model.optimize.parsed_expression.clone(),
     };
 
-    let (active_reports, active_dual_reports) =
+    let (active_reports, active_dual_reports, active_variable_reports) =
         resolve_model_scenario_reports(model, scenario, &active_constraints, entrypoint)?;
     let mut active_expressions =
         resolve_active_model_expressions(model, &active_objective, &active_reports, entrypoint)?;
@@ -160,6 +160,7 @@ pub fn validate_program(
         active_expressions,
         active_objective,
         active_reports,
+        active_variable_reports,
         active_dual_reports,
     })
 }

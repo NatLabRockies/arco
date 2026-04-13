@@ -70,6 +70,7 @@ pub struct SemanticProgram {
     pub active_expressions: Vec<ResolvedExpression>,
     pub active_objective: ResolvedObjective,
     pub active_reports: Vec<ResolvedReport>,
+    pub active_variable_reports: Vec<ResolvedVariableReport>,
     pub active_dual_reports: Vec<ResolvedDualReport>,
 }
 
@@ -135,6 +136,13 @@ pub struct ResolvedReport {
     pub name: String,
     pub formula_text: String,
     pub formula: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedVariableReport {
+    pub control_name: String,
+    pub indices: Vec<String>,
+    pub filter: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

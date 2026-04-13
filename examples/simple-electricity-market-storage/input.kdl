@@ -23,7 +23,6 @@ data load_data source="data/load.csv" {
 }
 
 model SouthAfricaSingleZoneDispatch {
-  set asset_id alias="a"
   set time alias="t"
 
   param capacity_mw index="asset_id"

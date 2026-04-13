@@ -187,10 +187,6 @@ data thermal_data source="data/thermal.csv" {
 
 model sdom {
   set time alias="t"
-  set wind_plant alias="wp"
-  set solar_plant alias="sp"
-  set storage_tech alias="j"
-  set thermal_unit alias="bu"
 
   // FCR_VRE = r*(1+r)^lifetime / ((1+r)^lifetime - 1) with r=0.06, lifetime=30
   param fcr_vre 0.072649
@@ -376,10 +372,6 @@ model sdom {
     index time
   }
 
-  // ========================================================================
-  // EXPRESSIONS (cost components for objective)
-  // ========================================================================
-
   expression wind_capex {
     fcr_vre * sum((wind_capex_m[wp] * mw_to_kw + wind_trans_cost[wp]) * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
   }
@@ -440,9 +432,6 @@ model sdom {
     thermal_total_capex + thermal_total_fom + thermal_fuel_cost + thermal_var_om
   }
 
-  // ========================================================================
-  // CONSTRAINTS
-  // ========================================================================
 
   constraint supply_balance {
     index t { in time }
@@ -603,18 +592,10 @@ model sdom {
     }
   }
 
-  // ========================================================================
-  // OBJECTIVE
-  // ========================================================================
-
   minimize total_cost {
     total_vre_cost + total_storage_cost + total_thermal_cost
   }
 }
-
-// ============================================================================
-// SCENARIO
-// ============================================================================
 
 scenario sdom_no_resiliency_24h {
   use sdom
@@ -622,4 +603,9 @@ scenario sdom_no_resiliency_24h {
   report total_vre_cost
   report total_storage_cost
   report total_thermal_cost
+  report wind_cap_frac
+  report pcha
+  report soc {
+    filter { storage_tech == "Li-Ion"}
+  }
 }

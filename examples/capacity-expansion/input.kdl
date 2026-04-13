@@ -2,6 +2,10 @@ data assets_data source="data/all_assets.csv" {
   map asset_id from="asset_name"
 
   set asset_id alias="a"
+  set candidate_assets {
+    in asset_id
+    filter { is_candidate > 0 }
+  }
   param existing_capacity_mw {
     index asset_id
   }
@@ -34,7 +38,6 @@ data voll_data source="data/voll.csv" {
 }
 
 model capacity_expansion {
-  set asset_id alias="a"
   set time alias="t"
 
   param existing_capacity_mw {

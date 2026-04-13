@@ -1451,10 +1451,25 @@ report dual balance
 report dual capacity_limit
 ```
 
+Filtered report narrows indexed output to a subset of rows:
+
+```kdl
+report soc {
+  filter { storage_tech == "Li-Ion" }
+}
+```
+
+The `filter` child block uses the same bare-math predicate syntax as `set` and
+`param` filter blocks (see [§9](#9-filter-predicate-semantics)). It restricts
+the reported output to rows matching the predicate. The predicate MUST
+reference index variables from the reported expression or control. A `filter`
+block is valid on both scalar and dual report forms. The `filter` block is
+optional; when omitted, all rows are reported.
+
 Semantics:
 
-- Scalar report targets MUST resolve to a declared `expression` or objective
-  name.
+- Scalar report targets MUST resolve to a declared `expression`, `control`, or
+  objective name.
 - Dual report targets MUST resolve to a declared `constraint` name.
 - Reports are evaluated after the solver returns a feasible solution. If the
   model is infeasible or unbounded, report evaluation is skipped and
@@ -1751,7 +1766,7 @@ Quick-reference index:
 | 27  | Scenario resolution       | `scenario` must have `use`                                                        |
 | 28  | Scenario resolution       | `use <model>` must resolve to existing model                                      |
 | 29  | Scenario resolution       | Scenario `data` binding must match model `param`                                  |
-| 30  | Scenario resolution       | Scalar `report` must resolve to expression/objective                              |
+| 30  | Scenario resolution       | Scalar `report` must resolve to expression/control/objective                      |
 | 31  | Scenario resolution       | Dual `report` must resolve to constraint                                          |
 | 32  | Subset resolution         | `in` parent must be in same data block or top-level                               |
 | 33  | Subset resolution         | Filtered subset must be subset of parent; warn if empty                           |
@@ -1852,8 +1867,8 @@ Scenario resolution:
 27. `scenario` MUST contain exactly one `use` declaration.
 28. `scenario use <model_name>` MUST resolve to an existing `model`.
 29. Scenario `data` binding names MUST match model `param` declarations.
-30. Scalar `report` targets MUST resolve to a declared `expression` or
-    objective.
+30. Scalar `report` targets MUST resolve to a declared `expression`, `control`,
+    or objective.
 31. Dual `report` targets MUST resolve to a declared `constraint`.
 
 Subset resolution:
@@ -2228,6 +2243,7 @@ scenario_child    := use_decl | scenario_data_decl | report_decl
 use_decl          := "use" name
 scenario_data_decl:= "data" name from_prop
 report_decl       := "report" ( name | "dual" name )
+                     [ "{" filter_block "}" ]
 
 inline_selector   := "[" { name "=" value } "]"
                      (* Multiple key=value pairs are space-separated:

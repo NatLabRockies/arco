@@ -45,7 +45,7 @@ scenario "S1" {
     assert!(
         error
             .to_string()
-            .contains("missing declaration `expression` named `MissingExpr`")
+            .contains("missing declaration `expression or control` named `MissingExpr`")
     );
 
     fs::remove_dir_all(&root)?;
