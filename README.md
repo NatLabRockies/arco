@@ -40,6 +40,7 @@ relentless about minimizing memory usage so more systems can run real workloads.
   <a href="#cli-reference">CLI Reference</a> ·
   <a href="#language-bindings">Language Bindings</a> ·
   <a href="#features">Features</a> ·
+  <a href="#roadmap">Roadmap</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#benchmarking">Benchmarking</a> ·
   <a href="#contributing">Contributing</a> ·
@@ -401,26 +402,35 @@ solution = model.solve()
 
 ## Features
 
-| Feature                   | Status | Description                                                          |
-| :------------------------ | :----: | :------------------------------------------------------------------- |
-| **KDL Optimization DSL**  |   ✅   | Low-level KDL profile with explicit data/model/scenario declarations |
-| **CLI Compiler/Solver**   |   ✅   | Compile, validate, inspect, solve, and export from the command line  |
-| **LP / MIP Solving**      |   ✅   | Linear and mixed-integer programming via embedded HiGHS              |
-| **HiGHS Backend**         |   ✅   | Open-source solver embedded out of the box                           |
-| **Xpress Backend**        |   ✅   | Commercial solver support for enterprise users                       |
-| **Model Inspection**      |   ✅   | Semantic introspection of sets, variables, constraints, parameters   |
-| **LP / MPS Export**       |   ✅   | Export algebraic models for external solvers                         |
-| **CSV Data Binding**      |   ✅   | Wire model parameters to CSV data sources in scenarios               |
-| **Block Orchestration**   |   ✅   | DAG-based composition for multi-stage problems                       |
-| **Memory Diagnostics**    |   ✅   | Built-in tracking of memory usage and bottlenecks                    |
-| **Warm Starting**         |   ✅   | Reuse solutions across sequential solves                             |
-| **Python Binding**        |   ✅   | Programmatic model building with NumPy integration                   |
-| **Editor Support**        |   ✅   | Tree-sitter grammar overlay for KDL + algebra syntax highlighting    |
-| **Parallel Block Solve**  |   🚧   | Under testing for concurrent block execution                         |
-| **Additional Bindings**   |   📋   | Planned language bindings beyond Python                              |
-| **Distributed Execution** |   📋   | Planned for distributed optimization workflows                       |
+Language & CLI
 
-**Legend:** ✅ Available | 🚧 Under Testing | 📋 Planned
+- KDL-based optimization DSL — write models in .kdl files with data/model/scenario separation
+- CLI compiler — arco compile, validate, inspect, solve, export
+- Model inspection — semantic introspection of sets, variables, constraints
+- CSV data binding — wire parameters to CSV sources in scenarios
+
+Solvers
+
+- HiGHS (embedded) — open-source LP/MIP solver out of the box
+- Xpress (optional) — commercial solver support
+- LP / MPS export — debug models in external tools
+- Warm starting — reuse solutions across sequential solves
+
+Performance & Tooling
+
+- Memory diagnostics — built-in tracking of allocations
+- Block orchestration — DAG-based composition for multi-stage problems
+- Python bindings — programmatic access with NumPy integration
+- Editor support — tree-sitter grammar for syntax highlighting
+
+## Roadmap
+
+Curious about what we're working on? Check out the roadmap:
+
+- [Active issues](https://github.com/NatLabRockies/arco/issues?q=is%3Aopen+is%3Aissue+label%3A%22working+on+it%22+sort%3Aupdated-asc) - Issues that we are actively working on
+- [Prioritized backlog](https://github.com/NatLabRockies/arco/issues?q=is%3Aopen+is%3Aissue+label%3Abacklog) - Issues we'll be working on next
+- [Nice-to-have](https://github.com/NatLabRockies/arco/labels/optional) - Features or fixes anyone can start working on (please let us know before you do)
+- [Ideas](https://github.com/NatLabRockies/arco/issues?q=is%3Aopen+is%3Aissue+label%3Aidea) - Future work or ideas for Arco
 
 ## Architecture
 
