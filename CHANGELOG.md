@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.4.0](https://github.com/NatLabRockies/arco/compare/v0.3.0...v0.4.0) (2026-04-13)
+
+
+### Features
+
+* **tree-sitter:** add highlight queries for arco_kdl parser ([#131](https://github.com/NatLabRockies/arco/issues/131)) ([0835cca](https://github.com/NatLabRockies/arco/commit/0835cca1b2b371ce5e501f313c3e458a36e258af))
+
+
+### Bug Fixes
+
+* **tree-sitter:** correct highlight queries to match grammar node names ([#133](https://github.com/NatLabRockies/arco/issues/133)) ([30a6438](https://github.com/NatLabRockies/arco/commit/30a64384ae2ba8589ab473678c1bf18434989346))
+* **tree-sitter:** vendor tree-sitter-kdl scanner to remove node_modules dependency ([#132](https://github.com/NatLabRockies/arco/issues/132)) ([6a98cbd](https://github.com/NatLabRockies/arco/commit/6a98cbddb118bffeb569ff8c134db4467f21c49c))
+
+
+### Performance
+
+* **core,highs:** Tier 1 optimizations for 0.4.0 ([#136](https://github.com/NatLabRockies/arco/issues/136)) ([9225df6](https://github.com/NatLabRockies/arco/commit/9225df645938615a4ff9e048b9fe472c2833b3c6))
+
+
+### Documentation
+
+* adding license compliance ([#126](https://github.com/NatLabRockies/arco/issues/126)) ([545eea4](https://github.com/NatLabRockies/arco/commit/545eea4b982318cf013e522013238e3cb628ad10))
+
 ## [0.3.0](https://github.com/NatLabRockies/arco/compare/v0.2.8...v0.3.0) (2026-04-08)
 
 
