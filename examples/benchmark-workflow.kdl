@@ -1,0 +1,224 @@
+// Arco Benchmark Workflow for Torc Integration
+// ===============================================
+//
+// This KDL workflow demonstrates how to orchestrate arco benchmark jobs using
+// the Torc workflow engine. Torc provides resource monitoring, job scheduling,
+// and dependency management for running complex benchmark pipelines.
+//
+// Usage with Torc:
+//   torc run examples/benchmark-workflow.kdl --poll-interval 5
+//
+// Or via the benchmarks justfile:
+//   cd benchmarks && just start-torc
+//   torc run ../examples/benchmark-workflow.kdl
+//   just stop-torc
+//
+// Workflow Overview:
+//   1. compile-uc: Compiles the unit-commitment KDL model to intermediate form
+//   2. solve-uc: Solves the compiled model using the specified solver
+//   3. report: Generates a comparison report of the benchmark results
+
+workflow "arco-benchmarks" {
+    // Workflow metadata
+    user "arco_benchmark_user"
+    description "Benchmark workflow for arco unit-commitment example with compile, solve, and report stages"
+
+    // Resource monitoring configuration
+    // Torc monitors memory, CPU, and runtime for each job
+    resource_monitor enabled=true {
+        granularity "summary"           // Options: "summary", "detailed"
+        sample_interval_seconds 2         // How often to sample resource usage
+    }
+
+    // =========================================================================
+    // Job 1: Compile the unit-commitment model
+    // =========================================================================
+    // This job compiles the KDL input file to an intermediate representation.
+    // The compilation step validates the model structure, loads data, and
+    // prepares the optimization problem for solving.
+    //
+    // Depends on: None (root job)
+    // Produces: Compiled model artifacts in the working directory
+
+    job "compile-uc" {
+        description "Compile unit-commitment KDL model to intermediate form"
+
+        // Command to execute - uses arco CLI to compile the unit-commitment example
+        command """
+            cargo run -p arco-cli -- compile \
+                examples/unit-commitment/input.kdl \
+                --output examples/unit-commitment/compiled.json
+        """
+
+        // Resource requirements reference (defined below)
+        resources "compile_resources"
+
+        // Job-specific environment variables
+        env {
+            ARCO_LOG "info"
+            RUST_BACKTRACE "1"
+        }
+    }
+
+    // =========================================================================
+    // Job 2: Solve the compiled model
+    // =========================================================================
+    // This job takes the compiled model from Job 1 and solves it using an
+    // optimization solver (HiGHS by default). It produces solution files
+    // containing variable values, objective function results, and solve statistics.
+    //
+    // Depends on: compile-uc (must complete successfully before this runs)
+    // Produces: Solution JSON and performance metrics
+
+    job "solve-uc" {
+        description "Solve the compiled unit-commitment model"
+
+        // Command to execute - uses arco CLI to solve the compiled model
+        command """
+            cargo run -p arco-cli -- solve \
+                examples/unit-commitment/compiled.json \
+                --solver highs \
+                --output examples/unit-commitment/solution.json
+        """
+
+        // Resource requirements - solving typically needs more memory and time
+        resources "solve_resources"
+
+        // Explicit dependency declaration
+        // Torc ensures compile-uc completes successfully before starting solve-uc
+        depends_on "compile-uc"
+
+        env {
+            ARCO_LOG "info"
+            HIGHS_PRESOLVE "on"
+        }
+    }
+
+    // =========================================================================
+    // Job 3: Generate benchmark report
+    // =========================================================================
+    // This job collects results from the solve stage and generates a comparison
+    // report. It can compare against baseline results, compute statistics,
+    // and output formatted reports (CSV, JSON, or plots).
+    //
+    // Depends on: solve-uc (must complete successfully before this runs)
+    // Produces: benchmark_report.csv, benchmark_report.json, plots/
+
+    job "report" {
+        description "Generate benchmark comparison report from solve results"
+
+        // Command to execute - runs Python script to aggregate and visualize results
+        command """
+            cd benchmarks && uv run python scripts/export_results.py \
+                --workflow-id arco-benchmarks \
+                --out results/uc_benchmark_report.csv && \
+            uv run python scripts/plot_results.py \
+                --input results/uc_benchmark_report.csv \
+                --out-dir plots/
+        """
+
+        // Reporting typically requires less resources than solving
+        resources "report_resources"
+
+        // Depends on solve-uc completing successfully
+        // This creates a linear pipeline: compile-uc -> solve-uc -> report
+        depends_on "solve-uc"
+
+        env {
+            PYTHONPATH "benchmarks/src"
+        }
+    }
+
+    // =========================================================================
+    // Resource Requirement Definitions
+    // =========================================================================
+    // These resource profiles define the compute resources each job type needs.
+    // Torc uses these to schedule jobs appropriately and enforce limits.
+
+    resource_requirements {
+        // Resource profile for compilation jobs
+        // Compilation is typically CPU-bound and memory-efficient
+        resource "compile_resources" {
+            num_cpus 4              // Number of CPU cores
+            num_gpus 0              // GPU not needed for compilation
+            num_nodes 1             // Single node is sufficient
+            memory "4g"             // 4 GB RAM - KDL compilation is memory-efficient
+            runtime "PT10M"           // ISO 8601 duration: 10 minutes max
+        }
+
+        // Resource profile for solve jobs
+        // Solving MIP/LP problems can be memory and CPU intensive
+        resource "solve_resources" {
+            num_cpus 4
+            num_gpus 0
+            num_nodes 1
+            memory "8g"               // 8 GB RAM for solver working memory
+            runtime "PT30M"           // 30 minutes max for complex MIPs
+        }
+
+        // Resource profile for report generation
+        // Reporting is I/O and CPU bound but needs minimal memory
+        resource "report_resources" {
+            num_cpus 2
+            num_gpus 0
+            num_nodes 1
+            memory "2g"               // 2 GB RAM for data processing
+            runtime "PT5M"            // 5 minutes max for report generation
+        }
+    }
+
+    // =========================================================================
+    // Workflow-level Configuration
+    // =========================================================================
+
+    // Files to stage/upload with the workflow (optional)
+    // These files are made available to all jobs in the workflow
+    files {
+        // "examples/unit-commitment/data/generators.csv"
+        // "examples/unit-commitment/data/load.csv"
+        // "examples/unit-commitment/data/temporal_sets.csv"
+    }
+
+    // User data that can be accessed by jobs (optional)
+    // Useful for passing configuration or metadata through the workflow
+    user_data {
+        benchmark_name "unit_commitment_v1"
+        model_source "examples/unit-commitment/input.kdl"
+        baseline_comparison_enabled true
+    }
+}
+
+// =========================================================================
+// Torc Integration Notes
+// =========================================================================
+//
+// This workflow follows the Torc KDL schema which extends the standard
+// benchmark.yaml format with KDL's hierarchical structure.
+//
+// Key differences from YAML format:
+// - Uses KDL's node/argument/children syntax instead of key-value pairs
+// - Dependencies are explicit 'depends_on' child nodes
+// - Resources are defined once in 'resource_requirements' and referenced by name
+// - Multi-line commands use KDL's raw string syntax (""")
+//
+// Torc CLI commands for this workflow:
+//
+//   # Run the workflow
+//   torc run examples/benchmark-workflow.kdl
+//
+//   # Run with custom poll interval
+//   torc run examples/benchmark-workflow.kdl --poll-interval 5
+//
+//   # Check workflow status
+//   torc status <workflow-id>
+//
+//   # View job logs
+//   torc logs <workflow-id> <job-name>
+//
+//   # Export results after completion
+//   torc export <workflow-id> --format json
+//
+// See also:
+//   - benchmarks/workflows/benchmark.yaml (YAML version of this workflow)
+//   - benchmarks/justfile (convenience commands for torc operations)
+//   - benchmarks/BENCHMARK.md (benchmark methodology documentation)
