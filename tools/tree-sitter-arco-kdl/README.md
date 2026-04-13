@@ -51,6 +51,35 @@ Use `examples/highlight_demo.kdl` as the visual fixture when tuning colors.
 If your editor supports capture inspection (e.g. Neovim `:Inspect`), open the
 fixture and verify these captures line-by-line before taking screenshots.
 
+## Source of truth
+
+Authored files:
+
+- `grammar.js`: overlay grammar source of truth
+- `src/scanner.c`: thin Arco wrapper for external tokens
+- `src/vendor/tree_sitter_kdl_external_scanner.inc`: vendored upstream KDL scanner
+- `queries/*.scm`: editor queries
+- `test/corpus/arco_math.txt`: parser regression corpus
+
+Generated files:
+
+- `src/parser.c`
+- `src/grammar.json`
+- `src/node-types.json`
+- `src/tree_sitter/parser.h` (vendored tree-sitter runtime header, pinned to the current toolchain)
+
+When `grammar.js` changes, regenerate the parser artifacts with:
+
+```sh
+npm install
+npx tree-sitter generate
+```
+
+Do not hand-edit `src/parser.c`. It is generated code.
+Do not hand-edit `src/tree_sitter/parser.h` either. Treat it as a vendored,
+mostly frozen header that only changes when we intentionally bump the
+Tree-sitter CLI/runtime version.
+
 ## Installation
 
 ### Neovim
@@ -146,7 +175,10 @@ instead of generic KDL highlighting.
 
 ## Files
 
-- `grammar.js`: KDL overlay grammar.
+- `grammar.js`: KDL overlay grammar, source of truth.
+- `src/scanner.c`: thin Arco-specific external scanner shim.
+- `src/vendor/tree_sitter_kdl_external_scanner.inc`: vendored upstream KDL scanner implementation.
+- `src/parser.c`: generated parser output.
 - `queries/injections.scm`: marks `arco_math_text` for language injection.
 - `examples/highlight_demo.kdl`: semantic highlight fixture for theme tuning.
 - `test/corpus/arco_math.txt`: corpus examples for algebra-body parsing.
