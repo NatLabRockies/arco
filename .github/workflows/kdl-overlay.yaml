@@ -51,11 +51,14 @@ jobs:
       - name: Install tree-sitter CLI
         run: npm install --global tree-sitter-cli
 
-      - name: Regenerate parser from latest grammar
+      - name: Regenerate generated parser artifacts from grammar source
         working-directory: tools/tree-sitter-arco-kdl
         run: |
           npm install
-          tree-sitter generate
+          # parser.c / grammar.json / node-types.json are normal generated outputs.
+          # src/tree_sitter/parser.h is treated as a vendored, pinned runtime
+          # header and should only change when the Tree-sitter toolchain moves.
+          npx tree-sitter generate
 
       - name: Run filtered prek hook
         run: uvx --from prek==0.3.6 prek run --all-files --hook-stage manual
