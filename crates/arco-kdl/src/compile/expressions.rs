@@ -46,6 +46,7 @@ fn linearize_value_expr(
             bindings,
             program,
             inputs,
+            named_expressions,
             variable_signatures,
             instantiated_names,
             entrypoint,

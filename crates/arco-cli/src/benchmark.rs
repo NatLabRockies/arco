@@ -247,7 +247,7 @@ fn to_e2e_summary(
         reports: execution_result
             .reports
             .iter()
-            .map(|report| report.dsl_name.clone())
+            .map(|report| report.name.clone())
             .collect(),
     }
 }
@@ -298,6 +298,7 @@ mod tests {
                 expression: Expr::Number("0".to_string()),
             },
             active_reports: Vec::new(),
+            active_variable_reports: Vec::new(),
             active_dual_reports: Vec::new(),
         }
     }

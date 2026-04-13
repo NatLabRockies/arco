@@ -31,7 +31,6 @@ data price_curve source="data/prices.csv" {
 }
 
 model price_taker_battery {
-  set asset_id alias="a"
   set time alias="t"
 
   param power_mw {

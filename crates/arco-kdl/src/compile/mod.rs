@@ -26,6 +26,7 @@ pub struct CompiledProblem {
     pub constraints: Vec<CompiledConstraint>,
     pub objective: CompiledObjective,
     pub reports: Vec<CompiledReport>,
+    pub variable_reports: Vec<CompiledVariableReport>,
     pub dual_reports: Vec<CompiledDualReport>,
     pub traceability: Vec<TraceabilityRecord>,
     pub algebra: AlgebraicProblem,
@@ -61,6 +62,13 @@ pub struct CompiledObjective {
 pub struct CompiledReport {
     pub name: String,
     pub formula: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompiledVariableReport {
+    pub control_name: String,
+    pub indices: Vec<String>,
+    pub filter: Option<crate::algebra::Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,6 +235,16 @@ pub fn compile_program(
         .map(compile_report)
         .collect::<Vec<_>>();
 
+    let variable_reports = program
+        .active_variable_reports
+        .iter()
+        .map(|vr| CompiledVariableReport {
+            control_name: vr.control_name.clone(),
+            indices: vr.indices.clone(),
+            filter: vr.filter.clone(),
+        })
+        .collect::<Vec<_>>();
+
     let dual_reports = program
         .active_dual_reports
         .iter()
@@ -258,6 +276,7 @@ pub fn compile_program(
         constraints,
         objective,
         reports,
+        variable_reports,
         dual_reports,
         traceability,
         algebra,

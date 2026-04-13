@@ -271,13 +271,14 @@ fn linearize_indexed_expr(
     bindings: &LinearizationBindings,
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
+    named_expressions: &BTreeMap<String, Expr>,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<AffineExpr, CompileError> {
     let resolved = indices
         .iter()
-        .map(|index| resolve_index_expr(index, bindings, entrypoint))
+        .map(|index| resolve_index_expr(index, bindings, named_expressions, entrypoint))
         .collect::<Result<Vec<_>, _>>()?;
 
     // Compute the candidate instance name using the same conventions as

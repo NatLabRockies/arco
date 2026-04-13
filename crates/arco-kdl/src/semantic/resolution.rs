@@ -2,19 +2,27 @@ use crate::algebra::collect_named_expression_dependencies;
 use crate::semantic::error::SemanticError;
 use crate::semantic::types::{
     ResolvedConstraint, ResolvedDualReport, ResolvedExpression, ResolvedObjective, ResolvedReport,
+    ResolvedVariableReport,
 };
 use crate::source::{ModelDecl, ReportKind, ScenarioDecl};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+
+type ResolvedReports = (
+    Vec<ResolvedReport>,
+    Vec<ResolvedDualReport>,
+    Vec<ResolvedVariableReport>,
+);
 
 pub(crate) fn resolve_model_scenario_reports(
     model: &ModelDecl,
     scenario: &ScenarioDecl,
     active_constraints: &[ResolvedConstraint],
     entrypoint: &Path,
-) -> Result<(Vec<ResolvedReport>, Vec<ResolvedDualReport>), SemanticError> {
+) -> Result<ResolvedReports, SemanticError> {
     let mut reports = Vec::new();
     let mut dual_reports = Vec::new();
+    let mut variable_reports = Vec::new();
 
     for report_decl in &scenario.reports {
         match report_decl.kind {
@@ -28,19 +36,33 @@ pub(crate) fn resolve_model_scenario_reports(
                     continue;
                 }
 
-                let expression = model
+                if let Some(expression) = model
                     .expressions
                     .iter()
                     .find(|expression| expression.name == report_decl.target)
-                    .ok_or_else(|| SemanticError::MissingDeclaration {
-                        kind: "expression",
-                        name: report_decl.target.clone(),
-                        path: entrypoint.to_path_buf(),
-                    })?;
-                reports.push(ResolvedReport {
-                    name: expression.name.clone(),
-                    formula_text: expression.formula.clone(),
-                    formula: expression.parsed_formula.clone(),
+                {
+                    reports.push(ResolvedReport {
+                        name: expression.name.clone(),
+                        formula_text: expression.formula.clone(),
+                        formula: expression.parsed_formula.clone(),
+                    });
+                    continue;
+                }
+
+                if let Some(control) = model.controls.iter().find(|c| c.name == report_decl.target)
+                {
+                    variable_reports.push(ResolvedVariableReport {
+                        control_name: control.name.clone(),
+                        indices: control.indices.iter().map(|i| i.name.clone()).collect(),
+                        filter: report_decl.parsed_filter_expression.clone(),
+                    });
+                    continue;
+                }
+
+                return Err(SemanticError::MissingDeclaration {
+                    kind: "expression or control",
+                    name: report_decl.target.clone(),
+                    path: entrypoint.to_path_buf(),
                 });
             }
             ReportKind::Dual => {
@@ -62,7 +84,7 @@ pub(crate) fn resolve_model_scenario_reports(
         }
     }
 
-    Ok((reports, dual_reports))
+    Ok((reports, dual_reports, variable_reports))
 }
 
 pub(crate) fn resolve_active_model_expressions(

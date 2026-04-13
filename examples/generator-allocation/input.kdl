@@ -11,7 +11,6 @@ data demand_data source="data/demand.csv" {
 }
 
 model generator_allocation {
-  set asset_id alias="a"
   set time alias="t"
 
   param variable_cost index="asset_id"

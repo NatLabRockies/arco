@@ -412,20 +412,27 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
             "use" => model_use = Some(first_arg_string(child, 0, context)?),
             "report" => {
                 let first = first_arg_string(child, 0, context)?;
-                match first.as_str() {
-                    "dual" => {
-                        let target = first_arg_string(child, 1, context)?;
-                        reports.push(ReportDecl {
-                            kind: ReportKind::Dual,
-                            target,
-                        });
-                    }
-                    _ => {
-                        reports.push(ReportDecl {
-                            kind: ReportKind::Scalar,
-                            target: first,
-                        });
-                    }
+                if first.as_str() == "dual" {
+                    let target = first_arg_string(child, 1, context)?;
+                    reports.push(ReportDecl {
+                        kind: ReportKind::Dual,
+                        target,
+                        filter_expression: None,
+                        parsed_filter_expression: None,
+                    });
+                } else {
+                    let filter_expression = parse_optional_filter_expression(child, context)?;
+                    let parsed_filter_expression = filter_expression
+                        .as_deref()
+                        .map(parse_value_formula)
+                        .transpose()
+                        .map_err(|error| algebra_error(child, error.to_string(), context))?;
+                    reports.push(ReportDecl {
+                        kind: ReportKind::Scalar,
+                        target: first,
+                        filter_expression,
+                        parsed_filter_expression,
+                    });
                 }
             }
             other => {

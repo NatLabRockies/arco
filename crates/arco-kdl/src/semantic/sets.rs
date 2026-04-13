@@ -144,7 +144,7 @@ fn source_column_for_logical_name(data_decl: &crate::source::DataDecl, logical: 
         )
 }
 
-fn literal_to_string(value: &LiteralValue) -> String {
+pub(crate) fn literal_to_string(value: &LiteralValue) -> String {
     match value {
         LiteralValue::String(v) => v.clone(),
         LiteralValue::Integer(v) => v.to_string(),

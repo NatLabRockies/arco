@@ -153,6 +153,8 @@ pub enum ReportKind {
 pub struct ReportDecl {
     pub kind: ReportKind,
     pub target: String,
+    pub filter_expression: Option<String>,
+    pub parsed_filter_expression: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

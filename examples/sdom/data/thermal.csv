@@ -1,0 +1,3 @@
+plant_id,min_capacity,max_capacity,lifetime,capex,heat_rate,fuel_cost,vom,fom,crf
+83_GAS,0,4897,30,0,1,129.251701,7.5,0,0.072649
+83_Coal,0,0,30,0,1,129.251701,7.5,0,0.072649

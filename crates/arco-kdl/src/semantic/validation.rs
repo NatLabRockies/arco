@@ -2,10 +2,12 @@ use crate::semantic::error::SemanticError;
 use crate::semantic::resolution::{
     resolve_active_model_expressions, resolve_model_scenario_reports,
 };
-use crate::semantic::sets::{collect_set_aliases, extend_set_registry_from_low_level_declarations};
+use crate::semantic::sets::{
+    collect_set_aliases, extend_set_registry_from_low_level_declarations, literal_to_string,
+};
 use crate::semantic::types::{
-    FamilySignature, ResolvedChronology, ResolvedConstraint, ResolvedObjective, ResolvedParameters,
-    ResolvedSets, ResolvedTimeSet, SemanticProgram, VariableDeclOverrides,
+    FamilySignature, ResolvedChronology, ResolvedConstraint, ResolvedExpression, ResolvedObjective,
+    ResolvedParameters, ResolvedSets, ResolvedTimeSet, SemanticProgram, VariableDeclOverrides,
 };
 use crate::source::{BoundExpr, ModelDecl, ScenarioDecl, SourceProgram, VariableKindDecl};
 use std::collections::{BTreeMap, BTreeSet};
@@ -88,10 +90,32 @@ pub fn validate_program(
         expression: model.optimize.parsed_expression.clone(),
     };
 
-    let (active_reports, active_dual_reports) =
+    let (active_reports, active_dual_reports, active_variable_reports) =
         resolve_model_scenario_reports(model, scenario, &active_constraints, entrypoint)?;
-    let active_expressions =
+    let mut active_expressions =
         resolve_active_model_expressions(model, &active_objective, &active_reports, entrypoint)?;
+
+    // Inject inline scalar params (e.g. `param fcr_vre 0.072649`) as synthetic
+    // named expressions so they are resolvable in algebra and index positions.
+    let existing_names: BTreeSet<String> =
+        active_expressions.iter().map(|e| e.name.clone()).collect();
+    for param in &model.parameters {
+        if let Some(ref value) = param.value {
+            if existing_names.contains(&param.name) {
+                return Err(SemanticError::DuplicateDeclaration {
+                    kind: "param/expression".to_string(),
+                    name: param.name.clone(),
+                    path: entrypoint.to_path_buf(),
+                });
+            }
+            let text = literal_to_string(value);
+            active_expressions.push(ResolvedExpression {
+                name: param.name.clone(),
+                formula_text: text.clone(),
+                formula: crate::algebra::Expr::Number(text),
+            });
+        }
+    }
 
     let mut set_registry = BTreeMap::new();
     if let Some(entry_dir) = entrypoint.parent() {
@@ -136,6 +160,7 @@ pub fn validate_program(
         active_expressions,
         active_objective,
         active_reports,
+        active_variable_reports,
         active_dual_reports,
     })
 }

@@ -66,9 +66,16 @@ pub struct ExecutionResult {
     pub status: SolveStatus,
     pub objective_sense: ObjectiveSense,
     pub objective: MappedScalarResult,
-    pub reports: Vec<MappedScalarResult>,
+    pub reports: Vec<ReportResult>,
     pub variables: Vec<MappedVariableResult>,
     pub dual_reports: Vec<DualReportResult>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReportResult {
+    pub name: String,
+    pub index: Vec<String>,
+    pub values: Vec<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -603,23 +610,59 @@ pub fn execute_problem_with_options(
         .map(|variable| (variable.compiled_name.clone(), variable))
         .collect::<BTreeMap<_, _>>();
 
-    let reports = problem
-        .reports
-        .iter()
-        .map(|report| {
-            let value = report_values.get(&report.name).copied().ok_or_else(|| {
-                ExecutionError::MissingReportValue {
-                    backend: backend.to_string(),
-                    compiled_name: report.name.clone(),
-                }
-            })?;
-            Ok(MappedScalarResult {
-                dsl_name: report.name.clone(),
+    // Build unified reports: expression reports (scalar) and variable reports
+    let mut reports = Vec::new();
+
+    for report in &problem.reports {
+        let value = report_values.get(&report.name).copied().ok_or_else(|| {
+            ExecutionError::MissingReportValue {
+                backend: backend.to_string(),
                 compiled_name: report.name.clone(),
-                value,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+            }
+        })?;
+        let mut record = BTreeMap::new();
+        record.insert("value".to_string(), serde_json::Value::from(value));
+        reports.push(ReportResult {
+            name: report.name.clone(),
+            index: Vec::new(),
+            values: vec![record],
+        });
+    }
+
+    for vr in &problem.variable_reports {
+        let family_key = format!("{}[{}]", vr.control_name, vr.indices.join(","));
+        if let Some(family) = variable_values.get(&family_key) {
+            let values = family
+                .values
+                .iter()
+                .filter_map(|v| {
+                    let (raw, typed) = extract_index_parts(&vr.control_name, &v.compiled_name);
+                    if let Some(ref filter) = vr.filter {
+                        let bindings: BTreeMap<&str, &str> = vr
+                            .indices
+                            .iter()
+                            .zip(raw.iter())
+                            .map(|(k, v)| (k.as_str(), v.as_str()))
+                            .collect();
+                        if !eval_filter(filter, &bindings) {
+                            return None;
+                        }
+                    }
+                    let mut record = BTreeMap::new();
+                    for (idx_name, idx_val) in vr.indices.iter().zip(typed) {
+                        record.insert(idx_name.clone(), idx_val);
+                    }
+                    record.insert("value".to_string(), serde_json::Value::from(v.value));
+                    Some(record)
+                })
+                .collect();
+            reports.push(ReportResult {
+                name: vr.control_name.clone(),
+                index: vr.indices.clone(),
+                values,
+            });
+        }
+    }
 
     let variables = problem
         .variables
@@ -900,6 +943,77 @@ fn map_solver_status(status: ArcoSolverStatus) -> SolveStatus {
     }
 }
 
+/// Split a variable instance name into raw string parts and typed JSON values.
+/// E.g. `("pc", "pc[1,Li-Ion]")` → `(["1", "Li-Ion"], [Number(1), String("Li-Ion")])`.
+fn extract_index_parts(
+    family_name: &str,
+    instance_name: &str,
+) -> (Vec<String>, Vec<serde_json::Value>) {
+    let inner = instance_name
+        .strip_prefix(family_name)
+        .and_then(|s| s.strip_prefix('['))
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or("");
+    if inner.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let parts: Vec<&str> = inner.split(',').collect();
+    let strings = parts.iter().map(|s| (*s).to_string()).collect();
+    let typed = parts
+        .iter()
+        .map(|part| {
+            if let Ok(n) = part.parse::<i64>() {
+                serde_json::Value::Number(n.into())
+            } else if let Some(n) = part
+                .parse::<f64>()
+                .ok()
+                .and_then(serde_json::Number::from_f64)
+            {
+                serde_json::Value::Number(n)
+            } else {
+                serde_json::Value::String((*part).to_string())
+            }
+        })
+        .collect();
+    (strings, typed)
+}
+
+/// Evaluate a simple filter expression against index bindings.
+/// Evaluate a comparison filter against index bindings. Unsupported expression
+/// types fail closed (exclude the row) to avoid silent pass-through.
+fn eval_filter(expr: &arco_kdl::algebra::Expr, bindings: &BTreeMap<&str, &str>) -> bool {
+    use arco_kdl::algebra::{ComparisonOp, Expr};
+    match expr {
+        Expr::Comparison { op, left, right } => {
+            let lhs = match left.as_ref() {
+                Expr::Identifier(name) => bindings.get(name.as_str()).copied(),
+                Expr::String(s) => Some(s.as_str()),
+                Expr::Number(n) => Some(n.as_str()),
+                _ => None,
+            };
+            let rhs = match right.as_ref() {
+                Expr::Identifier(name) => bindings.get(name.as_str()).copied(),
+                Expr::String(s) => Some(s.as_str()),
+                Expr::Number(n) => Some(n.as_str()),
+                _ => None,
+            };
+            match (lhs, rhs) {
+                (Some(l), Some(r)) => match op {
+                    ComparisonOp::Equal | ComparisonOp::DoubleEqual => l == r,
+                    ComparisonOp::NotEqual => l != r,
+                    ComparisonOp::Less => l < r,
+                    ComparisonOp::LessEqual => l <= r,
+                    ComparisonOp::Greater => l > r,
+                    ComparisonOp::GreaterEqual => l >= r,
+                },
+                _ => false,
+            }
+        }
+        // Unsupported filter expressions fail closed
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::execution::{MockArcoAdapter, execute_problem_with_options};
@@ -923,6 +1037,7 @@ mod tests {
                 expression: "0".to_string(),
             },
             reports: Vec::new(),
+            variable_reports: Vec::new(),
             dual_reports: Vec::new(),
             traceability: Vec::new(),
             algebra: AlgebraicProblem {

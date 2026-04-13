@@ -10,6 +10,7 @@ use arco_kdl::ObjectiveSense;
 use arco_kdl::pipeline::{PipelineError, compile_file, validate_file};
 use miette::Diagnostic;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -37,6 +38,7 @@ pub struct RunSummary {
     pub reports: Vec<ReportSummary>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub dual_reports: Vec<DualReportSummary>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub variables: Vec<VariableSummary>,
     pub counts: ProblemCounts,
     pub timing: TimingSummary,
@@ -52,7 +54,9 @@ pub struct ObjectiveSummary {
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ReportSummary {
     pub name: String,
-    pub value: f64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub index: Vec<String>,
+    pub values: Vec<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -234,9 +238,10 @@ pub fn run_file_with_options_and_backend(
         reports: execution_result
             .reports
             .into_iter()
-            .map(|report| ReportSummary {
-                name: report.dsl_name,
-                value: report.value,
+            .map(|r| ReportSummary {
+                name: r.name,
+                index: r.index,
+                values: r.values,
             })
             .collect(),
         dual_reports: execution_result
@@ -340,6 +345,9 @@ fn summarize_variables(
     variables: &[crate::execution::MappedVariableResult],
     options: &RunOptions,
 ) -> Vec<VariableSummary> {
+    if options.filter_variable.is_none() {
+        return Vec::new();
+    }
     variables
         .iter()
         .filter(|variable| {
