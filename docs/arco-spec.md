@@ -2556,8 +2556,6 @@ See [§6.5](#65-constraint) for constraint body forms (comparison and range).
 
 ---
 
----
-
 This document is the canonical reference for Arco KDL syntax.
 [§1](#1-conformance)–[§12](#12-algebra-expression-summary) define the canonical
 low-level profile. [Appendix A](appendix-a-ergonomic-profile.md) defines the
