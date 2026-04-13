@@ -958,7 +958,7 @@ fn extract_index_parts(
         return (Vec::new(), Vec::new());
     }
     let parts: Vec<&str> = inner.split(',').collect();
-    let strings = parts.iter().map(|s| s.to_string()).collect();
+    let strings = parts.iter().map(|s| (*s).to_string()).collect();
     let typed = parts
         .iter()
         .map(|part| {
@@ -971,7 +971,7 @@ fn extract_index_parts(
             {
                 serde_json::Value::Number(n)
             } else {
-                serde_json::Value::String(part.to_string())
+                serde_json::Value::String((*part).to_string())
             }
         })
         .collect();
