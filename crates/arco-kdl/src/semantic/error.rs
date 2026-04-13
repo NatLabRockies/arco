@@ -110,4 +110,15 @@ pub enum SemanticError {
         help("rewrite model expressions so named dependencies form a DAG")
     )]
     ExpressionCycle { cycle: String, path: PathBuf },
+
+    #[error("inline scalar param `{name}` conflicts with existing {kind} in {path}")]
+    #[diagnostic(
+        code(arco::semantic::duplicate_declaration),
+        help("rename the inline scalar param or the conflicting declaration")
+    )]
+    DuplicateDeclaration {
+        kind: String,
+        name: String,
+        path: PathBuf,
+    },
 }

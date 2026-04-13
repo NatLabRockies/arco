@@ -38,18 +38,28 @@ fn integer_time_index(value: &FilterValue, entrypoint: &Path) -> Result<i64, Com
 fn resolve_index_expr(
     expr: &Expr,
     bindings: &LinearizationBindings,
+    named_expressions: &BTreeMap<String, Expr>,
     entrypoint: &Path,
 ) -> Result<FilterValue, CompileError> {
     match expr {
-        Expr::Identifier(name) => bindings
-            .values
-            .get(name)
-            .cloned()
-            .map(coerce_numeric_filter_value)
-            .ok_or_else(|| CompileError::InvalidFormulation {
+        Expr::Identifier(name) => {
+            if let Some(value) = bindings.values.get(name) {
+                return Ok(coerce_numeric_filter_value(value.clone()));
+            }
+            // Fall back to named expressions (covers inline scalar params).
+            if let Some(Expr::Number(value)) = named_expressions.get(name) {
+                return value.parse::<f64>().map(FilterValue::Number).map_err(|_| {
+                    CompileError::InvalidFormulation {
+                        message: format!("scalar param `{name}` has non-numeric value `{value}`"),
+                        path: entrypoint.to_path_buf(),
+                    }
+                });
+            }
+            Err(CompileError::InvalidFormulation {
                 message: format!("unbound index identifier `{name}`"),
                 path: entrypoint.to_path_buf(),
-            }),
+            })
+        }
         Expr::Number(value) => value.parse::<f64>().map(FilterValue::Number).map_err(|_| {
             CompileError::InvalidFormulation {
                 message: format!("invalid numeric index `{value}`"),
@@ -59,14 +69,14 @@ fn resolve_index_expr(
         Expr::String(value) => Ok(FilterValue::String(value.clone())),
         Expr::Unary { op, expr } => match op {
             UnaryOp::Negate => Ok(FilterValue::Number(-numeric_filter_value(
-                &resolve_index_expr(expr, bindings, entrypoint)?,
+                &resolve_index_expr(expr, bindings, named_expressions, entrypoint)?,
                 &synthetic_constraint("index"),
                 entrypoint,
             )?)),
         },
         Expr::Binary { op, left, right } => {
-            let left = resolve_index_expr(left, bindings, entrypoint)?;
-            let right = resolve_index_expr(right, bindings, entrypoint)?;
+            let left = resolve_index_expr(left, bindings, named_expressions, entrypoint)?;
+            let right = resolve_index_expr(right, bindings, named_expressions, entrypoint)?;
             let left = numeric_filter_value(&left, &synthetic_constraint("index"), entrypoint)?;
             let right = numeric_filter_value(&right, &synthetic_constraint("index"), entrypoint)?;
             Ok(FilterValue::Number(match op {

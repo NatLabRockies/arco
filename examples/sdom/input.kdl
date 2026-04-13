@@ -192,7 +192,10 @@ model sdom {
   set storage_tech alias="j"
   set thermal_unit alias="bu"
 
-  // --- Time series parameters ---
+  // FCR_VRE = r*(1+r)^lifetime / ((1+r)^lifetime - 1) with r=0.06, lifetime=30
+  param fcr_vre 0.072649
+  param mw_to_kw 1000
+  param num_steps 24
   param demand {
     index time
   }
@@ -377,35 +380,32 @@ model sdom {
   // EXPRESSIONS (cost components for objective)
   // ========================================================================
 
-  // FCR_VRE = r*(1+r)^lifetime / ((1+r)^lifetime - 1) with r=0.06, lifetime=30
-  // Pre-computed: 0.072649
-
   expression wind_capex {
-    0.072649 * sum((wind_capex_m[wp] * 1000 + wind_trans_cost[wp]) * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
+    fcr_vre * sum((wind_capex_m[wp] * mw_to_kw + wind_trans_cost[wp]) * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
   }
 
   expression solar_capex {
-    0.072649 * sum((solar_capex_m[sp] * 1000 + solar_trans_cost[sp]) * solar_max_capacity[sp] * solar_cap_frac[sp] for sp in solar_plant)
+    fcr_vre * sum((solar_capex_m[sp] * mw_to_kw + solar_trans_cost[sp]) * solar_max_capacity[sp] * solar_cap_frac[sp] for sp in solar_plant)
   }
 
   expression wind_fom {
-    sum(wind_fom_m[wp] * 1000 * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
+    sum(wind_fom_m[wp] * mw_to_kw * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
   }
 
   expression solar_fom {
-    sum(solar_fom_m[sp] * 1000 * solar_max_capacity[sp] * solar_cap_frac[sp] for sp in solar_plant)
+    sum(solar_fom_m[sp] * mw_to_kw * solar_max_capacity[sp] * solar_cap_frac[sp] for sp in solar_plant)
   }
 
   expression storage_power_capex {
-    sum(storage_crf[j] * (1000 * cost_ratio[j] * p_capex[j] * pcha[j] + 1000 * (1 - cost_ratio[j]) * p_capex[j] * pdis[j]) for j in storage_tech)
+    sum(storage_crf[j] * (mw_to_kw * cost_ratio[j] * p_capex[j] * pcha[j] + mw_to_kw * (1 - cost_ratio[j]) * p_capex[j] * pdis[j]) for j in storage_tech)
   }
 
   expression storage_energy_capex {
-    sum(storage_crf[j] * 1000 * e_capex[j] * ecap[j] for j in storage_tech)
+    sum(storage_crf[j] * mw_to_kw * e_capex[j] * ecap[j] for j in storage_tech)
   }
 
   expression storage_fixed_om {
-    sum(1000 * cost_ratio[j] * storage_fom[j] * pcha[j] + 1000 * (1 - cost_ratio[j]) * storage_fom[j] * pdis[j] for j in storage_tech)
+    sum(mw_to_kw * cost_ratio[j] * storage_fom[j] * pcha[j] + mw_to_kw * (1 - cost_ratio[j]) * storage_fom[j] * pdis[j] for j in storage_tech)
   }
 
   expression storage_var_om {
@@ -413,11 +413,11 @@ model sdom {
   }
 
   expression thermal_total_capex {
-    sum(thermal_crf[bu] * thermal_capex[bu] * 1000 * thermal_cap[bu] for bu in thermal_unit)
+    sum(thermal_crf[bu] * thermal_capex[bu] * mw_to_kw * thermal_cap[bu] for bu in thermal_unit)
   }
 
   expression thermal_total_fom {
-    sum(thermal_fom[bu] * 1000 * thermal_cap[bu] for bu in thermal_unit)
+    sum(thermal_fom[bu] * mw_to_kw * thermal_cap[bu] for bu in thermal_unit)
   }
 
   expression thermal_fuel_cost {
@@ -483,11 +483,11 @@ model sdom {
     }
   }
 
-  // Cyclical SOC: t=1 wraps to t=24
+  // Cyclical SOC: t=1 wraps to the last time step
   constraint soc_balance_initial {
     index j { in storage_tech }
     expression {
-      soc[1,j] = soc[24,j]
+      soc[1,j] = soc[num_steps,j]
         + sqrt(efficiency[j]) * pc[1,j]
         - pd[1,j] / sqrt(efficiency[j])
     }
