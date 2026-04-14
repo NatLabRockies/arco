@@ -53,7 +53,9 @@ def _resolve_row_values(
     return resolved_row_values, resolved_n
 
 
-def build_model(*, n: int | None = None, row_values: Sequence[float] | None = None) -> arco.Model:
+def build_model(
+    *, n: int | None = None, row_values: Sequence[float] | None = None
+) -> arco.Model:
     resolved_row_values, resolved_n = _resolve_row_values(n=n, row_values=row_values)
 
     model = arco.Model()
@@ -121,8 +123,8 @@ def main() -> int:
     else:
         print(f"dense-lp built: n={args.n}")
 
-    return 0
+    return model, solution
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
