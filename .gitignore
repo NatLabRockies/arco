@@ -590,3 +590,4 @@ benchmarks/output/
 !examples/capacity-expansion/data/*.csv
 !examples/price-taker-battery/data/*.csv
 !examples/simple-electricity-market-storage/data/*.csv
+!examples/dense-lp/data/*.csv
