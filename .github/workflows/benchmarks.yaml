@@ -7,8 +7,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "justfile"
+      - "benchmark/**"
       - "benchmarks/**"
-      - "scripts/bench.py"
       - ".github/workflows/benchmarks.yaml"
   push:
     branches:
@@ -18,8 +18,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "justfile"
+      - "benchmark/**"
       - "benchmarks/**"
-      - "scripts/bench.py"
       - ".github/workflows/benchmarks.yaml"
   workflow_dispatch:
 
@@ -36,12 +36,18 @@ env:
   JUST_VERSION: "1.43.0"
   PYTHON_LATEST: "3.12"
   RUST_TOOLCHAIN_VERSION: "1.85"
+  # Enable sparse index for faster crate resolution
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  # Faster cargo builds
+  CARGO_INCREMENTAL: 1
+  # Faster linking
+  RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
 
 jobs:
   benchmark:
     name: Run benchmarks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write # Required to post benchmark summaries/comments back to the PR.
@@ -50,47 +56,82 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+      # Cache 1: Rust toolchain (saves ~30s when toolchain already installed)
+      - name: Cache Rust toolchain
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: rust-toolchain-cache
         with:
-          python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
-          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          install-uv: "true"
-          sync-python-licenses: "false"
-          save-rust-cache: "false"
-          rust-cache-shared-key: rust-bench
+          path: |
+            ~/.rustup/toolchains/${{ env.RUST_TOOLCHAIN_VERSION }}-*
+            ~/.rustup/update-hashes
+          key: ${{ runner.os }}-rust-toolchain-${{ env.RUST_TOOLCHAIN_VERSION }}-${{ hashFiles('rust-toolchain.toml', '.github/workflows/benchmarks.yaml') }}
+
+      # Cache 2: rmon binary (saves ~20-40s avoiding git install)
+      - name: Cache rmon binary
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: rmon-cache
+        with:
+          path: ~/.local/bin/rmon
+          key: ${{ runner.os }}-rmon-${{ hashFiles('.github/workflows/benchmarks.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-rmon-
+
+      - name: Install Rust toolchain
+        if: steps.rust-toolchain-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-action@56bd3e4bf58c7599823db75488bb9866c5afdfb4 # v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@6b9c6063d26b0ee7fa7bfc6cebd9fd56e85a7b84 # v6
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_LATEST }}
+
+      # Cache 3: Pre-built arco-cli binary (saves ~2-5min when Cargo.lock unchanged)
+      - name: Cache arco-cli binary
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: arco-binary-cache
+        with:
+          path: target/release/arco
+          key: ${{ runner.os }}-arco-cli-${{ hashFiles('Cargo.lock', 'crates/arco-cli/**', 'crates/arco_*/**') }}
+          restore-keys: |
+            ${{ runner.os }}-arco-cli-
 
       - name: Build arco CLI
-        run: cargo build --release -p arco-cli
+        if: steps.arco-binary-cache.outputs.cache-hit != 'true'
+        run: cargo build --release -p arco-cli --locked
 
       - name: Install rmon
-        run: uv tool install git+https://github.com/NatLabRockies/resource_monitor
+        if: steps.rmon-cache.outputs.cache-hit != 'true'
+        run: |
+          uv tool install git+https://github.com/NatLabRockies/resource_monitor
+
+      # Ensure rmon is in PATH even if cached
+      - name: Add local bin to PATH
+        run: echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Run CLI benchmarks
-        timeout-minutes: 20
+        timeout-minutes: 15
         run: |
-          python scripts/bench.py \
+          python benchmark/bench.py \
             --arco-binary target/release/arco \
             --workflows compile,solve \
             --repetitions 3 \
             --output artifacts/benchmark-results.json
 
-      - name: Upload benchmark artifacts
-        if: always()
-        uses: actions/upload-artifact@4cec8772b8f11c76dd218a638840d68b5e4a32e0 # v4.6.2
-        with:
-          name: benchmark-results
-          path: artifacts/
-          retention-days: 7
-
+      # Cache 4: Benchmark data for trend analysis (already exists, but optimized key)
       - name: Restore previous benchmark data
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: benchmark-data-restore
         with:
           path: ./cache
-          key: ${{ runner.os }}-benchmark
-          restore-keys: ${{ runner.os }}-benchmark
+          key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-benchmark-main-
+            ${{ runner.os }}-benchmark-
 
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@a60cea5bc7b49e15c1f58f411161f99e0df48372 # v1.22.0
@@ -105,8 +146,8 @@ jobs:
           fail-on-alert: true
 
       - name: Save benchmark data
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.benchmark-data-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
           path: ./cache
-          key: ${{ runner.os }}-benchmark
+          key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}

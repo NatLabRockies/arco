@@ -42,8 +42,3 @@ The benchmark workflow uses `github-action-benchmark` to track performance over 
     output-file-path: benchmark-results.json
     alert-threshold: "115%"
 ```
-
-## Regression Thresholds
-
-- **Duration**: 115% alert, 150% fail
-- **Peak RSS**: 120% alert, 200% fail

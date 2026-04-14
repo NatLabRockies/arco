@@ -13,8 +13,6 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
-
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
 
@@ -81,20 +79,6 @@ def run_benchmark(
     )
 
 
-def to_github_format(results: Iterable[BenchmarkResult]) -> list[dict]:
-    """Convert results to github-action-benchmark JSON format."""
-    return [
-        {
-            "name": f"{r.command}/{r.case}",
-            "unit": "ms",
-            "value": round(r.duration_ms, 3),
-            "range": str(r.samples),
-            "extra": f"command={r.command}\ncase={r.case}\npeak_rss_mb={r.peak_rss_mb:.2f}",
-        }
-        for r in results
-    ]
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark arco CLI workflows")
     parser.add_argument("--arco-binary", default="arco", help="Path to arco binary")
@@ -127,7 +111,16 @@ def main() -> int:
         else:
             print(f"  FAILED", file=sys.stderr)
 
-    output = to_github_format(results)
+    output = [
+        {
+            "name": f"{r.command}/{r.case}",
+            "unit": "ms",
+            "value": round(r.duration_ms, 3),
+            "range": str(r.samples),
+            "extra": f"command={r.command}\ncase={r.case}\npeak_rss_mb={r.peak_rss_mb:.2f}",
+        }
+        for r in results
+    ]
     args.output.write_text(json.dumps(output, indent=2))
     print(f"Results written to {args.output}", file=sys.stderr)
     return 0
