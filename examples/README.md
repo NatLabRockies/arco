@@ -27,18 +27,18 @@ cargo run -p arco-cli -- run examples/unit-commitment/input.kdl --compact
 
 ## Example catalog
 
-| Example | Path | Purpose | Status |
-| --- | --- | --- | --- |
-| Generator allocation | `examples/generator-allocation/input.kdl` | Smallest end-to-end dispatch-style example for validating the core CLI flow. | Ready |
-| Price-taker battery | `examples/price-taker-battery/input.kdl` | Battery charge and discharge scheduling against an exogenous price curve. | Ready |
-| Simple electricity market with storage | `examples/simple-electricity-market-storage/input.kdl` | Single-zone dispatch with time-varying availability, load, and storage decisions. | Ready |
-| Capacity expansion | `examples/capacity-expansion/input.kdl` | Build versus dispatch tradeoffs, candidate assets, and unmet-demand penalties. | Ready |
-| DCOPF, angle formulation | `examples/dcopf-angle/input.kdl` | Three-bus DC optimal power flow in the voltage-angle form, adapted from PSOPTLIB OPF3bus. | Ready |
-| DCOPF, PTDF formulation | `examples/dcopf-ptdf/input.kdl` | The same OPF3bus case written with PTDF flow equations for formulation comparison. | Ready |
-| Unit commitment | `examples/unit-commitment/input.kdl` | Mixed-integer unit commitment with startup, shutdown, ramping, and piecewise costs, adapted from PSOPTLIB UC. | Ready |
-| Dense LP benchmark | `examples/dense-lp/input.kdl` | Synthetic dense LP used to stress model construction and compare against the bundled Python formulation. | Ready |
-| SDOM | `examples/sdom/input.kdl` | Storage deployment optimization with renewables, thermal capacity, storage sizing, and policy-style generation mix constraints. | Ready |
-| DED + ESS + wind, linearized | `examples/ded-ess-wind-linearized/input.kdl` | Linearized dynamic economic dispatch with ramping, storage state of charge, and wind curtailment. | Incomplete, `data/storage.csv` is missing |
+| Example                                | Path                                                   | Purpose                                                                                                                         | Status                                    |
+| -------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Generator allocation                   | `examples/generator-allocation/input.kdl`              | Smallest end-to-end dispatch-style example for validating the core CLI flow.                                                    | Ready                                     |
+| Price-taker battery                    | `examples/price-taker-battery/input.kdl`               | Battery charge and discharge scheduling against an exogenous price curve.                                                       | Ready                                     |
+| Simple electricity market with storage | `examples/simple-electricity-market-storage/input.kdl` | Single-zone dispatch with time-varying availability, load, and storage decisions.                                               | Ready                                     |
+| Capacity expansion                     | `examples/capacity-expansion/input.kdl`                | Build versus dispatch tradeoffs, candidate assets, and unmet-demand penalties.                                                  | Ready                                     |
+| DCOPF, angle formulation               | `examples/dcopf-angle/input.kdl`                       | Three-bus DC optimal power flow in the voltage-angle form, adapted from PSOPTLIB OF3bus.                                        | Ready                                     |
+| DCOPF, PTDF formulation                | `examples/dcopf-ptdf/input.kdl`                        | The same OF3bus case written with PTDF flow equations for formulation comparison.                                               | Ready                                     |
+| Unit commitment                        | `examples/unit-commitment/input.kdl`                   | Mixed-integer unit commitment with startup, shutdown, ramping, and piecewise costs, adapted from PSOPTLIB UC.                   | Ready                                     |
+| Dense LP benchmark                     | `examples/dense-lp/input.kdl`                          | Synthetic dense LP used to stress model construction and compare against the bundled Python formulation.                        | Ready                                     |
+| SDOM                                   | `examples/sdom/input.kdl`                              | Storage deployment optimization with renewables, thermal capacity, storage sizing, and policy-style generation mix constraints. | Ready                                     |
+| DEAD + ESS + wind, linearized          | `examples/ded-ess-wind-linearized/input.kdl`           | Linearized dynamic economic dispatch with ramping, storage state of charge, and wind curtailment.                               | Incomplete, `data/storage.csv` is missing |
 
 ## Python-backed examples
 
@@ -48,6 +48,14 @@ Two examples also ship a Python formulation so you can compare the KDL model wit
 uv run examples/dense-lp/formulation.py --solve --json
 uv run examples/sdom/formulation.py --solve --json
 ```
+
+For interactive exploration of dense-lp (inspect model, then solve from a REPL):
+
+```bash
+uv run --with ipython --with-editable ./bindings/python ipython -i examples/dense-lp/formulation.py
+```
+
+This leaves `model`, `solve()`, `solution`, and `payload` available in the prompt.
 
 ## Suggested walkthrough
 

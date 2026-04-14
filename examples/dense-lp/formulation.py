@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Callable
 
 import arco
 
@@ -79,6 +79,17 @@ def solve_model(*, model: arco.Model) -> arco.SolveResult:
     return model.solve(solver=solver)
 
 
+def create_session(
+    *, n: int | None = None, row_values: Sequence[float] | None = None
+) -> tuple[arco.Model, Callable[[], arco.SolveResult]]:
+    model = build_model(n=n, row_values=row_values)
+
+    def solve() -> arco.SolveResult:
+        return solve_model(model=model)
+
+    return model, solve
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Build or solve dense-lp with Arco Python bindings"
@@ -94,16 +105,15 @@ def main() -> int:
         "--json", action="store_true", help="Emit machine-readable output"
     )
     args = parser.parse_args()
-
-    model = build_model(n=args.n)
+    model, solve = create_session(n=args.n)
+    solution: arco.SolveResult | None = None
     payload: dict[str, object] = {
         "example": "dense-lp",
         "n": args.n,
         "solved": False,
     }
-
     if args.solve:
-        solution = solve_model(model=model)
+        solution = solve()
         payload.update(
             {
                 "solved": True,
@@ -112,7 +122,6 @@ def main() -> int:
                 "objective_value": solution.objective_value,
             }
         )
-
     if args.json:
         print(json.dumps(payload, indent=2))
     elif args.solve:
@@ -122,9 +131,15 @@ def main() -> int:
         )
     else:
         print(f"dense-lp built: n={args.n}")
-
-    return model, solution
-
+    globals().update(
+        {
+            "model": model,
+            "solve": solve,
+            "solution": solution,
+            "payload": payload,
+        }
+    )
+    return 0
 
 if __name__ == "__main__":
     main()
