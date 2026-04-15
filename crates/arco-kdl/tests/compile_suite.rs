@@ -224,3 +224,77 @@ scenario "SparseDistanceCase" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn lowering_applies_data_param_filters() -> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("data-param-filter")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("load.csv"),
+        "period,is_candidate,demand\n1,1,10\n1,0,90\n2,1,20\n2,0,80\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+set "time" { "1"; "2" }
+
+data "inputs" source="data/load.csv" {
+  map "time" from="period"
+
+  param "demand" from="demand" reduce="sum" {
+    index "time"
+    filter { is_candidate > 0 }
+  }
+}
+
+model "Dispatch" {
+  set "time" alias="t"
+
+  param "demand" {
+    index "t"
+  }
+
+  control "x" {
+    index "t"
+  }
+
+  constraint "balance[t]" {
+    x[t] = demand[t]
+  }
+
+  minimize "Obj" {
+    sum(x[t] for t in time)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let bal_1 = compiled
+        .algebra
+        .constraints
+        .iter()
+        .find(|c| c.name == "balance[t][1]")
+        .ok_or("missing balance constraint at t=1")?;
+    let bal_2 = compiled
+        .algebra
+        .constraints
+        .iter()
+        .find(|c| c.name == "balance[t][2]")
+        .ok_or("missing balance constraint at t=2")?;
+
+    assert_eq!(bal_1.rhs, 10.0);
+    assert_eq!(bal_2.rhs, 20.0);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
