@@ -7,13 +7,16 @@ use std::fmt;
 use std::str::FromStr;
 
 /// Time resolution for the time horizon, using ISO 8601 duration format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub enum TimeResolution {
     /// 15 minutes (PT15M)
     FifteenMinutes,
     /// 30 minutes (PT30M)
     ThirtyMinutes,
     /// 1 hour (PT1H)
+    #[default]
     Hourly,
     /// 1 day (P1D)
     Daily,
@@ -50,12 +53,6 @@ impl TimeResolution {
             TimeResolution::Monthly => "P1M",
             TimeResolution::Yearly => "P1Y",
         }
-    }
-}
-
-impl Default for TimeResolution {
-    fn default() -> Self {
-        TimeResolution::Hourly
     }
 }
 
