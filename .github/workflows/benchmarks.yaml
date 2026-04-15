@@ -78,17 +78,14 @@ jobs:
 
       - name: Install Rust toolchain
         if: steps.rust-toolchain-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-action@56bd3e4bf58c7599823db75488bb9866c5afdfb4 # v1
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
-
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
+          rustup default "$RUST_TOOLCHAIN_VERSION"
       - name: Install uv
-        uses: astral-sh/setup-uv@6b9c6063d26b0ee7fa7bfc6cebd9fd56e85a7b84 # v6
-        with:
-          version: ${{ env.UV_VERSION }}
+        run: python3 -m pip install --user "uv==$UV_VERSION"
 
       - name: Set up Python
-        run: uv python install ${{ env.PYTHON_LATEST }}
+        run: ~/.local/bin/uv python install ${{ env.PYTHON_LATEST }}
 
       # Cache 3: Pre-built arco-cli binary (saves ~2-5min when Cargo.lock unchanged)
       - name: Cache arco-cli binary
@@ -107,7 +104,7 @@ jobs:
       - name: Install rmon
         if: steps.rmon-cache.outputs.cache-hit != 'true'
         run: |
-          uv tool install git+https://github.com/NatLabRockies/resource_monitor
+          ~/.local/bin/uv tool install git+https://github.com/NatLabRockies/resource_monitor
 
       # Ensure rmon is in PATH even if cached
       - name: Add local bin to PATH

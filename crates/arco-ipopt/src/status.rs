@@ -23,7 +23,7 @@ pub(crate) fn ipopt_to_core_status(status: SolveStatus) -> CoreSolverStatus {
 }
 
 pub(crate) fn ipopt_to_generic_status(status: SolveStatus) -> SolverStatus {
-    ipopt_to_core_status(status).into()
+    ipopt_to_core_status(status)
 }
 
 pub(crate) fn ipopt_status_string(status: SolveStatus) -> &'static str {

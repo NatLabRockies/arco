@@ -191,7 +191,7 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          install-uv: "false"
+          install-uv: "true"
           sync-python-licenses: "false"
           rust-cache-shared-key: rust-clippy
           save-rust-cache: "false"
