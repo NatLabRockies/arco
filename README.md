@@ -503,9 +503,10 @@ just clippy   # Run linter
 just check    # Type-check workspace
 
 # Testing
-just test     # Run Rust tests
+just test                         # Run Rust tests + curated CLI example smoke checks
+just test-example-formulations    # Run only curated CLI example smoke checks
+just test-example-formulations "--examples dense-lp --commands run --fail-fast"  # Debug a single workflow
 just py-test  # Run Python doctests
-
 # Full CI gate
 just ci
 ```

@@ -13,6 +13,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
 
@@ -82,9 +83,7 @@ def run_benchmark(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark arco CLI workflows")
     parser.add_argument("--arco-binary", default="arco", help="Path to arco binary")
-    parser.add_argument(
-        "--cases", help="Comma-separated case names (default: all)"
-    )
+    parser.add_argument("--cases", help="Comma-separated case names (default: all)")
     parser.add_argument(
         "--workflows", default="compile,solve", help="Comma-separated commands"
     )
@@ -97,7 +96,9 @@ def main() -> int:
 
     if args.cases:
         case_names = set(args.cases.split(","))
-        filtered = [c for c in all_cases if c.name in case_names and c.command in workflows]
+        filtered = [
+            c for c in all_cases if c.name in case_names and c.command in workflows
+        ]
     else:
         filtered = [c for c in all_cases if c.command in workflows]
 
@@ -107,9 +108,12 @@ def main() -> int:
         result = run_benchmark(args.arco_binary, case, args.repetitions)
         if result:
             results.append(result)
-            print(f"  {result.duration_ms:.1f}ms, {result.peak_rss_mb:.1f}MiB", file=sys.stderr)
+            print(
+                f"  {result.duration_ms:.1f}ms, {result.peak_rss_mb:.1f}MiB",
+                file=sys.stderr,
+            )
         else:
-            print(f"  FAILED", file=sys.stderr)
+            print("  FAILED", file=sys.stderr)
 
     output = [
         {

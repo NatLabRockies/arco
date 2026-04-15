@@ -179,10 +179,16 @@ tdd-refactor package:
 [group: 'rust']
 test:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
+    just test-example-formulations
 
+[group: 'rust']
+test-example-formulations args="":
+    cargo build -p arco-cli
+    uv run python -c "from scripts.test_example_formulations import run_example_formulations_smoke; raise SystemExit(run_example_formulations_smoke())" {{ args }}
 [group: 'ci']
 test-core:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
+    just test-example-formulations
 
 [group: 'ci']
 test-solver package:
