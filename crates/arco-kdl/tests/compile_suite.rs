@@ -32,7 +32,7 @@ fn lowering_loads_top_level_data_block_params() -> Result<(), Box<dyn std::error
         r#"
 set "time" { "1"; "2" }
 
-data "inputs" from="data/inputs.csv" {
+data "inputs" source="data/inputs.csv" {
   map "time" from="time"
 
   param "capacity" index="time" from="cap" reduce="sum"
@@ -110,7 +110,7 @@ fn lowering_prefers_scenario_data_bindings_over_top_level_data_params()
         r#"
 set "time" { "1" }
 
-data "defaults" from="data/top.csv" {
+data "defaults" source="data/top.csv" {
   map "time" from="time"
   param "capacity" index="time" from="cap"
 }
@@ -137,7 +137,7 @@ model "Dispatch" {
 
 scenario "S1" {
   use "Dispatch"
-  data "capacity" from="data/override.csv"
+  data "capacity" source="data/override.csv"
 }
 "#,
     )?;
@@ -174,7 +174,7 @@ fn lowering_reports_missing_data_point_for_sparse_generic_data_table()
         r#"
 set "time" { "1" }
 
-data "distance" from="data/dist.csv" {
+data "distance" source="data/dist.csv" {
   set "g"
   set "b"
   param "distance_km" {

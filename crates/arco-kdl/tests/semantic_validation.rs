@@ -93,7 +93,7 @@ model "Dispatch" {
 
 scenario "S1" {
   use "Dispatch"
-  data "unknown_param" from="data.csv"
+  data "unknown_param" source="data.csv"
 }
 "#;
 
@@ -120,7 +120,7 @@ fn semantic_validation_resolves_reports_and_registry_for_low_level_model()
     let text = r#"
 set "time" { "1"; "2" }
 
-data "generator_data" from="data/assets.csv" {
+data "generator_data" source="data/assets.csv" {
   set "asset_id"
 }
 

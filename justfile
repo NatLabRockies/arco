@@ -13,35 +13,6 @@ rust-packages := "--workspace --exclude arco-python --exclude arco-ipopt"
 # Rust package group for clippy in CI where Xpress SDK is unavailable
 clippy-packages := "--workspace --exclude arco-python --exclude arco-ipopt --exclude arco-xpress"
 
-[group: 'bench']
-bench-compare baseline candidate:
-    cargo run -p arco-bench -- compare \
-        --baseline {{ baseline }} \
-        --candidate {{ candidate }}
-
-[group: 'bench']
-bench-gate baseline candidate duration_threshold="10" memory_threshold="10":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for stage in total export_csc export_crs export_coo; do
-        echo "Checking stage=${stage} duration<={{ duration_threshold }}% memory<={{ memory_threshold }}%"
-        cargo run -p arco-bench -- compare \
-            --baseline "{{ baseline }}" \
-            --candidate "{{ candidate }}" \
-            --stage "${stage}" \
-            --duration-threshold-pct "{{ duration_threshold }}" \
-            --memory-threshold-pct "{{ memory_threshold }}" \
-            --format table
-    done
-
-[group: 'bench']
-bench-report path:
-    cargo run -p arco-bench -- report --input {{ path }}
-
-[group: 'bench']
-bench-run:
-    cargo run -p arco-bench -- run --scenario model-build,kdl-compile
-
 [group: 'rust']
 check:
     cargo check {{ rust-packages }} --all-features --tests --benches --examples

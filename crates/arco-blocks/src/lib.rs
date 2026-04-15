@@ -29,7 +29,8 @@ use pyo3::types::{PyAny, PyDict};
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-type PyObject = Py<PyAny>;
+/// Convenience type alias for a Python object reference.
+pub type PyObject = Py<PyAny>;
 
 fn block_runtime_error(operation: &'static str, msg: impl Into<String>) -> PyErr {
     let msg = msg.into();

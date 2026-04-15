@@ -3,7 +3,7 @@
 // Arco KDL lowering is currently linear, so this example keeps b[g] * p[g,t] + c[g]
 // and wind-curtailment penalty, and retains ramping + ESS dynamics.
 
-data gendata from="data/gendata.csv" {
+data gendata source="data/gendata.csv" {
   map generators from="g"
 
   set generators alias="g"
@@ -20,7 +20,7 @@ data gendata from="data/gendata.csv" {
   param rd index="generators"
 }
 
-data storage_data from="data/storage.csv" {
+data storage_data source="data/storage.csv" {
   map storage from="asset"
 
   set storage alias="s"
@@ -33,7 +33,7 @@ data storage_data from="data/storage.csv" {
   param terminal_soc_mwh index="storage"
 }
 
-data timeseries from="data/timeseries.csv" {
+data timeseries source="data/timeseries.csv" {
   set t
 
   param lambda index="t"

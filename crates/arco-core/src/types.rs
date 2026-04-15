@@ -1,7 +1,9 @@
 use arco_expr::ids::VariableId;
+use serde::{Deserialize, Serialize};
 
 /// Optimization sense
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Sense {
     Minimize,
     Maximize,

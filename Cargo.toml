@@ -2,7 +2,6 @@
 members = ["crates/*", "bindings/python"]
 exclude = ["scripts"]
 default-members = [
-    "crates/arco-bench",
     "crates/arco-blocks",
     "crates/arco-cli",
     "crates/arco-core",
@@ -10,6 +9,7 @@ default-members = [
     "crates/arco-highs",
     "crates/arco-kdl",
     "crates/arco-solver",
+    "crates/arco-solver-types",
     "crates/arco-tools",
     "crates/arco-xpress",
 ]
@@ -33,6 +33,7 @@ arco-tools = { path = "crates/arco-tools" }
 arco-blocks = { path = "crates/arco-blocks" }
 arco-kdl = { path = "crates/arco-kdl" }
 arco-cli = { path = "crates/arco-cli" }
+arco-solver-types = { path = "crates/arco-solver-types" }
 
 [workspace.package]
 version = "0.4.0"

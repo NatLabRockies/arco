@@ -1,10 +1,11 @@
 //! Solver traits for abstraction over different solver backends.
 
-use crate::{SolverConfig, SolverError, SolverStatus};
+use crate::SolverConfig;
+use arco_solver_types::{SolverError, SolverStatus};
 
 /// Trait for accessing solution data from a solver.
 ///
-/// This trait provides a common interface for reading solution values
+/// This trait provides a common interface for reading solution data
 /// regardless of the underlying solver implementation.
 pub trait SolutionView {
     /// Get the objective value of the solution.
@@ -156,7 +157,7 @@ mod tests {
     #[test]
     fn test_solution_view_time_limit_is_feasible() {
         let solution = FixtureSolution {
-            status: SolverStatus::ReachedTimeLimit,
+            status: SolverStatus::TimeLimit,
         };
         assert!(!solution.is_optimal());
         assert!(solution.is_feasible()); // time limit may have feasible solution

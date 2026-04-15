@@ -1,8 +1,8 @@
 //! Shared status conversions for HiGHS integration.
 
 use crate::ffi::HighsStatus;
-use arco_core::solver::SolverStatus as CoreSolverStatus;
 use arco_solver::SolverStatus;
+use arco_solver_types::SolverStatus as CoreSolverStatus;
 
 pub(crate) fn highs_to_core_status(status: HighsStatus) -> CoreSolverStatus {
     match status {
@@ -17,7 +17,7 @@ pub(crate) fn highs_to_core_status(status: HighsStatus) -> CoreSolverStatus {
 }
 
 pub(crate) fn highs_to_generic_status(status: HighsStatus) -> SolverStatus {
-    highs_to_core_status(status).into()
+    highs_to_core_status(status)
 }
 
 pub(crate) fn highs_status_string(status: HighsStatus) -> &'static str {
@@ -60,18 +60,13 @@ mod tests {
     }
 
     #[test]
-    fn test_core_to_generic_mapping() {
+    fn test_solver_status_is_same_as_core() {
+        // Since SolverStatus is now re-exported from arco-core, these are the same type
+        assert_eq!(SolverStatus::Optimal, CoreSolverStatus::Optimal);
+        assert_eq!(SolverStatus::TimeLimit, CoreSolverStatus::TimeLimit);
         assert_eq!(
-            SolverStatus::from(CoreSolverStatus::Optimal),
-            SolverStatus::Optimal
-        );
-        assert_eq!(
-            SolverStatus::from(CoreSolverStatus::TimeLimit),
-            SolverStatus::ReachedTimeLimit
-        );
-        assert_eq!(
-            SolverStatus::from(CoreSolverStatus::IterationLimit),
-            SolverStatus::ReachedIterationLimit
+            SolverStatus::IterationLimit,
+            CoreSolverStatus::IterationLimit
         );
     }
 

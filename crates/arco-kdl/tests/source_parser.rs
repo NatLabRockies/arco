@@ -10,7 +10,7 @@ param "voll" 9000 units="$/MWh"
 
 set "time" { "1"; "2"; "3" }
 
-data "generator_data" from="data/generator.csv" {
+data "generator_data" source="data/generator.csv" {
   map "asset_id" from="asset"
 }
 
@@ -45,7 +45,7 @@ scenario "Base" {
 fn parses_data_children_including_index_forms() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
     let text = r#"
-data "generator_data" from="data/generator.csv" {
+data "generator_data" source="data/generator.csv" {
   map "asset_id" from="asset"
   set "asset_id"
   index "asset_id" "zone_id"
@@ -150,7 +150,7 @@ model "Dispatch" {
 
 scenario "Base" {
   use "Dispatch"
-  data "demand" from="data/demand.csv"
+  data "demand" source="data/demand.csv"
   report FuelCost
   report dual balance
 }
@@ -223,12 +223,12 @@ fn rejects_unsupported_top_level_declarations() {
         ("technology", "technology Battery { control dispatch }"),
         ("operation", "operation Dispatch { }"),
         ("asset", "asset Gen { }"),
-        ("instances", "instances Fleet from=\"data.csv\" { }"),
+        ("instances", "instances Fleet source=\"data.csv\" { }"),
         ("rule", "rule Balance { }"),
         ("expression", "expression Cost { 1 }"),
         ("minimize", "minimize Obj { 1 }"),
         ("maximize", "maximize Obj { 1 }"),
-        ("subset", "subset legacy from=\"x\""),
+        ("subset", "subset legacy source=\"x\""),
     ];
 
     for (decl, text) in cases {

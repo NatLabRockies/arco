@@ -1,9 +1,6 @@
 //! Solver configuration types.
 
 /// Configuration options for solver behavior.
-///
-/// This struct provides a unified way to configure solver parameters
-/// across different solver backends.
 #[derive(Debug, Clone, Default)]
 pub struct SolverConfig {
     /// Time limit in seconds. `None` means no limit.

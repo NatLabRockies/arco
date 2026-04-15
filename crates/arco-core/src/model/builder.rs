@@ -145,13 +145,7 @@ impl Model {
         self.add_expr_constraint(expr, bounds)
     }
 
-    /// Add constraints from compact term patterns.
-    ///
-    /// Each term pattern is `(start_var_id, coefficient)`. For constraint `i`,
-    /// the variable ID for each pattern is `start_var_id + i`.
-    /// `bounds_list[i]` specifies the bounds for constraint `i`.
-    ///
-    /// This is the fastest insertion path: zero per-constraint Vec allocation.
+    /// Add constraints from compact term patterns (fastest path: zero per-constraint Vec allocation).
     pub fn add_constraints_compact(
         &mut self,
         term_patterns: &[(u32, f64)],

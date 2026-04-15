@@ -6,8 +6,6 @@ use pyo3::prelude::*;
 use crate::bounds::PyBounds;
 
 /// A constraint returned by `add_constraint()`.
-///
-/// Wraps a constraint ID with cached metadata (name, bounds).
 #[pyclass(from_py_object, name = "Constraint")]
 #[derive(Debug, Clone)]
 pub struct PyConstraint {

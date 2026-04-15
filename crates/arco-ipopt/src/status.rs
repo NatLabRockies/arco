@@ -15,7 +15,10 @@ pub(crate) fn ipopt_to_core_status(status: SolveStatus) -> CoreSolverStatus {
         SolveStatus::DivergingIterates => CoreSolverStatus::Unbounded,
         SolveStatus::MaximumIterationsExceeded => CoreSolverStatus::IterationLimit,
         SolveStatus::MaximumCpuTimeExceeded => CoreSolverStatus::TimeLimit,
-        _ => CoreSolverStatus::Unknown,
+        unknown => {
+            tracing::debug!("Unknown IPOPT status: {:?}", unknown);
+            CoreSolverStatus::Unknown
+        }
     }
 }
 

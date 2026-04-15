@@ -1,7 +1,6 @@
+use crate::PyObject;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyFloat, PyList, PySequence, PySequenceMethods, PyString};
-
-type PyObject = Py<PyAny>;
 
 enum TransformStep {
     Custom(Py<PyAny>),

@@ -21,6 +21,7 @@ arco-core = { workspace = true }
 arco-expr = { workspace = true }
 arco-highs = { workspace = true }
 arco-solver = { workspace = true }
+arco-solver-types = { workspace = true }
 arco-blocks = { workspace = true }
 arco-ipopt = { workspace = true, optional = true }
 arco-xpress = { workspace = true, optional = true }

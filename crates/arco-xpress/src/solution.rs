@@ -195,16 +195,13 @@ mod tests {
     #[test]
     fn solution_view_status_time_limit() {
         let sol = make_solution(CoreSolverStatus::TimeLimit, false);
-        assert_eq!(SolutionView::status(&sol), SolverStatus::ReachedTimeLimit);
+        assert_eq!(SolutionView::status(&sol), SolverStatus::TimeLimit);
     }
 
     #[test]
     fn solution_view_status_iteration_limit() {
         let sol = make_solution(CoreSolverStatus::IterationLimit, false);
-        assert_eq!(
-            SolutionView::status(&sol),
-            SolverStatus::ReachedIterationLimit
-        );
+        assert_eq!(SolutionView::status(&sol), SolverStatus::IterationLimit);
     }
 
     #[test]

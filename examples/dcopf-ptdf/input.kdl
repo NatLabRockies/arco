@@ -1,10 +1,10 @@
-// PTDF formulation derived from the same OPF3bus data used in dcopf-angle.
+// PTDF formulation derived from the same OF3bus data used in dcopf-angle.
 // Base reference model:
 // Soroudi, Alireza. Power System Optimization Modeling in GAMS. Springer, 2017.
 // DOI: doi.org/10.1007/978-3-319-62350-4
 // Source: https://www.gams.com/latest/psoptlib_ml/libhtml/psoptlib_OPF3bus.html
 
-data bus_data from="data/buses.csv" {
+data bus_data source="data/buses.csv" {
   map bus from="bus"
 
   set bus alias="b"
@@ -13,7 +13,7 @@ data bus_data from="data/buses.csv" {
   param is_slack index="bus"
 }
 
-data generator_data from="data/generators.csv" {
+data generator_data source="data/generators.csv" {
   map generators from="generator"
 
   set generators alias="g"
@@ -23,7 +23,7 @@ data generator_data from="data/generators.csv" {
   param pmax index="generators"
 }
 
-data gen_bus_data from="data/gen_bus.csv" {
+data gen_bus_data source="data/gen_bus.csv" {
   map generators from="generator"
 
   set bus
@@ -35,7 +35,7 @@ data gen_bus_data from="data/gen_bus.csv" {
   }
 }
 
-data line_data from="data/lines.csv" {
+data line_data source="data/lines.csv" {
   map lines from="line"
 
   set lines alias="l"
@@ -43,7 +43,7 @@ data line_data from="data/lines.csv" {
   param limit_mw index="lines"
 }
 
-data ptdf_data from="data/ptdf.csv" {
+data ptdf_data source="data/ptdf.csv" {
   map lines from="line"
   map bus from="bus"
 

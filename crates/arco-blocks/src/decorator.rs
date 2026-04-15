@@ -1,9 +1,8 @@
+use crate::PyObject;
 use crate::schema::{dataclass_fields, is_dataclass_schema, is_pydantic_schema};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
-
-type PyObject = Py<PyAny>;
 
 pub(crate) const ARCO_BLOCK_MARKER_ATTR: &str = "__arco_block_marker__";
 pub(crate) const ARCO_BLOCK_NAME_ATTR: &str = "__arco_block_name__";

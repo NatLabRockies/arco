@@ -314,14 +314,15 @@ pub fn generic_solver_error_to_py(e: arco_solver::SolverError) -> PyErr {
         arco_solver::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
         arco_solver::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
         arco_solver::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
-        arco_solver::SolverError::InternalError(_) => SolverInternalError::new_err(msg),
+        arco_solver::SolverError::SolverNotAvailable(_) => SolverInternalError::new_err(msg),
+        arco_solver::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
         arco_solver::SolverError::SolveFailure { status } => {
             use arco_solver::SolverStatus;
             match status {
                 SolverStatus::Infeasible => SolverInfeasibleError::new_err(msg),
                 SolverStatus::Unbounded => SolverUnboundedError::new_err(msg),
-                SolverStatus::ReachedTimeLimit => SolverTimeLimitError::new_err(msg),
-                SolverStatus::ReachedIterationLimit => SolverIterationLimitError::new_err(msg),
+                SolverStatus::TimeLimit => SolverTimeLimitError::new_err(msg),
+                SolverStatus::IterationLimit => SolverIterationLimitError::new_err(msg),
                 _ => SolverInternalError::new_err(msg),
             }
         }

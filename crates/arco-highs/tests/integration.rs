@@ -243,7 +243,7 @@ fn test_solution_metadata_accessors() {
         "Total iterations should equal sum of simplex and barrier iterations"
     );
     // For small trivial problems, HiGHS might solve without iterations
-    // This is expected behavior - solution is still valid
+    // Solution remains valid after model modification
     assert!(
         total_iters <= 10000,
         "Total iterations should be reasonable"
