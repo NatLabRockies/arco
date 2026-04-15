@@ -56,17 +56,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Cache 1: Rust toolchain (saves ~30s when toolchain already installed)
-      - name: Cache Rust toolchain
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
-        id: rust-toolchain-cache
-        with:
-          path: |
-            ~/.rustup/toolchains/${{ env.RUST_TOOLCHAIN_VERSION }}-*
-            ~/.rustup/update-hashes
-          key: ${{ runner.os }}-rust-toolchain-${{ env.RUST_TOOLCHAIN_VERSION }}-${{ hashFiles('rust-toolchain.toml', '.github/workflows/benchmarks.yaml') }}
-
-      # Cache 2: rmon binary (saves ~20-40s avoiding git install)
+      # Cache 1: rmon binary (saves ~20-40s avoiding git install)
       - name: Cache rmon binary
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         id: rmon-cache
@@ -75,18 +65,16 @@ jobs:
           key: ${{ runner.os }}-rmon-${{ hashFiles('.github/workflows/benchmarks.yaml') }}
           restore-keys: |
             ${{ runner.os }}-rmon-
-
-      - name: Install Rust toolchain
-        if: steps.rust-toolchain-cache.outputs.cache-hit != 'true'
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
-          rustup default "$RUST_TOOLCHAIN_VERSION"
-      - name: Install uv
-        run: python3 -m pip install --user "uv==$UV_VERSION"
-
-      - name: Set up Python
-        run: ~/.local/bin/uv python install ${{ env.PYTHON_LATEST }}
-
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          sync-python-licenses: "false"
+          save-rust-cache: "false"
+          rust-cache-shared-key: rust-bench
       # Cache 3: Pre-built arco-cli binary (saves ~2-5min when Cargo.lock unchanged)
       - name: Cache arco-cli binary
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
@@ -99,12 +87,12 @@ jobs:
 
       - name: Build arco CLI
         if: steps.arco-binary-cache.outputs.cache-hit != 'true'
-        run: cargo build --release -p arco-cli --locked
+        run: cargo build --release -p arco-cli
 
       - name: Install rmon
         if: steps.rmon-cache.outputs.cache-hit != 'true'
         run: |
-          ~/.local/bin/uv tool install git+https://github.com/NatLabRockies/resource_monitor
+          uv tool install git+https://github.com/NatLabRockies/resource_monitor
 
       # Ensure rmon is in PATH even if cached
       - name: Add local bin to PATH
