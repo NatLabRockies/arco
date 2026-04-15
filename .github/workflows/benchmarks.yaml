@@ -87,10 +87,12 @@ jobs:
         if: steps.arco-binary-cache.outputs.cache-hit != 'true'
         run: cargo build --release -p arco-cli
 
-      - name: Install rmon
-        if: steps.rmon-cache.outputs.cache-hit != 'true'
+      - name: Ensure rmon is installed
         run: |
-          uv tool install git+https://github.com/NatLabRockies/resource_monitor
+          if [ ! -x "$HOME/.local/bin/rmon" ]; then
+            uv tool install git+https://github.com/NatLabRockies/resource_monitor
+          fi
+          "$HOME/.local/bin/rmon" --version
 
       # Ensure rmon is in PATH even if cached
       - name: Add local bin to PATH
