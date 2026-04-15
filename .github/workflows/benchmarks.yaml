@@ -40,8 +40,6 @@ env:
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   # Faster cargo builds
   CARGO_INCREMENTAL: 1
-  # Faster linking
-  RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
 
 jobs:
   benchmark:
