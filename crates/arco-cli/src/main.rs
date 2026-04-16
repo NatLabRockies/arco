@@ -107,7 +107,8 @@ fn main() -> miette::Result<()> {
     let _ = miette::set_hook(Box::new(|_| {
         Box::new(miette::MietteHandlerOpts::new().build())
     }));
-    init_tracing(cli.verbose);
+    let validate_command = matches!(&cli.command, Command::Validate { .. });
+    init_tracing(cli.verbose, validate_command);
 
     match cli.command {
         Command::Run {
@@ -201,12 +202,12 @@ fn handle_solver_action(action: SolverAction) -> miette::Result<()> {
     Ok(())
 }
 
-fn init_tracing(verbose: u8) {
-    if verbose == 0 {
+fn init_tracing(verbose: u8, force_warnings: bool) {
+    if verbose == 0 && !force_warnings {
         return;
     }
-
     let level = match verbose {
+        0 => tracing::Level::WARN,
         1 => tracing::Level::INFO,
         _ => tracing::Level::DEBUG,
     };
