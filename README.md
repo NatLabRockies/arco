@@ -60,36 +60,36 @@ Write an optimization model using the low-level KDL profile:
 
 ```kdl
 // input.kdl
-data units from="data/units.csv" {
-  map asset_id from="asset"
-  map variable_cost from="cost"
-
-  set asset_id alias="a"
-  param variable_cost index_by="asset_id"
+set time {
+  "1"
+  "2"
+  "3"
 }
-
+data units source="data/units.csv" {
+  map asset_id from="asset"
+  set asset_id alias="a"
+  param variable_cost from="cost" index="asset_id"
+}
 model GeneratorAllocation {
   set asset_id alias="a"
-  set time alias="t" from="horizon"
-
-  param variable_cost index_by="asset_id"
-
-  control dispatch {
+  set time alias="t"
+  param variable_cost index="asset_id"
+  control dispatch lower=0 {
     index asset_id
     index time
   }
-
   constraint capacity_limit {
-    dispatch[a,t] <= 10
+    index a { in asset_id }
+    index t { in time }
+    expression {
+      dispatch[a,t] <= 10
+    }
   }
-
   minimize TotalCost {
     sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
   }
 }
-
 scenario GeneratorAllocationDay {
-  horizon steps=3 resolution=PT1H
   use GeneratorAllocation
 }
 ```
@@ -200,46 +200,52 @@ Arco models are written in [KDL](https://kdl.dev) files.
 
 The supported profile is low-level and explicit:
 
-- top-level `data`, `subset`, `model`, and `scenario`
+- top-level `set`, `data`, `param`, `model`, and `scenario`
 - data-level `map`, `set`, `index`, and `param`
 - model-level `set`, `param`, `control`, `expression`, `constraint`, and one objective
-- scenario-level `horizon`, `use`, optional `data` bindings, and `report`
+- scenario-level `use`, optional `data` bindings, and `report`
 
 Example:
 
 ```kdl
-data units from="data/units.csv" {
-  map asset_id from="asset"
-  map variable_cost from="cost"
-
-  set asset_id alias="a"
-  param variable_cost index_by="asset_id"
+set time {
+  "1"
+  "2"
+  "3"
 }
-
+data units source="data/units.csv" {
+  map asset_id from="asset"
+  set asset_id alias="a"
+  param variable_cost from="cost" index="asset_id"
+}
 model GeneratorAllocation {
   set asset_id alias="a"
-  set time alias="t" from="horizon"
-
-  param variable_cost index_by="asset_id"
-
-  control dispatch {
+  set time alias="t"
+  param variable_cost index="asset_id"
+  control dispatch lower=0 {
     index asset_id
     index time
   }
 
+  constraint capacity_limit {
+    index a { in asset_id }
+    index t { in time }
+    expression {
+      dispatch[a,t] <= 10
+    }
+  }
   minimize TotalCost {
     sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
   }
 }
 
-scenario AllocationDay {
-  horizon steps=24 resolution=PT1H
+scenario GeneratorAllocationDay {
   use GeneratorAllocation
 }
 ```
 
 > [!TIP]
-> See the [KDL syntax reference](./docs/reference/kdl-syntax-summary.md)
+> See the [Arco syntax specification](./docs/arco-spec.md)
 > for the full grammar, algebra operators, constraint forms, and reduction
 > syntax. Complete working examples live in the [`examples/`](./examples/)
 > directory.
@@ -252,16 +258,16 @@ The `arco` CLI compiles and solves KDL optimization models.
 arco <command> [options]
 ```
 
-| Command                   | Description                                          |
-| :------------------------ | :--------------------------------------------------- |
-| `arco run <file>`         | Compile and solve a `.kdl` formulation               |
-| `arco validate <file>`    | Validate a `.kdl` file without solving               |
-| `arco inspect <file>`     | Inspect semantic model (sets, variables, parameters) |
-| `arco print-model <file>` | Print the algebraic model sent to the solver         |
-| `arco export <file>`      | Export as LP or MPS format                           |
-| `arco debug <file>`       | Open an interactive IPython debug shell              |
-| `arco solver show`        | Show the active solver backend                       |
-| `arco solver set <name>`  | Set the solver backend (`highs` or `xpress`)         |
+| Command                     | Description                                          |
+| :-------------------------- | :--------------------------------------------------- |
+| `arco run <file>`           | Compile and solve a `.kdl` formulation               |
+| `arco validate <file>`      | Validate a `.kdl` file without solving               |
+| `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters) |
+| `arco print-model <file>`   | Print the algebraic model sent to the solver         |
+| `arco export <file>`        | Export as LP or MPS format                           |
+| `arco debug <file>`         | Open an interactive IPython debug shell              |
+| `arco solver show`          | Show the active solver backend                       |
+| `arco solver set <backend>` | Set the solver backend (`highs` or `xpress`)         |
 
 ### Examples
 
@@ -269,24 +275,22 @@ Validate without solving:
 
 ```bash
 $ arco validate input.kdl
-Validated file://input.kdl in 4ms (arco 0.2.8)
+Validated file://input.kdl in 4ms (arco 0.4.0)
 ```
 
 Inspect the semantic model:
 
 ```bash
-$ arco inspect input.kdl --section constraints
-[constraint]
-  name     : soc_balance
-  template : soc[a,t] = soc[a,t-1] + charge_efficiency[a] * charge[a,t] - ...
-  relation : equal
-  ...
+$ arco inspect input.kdl
+[[constraint]]
+  name     = "soc_balance"
+  template = "soc[a,t] = soc[a,t-1] + charge_efficiency[a] * charge[a,t] - ..."
+  relation = "eq"
 
-[constraint]
-  name     : charge_limit
-  template : charge[a,t] <= power_mw[a]
-  relation : less_or_equal
-  ...
+[[constraint]]
+  name     = "charge_limit"
+  template = "charge[a,t] <= power_mw[a]"
+  relation = "le"
 ```
 
 Export to LP format for external solvers:
@@ -405,7 +409,7 @@ solution = model.solve()
 Language & CLI
 
 - KDL-based optimization DSL — write models in .kdl files with data/model/scenario separation
-- CLI compiler — arco compile, validate, inspect, solve, export
+- CLI compiler — arco run, validate, inspect, print-model, export
 - Model inspection — semantic introspection of sets, variables, constraints
 - CSV data binding — wire parameters to CSV sources in scenarios
 
