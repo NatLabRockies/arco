@@ -139,8 +139,10 @@ fn source_set_name_for_data_set_values(data_decl: &DataDecl, set_decl: &SetDecl)
         .sets
         .iter()
         .find(|candidate| candidate.alias.as_deref() == Some(parent_name))
-        .map(|candidate| candidate.name.clone())
-        .unwrap_or_else(|| parent_name.to_string())
+        .map_or_else(
+            || parent_name.to_string(),
+            |candidate| candidate.name.clone(),
+        )
 }
 
 fn matches_data_set_filter(
