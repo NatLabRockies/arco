@@ -32,6 +32,17 @@ SUPPORTED_WORKFLOWS: tuple[str, ...] = (
     "compile",  # backward-compatible alias for print-model
     "solve",  # backward-compatible alias for run
 )
+MIN_MONITORED_RUNTIME_MS = 4_000.0
+MAX_INNER_ITERATIONS = 5_000
+_INNER_LOOP_RUNNER = (
+    "import subprocess,sys\n"
+    "iterations=int(sys.argv[1])\n"
+    "cmd=sys.argv[2:]\n"
+    "for _ in range(iterations):\n"
+    "    rc=subprocess.run(cmd).returncode\n"
+    "    if rc:\n"
+    "        raise SystemExit(rc)\n"
+)
 
 
 @dataclass(frozen=True)
@@ -114,6 +125,41 @@ def _tail(text: str, *, max_lines: int = 8) -> str:
     return "\n".join(lines[-max_lines:])
 
 
+def _estimate_inner_iterations(arco_cmd: list[str]) -> int | None:
+    started = time.perf_counter()
+    try:
+        result = subprocess.run(arco_cmd, capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        print(f"  benchmark command failed to launch: {exc}", file=sys.stderr)
+        return None
+
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    if result.returncode != 0:
+        print("  benchmark command failed during calibration", file=sys.stderr)
+        stderr_tail = _tail(result.stderr)
+        if stderr_tail:
+            print(stderr_tail, file=sys.stderr)
+        return None
+
+    if elapsed_ms <= 0.0:
+        return 1
+
+    estimated = int(MIN_MONITORED_RUNTIME_MS / elapsed_ms) + 1
+    return max(1, min(MAX_INNER_ITERATIONS, estimated))
+
+
+def _build_monitored_command(arco_cmd: list[str], *, inner_iterations: int) -> list[str]:
+    if inner_iterations <= 1:
+        return arco_cmd
+    return [
+        sys.executable,
+        "-c",
+        _INNER_LOOP_RUNNER,
+        str(inner_iterations),
+        *arco_cmd,
+    ]
+
+
 def run_benchmark(
     arco_binary: str, case: BenchmarkCase, repetitions: int
 ) -> BenchmarkResult | None:
@@ -121,7 +167,40 @@ def run_benchmark(
     durations: list[float] = []
     peak_rss: list[float] = []
 
+    arco_cmd = [arco_binary, *_build_arco_args(workflow=case.workflow, model_path=case.kdl_path)]
+    inner_iterations = _estimate_inner_iterations(arco_cmd)
+    if inner_iterations is None:
+        return None
+
+    if inner_iterations > 1:
+        print(
+            f"  using {inner_iterations} inner iterations for process-memory sampling",
+            file=sys.stderr,
+        )
+
+    monitored_cmd = _build_monitored_command(arco_cmd, inner_iterations=inner_iterations)
+
     for repetition in range(repetitions):
+        started = time.perf_counter()
+        try:
+            timed_result = subprocess.run(
+                arco_cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"  arco command failed to launch: {exc}", file=sys.stderr)
+            return None
+
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if timed_result.returncode != 0:
+            print("  arco command failed", file=sys.stderr)
+            stderr_tail = _tail(timed_result.stderr)
+            if stderr_tail:
+                print(stderr_tail, file=sys.stderr)
+            return None
+
         with tempfile.TemporaryDirectory(prefix="arco-bench-rmon-") as output_dir:
             run_name = f"{case.name}-{case.workflow}-{repetition}"
             results_path = Path(output_dir) / f"{run_name}_results.json"
@@ -135,17 +214,14 @@ def run_benchmark(
                 "--name",
                 run_name,
                 "--",
-                arco_binary,
-                *_build_arco_args(workflow=case.workflow, model_path=case.kdl_path),
+                *monitored_cmd,
             ]
-            started = time.perf_counter()
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             except (OSError, subprocess.TimeoutExpired) as exc:
                 print(f"  rmon failed to launch: {exc}", file=sys.stderr)
                 return None
 
-            elapsed_ms = (time.perf_counter() - started) * 1000.0
             if result.returncode != 0:
                 print("  rmon/arco command failed", file=sys.stderr)
                 stderr_tail = _tail(result.stderr)
