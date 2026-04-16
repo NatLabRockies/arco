@@ -39,10 +39,12 @@ fn evaluate_data_param_filter_expr(
         Expr::Boolean(value) => Some(FilterValue::Boolean(*value)),
         Expr::Identifier(name) => {
             let source_name = resolve_data_column(data_decl, name);
-            row.get(name)
+            let value = row
+                .get(name)
                 .or_else(|| row.get(&source_name))
                 .cloned()
-                .map(FilterValue::String)
+                .unwrap_or_else(|| name.clone());
+            Some(FilterValue::String(value))
         }
         Expr::Unary { op, expr } => {
             let value = evaluate_data_param_filter_expr(expr, row, data_decl)?;

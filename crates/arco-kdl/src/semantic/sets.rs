@@ -5,6 +5,7 @@ use crate::source::{DataDecl, LiteralValue, ModelDecl, SetDecl, SourceProgram};
 use csv::StringRecord;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use tracing::warn;
 
 pub(crate) fn collect_set_aliases(
     program: &SourceProgram,
@@ -42,14 +43,12 @@ pub(crate) fn extend_set_registry_from_low_level_declarations(
     entry_dir: &Path,
     registry: &mut BTreeMap<String, ResolvedSet>,
 ) -> Result<(), SemanticError> {
-    let mut data_rows = BTreeMap::new();
     for data_decl in &program.data {
         let csv_path = entry_dir.join(&data_decl.source);
         let rows = read_csv_rows(&csv_path)?;
-        data_rows.insert(data_decl.name.clone(), rows);
-
+        validate_data_filter_identifiers(data_decl, &rows, &csv_path)?;
         for set_decl in &data_decl.sets {
-            let values = values_for_data_set(data_decl, set_decl, &data_rows[&data_decl.name]);
+            let values = values_for_data_set(data_decl, set_decl, &rows)?;
             registry.insert(set_decl.name.clone(), ResolvedSet { values });
         }
     }
@@ -112,11 +111,330 @@ fn record_to_map(
     Ok(row)
 }
 
+fn validate_data_filter_identifiers(
+    data_decl: &DataDecl,
+    rows: &[BTreeMap<String, String>],
+    path: &Path,
+) -> Result<(), SemanticError> {
+    let Some(first_row) = rows.first() else {
+        return Ok(());
+    };
+    let source_columns = first_row.keys().cloned().collect::<BTreeSet<_>>();
+
+    for set_decl in &data_decl.sets {
+        validate_filter_identifiers_for_declaration(
+            data_decl,
+            set_decl.parsed_filter_expression.as_ref(),
+            &source_columns,
+            "set",
+            &set_decl.name,
+            path,
+        )?;
+    }
+
+    for param_decl in &data_decl.parameters {
+        validate_filter_identifiers_for_declaration(
+            data_decl,
+            param_decl.parsed_filter_expression.as_ref(),
+            &source_columns,
+            "param",
+            &param_decl.name,
+            path,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn validate_filter_identifiers_for_declaration(
+    data_decl: &DataDecl,
+    expr: Option<&Expr>,
+    source_columns: &BTreeSet<String>,
+    declaration_kind: &'static str,
+    declaration_name: &str,
+    path: &Path,
+) -> Result<(), SemanticError> {
+    let Some(expr) = expr else {
+        return Ok(());
+    };
+
+    validate_filter_expr(
+        expr,
+        data_decl,
+        source_columns,
+        declaration_kind,
+        declaration_name,
+        path,
+    )
+}
+
+fn validate_filter_expr(
+    expr: &Expr,
+    data_decl: &DataDecl,
+    source_columns: &BTreeSet<String>,
+    declaration_kind: &'static str,
+    declaration_name: &str,
+    path: &Path,
+) -> Result<(), SemanticError> {
+    validate_filter_expr_internal(
+        expr,
+        data_decl,
+        source_columns,
+        declaration_kind,
+        declaration_name,
+        path,
+        false,
+    )
+}
+
+fn validate_filter_expr_internal(
+    expr: &Expr,
+    data_decl: &DataDecl,
+    source_columns: &BTreeSet<String>,
+    declaration_kind: &'static str,
+    declaration_name: &str,
+    path: &Path,
+    allow_unresolved_identifier: bool,
+) -> Result<(), SemanticError> {
+    match expr {
+        Expr::Comparison { left, right, .. } => {
+            validate_filter_column_side_expr(
+                left,
+                data_decl,
+                source_columns,
+                declaration_kind,
+                declaration_name,
+                path,
+            )?;
+            validate_filter_expr_internal(
+                right,
+                data_decl,
+                source_columns,
+                declaration_kind,
+                declaration_name,
+                path,
+                true,
+            )
+        }
+        Expr::Unary { expr, .. } => validate_filter_expr_internal(
+            expr,
+            data_decl,
+            source_columns,
+            declaration_kind,
+            declaration_name,
+            path,
+            allow_unresolved_identifier,
+        ),
+        Expr::Binary { left, right, .. } => {
+            validate_filter_expr_internal(
+                left,
+                data_decl,
+                source_columns,
+                declaration_kind,
+                declaration_name,
+                path,
+                allow_unresolved_identifier,
+            )?;
+            validate_filter_expr_internal(
+                right,
+                data_decl,
+                source_columns,
+                declaration_kind,
+                declaration_name,
+                path,
+                allow_unresolved_identifier,
+            )
+        }
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                validate_filter_expr_internal(
+                    arg,
+                    data_decl,
+                    source_columns,
+                    declaration_kind,
+                    declaration_name,
+                    path,
+                    allow_unresolved_identifier,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Indexed { indices, .. } => {
+            for index in indices {
+                validate_filter_expr_internal(
+                    index,
+                    data_decl,
+                    source_columns,
+                    declaration_kind,
+                    declaration_name,
+                    path,
+                    allow_unresolved_identifier,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Reduction(reduction) => {
+            validate_filter_expr_internal(
+                &reduction.body,
+                data_decl,
+                source_columns,
+                declaration_kind,
+                declaration_name,
+                path,
+                allow_unresolved_identifier,
+            )?;
+            for filter in &reduction.filters {
+                validate_filter_expr_internal(
+                    filter,
+                    data_decl,
+                    source_columns,
+                    declaration_kind,
+                    declaration_name,
+                    path,
+                    allow_unresolved_identifier,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Identifier(identifier) => {
+            if allow_unresolved_identifier {
+                Ok(())
+            } else {
+                validate_filter_identifier(
+                    identifier,
+                    data_decl,
+                    source_columns,
+                    declaration_kind,
+                    declaration_name,
+                    path,
+                )
+            }
+        }
+        Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) => Ok(()),
+    }
+}
+
+fn validate_filter_column_side_expr(
+    expr: &Expr,
+    data_decl: &DataDecl,
+    source_columns: &BTreeSet<String>,
+    declaration_kind: &'static str,
+    declaration_name: &str,
+    path: &Path,
+) -> Result<(), SemanticError> {
+    match expr {
+        Expr::Identifier(identifier) => validate_filter_identifier(
+            identifier,
+            data_decl,
+            source_columns,
+            declaration_kind,
+            declaration_name,
+            path,
+        ),
+        Expr::Unary { expr, .. } => validate_filter_column_side_expr(
+            expr,
+            data_decl,
+            source_columns,
+            declaration_kind,
+            declaration_name,
+            path,
+        ),
+        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+            validate_filter_column_side_expr(
+                left,
+                data_decl,
+                source_columns,
+                declaration_kind,
+                declaration_name,
+                path,
+            )?;
+            validate_filter_column_side_expr(
+                right,
+                data_decl,
+                source_columns,
+                declaration_kind,
+                declaration_name,
+                path,
+            )
+        }
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                validate_filter_column_side_expr(
+                    arg,
+                    data_decl,
+                    source_columns,
+                    declaration_kind,
+                    declaration_name,
+                    path,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Indexed { indices, .. } => {
+            for index in indices {
+                validate_filter_column_side_expr(
+                    index,
+                    data_decl,
+                    source_columns,
+                    declaration_kind,
+                    declaration_name,
+                    path,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Reduction(reduction) => {
+            validate_filter_column_side_expr(
+                &reduction.body,
+                data_decl,
+                source_columns,
+                declaration_kind,
+                declaration_name,
+                path,
+            )?;
+            for filter in &reduction.filters {
+                validate_filter_column_side_expr(
+                    filter,
+                    data_decl,
+                    source_columns,
+                    declaration_kind,
+                    declaration_name,
+                    path,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) => Ok(()),
+    }
+}
+
+fn validate_filter_identifier(
+    identifier: &str,
+    data_decl: &DataDecl,
+    source_columns: &BTreeSet<String>,
+    declaration_kind: &'static str,
+    declaration_name: &str,
+    path: &Path,
+) -> Result<(), SemanticError> {
+    let source_name = source_column_for_logical_name(data_decl, identifier);
+    if source_columns.contains(identifier) || source_columns.contains(source_name.as_str()) {
+        return Ok(());
+    }
+
+    Err(SemanticError::UnresolvedFilterIdentifier {
+        identifier: identifier.to_string(),
+        declaration_kind,
+        declaration: declaration_name.to_string(),
+        data: data_decl.name.clone(),
+        path: path.to_path_buf(),
+    })
+}
+
 fn values_for_data_set(
     data_decl: &DataDecl,
     set_decl: &SetDecl,
     rows: &[BTreeMap<String, String>],
-) -> Vec<String> {
+) -> Result<Vec<String>, SemanticError> {
     let source_set_name = source_set_name_for_data_set_values(data_decl, set_decl);
     let target_column = source_column_for_logical_name(data_decl, &source_set_name);
     let mut values = BTreeSet::new();
@@ -128,7 +446,18 @@ fn values_for_data_set(
             values.insert(value.clone());
         }
     }
-    values.into_iter().collect()
+
+    let values = values.into_iter().collect::<Vec<_>>();
+    if set_decl.parsed_filter_expression.is_some() && !rows.is_empty() && values.is_empty() {
+        warn!(
+            data = %data_decl.name,
+            set = %set_decl.name,
+            filter = ?set_decl.filter_expression,
+            "filtered subset resolved empty"
+        );
+    }
+
+    Ok(values)
 }
 
 fn source_set_name_for_data_set_values(data_decl: &DataDecl, set_decl: &SetDecl) -> String {
@@ -177,10 +506,12 @@ fn evaluate_data_set_filter_expr(
         Expr::Boolean(value) => Some(DataSetFilterValue::Boolean(*value)),
         Expr::Identifier(name) => {
             let source_name = source_column_for_logical_name(data_decl, name);
-            row.get(name)
+            let value = row
+                .get(name)
                 .or_else(|| row.get(&source_name))
                 .cloned()
-                .map(DataSetFilterValue::String)
+                .unwrap_or_else(|| name.clone());
+            Some(DataSetFilterValue::String(value))
         }
         Expr::Unary { op, expr } => {
             let value = evaluate_data_set_filter_expr(expr, row, data_decl)?;

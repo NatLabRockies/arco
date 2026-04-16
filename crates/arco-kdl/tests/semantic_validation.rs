@@ -224,6 +224,56 @@ scenario "S1" {
 }
 
 #[test]
+fn semantic_validation_applies_bare_identifier_set_filters()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-set-filter-bare-identifier")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("tech.csv"),
+        "tech\nwind\nsolar\nwind\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "tech_data" source="data/tech.csv" {
+  set "tech"
+  set "wind_tech" {
+    in "tech"
+    filter { tech == wind }
+  }
+}
+
+model "Dispatch" {
+  set "tech"
+
+  control "x" {
+    index "tech"
+  }
+
+  minimize "Obj" {
+    sum(x[tech] for tech in tech)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+
+    let wind_tech = semantic
+        .set_registry
+        .get("wind_tech")
+        .ok_or("missing set wind_tech")?;
+    assert_eq!(wind_tech.values, vec!["wind".to_string()]);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
 fn semantic_validation_applies_numeric_set_filters() -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_root("semantic-set-filter-numeric")?;
     fs::create_dir_all(root.join("data"))?;
@@ -322,6 +372,158 @@ scenario "S1" {
         .get("north_assets")
         .ok_or("missing set north_assets")?;
     assert_eq!(north_assets.values, vec!["A".to_string(), "C".to_string()]);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_unresolved_subset_filter_identifier()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-set-filter-unresolved-identifier")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("tech.csv"),
+        "tech\nwind\nsolar\nwind\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "tech_data" source="data/tech.csv" {
+  set "tech"
+  set "wind_tech" {
+    in "tech"
+    filter { unknown_col == wind }
+  }
+}
+
+model "Dispatch" {
+  set "tech"
+
+  control "x" {
+    index "tech"
+  }
+
+  minimize "Obj" {
+    sum(x[tech] for tech in tech)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("unresolved filter identifier should fail semantic validation");
+
+    assert!(error.to_string().contains("unknown_col"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_unresolved_standalone_filter_identifier()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-set-filter-unresolved-standalone-identifier")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("tech.csv"),
+        "tech\nwind\nsolar\nwind\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "tech_data" source="data/tech.csv" {
+  set "tech"
+  set "wind_tech" {
+    in "tech"
+    filter { unknown_col }
+  }
+}
+
+model "Dispatch" {
+  set "tech"
+
+  control "x" {
+    index "tech"
+  }
+
+  minimize "Obj" {
+    sum(x[tech] for tech in tech)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("unresolved standalone filter identifier should fail semantic validation");
+
+    assert!(error.to_string().contains("unknown_col"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_unresolved_param_filter_identifier()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-param-filter-unresolved-identifier")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("load.csv"),
+        "period,tech,demand\n1,wind,10\n2,solar,20\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+set "time" { "1"; "2" }
+
+data "inputs" source="data/load.csv" {
+  map "time" from="period"
+
+  param "demand" from="demand" reduce="sum" {
+    index "time"
+    filter { unknown_col == wind }
+  }
+}
+
+model "Dispatch" {
+  set "time" alias="t"
+
+  param "demand" {
+    index "t"
+  }
+
+  control "x" {
+    index "t"
+  }
+
+  constraint "balance[t]" {
+    x[t] = demand[t]
+  }
+
+  minimize "Obj" {
+    sum(x[t] for t in time)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("unresolved param filter identifier should fail semantic validation");
+
+    assert!(error.to_string().contains("unknown_col"));
 
     fs::remove_dir_all(&root)?;
     Ok(())
