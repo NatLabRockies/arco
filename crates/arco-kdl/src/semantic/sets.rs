@@ -48,7 +48,7 @@ pub(crate) fn extend_set_registry_from_low_level_declarations(
         let rows = read_csv_rows(&csv_path)?;
         validate_data_filter_identifiers(data_decl, &rows, &csv_path)?;
         for set_decl in &data_decl.sets {
-            let values = values_for_data_set(data_decl, set_decl, &rows)?;
+            let values = values_for_data_set(data_decl, set_decl, &rows);
             registry.insert(set_decl.name.clone(), ResolvedSet { values });
         }
     }
@@ -434,7 +434,7 @@ fn values_for_data_set(
     data_decl: &DataDecl,
     set_decl: &SetDecl,
     rows: &[BTreeMap<String, String>],
-) -> Result<Vec<String>, SemanticError> {
+) -> Vec<String> {
     let source_set_name = source_set_name_for_data_set_values(data_decl, set_decl);
     let target_column = source_column_for_logical_name(data_decl, &source_set_name);
     let mut values = BTreeSet::new();
@@ -457,7 +457,7 @@ fn values_for_data_set(
         );
     }
 
-    Ok(values)
+    values
 }
 
 fn source_set_name_for_data_set_values(data_decl: &DataDecl, set_decl: &SetDecl) -> String {
