@@ -120,7 +120,7 @@ impl Solve for Solver {
     type Solution = Solution;
 
     fn solve(&mut self, config: &SolverConfig) -> Result<Self::Solution, GenericSolverError> {
-        self.solve_with_config(config).map_err(Into::into)
+        self.solve_with_config(config)
     }
 }
 
@@ -134,9 +134,7 @@ impl SolverBackend for IpoptBackend {
         config: &SolverConfig,
         primal_start: Option<&[(VariableId, f64)]>,
     ) -> Result<arco_core::solver::Solution, GenericSolverError> {
-        solve_model(model, config, primal_start)
-            .map(|s| s.into_core_solution())
-            .map_err(Into::into)
+        solve_model(model, config, primal_start).map(|s| s.into_core_solution())
     }
 
     fn name(&self) -> &'static str {

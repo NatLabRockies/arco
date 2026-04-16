@@ -219,22 +219,6 @@ pub(super) fn property_string(
         .ok_or_else(|| missing_property_error(node, property, context))
 }
 
-/// Try multiple property names in order, returning the first match.
-/// For backward compatibility during property renaming transitions.
-pub(super) fn property_string_alternatives(
-    node: &KdlNode,
-    properties: &[&'static str],
-    context: &ParseContext<'_>,
-) -> Result<String, SourceError> {
-    for property in properties {
-        if let Some(value) = node.get(*property).and_then(KdlValue::as_string) {
-            return Ok(value.to_string());
-        }
-    }
-    // Error uses the first (preferred) property name
-    Err(missing_property_error(node, properties[0], context))
-}
-
 pub(super) fn optional_property_string(
     node: &KdlNode,
     property: &'static str,

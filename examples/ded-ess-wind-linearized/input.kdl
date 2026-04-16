@@ -1,0 +1,210 @@
+// Linearized Arco version of GAMS DEDESScostbased (Soroudi, 2017, Gcode7.2).
+// Note: original GAMS objective is QCP with a[g] * p[g,t]^2.
+// Arco KDL lowering is currently linear, so this example keeps b[g] * p[g,t] + c[g]
+// and wind-curtailment penalty, and retains ramping + ESS dynamics.
+
+data gendata source="data/gendata.csv" {
+  map generators from="g"
+
+  set generators alias="g"
+
+  param a index="generators"
+  param b index="generators"
+  param c index="generators"
+  param d index="generators"
+  param e index="generators"
+  param f index="generators"
+  param p_min index="generators"
+  param p_max index="generators"
+  param ru index="generators"
+  param rd index="generators"
+}
+
+data storage_data source="data/storage.csv" {
+  map storage from="asset"
+
+  set storage alias="s"
+
+  param power_mw index="storage"
+  param energy_mwh index="storage"
+  param charge_efficiency index="storage"
+  param discharge_efficiency index="storage"
+  param initial_soc_mwh index="storage"
+  param terminal_soc_mwh index="storage"
+}
+
+data timeseries source="data/timeseries.csv" {
+  set t
+
+  param lambda index="t"
+  param load index="t"
+  param wind index="t"
+}
+
+model DEDESSWindLinearized {
+  set generators alias="g"
+  set storage alias="s"
+  set time alias="t"
+
+  param a index="generators"
+  param b index="generators"
+  param c index="generators"
+  param d index="generators"
+  param e index="generators"
+  param f index="generators"
+  param p_min index="generators"
+  param p_max index="generators"
+  param ru index="generators"
+  param rd index="generators"
+
+  param power_mw index="storage"
+  param energy_mwh index="storage"
+  param charge_efficiency index="storage"
+  param discharge_efficiency index="storage"
+  param initial_soc_mwh index="storage"
+  param terminal_soc_mwh index="storage"
+
+  param lambda index="time"
+  param load index="time"
+  param wind index="time"
+
+  control p {
+    index generators
+    index time
+  }
+
+  control soc {
+    index storage
+    index time
+  }
+
+  control p_charge lower=0 {
+    index storage
+    index time
+  }
+
+  control p_discharge lower=0 {
+    index storage
+    index time
+  }
+
+  control p_wind lower=0 {
+    index time
+  }
+
+  control p_wind_curtail lower=0 {
+    index time
+  }
+
+  expression ThermalCostLinear {
+    sum(b[g] * p[g,t] + c[g] for g in generators for t in time)
+  }
+
+  expression WindCurtailmentPenalty {
+    sum(50 * p_wind_curtail[t] for t in time)
+  }
+
+  expression TotalCostProxy {
+    ThermalCostLinear + WindCurtailmentPenalty
+  }
+
+  constraint thermal_output_bounds {
+    index g { in generators }
+    index t { in time }
+    expression {
+      p_min[g] <= p[g,t] <= p_max[g]
+    }
+  }
+
+  constraint ramp_up {
+    index g { in generators }
+    index t { in time }
+    if { t > 1 }
+    expression {
+      p[g,t] - p[g,t-1] <= ru[g]
+    }
+  }
+
+  constraint ramp_down {
+    index g { in generators }
+    index t { in time }
+    if { t > 1 }
+    expression {
+      p[g,t-1] - p[g,t] <= rd[g]
+    }
+  }
+
+  constraint soc_initial {
+    index s { in storage }
+    expression {
+      soc[s,1] = initial_soc_mwh[s] + charge_efficiency[s] * p_charge[s,1] - p_discharge[s,1] / discharge_efficiency[s]
+    }
+  }
+
+  constraint soc_balance {
+    index s { in storage }
+    index t { in time }
+    if { t > 1 }
+    expression {
+      soc[s,t] = soc[s,t-1] + charge_efficiency[s] * p_charge[s,t] - p_discharge[s,t] / discharge_efficiency[s]
+    }
+  }
+
+  constraint soc_bounds {
+    index s { in storage }
+    index t { in time }
+    expression {
+      0.2 * energy_mwh[s] <= soc[s,t] <= energy_mwh[s]
+    }
+  }
+
+  constraint soc_terminal {
+    index s { in storage }
+    index t { in time }
+    if { t == 24 }
+    expression {
+      soc[s,t] = terminal_soc_mwh[s]
+    }
+  }
+
+  constraint charge_limit {
+    index s { in storage }
+    index t { in time }
+    expression {
+      p_charge[s,t] <= power_mw[s]
+    }
+  }
+
+  constraint discharge_limit {
+    index s { in storage }
+    index t { in time }
+    expression {
+      p_discharge[s,t] <= power_mw[s]
+    }
+  }
+
+  constraint wind_split {
+    index t { in time }
+    expression {
+      p_wind[t] + p_wind_curtail[t] = wind[t]
+    }
+  }
+
+  constraint balance {
+    index t { in time }
+    expression {
+      p_wind[t] + sum(p[g,t] for g in generators) + sum(p_discharge[s,t] for s in storage) >= load[t] + sum(p_charge[s,t] for s in storage)
+    }
+  }
+
+  minimize TotalCost {
+    TotalCostProxy
+  }
+}
+
+scenario DEDESSWindLinearizedDay {
+  use DEDESSWindLinearized
+  report ThermalCostLinear
+  report WindCurtailmentPenalty
+  report TotalCostProxy
+}

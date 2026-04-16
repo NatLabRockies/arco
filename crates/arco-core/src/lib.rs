@@ -13,5 +13,8 @@ pub use model::{
 };
 
 pub use slack::{ElasticHandle, SlackBound, SlackHandle, SlackVariables};
-pub use solver::{Solution, Solver, SolverError, SolverStatus};
+pub use solver::Solver;
 pub use types::{Bounds, Constraint, Objective, Sense, SimplifyLevel, Variable};
+
+// Re-export solver types from arco-solver-types for convenience
+pub use arco_solver_types::{Solution, SolverError, SolverStatus};

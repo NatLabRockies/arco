@@ -339,9 +339,6 @@ fn apply_solver_config(prob: ffi::XPRSprob, config: &SolverConfig) -> Result<(),
 }
 
 /// Solve a model with the given configuration.
-///
-/// This is the shared implementation used by both [`Solver`] and
-/// [`XpressBackend`].
 #[allow(unsafe_code)]
 fn solve_model(
     model: &Model,

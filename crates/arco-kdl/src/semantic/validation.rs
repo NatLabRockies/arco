@@ -7,7 +7,8 @@ use crate::semantic::sets::{
 };
 use crate::semantic::types::{
     FamilySignature, ResolvedChronology, ResolvedConstraint, ResolvedExpression, ResolvedObjective,
-    ResolvedParameters, ResolvedSets, ResolvedTimeSet, SemanticProgram, VariableDeclOverrides,
+    ResolvedParameters, ResolvedSets, ResolvedTimeSet, SemanticProgram, TimeResolution,
+    VariableDeclOverrides,
 };
 use crate::source::{BoundExpr, ModelDecl, ScenarioDecl, SourceProgram, VariableKindDecl};
 use std::collections::{BTreeMap, BTreeSet};
@@ -129,7 +130,7 @@ pub fn validate_program(
     let resolved_sets = ResolvedSets {
         time: ResolvedTimeSet {
             steps: time_steps,
-            resolution: String::new(),
+            resolution: TimeResolution::default(),
         },
     };
 

@@ -1,202 +1,23 @@
 //! Solver trait and common types for solver backends.
 //!
 //! This module defines the abstract interface that all solver backends
-//! (HiGHS, Xpress, etc.) must implement, along with solver-agnostic
-//! solution and error types.
+//! (HiGHS, Xpress, etc.) must implement. The actual types (SolverStatus,
+//! SolverError, Solution) are re-exported from `arco-solver-types` to break
+//! the diamond dependency pattern.
+//!
+//! # Architecture Note
+//!
+//! Previously, these types were defined here, which created a diamond
+//! dependency: solver backends needed both `arco-core` (for Model) and
+//! `arco-solver` (for traits), but `arco-solver` also depended on `arco-core`.
+//!
+//! Now, `arco-solver-types` provides the base types, which both `arco-core`
+//! and `arco-solver` depend on, breaking the cycle.
 
 use crate::Model;
-use std::collections::BTreeMap;
 
-/// Status of a solver solution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SolverStatus {
-    /// Optimal solution found.
-    Optimal,
-    /// Problem is infeasible.
-    Infeasible,
-    /// Problem is unbounded.
-    Unbounded,
-    /// Solver reached time limit (may have feasible solution).
-    TimeLimit,
-    /// Solver reached iteration limit (may have feasible solution).
-    IterationLimit,
-    /// Status is unknown or solver did not complete.
-    Unknown,
-}
-
-impl SolverStatus {
-    /// Check if the status indicates an optimal solution.
-    pub fn is_optimal(self) -> bool {
-        matches!(self, SolverStatus::Optimal)
-    }
-
-    /// Check if the status indicates a feasible solution.
-    pub fn is_feasible(self) -> bool {
-        matches!(
-            self,
-            SolverStatus::Optimal | SolverStatus::TimeLimit | SolverStatus::IterationLimit
-        )
-    }
-
-    /// Check if the status indicates infeasibility.
-    pub fn is_infeasible(self) -> bool {
-        matches!(self, SolverStatus::Infeasible)
-    }
-
-    /// Check if the status indicates unboundedness.
-    pub fn is_unbounded(self) -> bool {
-        matches!(self, SolverStatus::Unbounded)
-    }
-
-    /// Get a human-readable string representation.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            SolverStatus::Optimal => "optimal",
-            SolverStatus::Infeasible => "infeasible",
-            SolverStatus::Unbounded => "unbounded",
-            SolverStatus::TimeLimit => "time_limit",
-            SolverStatus::IterationLimit => "iteration_limit",
-            SolverStatus::Unknown => "unknown",
-        }
-    }
-}
-
-impl std::fmt::Display for SolverStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-/// Error type for solver operations.
-#[derive(Debug, Clone)]
-pub enum SolverError {
-    /// Model has no variables.
-    EmptyModel,
-    /// No objective function set.
-    NoObjective,
-    /// Invalid objective sense.
-    InvalidObjectiveSense,
-    /// Invalid variable ID.
-    InvalidVariableId(u32),
-    /// Solver is not available (e.g., library not installed).
-    SolverNotAvailable(String),
-    /// Solver failed to find optimal solution.
-    SolveFailure {
-        /// The solver status that caused the failure.
-        status: SolverStatus,
-    },
-    /// Solver-specific error not covered by other variants.
-    SolverSpecific(String),
-}
-
-impl SolverError {
-    /// Returns a semantic error code for programmatic handling.
-    pub fn code(&self) -> &'static str {
-        match self {
-            SolverError::EmptyModel => "SOLVER_EMPTY_MODEL",
-            SolverError::NoObjective => "SOLVER_NO_OBJECTIVE",
-            SolverError::InvalidObjectiveSense => "SOLVER_INVALID_OBJECTIVE_SENSE",
-            SolverError::InvalidVariableId(_) => "SOLVER_INVALID_VARIABLE_ID",
-            SolverError::SolverNotAvailable(_) => "SOLVER_NOT_AVAILABLE",
-            SolverError::SolveFailure { .. } => "SOLVER_SOLVE_FAILURE",
-            SolverError::SolverSpecific(_) => "SOLVER_SPECIFIC",
-        }
-    }
-}
-
-impl std::fmt::Display for SolverError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SolverError::EmptyModel => write!(f, "[{}] Model has no variables", self.code()),
-            SolverError::NoObjective => write!(f, "[{}] Model has no objective", self.code()),
-            SolverError::InvalidObjectiveSense => {
-                write!(f, "[{}] Invalid objective sense", self.code())
-            }
-            SolverError::InvalidVariableId(id) => {
-                write!(f, "[{}] Variable ID {} does not exist", self.code(), id)
-            }
-            SolverError::SolverNotAvailable(msg) => {
-                write!(f, "[{}] Solver not available: {}", self.code(), msg)
-            }
-            SolverError::SolveFailure { status } => {
-                write!(f, "[{}] Solve failed with status: {}", self.code(), status)
-            }
-            SolverError::SolverSpecific(msg) => {
-                write!(f, "[{}] Solver error: {}", self.code(), msg)
-            }
-        }
-    }
-}
-
-impl std::error::Error for SolverError {}
-
-/// Solver-agnostic solution from an optimization solve.
-#[derive(Debug, Clone)]
-pub struct Solution {
-    /// Primal values of variables indexed by their internal position.
-    pub primal_values: Vec<f64>,
-    /// Dual values of variables (reduced costs) indexed by their internal position.
-    pub variable_duals: Vec<f64>,
-    /// Dual values of constraints (shadow prices) indexed by their internal position.
-    pub constraint_duals: Vec<f64>,
-    /// Row activity values (constraint LHS evaluated at the solution) indexed by constraint position.
-    pub row_values: Vec<f64>,
-    /// Objective value of the solution.
-    pub objective_value: f64,
-    /// Status of the solution.
-    pub status: SolverStatus,
-    /// Solve time in seconds.
-    pub solve_time_seconds: f64,
-    /// Solver-agnostic metadata (e.g., iteration counts, gaps).
-    pub metadata: BTreeMap<String, f64>,
-}
-
-impl Solution {
-    /// Get the primal value at the given index.
-    pub fn get_primal(&self, index: usize) -> Option<f64> {
-        self.primal_values.get(index).copied()
-    }
-
-    /// Get the variable dual (reduced cost) at the given index.
-    pub fn get_variable_dual(&self, index: usize) -> Option<f64> {
-        self.variable_duals.get(index).copied()
-    }
-
-    /// Get the constraint dual (shadow price) at the given index.
-    pub fn get_constraint_dual(&self, index: usize) -> Option<f64> {
-        self.constraint_duals.get(index).copied()
-    }
-
-    /// Get the row activity value (constraint LHS at solution) at the given index.
-    pub fn get_row_value(&self, index: usize) -> Option<f64> {
-        self.row_values.get(index).copied()
-    }
-
-    /// Check if the solution is optimal.
-    pub fn is_optimal(&self) -> bool {
-        self.status.is_optimal()
-    }
-
-    /// Check if the solution is feasible.
-    pub fn is_feasible(&self) -> bool {
-        self.status.is_feasible()
-    }
-
-    /// Check if the solution is infeasible.
-    pub fn is_infeasible(&self) -> bool {
-        self.status.is_infeasible()
-    }
-
-    /// Check if the solution is unbounded.
-    pub fn is_unbounded(&self) -> bool {
-        self.status.is_unbounded()
-    }
-
-    /// Get a human-readable status string.
-    pub fn status_string(&self) -> &'static str {
-        self.status.as_str()
-    }
-}
+// Re-export all solver types from arco-solver-types
+pub use arco_solver_types::{Solution, SolverConfig, SolverError, SolverStatus};
 
 /// Trait that all solver backends must implement.
 pub trait Solver {
@@ -295,6 +116,8 @@ mod tests {
 
     #[test]
     fn solution_accessors() {
+        use std::collections::BTreeMap;
+
         let solution = Solution {
             primal_values: vec![1.0, 2.0, 3.0],
             variable_duals: vec![0.1, 0.2, 0.3],

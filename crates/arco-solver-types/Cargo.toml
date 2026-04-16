@@ -1,0 +1,23 @@
+[package]
+name = "arco-solver-types"
+version = { workspace = true }
+description = "Shared solver types and status enums for Arco optimization"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+authors = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-expr = { workspace = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+tracing = { workspace = true }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde"]

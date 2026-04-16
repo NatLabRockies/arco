@@ -13,35 +13,6 @@ rust-packages := "--workspace --exclude arco-python --exclude arco-ipopt"
 # Rust package group for clippy in CI where Xpress SDK is unavailable
 clippy-packages := "--workspace --exclude arco-python --exclude arco-ipopt --exclude arco-xpress"
 
-[group: 'bench']
-bench-compare baseline candidate:
-    cargo run -p arco-bench -- compare \
-        --baseline {{ baseline }} \
-        --candidate {{ candidate }}
-
-[group: 'bench']
-bench-gate baseline candidate duration_threshold="10" memory_threshold="10":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    for stage in total export_csc export_crs export_coo; do
-        echo "Checking stage=${stage} duration<={{ duration_threshold }}% memory<={{ memory_threshold }}%"
-        cargo run -p arco-bench -- compare \
-            --baseline "{{ baseline }}" \
-            --candidate "{{ candidate }}" \
-            --stage "${stage}" \
-            --duration-threshold-pct "{{ duration_threshold }}" \
-            --memory-threshold-pct "{{ memory_threshold }}" \
-            --format table
-    done
-
-[group: 'bench']
-bench-report path:
-    cargo run -p arco-bench -- report --input {{ path }}
-
-[group: 'bench']
-bench-run:
-    cargo run -p arco-bench -- run --scenario model-build,kdl-compile
-
 [group: 'rust']
 check:
     cargo check {{ rust-packages }} --all-features --tests --benches --examples
@@ -208,10 +179,16 @@ tdd-refactor package:
 [group: 'rust']
 test:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
+    just test-example-formulations
 
+[group: 'rust']
+test-example-formulations args="":
+    cargo build -p arco-cli
+    uv run python -c "from scripts.test_example_formulations import run_example_formulations_smoke; raise SystemExit(run_example_formulations_smoke())" {{ args }}
 [group: 'ci']
 test-core:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
+    just test-example-formulations
 
 [group: 'ci']
 test-solver package:

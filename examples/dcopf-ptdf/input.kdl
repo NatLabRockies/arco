@@ -1,0 +1,134 @@
+// PTDF formulation derived from the same OF3bus data used in dcopf-angle.
+// Base reference model:
+// Soroudi, Alireza. Power System Optimization Modeling in GAMS. Springer, 2017.
+// DOI: doi.org/10.1007/978-3-319-62350-4
+// Source: https://www.gams.com/latest/psoptlib_ml/libhtml/psoptlib_OPF3bus.html
+
+data bus_data source="data/buses.csv" {
+  map bus from="bus"
+
+  set bus alias="b"
+
+  param pd index="bus"
+  param is_slack index="bus"
+}
+
+data generator_data source="data/generators.csv" {
+  map generators from="generator"
+
+  set generators alias="g"
+
+  param b index="generators"
+  param pmin index="generators"
+  param pmax index="generators"
+}
+
+data gen_bus_data source="data/gen_bus.csv" {
+  map generators from="generator"
+
+  set bus
+  set generators
+
+  param connected {
+    index bus
+    index generators
+  }
+}
+
+data line_data source="data/lines.csv" {
+  map lines from="line"
+
+  set lines alias="l"
+
+  param limit_mw index="lines"
+}
+
+data ptdf_data source="data/ptdf.csv" {
+  map lines from="line"
+  map bus from="bus"
+
+  set lines
+  set bus
+
+  param ptdf {
+    index lines
+    index bus
+  }
+}
+
+model DCOPFPTDF {
+  set bus alias="b"
+  set generators alias="g"
+  set lines alias="l"
+
+  param pd index="bus"
+  param is_slack index="bus"
+
+  param b index="generators"
+  param pmin index="generators"
+  param pmax index="generators"
+
+  param connected {
+    index bus
+    index generators
+  }
+
+  param limit_mw index="lines"
+
+  param ptdf {
+    index lines
+    index bus
+  }
+
+  control pg lower=0 {
+    index generators
+  }
+
+  control flow {
+    index lines
+  }
+
+  constraint system_balance {
+    expression {
+      sum(pg[g] for g in generators) = sum(pd[b] / 100 for b in bus)
+    }
+  }
+
+  constraint flow_definition_ptdf {
+    index l { in lines }
+    expression {
+      flow[l] = sum(
+        ptdf[l,b]
+        * (sum(pg[g] for g in generators if connected[b,g] > 0) - pd[b] / 100)
+        for b in bus
+      )
+    }
+  }
+
+  constraint generator_bounds {
+    index g { in generators }
+    expression {
+      pmin[g] / 100 <= pg[g] <= pmax[g] / 100
+    }
+  }
+
+  constraint line_bounds {
+    index l { in lines }
+    expression {
+      -limit_mw[l] / 100 <= flow[l] <= limit_mw[l] / 100
+    }
+  }
+
+  expression GenerationCost {
+    sum(pg[g] * b[g] * 100 for g in generators)
+  }
+
+  minimize OF {
+    GenerationCost
+  }
+}
+
+scenario DCOPFPTDFCase {
+  use DCOPFPTDF
+  report GenerationCost
+}

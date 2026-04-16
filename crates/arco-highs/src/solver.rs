@@ -4,17 +4,17 @@ use crate::async_matrix::{AsyncCrsBuilder, ConstraintEntries};
 use crate::ffi::{HighsModel, HighsModelError, HighsOption, HighsStatus, ObjectiveSense};
 use crate::solution::Solution;
 use crate::status::{highs_has_solution, highs_to_core_status};
-use arco_core::solver::SolverError as CoreSolverError;
 use arco_core::{Model, Sense};
 use arco_expr::{ConstraintId, VariableId};
-use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
+use arco_solver::{Solve, SolverBackend, SolverConfig};
+use arco_solver_types::SolverError as GenericSolverError;
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
 use std::time::Instant;
 use tracing::{debug, trace, warn};
 
-/// Re-export of arco_core::SolverError for backward compatibility.
-pub type SolverError = CoreSolverError;
+/// Re-export of arco_solver_types::SolverError for backward compatibility.
+pub type SolverError = arco_solver_types::SolverError;
 
 /// Convert a HighsModelError into a SolverError.
 fn highs_model_error_to_solver_error(err: HighsModelError) -> SolverError {
@@ -174,7 +174,10 @@ impl Solver {
 
 // Implement the arco_core::Solver trait
 impl arco_core::solver::Solver for Solver {
-    fn solve(&mut self, model: &Model) -> Result<arco_core::solver::Solution, CoreSolverError> {
+    fn solve(
+        &mut self,
+        model: &Model,
+    ) -> Result<arco_solver_types::Solution, arco_solver_types::SolverError> {
         // Build a temporary solver that borrows the model for solving
         // We use our own config and primal_start
         let highs_solution = solve_model(
@@ -192,7 +195,7 @@ impl Solve for Solver {
     type Solution = Solution;
 
     fn solve(&mut self, config: &SolverConfig) -> Result<Self::Solution, GenericSolverError> {
-        self.solve_with_config(config).map_err(Into::into)
+        self.solve_with_config(config)
     }
 }
 
@@ -205,10 +208,8 @@ impl SolverBackend for HiGHSBackend {
         model: &Model,
         config: &SolverConfig,
         primal_start: Option<&[(VariableId, f64)]>,
-    ) -> Result<arco_core::solver::Solution, GenericSolverError> {
-        solve_model(model, config, primal_start, false)
-            .map(|s| s.into_core_solution())
-            .map_err(Into::into)
+    ) -> Result<arco_solver_types::Solution, GenericSolverError> {
+        solve_model(model, config, primal_start, false).map(|s| s.into_core_solution())
     }
 
     fn name(&self) -> &'static str {
@@ -695,6 +696,7 @@ fn solve_model(
     let dual_feasibility_tolerance = highs_model.dual_feasibility_tolerance();
     let presolved_rows = highs_model.presolved_num_rows();
     let presolved_cols = highs_model.presolved_num_cols();
+    let presolved_nnz = highs_model.presolved_num_nz();
 
     debug!(
         component = "solver",
@@ -704,9 +706,12 @@ fn solve_model(
         num_primal_values = primal_values.len(),
         num_variable_duals = variable_duals.len(),
         num_constraint_duals = constraint_duals.len(),
-        mip_gap,
-        presolved_rows,
-        presolved_cols,
+        ?mip_gap,
+        ?primal_feasibility_tolerance,
+        ?dual_feasibility_tolerance,
+        ?presolved_rows,
+        ?presolved_cols,
+        ?presolved_nnz,
         "Solution extracted"
     );
 
@@ -723,8 +728,8 @@ fn solve_model(
         mip_gap,
         primal_feasibility_tolerance,
         dual_feasibility_tolerance,
-        presolved_rows,
-        presolved_cols,
+        presolved_rows: presolved_rows.unwrap_or(0),
+        presolved_cols: presolved_cols.unwrap_or(0),
     })
 }
 
@@ -750,9 +755,9 @@ fn default_primal_value(lower: f64, upper: f64) -> f64 {
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
-    use arco_core::solver::SolverStatus as CoreSolverStatus;
     use arco_core::types::Bounds;
     use arco_core::{Objective, Variable};
+    use arco_solver_types::SolverStatus as CoreSolverStatus;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]

@@ -16,3 +16,4 @@ workspace = true
 [dependencies]
 arco-core = { workspace = true }
 arco-expr = { workspace = true }
+arco-solver-types = { workspace = true }

@@ -15,11 +15,135 @@ fn resolve_data_column(data_decl: &DataDecl, logical_name: &str) -> String {
 }
 
 fn matches_data_param_filter(
-    _row: &HashMap<String, String>,
-    _data_decl: &DataDecl,
-    _parameter: &ParamDecl,
+    row: &HashMap<String, String>,
+    data_decl: &DataDecl,
+    parameter: &ParamDecl,
 ) -> bool {
-    true
+    let Some(expr) = parameter.parsed_filter_expression.as_ref() else {
+        return true;
+    };
+
+    evaluate_data_param_filter_expr(expr, row, data_decl)
+        .and_then(|value| truthy_data_param_filter_value(&value))
+        .unwrap_or(false)
+}
+
+fn evaluate_data_param_filter_expr(
+    expr: &Expr,
+    row: &HashMap<String, String>,
+    data_decl: &DataDecl,
+) -> Option<FilterValue> {
+    match expr {
+        Expr::Number(value) => value.parse::<f64>().ok().map(FilterValue::Number),
+        Expr::String(value) => Some(FilterValue::String(value.clone())),
+        Expr::Boolean(value) => Some(FilterValue::Boolean(*value)),
+        Expr::Identifier(name) => {
+            let source_name = resolve_data_column(data_decl, name);
+            row.get(name)
+                .or_else(|| row.get(&source_name))
+                .cloned()
+                .map(FilterValue::String)
+        }
+        Expr::Unary { op, expr } => {
+            let value = evaluate_data_param_filter_expr(expr, row, data_decl)?;
+            match op {
+                UnaryOp::Negate => {
+                    data_param_filter_numeric_value(&value).map(|v| FilterValue::Number(-v))
+                }
+            }
+        }
+        Expr::Binary { op, left, right } => {
+            let left = evaluate_data_param_filter_expr(left, row, data_decl)?;
+            let right = evaluate_data_param_filter_expr(right, row, data_decl)?;
+            let left = data_param_filter_numeric_value(&left)?;
+            let right = data_param_filter_numeric_value(&right)?;
+            Some(FilterValue::Number(match op {
+                BinaryOp::Add => left + right,
+                BinaryOp::Subtract => left - right,
+                BinaryOp::Multiply => left * right,
+                BinaryOp::Divide => left / right,
+            }))
+        }
+        Expr::Comparison { op, left, right } => {
+            let left = evaluate_data_param_filter_expr(left, row, data_decl)?;
+            let right = evaluate_data_param_filter_expr(right, row, data_decl)?;
+            compare_data_param_filter_values(*op, &left, &right).map(FilterValue::Boolean)
+        }
+        Expr::Indexed { .. } | Expr::FunctionCall { .. } | Expr::Reduction(_) => None,
+    }
+}
+
+fn compare_data_param_filter_values(
+    op: ComparisonOp,
+    left: &FilterValue,
+    right: &FilterValue,
+) -> Option<bool> {
+    match op {
+        ComparisonOp::Equal | ComparisonOp::DoubleEqual => {
+            compare_data_param_filter_for_equality(left, right)
+        }
+        ComparisonOp::NotEqual => compare_data_param_filter_for_equality(left, right).map(|v| !v),
+        ComparisonOp::Less
+        | ComparisonOp::LessEqual
+        | ComparisonOp::Greater
+        | ComparisonOp::GreaterEqual => {
+            let left = data_param_filter_numeric_value(left)?;
+            let right = data_param_filter_numeric_value(right)?;
+            Some(match op {
+                ComparisonOp::Less => left < right,
+                ComparisonOp::LessEqual => left <= right,
+                ComparisonOp::Greater => left > right,
+                ComparisonOp::GreaterEqual => left >= right,
+                ComparisonOp::Equal | ComparisonOp::DoubleEqual | ComparisonOp::NotEqual => {
+                    unreachable!()
+                }
+            })
+        }
+    }
+}
+
+fn compare_data_param_filter_for_equality(left: &FilterValue, right: &FilterValue) -> Option<bool> {
+    match (left, right) {
+        (FilterValue::String(left), FilterValue::String(right)) => Some(left == right),
+        (FilterValue::Boolean(left), FilterValue::Boolean(right)) => Some(left == right),
+        _ => {
+            let left = data_param_filter_numeric_value(left)?;
+            let right = data_param_filter_numeric_value(right)?;
+            Some((left - right).abs() < f64::EPSILON)
+        }
+    }
+}
+
+fn truthy_data_param_filter_value(value: &FilterValue) -> Option<bool> {
+    match value {
+        FilterValue::Boolean(value) => Some(*value),
+        FilterValue::Number(value) => Some(*value != 0.0),
+        FilterValue::String(value) => {
+            if value.eq_ignore_ascii_case("true") {
+                Some(true)
+            } else if value.eq_ignore_ascii_case("false") {
+                Some(false)
+            } else {
+                value.parse::<f64>().ok().map(|number| number != 0.0)
+            }
+        }
+    }
+}
+
+fn data_param_filter_numeric_value(value: &FilterValue) -> Option<f64> {
+    match value {
+        FilterValue::Number(value) => Some(*value),
+        FilterValue::Boolean(value) => Some(if *value { 1.0 } else { 0.0 }),
+        FilterValue::String(value) => {
+            if value.eq_ignore_ascii_case("true") {
+                Some(1.0)
+            } else if value.eq_ignore_ascii_case("false") {
+                Some(0.0)
+            } else {
+                value.parse::<f64>().ok()
+            }
+        }
+    }
 }
 
 fn load_generic_data_table(

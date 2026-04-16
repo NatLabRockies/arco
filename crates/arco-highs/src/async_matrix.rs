@@ -78,10 +78,7 @@ impl AsyncCrsBuilder {
         self
     }
 
-    /// Build CRS matrix from model columns (blocking async wrapper)
-    ///
-    /// This is the main entry point. It spawns async work to build the matrix
-    /// and blocks on completion.
+    /// Build CRS matrix from model columns (blocking async wrapper).
     pub fn build_blocking(
         &self,
         model: &Model,

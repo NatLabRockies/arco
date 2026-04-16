@@ -29,7 +29,10 @@ pub(crate) fn lp_status_to_core(status: i32) -> CoreSolverStatus {
         XPRS_LP_INFEAS => CoreSolverStatus::Infeasible,
         XPRS_LP_UNBOUNDED => CoreSolverStatus::Unbounded,
         XPRS_LP_UNFINISHED => CoreSolverStatus::TimeLimit,
-        _ => CoreSolverStatus::Unknown,
+        unknown => {
+            tracing::debug!("Unknown Xpress LP status code: {}", unknown);
+            CoreSolverStatus::Unknown
+        }
     }
 }
 
@@ -39,7 +42,10 @@ pub(crate) fn mip_status_to_core(status: i32) -> CoreSolverStatus {
         XPRS_MIP_SOLUTION => CoreSolverStatus::TimeLimit,
         XPRS_MIP_INFEAS => CoreSolverStatus::Infeasible,
         XPRS_MIP_UNBOUNDED => CoreSolverStatus::Unbounded,
-        _ => CoreSolverStatus::Unknown,
+        unknown => {
+            tracing::debug!("Unknown Xpress MIP status code: {}", unknown);
+            CoreSolverStatus::Unknown
+        }
     }
 }
 

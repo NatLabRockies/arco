@@ -644,8 +644,18 @@ pub fn execute_problem_with_options(
                             .zip(raw.iter())
                             .map(|(k, v)| (k.as_str(), v.as_str()))
                             .collect();
-                        if !eval_filter(filter, &bindings) {
-                            return None;
+                        let filter_result = try_eval_filter(filter, &bindings);
+                        match filter_result {
+                            Some(false) => return None,
+                            None => {
+                                tracing::warn!(
+                                    "Unsupported filter expression for {}: {}. Skipping row.",
+                                    vr.control_name,
+                                    filter
+                                );
+                                return None;
+                            }
+                            Some(true) => {} // Continue processing
                         }
                     }
                     let mut record = BTreeMap::new();
@@ -979,9 +989,12 @@ fn extract_index_parts(
 }
 
 /// Evaluate a simple filter expression against index bindings.
-/// Evaluate a comparison filter against index bindings. Unsupported expression
-/// types fail closed (exclude the row) to avoid silent pass-through.
-fn eval_filter(expr: &arco_kdl::algebra::Expr, bindings: &BTreeMap<&str, &str>) -> bool {
+/// Only supports comparison expressions with identifier/string/number operands.
+/// Returns `None` for unsupported expression types to allow caller to decide handling.
+fn try_eval_filter(
+    expr: &arco_kdl::algebra::Expr,
+    bindings: &BTreeMap<&str, &str>,
+) -> Option<bool> {
     use arco_kdl::algebra::{ComparisonOp, Expr};
     match expr {
         Expr::Comparison { op, left, right } => {
@@ -989,28 +1002,28 @@ fn eval_filter(expr: &arco_kdl::algebra::Expr, bindings: &BTreeMap<&str, &str>) 
                 Expr::Identifier(name) => bindings.get(name.as_str()).copied(),
                 Expr::String(s) => Some(s.as_str()),
                 Expr::Number(n) => Some(n.as_str()),
-                _ => None,
+                _ => return None,
             };
             let rhs = match right.as_ref() {
                 Expr::Identifier(name) => bindings.get(name.as_str()).copied(),
                 Expr::String(s) => Some(s.as_str()),
                 Expr::Number(n) => Some(n.as_str()),
-                _ => None,
+                _ => return None,
             };
             match (lhs, rhs) {
-                (Some(l), Some(r)) => match op {
+                (Some(l), Some(r)) => Some(match op {
                     ComparisonOp::Equal | ComparisonOp::DoubleEqual => l == r,
                     ComparisonOp::NotEqual => l != r,
                     ComparisonOp::Less => l < r,
                     ComparisonOp::LessEqual => l <= r,
                     ComparisonOp::Greater => l > r,
                     ComparisonOp::GreaterEqual => l >= r,
-                },
-                _ => false,
+                }),
+                _ => None,
             }
         }
-        // Unsupported filter expressions fail closed
-        _ => false,
+        // Unsupported filter expressions return None instead of silently failing closed
+        _ => None,
     }
 }
 

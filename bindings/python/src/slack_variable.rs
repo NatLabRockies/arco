@@ -8,7 +8,6 @@ use crate::constraint::PyConstraint;
 
 /// A slack variable returned by `add_slack()`.
 ///
-/// Wraps the underlying slack variable IDs with cached metadata (constraint, bound, penalty, name).
 /// The `.value` property is available after solve and returns the slack amount used.
 #[pyclass(name = "SlackVariable")]
 pub struct PySlackVariable {

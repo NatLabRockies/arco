@@ -1,6 +1,7 @@
+use crate::algebra::{BinaryOp, ComparisonOp, Expr, UnaryOp};
 use crate::semantic::error::SemanticError;
 use crate::semantic::types::ResolvedSet;
-use crate::source::{LiteralValue, ModelDecl, SetDecl, SourceProgram};
+use crate::source::{DataDecl, LiteralValue, ModelDecl, SetDecl, SourceProgram};
 use csv::StringRecord;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -112,23 +113,187 @@ fn record_to_map(
 }
 
 fn values_for_data_set(
-    data_decl: &crate::source::DataDecl,
+    data_decl: &DataDecl,
     set_decl: &SetDecl,
     rows: &[BTreeMap<String, String>],
 ) -> Vec<String> {
-    let target_column = source_column_for_logical_name(data_decl, &set_decl.name);
+    let source_set_name = source_set_name_for_data_set_values(data_decl, set_decl);
+    let target_column = source_column_for_logical_name(data_decl, &source_set_name);
     let mut values = BTreeSet::new();
-
     for row in rows {
+        if !matches_data_set_filter(row, data_decl, set_decl) {
+            continue;
+        }
         if let Some(value) = row.get(&target_column) {
             values.insert(value.clone());
         }
     }
-
     values.into_iter().collect()
 }
 
-fn source_column_for_logical_name(data_decl: &crate::source::DataDecl, logical: &str) -> String {
+fn source_set_name_for_data_set_values(data_decl: &DataDecl, set_decl: &SetDecl) -> String {
+    let Some(parent_name) = set_decl.subset_of.as_deref() else {
+        return set_decl.name.clone();
+    };
+    data_decl
+        .sets
+        .iter()
+        .find(|candidate| candidate.alias.as_deref() == Some(parent_name))
+        .map_or_else(
+            || parent_name.to_string(),
+            |candidate| candidate.name.clone(),
+        )
+}
+
+fn matches_data_set_filter(
+    row: &BTreeMap<String, String>,
+    data_decl: &DataDecl,
+    set_decl: &SetDecl,
+) -> bool {
+    let Some(expr) = set_decl.parsed_filter_expression.as_ref() else {
+        return true;
+    };
+
+    evaluate_data_set_filter_expr(expr, row, data_decl)
+        .and_then(|value| truthy_data_set_filter_value(&value))
+        .unwrap_or(false)
+}
+
+#[derive(Debug, Clone)]
+enum DataSetFilterValue {
+    Number(f64),
+    String(String),
+    Boolean(bool),
+}
+
+fn evaluate_data_set_filter_expr(
+    expr: &Expr,
+    row: &BTreeMap<String, String>,
+    data_decl: &DataDecl,
+) -> Option<DataSetFilterValue> {
+    match expr {
+        Expr::Number(value) => value.parse::<f64>().ok().map(DataSetFilterValue::Number),
+        Expr::String(value) => Some(DataSetFilterValue::String(value.clone())),
+        Expr::Boolean(value) => Some(DataSetFilterValue::Boolean(*value)),
+        Expr::Identifier(name) => {
+            let source_name = source_column_for_logical_name(data_decl, name);
+            row.get(name)
+                .or_else(|| row.get(&source_name))
+                .cloned()
+                .map(DataSetFilterValue::String)
+        }
+        Expr::Unary { op, expr } => {
+            let value = evaluate_data_set_filter_expr(expr, row, data_decl)?;
+            match op {
+                UnaryOp::Negate => {
+                    data_set_filter_numeric_value(&value).map(|v| DataSetFilterValue::Number(-v))
+                }
+            }
+        }
+        Expr::Binary { op, left, right } => {
+            let left = evaluate_data_set_filter_expr(left, row, data_decl)?;
+            let right = evaluate_data_set_filter_expr(right, row, data_decl)?;
+            let left = data_set_filter_numeric_value(&left)?;
+            let right = data_set_filter_numeric_value(&right)?;
+            Some(DataSetFilterValue::Number(match op {
+                BinaryOp::Add => left + right,
+                BinaryOp::Subtract => left - right,
+                BinaryOp::Multiply => left * right,
+                BinaryOp::Divide => left / right,
+            }))
+        }
+        Expr::Comparison { op, left, right } => {
+            let left = evaluate_data_set_filter_expr(left, row, data_decl)?;
+            let right = evaluate_data_set_filter_expr(right, row, data_decl)?;
+            compare_data_set_filter_values(*op, &left, &right).map(DataSetFilterValue::Boolean)
+        }
+        Expr::Indexed { .. } | Expr::FunctionCall { .. } | Expr::Reduction(_) => None,
+    }
+}
+
+fn compare_data_set_filter_values(
+    op: ComparisonOp,
+    left: &DataSetFilterValue,
+    right: &DataSetFilterValue,
+) -> Option<bool> {
+    match op {
+        ComparisonOp::Equal | ComparisonOp::DoubleEqual => {
+            compare_data_set_filter_for_equality(left, right)
+        }
+        ComparisonOp::NotEqual => {
+            compare_data_set_filter_for_equality(left, right).map(|value| !value)
+        }
+        ComparisonOp::Less
+        | ComparisonOp::LessEqual
+        | ComparisonOp::Greater
+        | ComparisonOp::GreaterEqual => {
+            let left = data_set_filter_numeric_value(left)?;
+            let right = data_set_filter_numeric_value(right)?;
+            Some(match op {
+                ComparisonOp::Less => left < right,
+                ComparisonOp::LessEqual => left <= right,
+                ComparisonOp::Greater => left > right,
+                ComparisonOp::GreaterEqual => left >= right,
+                ComparisonOp::Equal | ComparisonOp::DoubleEqual | ComparisonOp::NotEqual => {
+                    unreachable!()
+                }
+            })
+        }
+    }
+}
+
+fn compare_data_set_filter_for_equality(
+    left: &DataSetFilterValue,
+    right: &DataSetFilterValue,
+) -> Option<bool> {
+    match (left, right) {
+        (DataSetFilterValue::String(left), DataSetFilterValue::String(right)) => {
+            Some(left == right)
+        }
+        (DataSetFilterValue::Boolean(left), DataSetFilterValue::Boolean(right)) => {
+            Some(left == right)
+        }
+        _ => {
+            let left = data_set_filter_numeric_value(left)?;
+            let right = data_set_filter_numeric_value(right)?;
+            Some((left - right).abs() < f64::EPSILON)
+        }
+    }
+}
+
+fn truthy_data_set_filter_value(value: &DataSetFilterValue) -> Option<bool> {
+    match value {
+        DataSetFilterValue::Boolean(value) => Some(*value),
+        DataSetFilterValue::Number(value) => Some(*value != 0.0),
+        DataSetFilterValue::String(value) => {
+            if value.eq_ignore_ascii_case("true") {
+                Some(true)
+            } else if value.eq_ignore_ascii_case("false") {
+                Some(false)
+            } else {
+                value.parse::<f64>().ok().map(|number| number != 0.0)
+            }
+        }
+    }
+}
+
+fn data_set_filter_numeric_value(value: &DataSetFilterValue) -> Option<f64> {
+    match value {
+        DataSetFilterValue::Number(value) => Some(*value),
+        DataSetFilterValue::Boolean(value) => Some(if *value { 1.0 } else { 0.0 }),
+        DataSetFilterValue::String(value) => {
+            if value.eq_ignore_ascii_case("true") {
+                Some(1.0)
+            } else if value.eq_ignore_ascii_case("false") {
+                Some(0.0)
+            } else {
+                value.parse::<f64>().ok()
+            }
+        }
+    }
+}
+
+fn source_column_for_logical_name(data_decl: &DataDecl, logical: &str) -> String {
     data_decl
         .maps
         .iter()

@@ -9,13 +9,6 @@ pub mod solution;
 pub mod solver;
 mod status;
 
-// Re-export bridge for backward compatibility
-#[deprecated(since = "0.2.0", note = "Use solver module directly")]
-pub mod bridge {
-    pub use crate::solution::Solution;
-    pub use crate::solver::{Solver, SolverError};
-}
-
 pub use async_matrix::{AsyncCrsBuilder, CrsMatrixResult};
 pub use ffi::{
     HighsModel, HighsModelError, HighsOption, HighsStatus, ObjectiveSense, SolutionSnapshot,

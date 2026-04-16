@@ -9,7 +9,6 @@ use crate::expr::{PyConstraintExpr, PyExpr};
 
 /// A decision variable returned by `add_variable()`.
 ///
-/// Wraps a variable ID with cached metadata (name, bounds, integrality).
 /// Participates in arithmetic to produce `Expr` objects and in
 /// comparisons to produce `ConstraintExpr` objects.
 #[pyclass(from_py_object, name = "Variable")]

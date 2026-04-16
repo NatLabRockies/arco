@@ -7,6 +7,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "justfile"
+      - "scripts/bench.py"
+      - "benchmarks/**"
       - ".github/workflows/benchmarks.yaml"
   push:
     branches:
@@ -16,6 +18,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "justfile"
+      - "scripts/bench.py"
+      - "benchmarks/**"
       - ".github/workflows/benchmarks.yaml"
   workflow_dispatch:
 
@@ -32,12 +36,16 @@ env:
   JUST_VERSION: "1.43.0"
   PYTHON_LATEST: "3.12"
   RUST_TOOLCHAIN_VERSION: "1.85"
+  # Enable sparse index for faster crate resolution
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  # Faster cargo builds
+  CARGO_INCREMENTAL: 1
 
 jobs:
   benchmark:
     name: Run benchmarks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write # Required to post benchmark summaries/comments back to the PR.
@@ -46,6 +54,15 @@ jobs:
         with:
           persist-credentials: false
 
+      # Cache 1: rmon binary (saves ~20-40s avoiding git install)
+      - name: Cache rmon binary
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: rmon-cache
+        with:
+          path: ~/.local/bin/rmon
+          key: ${{ runner.os }}-rmon-${{ hashFiles('.github/workflows/benchmarks.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-rmon-
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -53,36 +70,59 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          install-uv: "true"
           sync-python-licenses: "false"
           save-rust-cache: "false"
           rust-cache-shared-key: rust-bench
+      # Cache 3: Pre-built arco-cli binary (saves ~2-5min when Cargo.lock unchanged)
+      - name: Cache arco-cli binary
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: arco-binary-cache
+        with:
+          path: target/release/arco
+          key: ${{ runner.os }}-arco-cli-${{ hashFiles('Cargo.lock', 'crates/arco-cli/**', 'crates/arco_*/**') }}
+          restore-keys: |
+            ${{ runner.os }}-arco-cli-
 
-      - name: Run arco-bench
-        timeout-minutes: 20
+      - name: Build arco CLI
+        if: steps.arco-binary-cache.outputs.cache-hit != 'true'
+        run: cargo build --release -p arco-cli
+
+      - name: Ensure rmon is installed
         run: |
-          cargo run --release -p arco-bench -- run \
-            --scenario model-build,kdl-compile \
-            --cases 100,1000,10000,100000 \
+          if [ ! -x "$HOME/.local/bin/rmon" ]; then
+            uv tool install --force git+https://github.com/NatLabRockies/resource_monitor
+          fi
+          "$HOME/.local/bin/rmon" --version
+
+      # Ensure rmon is in PATH even if cached
+      - name: Add local bin to PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run CLI benchmarks
+        timeout-minutes: 15
+        run: |
+          python scripts/bench.py \
+            --arco-binary target/release/arco \
+            --workflows validate,run \
             --repetitions 3 \
-            --output bench-results.jsonl
+            --output artifacts/benchmark-results.json
 
-      - name: Convert results to benchmark action format
-        run: uv run scripts/convert_bench_to_github.py bench-results.jsonl
-          benchmark-results.json
-
+      # Cache 4: Benchmark data for trend analysis (already exists, but optimized key)
       - name: Restore previous benchmark data
         uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        id: benchmark-data-restore
         with:
           path: ./cache
-          key: ${{ runner.os }}-benchmark
-          restore-keys: ${{ runner.os }}-benchmark
+          key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-benchmark-main-
+            ${{ runner.os }}-benchmark-
 
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@a60cea5bc7b49e15c1f58f411161f99e0df48372 # v1.22.0
         with:
           tool: customSmallerIsBetter
-          output-file-path: benchmark-results.json
+          output-file-path: artifacts/benchmark-results.json
           external-data-json-path: ./cache/benchmark-data.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           summary-always: true
@@ -91,8 +131,8 @@ jobs:
           fail-on-alert: true
 
       - name: Save benchmark data
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.benchmark-data-restore.outputs.cache-hit != 'true'
         uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
           path: ./cache
-          key: ${{ runner.os }}-benchmark
+          key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}

@@ -93,7 +93,7 @@ model "Dispatch" {
 
 scenario "S1" {
   use "Dispatch"
-  data "unknown_param" from="data.csv"
+  data "unknown_param" source="data.csv"
 }
 "#;
 
@@ -120,7 +120,7 @@ fn semantic_validation_resolves_reports_and_registry_for_low_level_model()
     let text = r#"
 set "time" { "1"; "2" }
 
-data "generator_data" from="data/assets.csv" {
+data "generator_data" source="data/assets.csv" {
   set "asset_id"
 }
 
@@ -169,6 +169,159 @@ scenario "S1" {
     );
     assert!(semantic.set_registry.contains_key("time"));
     assert!(semantic.set_registry.contains_key("asset_id"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_applies_string_set_filters() -> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-set-filter-string")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("tech.csv"),
+        "tech\nwind\nsolar\nwind\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "tech_data" source="data/tech.csv" {
+  set "tech"
+  set "wind_tech" {
+    in "tech"
+    filter { tech == "wind" }
+  }
+}
+
+model "Dispatch" {
+  set "tech"
+
+  control "x" {
+    index "tech"
+  }
+
+  minimize "Obj" {
+    sum(x[tech] for tech in tech)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+
+    let wind_tech = semantic
+        .set_registry
+        .get("wind_tech")
+        .ok_or("missing set wind_tech")?;
+    assert_eq!(wind_tech.values, vec!["wind".to_string()]);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_applies_numeric_set_filters() -> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-set-filter-numeric")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("assets.csv"),
+        "asset_id,is_candidate\nA,1\nB,0\nC,2\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "assets_data" source="data/assets.csv" {
+  set "asset_id" alias="a"
+  set "candidate_assets" {
+    in "asset_id"
+    filter { is_candidate > 0 }
+  }
+}
+
+model "Dispatch" {
+  set "asset_id" alias="a"
+
+  control "x" {
+    index "a"
+  }
+
+  minimize "Obj" {
+    sum(x[a] for a in asset_id)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+
+    let candidate_assets = semantic
+        .set_registry
+        .get("candidate_assets")
+        .ok_or("missing set candidate_assets")?;
+    assert_eq!(
+        candidate_assets.values,
+        vec!["A".to_string(), "C".to_string()]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_applies_subset_filters_using_parent_alias_column()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-subset-filter-parent")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("assets.csv"),
+        "asset_name,zone\nA,north\nB,south\nC,north\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "assets_data" source="data/assets.csv" {
+  map "asset_id" from="asset_name"
+
+  set "asset_id" alias="a"
+  set "north_assets" {
+    in "a"
+    filter { zone == "north" }
+  }
+}
+
+model "Dispatch" {
+  set "asset_id" alias="a"
+
+  control "x" {
+    index "a"
+  }
+
+  minimize "Obj" {
+    sum(x[a] for a in asset_id)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+
+    let north_assets = semantic
+        .set_registry
+        .get("north_assets")
+        .ok_or("missing set north_assets")?;
+    assert_eq!(north_assets.values, vec!["A".to_string(), "C".to_string()]);
 
     fs::remove_dir_all(&root)?;
     Ok(())

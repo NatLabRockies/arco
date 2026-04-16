@@ -4,12 +4,10 @@ use crate::schema::{
 };
 use crate::spec::{BlockSpec, get_spec_attr, validate_spec};
 use crate::util::create_model;
-use crate::{Block, BlockContext, BlockLink, BlockRun, BuildResult};
+use crate::{Block, BlockContext, BlockLink, BlockRun, BuildResult, PyObject};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict};
-
-type PyObject = Py<PyAny>;
 
 #[pyfunction]
 #[pyo3(signature = (*, name, data_schema, outputs_schema, build, version="0.0.0"))]

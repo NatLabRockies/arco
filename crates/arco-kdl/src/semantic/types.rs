@@ -1,7 +1,90 @@
 use crate::ObjectiveSense;
 use crate::algebra::{ConstraintBody, Expr};
 use crate::source::{BoundExpr, GenerationBinding, VariableKindDecl};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt;
+use std::str::FromStr;
+
+/// Time resolution for the time horizon, using ISO 8601 duration format.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+pub enum TimeResolution {
+    /// 15 minutes (PT15M)
+    FifteenMinutes,
+    /// 30 minutes (PT30M)
+    ThirtyMinutes,
+    /// 1 hour (PT1H)
+    #[default]
+    Hourly,
+    /// 1 day (P1D)
+    Daily,
+    /// 1 week (P1W)
+    Weekly,
+    /// 1 month (P1M)
+    Monthly,
+    /// 1 year (P1Y)
+    Yearly,
+}
+
+impl TimeResolution {
+    /// Returns the duration in hours for this resolution.
+    pub fn as_hours(&self) -> f64 {
+        match self {
+            TimeResolution::FifteenMinutes => 0.25,
+            TimeResolution::ThirtyMinutes => 0.5,
+            TimeResolution::Hourly => 1.0,
+            TimeResolution::Daily => 24.0,
+            TimeResolution::Weekly => 168.0,  // 24 * 7
+            TimeResolution::Monthly => 720.0, // Approximate: 30 days
+            TimeResolution::Yearly => 8760.0, // Approximate: 365 days
+        }
+    }
+
+    /// Returns the ISO 8601 duration string representation.
+    pub fn as_iso8601(&self) -> &'static str {
+        match self {
+            TimeResolution::FifteenMinutes => "PT15M",
+            TimeResolution::ThirtyMinutes => "PT30M",
+            TimeResolution::Hourly => "PT1H",
+            TimeResolution::Daily => "P1D",
+            TimeResolution::Weekly => "P1W",
+            TimeResolution::Monthly => "P1M",
+            TimeResolution::Yearly => "P1Y",
+        }
+    }
+}
+
+impl fmt::Display for TimeResolution {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_iso8601())
+    }
+}
+
+impl FromStr for TimeResolution {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "PT15M" | "PT15m" | "15min" | "15MIN" => Ok(TimeResolution::FifteenMinutes),
+            "PT30M" | "PT30m" | "30min" | "30MIN" => Ok(TimeResolution::ThirtyMinutes),
+            "PT1H" | "PT1h" | "1h" | "1H" | "hourly" | "HOURLY" | "Hourly" => {
+                Ok(TimeResolution::Hourly)
+            }
+            "P1D" | "P1d" | "1d" | "1D" | "daily" | "DAILY" | "Daily" => Ok(TimeResolution::Daily),
+            "P1W" | "P1w" | "1w" | "1W" | "weekly" | "WEEKLY" | "Weekly" => {
+                Ok(TimeResolution::Weekly)
+            }
+            "P1M" | "P1m" | "1m" | "1M" | "monthly" | "MONTHLY" | "Monthly" => {
+                Ok(TimeResolution::Monthly)
+            }
+            "P1Y" | "P1y" | "1y" | "1Y" | "yearly" | "YEARLY" | "Yearly" | "annual" | "ANNUAL"
+            | "Annual" => Ok(TimeResolution::Yearly),
+            _ => Err(format!("Unknown time resolution: {}", s)),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FamilySignature {
@@ -79,10 +162,10 @@ pub struct ResolvedSets {
     pub time: ResolvedTimeSet,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResolvedTimeSet {
     pub steps: usize,
-    pub resolution: String,
+    pub resolution: TimeResolution,
 }
 
 #[derive(Debug, Clone, PartialEq)]

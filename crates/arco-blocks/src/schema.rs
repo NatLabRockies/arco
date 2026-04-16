@@ -1,9 +1,8 @@
+use crate::PyObject;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyType};
 use std::collections::HashSet;
-
-type PyObject = Py<PyAny>;
 
 pub(crate) fn is_pydantic_schema(py: Python<'_>, schema: &Bound<'_, PyAny>) -> PyResult<bool> {
     let Ok(schema_type) = schema.cast::<PyType>() else {

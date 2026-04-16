@@ -15,7 +15,6 @@ use crate::arrays::{
 };
 
 /// A multi-dimensional array of linear expressions.
-/// This is the result of any operation on VariableArray or ExprArray.
 #[pyclass(name = "ExprArray")]
 pub struct PyExprArray {
     pub(crate) storage: ExprArrayStorage,

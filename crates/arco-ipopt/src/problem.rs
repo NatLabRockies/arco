@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 
 /// Adapter that presents an `arco_core::Model` as an `ipopt::ConstrainedProblem`.
 ///
-/// This struct holds pre-extracted data from the model in the format IPOPT expects.
 /// For LP problems, the Jacobian is constant and the Hessian is zero (we use
 /// IPOPT's limited-memory BFGS approximation instead).
 pub struct ArcoProblem {

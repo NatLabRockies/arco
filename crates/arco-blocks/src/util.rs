@@ -1,10 +1,9 @@
+use crate::PyObject;
 use crate::error::BlockError;
 use arco_tools::capture_rss_bytes;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyType};
-
-type PyObject = Py<PyAny>;
+use pyo3::types::PyType;
 
 pub(crate) fn log_block_error(err: BlockError) -> PyErr {
     tracing::error!(

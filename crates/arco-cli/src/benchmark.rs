@@ -194,7 +194,7 @@ fn to_semantic_expectation(
                 .unwrap_or_default(),
             time: ExpectedTimeSet {
                 steps: program.sets.time.steps,
-                resolution: program.sets.time.resolution.clone(),
+                resolution: program.sets.time.resolution.to_string(),
             },
         },
         parameters: ExpectedParameters {
@@ -269,7 +269,7 @@ mod tests {
     use arco_kdl::algebra::Expr;
     use arco_kdl::semantic::{
         ResolvedChronology, ResolvedObjective, ResolvedParameters, ResolvedSet, ResolvedSets,
-        ResolvedTimeSet,
+        ResolvedTimeSet, SemanticProgram, TimeResolution,
     };
     use std::collections::BTreeMap;
 
@@ -279,7 +279,7 @@ mod tests {
             sets: ResolvedSets {
                 time: ResolvedTimeSet {
                     steps: 24,
-                    resolution: "PT1H".to_string(),
+                    resolution: TimeResolution::Hourly,
                 },
             },
             set_registry: BTreeMap::new(),
@@ -321,27 +321,6 @@ mod tests {
             BenchmarkError::MissingNode { name, .. } => assert_eq!(name, "assets"),
             other => panic!("expected MissingNode, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn semantic_expectation_accepts_legacy_lowering_rules_json_field() {
-        let text = r#"{
-            "case_id": "case-1",
-            "active_scenario": "Base",
-            "sets": {
-                "assets": ["a1"],
-                "candidate_assets": [],
-                "time": { "steps": 24, "resolution": "PT1H" }
-            },
-            "parameters": { "series": [], "indexed": [], "asset": [] },
-            "variable_families": [],
-            "chronology": {},
-            "lowering_rules": ["legacy"]
-        }"#;
-
-        let parsed: SemanticProgramExpectation =
-            serde_json::from_str(text).expect("legacy field should be ignored");
-        assert_eq!(parsed.case_id, "case-1");
     }
 
     #[test]

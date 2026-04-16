@@ -488,25 +488,6 @@ graph TB
 | `arco-highs`  | HiGHS solver integration (embedded)                     |
 | `arco-blocks` | DAG-based block composition and orchestration           |
 | `arco-tools`  | Memory instrumentation and diagnostics                  |
-| `arco-bench`  | Benchmarking framework for regression testing           |
-
-## Benchmarking
-
-Use `arco-bench` to run performance benchmarks and catch regressions:
-
-```bash
-# Run default benchmark scenarios
-just bench-run
-
-# Run with custom parameters
-just bench-run --scenario model-build,fac25 --cases 1000,10000 --repetitions 3
-
-# Generate report
-just bench-report artifacts/bench/results.jsonl
-
-# Compare and gate on regressions
-just bench-gate baseline.jsonl candidate.jsonl 5 5
-```
 
 ## Contributing
 
@@ -522,9 +503,10 @@ just clippy   # Run linter
 just check    # Type-check workspace
 
 # Testing
-just test     # Run Rust tests
+just test                         # Run Rust tests + curated CLI example smoke checks
+just test-example-formulations    # Run only curated CLI example smoke checks
+just test-example-formulations "--examples dense-lp --commands run --fail-fast"  # Debug a single workflow
 just py-test  # Run Python doctests
-
 # Full CI gate
 just ci
 ```

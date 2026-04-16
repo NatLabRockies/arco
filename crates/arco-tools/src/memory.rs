@@ -23,7 +23,7 @@ pub struct MemorySnapshot {
 pub enum MemoryError {
     /// The current process ID was not found in `sysinfo`'s process table.
     ///
-    /// This is uncommon but can happen when process metadata refresh fails.
+    /// Process metadata refresh failed
     ///
     /// `pid` is the OS process identifier that could not be resolved.
     ProcessNotFound { pid: u32 },

@@ -8,14 +8,8 @@ use std::ffi::{CStr, CString};
 use std::fmt;
 use tracing::{debug, trace, warn};
 
-/// Objective sense for optimization
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ObjectiveSense {
-    /// Minimize the objective
-    Minimize,
-    /// Maximize the objective
-    Maximize,
-}
+/// Objective sense for optimization (re-exported from arco_core).
+pub use arco_core::Sense as ObjectiveSense;
 
 /// Status of the solver
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -526,7 +520,7 @@ impl HighsModel {
         };
 
         if status != highs_sys::STATUS_OK {
-            // This is expected when simplex solver was used (barrier info not available)
+            // Simplex solver doesn't provide barrier info
             // Only log at debug level since it's not an error
             debug!(
                 component = "solver",
@@ -544,19 +538,19 @@ impl HighsModel {
         value as u64
     }
 
-    /// Get number of rows after presolve (0 if presolve disabled or not available)
-    pub fn presolved_num_rows(&self) -> u64 {
-        self.get_int_info("presolve_num_rows").unwrap_or(0)
+    /// Get number of rows after presolve (None if presolve disabled or not available)
+    pub fn presolved_num_rows(&self) -> Option<u64> {
+        self.get_int_info("presolve_num_rows")
     }
 
-    /// Get number of cols after presolve (0 if presolve disabled or not available)
-    pub fn presolved_num_cols(&self) -> u64 {
-        self.get_int_info("presolve_num_cols").unwrap_or(0)
+    /// Get number of cols after presolve (None if presolve disabled or not available)
+    pub fn presolved_num_cols(&self) -> Option<u64> {
+        self.get_int_info("presolve_num_cols")
     }
 
-    /// Get number of non-zeros after presolve
-    pub fn presolved_num_nz(&self) -> u64 {
-        self.get_int_info("presolve_num_nz").unwrap_or(0)
+    /// Get number of non-zeros after presolve (None if presolve disabled or not available)
+    pub fn presolved_num_nz(&self) -> Option<u64> {
+        self.get_int_info("presolve_num_nz")
     }
 
     /// Helper to get an integer info value
@@ -679,7 +673,10 @@ fn map_status(status: HighsModelStatus) -> HighsStatus {
         HighsModelStatus::UnboundedOrInfeasible => HighsStatus::UnboundedOrInfeasible,
         HighsModelStatus::ReachedTimeLimit => HighsStatus::ReachedTimeLimit,
         HighsModelStatus::ReachedIterationLimit => HighsStatus::ReachedIterationLimit,
-        _ => HighsStatus::Unknown,
+        unknown => {
+            tracing::debug!("Unknown HiGHS status: {:?}", unknown);
+            HighsStatus::Unknown
+        }
     }
 }
 

@@ -1,8 +1,8 @@
 //! Solver backend trait for dispatching solves through a unified interface.
 
 use arco_core::Model;
-use arco_core::solver::Solution as CoreSolution;
 use arco_expr::VariableId;
+use arco_solver_types::Solution as CoreSolution;
 
 use crate::{SolverConfig, SolverError};
 
