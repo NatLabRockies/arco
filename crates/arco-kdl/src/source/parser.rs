@@ -461,4 +461,184 @@ scenario "Base" {
         assert_eq!(parsed.program.models.len(), 1);
         assert_eq!(parsed.program.scenarios.len(), 1);
     }
+
+    #[test]
+    fn var_keyword_parses_same_as_control() {
+        let path = PathBuf::from("test.kdl");
+
+        let with_var = r#"
+model "M" {
+  var "x" lower=0 {
+    index "a"
+  }
+  minimize "Obj" { x[a] }
+}
+scenario "S" { use "M" }
+"#;
+
+        let with_control = r#"
+model "M" {
+  control "x" lower=0 {
+    index "a"
+  }
+  minimize "Obj" { x[a] }
+}
+scenario "S" { use "M" }
+"#;
+
+        let var_parsed = parse_program_text(with_var, &path).expect("var syntax parses");
+        let control_parsed =
+            parse_program_text(with_control, &path).expect("control syntax parses");
+
+        // Both should produce identical control declarations
+        assert_eq!(var_parsed.program.models.len(), 1);
+        assert_eq!(control_parsed.program.models.len(), 1);
+
+        let var_controls = &var_parsed.program.models[0].controls;
+        let control_controls = &control_parsed.program.models[0].controls;
+
+        assert_eq!(var_controls.len(), control_controls.len());
+        assert_eq!(var_controls[0].name, control_controls[0].name);
+        assert_eq!(
+            var_controls[0].indices.len(),
+            control_controls[0].indices.len()
+        );
+    }
+
+    #[test]
+    fn alias_keyword_parses_same_as_map() {
+        let path = PathBuf::from("test.kdl");
+
+        let with_alias = r#"
+data "D" source="file.csv" {
+  alias "X" column="name"
+}
+"#;
+
+        let with_map = r#"
+data "D" source="file.csv" {
+  map "X" from="name"
+}
+"#;
+
+        let alias_parsed = parse_program_text(with_alias, &path).expect("alias syntax parses");
+        let map_parsed = parse_program_text(with_map, &path).expect("map syntax parses");
+
+        assert_eq!(alias_parsed.program.data.len(), 1);
+        assert_eq!(map_parsed.program.data.len(), 1);
+
+        let alias_maps = &alias_parsed.program.data[0].maps;
+        let map_maps = &map_parsed.program.data[0].maps;
+
+        assert_eq!(alias_maps.len(), map_maps.len());
+        assert_eq!(alias_maps[0].name, map_maps[0].name);
+        assert_eq!(alias_maps[0].source, map_maps[0].source);
+    }
+
+    #[test]
+    fn data_from_property_parses_same_as_source() {
+        let path = PathBuf::from("test.kdl");
+
+        let with_source = r#"
+data "D" source="file.csv" {
+  map "X" from="name"
+}
+"#;
+
+        let with_from = r#"
+data "D" from="file.csv" {
+  map "X" from="name"
+}
+"#;
+
+        let source_parsed = parse_program_text(with_source, &path).expect("source= syntax parses");
+        let from_parsed = parse_program_text(with_from, &path).expect("from= syntax parses");
+
+        assert_eq!(source_parsed.program.data.len(), 1);
+        assert_eq!(from_parsed.program.data.len(), 1);
+        assert_eq!(
+            source_parsed.program.data[0].source,
+            from_parsed.program.data[0].source
+        );
+        assert_eq!(from_parsed.program.data[0].source, "file.csv");
+    }
+
+    #[test]
+    fn set_as_property_parses_same_as_alias() {
+        let path = PathBuf::from("test.kdl");
+
+        let with_as = r#"set "X" as="g""#;
+        let with_alias = r#"set "X" alias="g""#;
+
+        let as_parsed = parse_program_text(with_as, &path).expect("as= syntax parses");
+        let alias_parsed = parse_program_text(with_alias, &path).expect("alias= syntax parses");
+
+        assert_eq!(as_parsed.program.sets.len(), 1);
+        assert_eq!(alias_parsed.program.sets.len(), 1);
+
+        assert_eq!(
+            as_parsed.program.sets[0].alias,
+            alias_parsed.program.sets[0].alias
+        );
+        assert_eq!(as_parsed.program.sets[0].alias, Some("g".to_string()));
+    }
+
+    #[test]
+    fn where_keyword_parses_same_as_filter() {
+        let path = PathBuf::from("test.kdl");
+
+        let with_where = r#"set "thermal" { in "gen"; where { type == "thermal" } }"#;
+        let with_filter = r#"set "thermal" { in "gen"; filter { type == "thermal" } }"#;
+
+        let where_parsed = parse_program_text(with_where, &path).expect("where syntax parses");
+        let filter_parsed = parse_program_text(with_filter, &path).expect("filter syntax parses");
+
+        assert_eq!(where_parsed.program.sets.len(), 1);
+        assert_eq!(filter_parsed.program.sets.len(), 1);
+
+        assert_eq!(
+            where_parsed.program.sets[0].filter_expression,
+            filter_parsed.program.sets[0].filter_expression
+        );
+        assert!(where_parsed.program.sets[0].filter_expression.is_some());
+    }
+
+    #[test]
+    fn mixed_old_and_new_syntax_parses() {
+        let path = PathBuf::from("test.kdl");
+
+        // Mix of old (control, map, alias=, filter) and new (var, alias, as=, where)
+        let mixed = r#"
+data "D" source="file.csv" {
+  map "old_col" from="x"
+  alias "new_col" column="y"
+}
+
+set "old_set" alias="o"
+set "new_set" as="n"
+
+model "M" {
+  control "old_var" { index "a" }
+  var "new_var" { index "b" }
+  minimize "Obj" { old_var[a] + new_var[b] }
+}
+
+scenario "S" { use "M" }
+"#;
+
+        let parsed = parse_program_text(mixed, &path).expect("mixed syntax parses");
+
+        // Verify data block
+        assert_eq!(parsed.program.data.len(), 1);
+        assert_eq!(parsed.program.data[0].maps.len(), 2);
+
+        // Verify sets
+        assert_eq!(parsed.program.sets.len(), 2);
+        assert_eq!(parsed.program.sets[0].alias, Some("o".to_string()));
+        assert_eq!(parsed.program.sets[1].alias, Some("n".to_string()));
+
+        // Verify model controls (both var and control)
+        assert_eq!(parsed.program.models.len(), 1);
+        assert_eq!(parsed.program.models[0].controls.len(), 2);
+    }
 }
