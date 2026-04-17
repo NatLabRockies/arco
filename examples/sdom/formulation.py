@@ -16,6 +16,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NotRequired, TypedDict
 
 import arco
 
@@ -432,6 +433,18 @@ def solve_model(*, model: arco.Model) -> arco.Solution:
 
 
 
+class SdomPayload(TypedDict):
+    example: str
+    time_steps: int
+    wind_plants: int
+    solar_plants: int
+    storage_techs: int
+    thermal_units: int
+    solved: bool
+    status: NotRequired[str]
+    is_optimal: NotRequired[bool]
+    objective_value: NotRequired[float]
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build or solve SDOM with Arco Python bindings")
     parser.add_argument("--solve", action="store_true", help="Solve after building")
@@ -440,7 +453,7 @@ def main() -> int:
 
     data = load_data()
     model = build_model(data=data)
-    payload: dict[str, object] = {
+    payload: SdomPayload = {
         "example": "sdom",
         "time_steps": len(data.times),
         "wind_plants": len(data.wind_plants),

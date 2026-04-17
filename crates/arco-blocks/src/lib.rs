@@ -664,7 +664,7 @@ impl BlockModel {
 
         let mut runs: Vec<Py<BlockRun>> = Vec::new();
 
-        // Execute each level sequentially (blocks within a level can run in parallel)
+        // Execute levels in topological order; blocks within a level run sequentially.
         for (level_idx, level_blocks) in execution_levels.iter().enumerate() {
             tracing::debug!(
                 component = "block",
@@ -677,7 +677,6 @@ impl BlockModel {
                 level_blocks.len()
             );
 
-            // For now, execute sequentially within each level (parallel support can be added)
             for &block_idx in level_blocks {
                 let block = &self.blocks[block_idx];
                 let block_ref = block.borrow(py);

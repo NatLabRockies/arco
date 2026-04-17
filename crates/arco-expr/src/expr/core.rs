@@ -8,7 +8,6 @@
 //! User-facing API is degree-agnostic. Degree partitioning is an
 //! internal detail only exposed at the solver boundary.
 
-use crate::expr::constraint::{ComparisonSense, ConstraintExpr};
 use crate::ids::VariableId;
 use std::collections::HashMap;
 
@@ -302,49 +301,6 @@ impl Expr {
         }
         merged.into_iter().filter(|(_, c)| *c != 0.0).collect()
     }
-
-    // ── Comparison methods (produce ConstraintExpr) ─────────
-
-    /// Builds `self (sense) rhs`, moving this expression's constant to the RHS.
-    pub fn compare_scalar(&self, rhs: f64, sense: ComparisonSense) -> ConstraintExpr {
-        ConstraintExpr::new(self.without_constant(), sense, rhs - self.constant)
-    }
-
-    /// Builds `self (sense) other` as a normalized single-sided constraint.
-    pub fn compare_expr(&self, other: &Expr, sense: ComparisonSense) -> ConstraintExpr {
-        let combined = self.add(&other.scale(-1.0));
-        ConstraintExpr::new(combined.without_constant(), sense, -combined.constant)
-    }
-
-    /// Convenience wrapper for `self <= rhs`.
-    pub fn le_scalar(&self, rhs: f64) -> ConstraintExpr {
-        self.compare_scalar(rhs, ComparisonSense::LessEqual)
-    }
-
-    /// Convenience wrapper for `self >= rhs`.
-    pub fn ge_scalar(&self, rhs: f64) -> ConstraintExpr {
-        self.compare_scalar(rhs, ComparisonSense::GreaterEqual)
-    }
-
-    /// Convenience wrapper for `self == rhs`.
-    pub fn eq_scalar(&self, rhs: f64) -> ConstraintExpr {
-        self.compare_scalar(rhs, ComparisonSense::Equal)
-    }
-
-    /// Convenience wrapper for `self <= rhs_expr`.
-    pub fn le_expr(&self, rhs: &Expr) -> ConstraintExpr {
-        self.compare_expr(rhs, ComparisonSense::LessEqual)
-    }
-
-    /// Convenience wrapper for `self >= rhs_expr`.
-    pub fn ge_expr(&self, rhs: &Expr) -> ConstraintExpr {
-        self.compare_expr(rhs, ComparisonSense::GreaterEqual)
-    }
-
-    /// Convenience wrapper for `self == rhs_expr`.
-    pub fn eq_expr(&self, rhs: &Expr) -> ConstraintExpr {
-        self.compare_expr(rhs, ComparisonSense::Equal)
-    }
 }
 
 // ── Operator overloads ──────────────────────────────────────
@@ -475,8 +431,6 @@ mod tests {
         assert_eq!(stripped.constant(), 0.0);
         assert_eq!(stripped.linear_terms().len(), 1);
     }
-
-    // ── Migrated tests from the old LinearExpr ─────────────
 
     #[test]
     fn linear_terms_rejects_mixed_inputs() {

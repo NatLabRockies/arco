@@ -570,13 +570,13 @@ impl HighsModel {
 
     /// Get primal feasibility tolerance achieved
     pub fn primal_feasibility_tolerance(&self) -> f64 {
-        // Return default tolerance for now
+        // HiGHS does not expose achieved tolerances via info values.
         1e-6
     }
 
     /// Get dual feasibility tolerance achieved
     pub fn dual_feasibility_tolerance(&self) -> f64 {
-        // Return default tolerance for now
+        // Return the default tolerance value used by this wrapper.
         1e-6
     }
 

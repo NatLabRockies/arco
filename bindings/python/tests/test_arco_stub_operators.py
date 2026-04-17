@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 def _class_block(*, source: str, class_name: str) -> str:
@@ -11,6 +12,16 @@ def _class_block(*, source: str, class_name: str) -> str:
     if next_class < 0:
         return source[start:]
     return source[start : start + len(marker) + next_class]
+
+
+def _normalize_whitespace(text: str) -> str:
+    return re.sub(r"\s+", "", text)
+
+
+def _assert_signatures_present(*, block: str, expected_signatures: list[str]) -> None:
+    normalized_block = _normalize_whitespace(block)
+    for signature in expected_signatures:
+        assert _normalize_whitespace(signature) in normalized_block
 
 
 def test_expr_stub_exposes_operator_signatures() -> None:
@@ -31,8 +42,9 @@ def test_expr_stub_exposes_operator_signatures() -> None:
         "def __int__(self) -> int: ...",
         "def __index__(self) -> int: ...",
     ]
-    for signature in expected_signatures:
-        assert signature in expr_block
+    _assert_signatures_present(
+        block=expr_block, expected_signatures=expected_signatures
+    )
 
 
 def test_variable_stub_exposes_operator_signatures() -> None:
@@ -53,5 +65,34 @@ def test_variable_stub_exposes_operator_signatures() -> None:
         "def __int__(self) -> int: ...",
         "def __index__(self) -> int: ...",
     ]
-    for signature in expected_signatures:
-        assert signature in variable_block
+    _assert_signatures_present(
+        block=variable_block, expected_signatures=expected_signatures
+    )
+
+
+def test_variable_array_stub_exposes_operator_signatures() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    variable_array_block = _class_block(source=source, class_name="VariableArray")
+    expected_signatures = [
+        "def __sub__(self, other: VariableArray | ExprArray | float | Sequence[float]) -> ExprArray: ...",
+        "def __ge__(",
+        "def __len__(self) -> int: ...",
+        "def __getitem__(self, index: int | slice | tuple[object, object] | object) -> Variable | VariableArray: ...",
+    ]
+    _assert_signatures_present(
+        block=variable_array_block, expected_signatures=expected_signatures
+    )
+
+
+def test_expr_array_stub_exposes_operator_signatures() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    expr_array_block = _class_block(source=source, class_name="ExprArray")
+    expected_signatures = [
+        "def __add__(self, other: VariableArray | ExprArray | float | Sequence[float]) -> ExprArray: ...",
+        "def __le__(",
+        "def __len__(self) -> int: ...",
+        "def __getitem__(self, index: int | slice | tuple[object, object] | object) -> Expr | ExprArray: ...",
+    ]
+    _assert_signatures_present(
+        block=expr_array_block, expected_signatures=expected_signatures
+    )

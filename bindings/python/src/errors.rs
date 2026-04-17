@@ -105,8 +105,6 @@ pyo3::create_exception!(
 // CSC errors
 pyo3::create_exception!(arco, CscInvalidDataError, ArcoError, "CSC data is invalid.");
 
-// ── New structured exceptions (replacing ARCO_* inline codes) ─────────
-
 // Expression errors
 pyo3::create_exception!(
     arco,

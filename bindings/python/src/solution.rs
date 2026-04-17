@@ -185,7 +185,7 @@ impl PySolveResult {
         Ok(slack)
     }
 
-    // ── Legacy API (kept for backward compatibility) ─────────────────
+    // Backward-compatible accessors retained for existing Python callers.
 
     /// Get primal values as a list.
     #[getter]
@@ -348,8 +348,6 @@ impl PySolveResult {
     }
 }
 
-// ── solution_summary formatting helpers ──────────────────────────────
-
 fn format_solve_time(seconds: f64) -> String {
     if seconds < 1.0 {
         format!("{:.2}ms", seconds * 1000.0)
@@ -375,7 +373,10 @@ fn format_sci(val: f64) -> String {
     if let Some(pos) = s.rfind('e') {
         let mantissa = &s[..pos];
         let exp_str = &s[pos + 1..];
-        let exp: i32 = exp_str.parse().unwrap_or(0);
+        let exp = match exp_str.parse::<i32>() {
+            Ok(exp) => exp,
+            Err(_) => return s,
+        };
         format!("{}e{:+03}", mantissa, exp)
     } else {
         s

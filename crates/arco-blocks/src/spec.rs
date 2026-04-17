@@ -2,7 +2,7 @@ use crate::BlockContext;
 use crate::PyObject;
 use crate::schema::{is_dataclass_schema, is_pydantic_schema, validate_data};
 use crate::util::create_model;
-use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::{PyAttributeError, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyDict, PyString};
 
@@ -112,6 +112,28 @@ pub(crate) fn get_spec_attr<'py>(
     spec.getattr(name)
 }
 
+pub(crate) fn spec_version_or_default(spec: &Bound<'_, PyAny>) -> PyResult<String> {
+    match spec.getattr("version") {
+        Ok(value) => value.extract::<String>().map_err(|_| {
+            let msg = "ARCO_BLOCK_502: BlockSpec 'version' attribute must be str";
+            tracing::error!(
+                component = "block",
+                operation = "spec_version",
+                status = "error",
+                "{msg}"
+            );
+            PyRuntimeError::new_err(msg)
+        }),
+        Err(error) => {
+            if error.is_instance_of::<PyAttributeError>(spec.py()) {
+                Ok("0.0.0".to_string())
+            } else {
+                Err(error)
+            }
+        }
+    }
+}
+
 #[pyclass]
 struct SpecBuilder {
     spec: Py<PyAny>,
@@ -133,11 +155,7 @@ impl SpecBuilder {
             .attachments
             .bind(py)
             .set_item("_spec_name", get_spec_attr(spec, "name")?.unbind())?;
-        let spec_version = spec
-            .getattr("version")
-            .ok()
-            .and_then(|value| value.extract::<String>().ok())
-            .unwrap_or_else(|| "0.0.0".to_string());
+        let spec_version = spec_version_or_default(spec)?;
         ctx_ref.attachments.bind(py).set_item(
             "_spec_version",
             PyString::new(py, &spec_version).into_any().unbind(),
@@ -208,4 +226,52 @@ pub(crate) fn make_spec_builder(
 
 pub(crate) fn make_spec_extractor(py: Python<'_>, spec: Py<PyAny>) -> PyResult<PyObject> {
     Ok(Py::new(py, SpecExtractor { spec })?.into_any())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::spec::spec_version_or_default;
+    use pyo3::prelude::*;
+
+    #[test]
+    fn spec_version_defaults_to_zero_when_attribute_missing() {
+        Python::initialize();
+        Python::attach(|py| {
+            let types = PyModule::import(py, "types").expect("types module should import");
+            let namespace = types
+                .getattr("SimpleNamespace")
+                .expect("SimpleNamespace should exist")
+                .call0()
+                .expect("SimpleNamespace() should construct");
+
+            let version = spec_version_or_default(&namespace)
+                .expect("missing version should default to 0.0.0");
+            assert_eq!(version, "0.0.0");
+        });
+    }
+
+    #[test]
+    fn spec_version_rejects_non_string_values() {
+        Python::initialize();
+        Python::attach(|py| {
+            let types = PyModule::import(py, "types").expect("types module should import");
+            let namespace = types
+                .getattr("SimpleNamespace")
+                .expect("SimpleNamespace should exist")
+                .call0()
+                .expect("SimpleNamespace() should construct");
+            namespace
+                .setattr("version", 7_i32)
+                .expect("setting version should succeed");
+
+            let error = spec_version_or_default(&namespace)
+                .expect_err("non-string version should fail fast");
+            assert!(
+                error
+                    .to_string()
+                    .contains("BlockSpec 'version' attribute must be str"),
+                "unexpected error: {error}"
+            );
+        });
+    }
 }

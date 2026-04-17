@@ -13,9 +13,19 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Sequence
-from typing import Any, Callable
+from typing import NotRequired, TypedDict, Callable
 
 import arco
+
+
+
+class DenseLpPayload(TypedDict):
+    example: str
+    n: int
+    solved: bool
+    status: NotRequired[str]
+    is_optimal: NotRequired[bool]
+    objective_value: NotRequired[float]
 
 
 def _positive_int(value: str) -> int:
@@ -65,12 +75,10 @@ def build_model(
 
     x = model.add_variables(row, col, bounds=bounds, name="x")
     y = model.add_variables(row, col, bounds=bounds, name="y")
-    x_view: Any = x
-    y_view: Any = y
 
-    model.add_constraints(x_view - y_view >= row, name="difference_floor")
-    model.add_constraints(x_view + y_view >= 0.0, name="balance_floor")
-    model.minimize((2 * x_view + y_view).sum())
+    model.add_constraints(x - y >= row, name="difference_floor")
+    model.add_constraints(x + y >= 0.0, name="balance_floor")
+    model.minimize((2 * x + y).sum())
     return model
 
 
@@ -107,7 +115,7 @@ def main() -> int:
     args = parser.parse_args()
     model, solve = create_session(n=args.n)
     solution: arco.SolveResult | None = None
-    payload: dict[str, object] = {
+    payload: DenseLpPayload = {
         "example": "dense-lp",
         "n": args.n,
         "solved": False,

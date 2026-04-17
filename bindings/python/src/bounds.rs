@@ -165,13 +165,6 @@ impl PyBounds {
     }
 }
 
-// ── Bound type enum ────────────────────────────────────────────────────
-//
-// Enum-based bound constants for a cleaner API:
-//   arco.NonNegativeFloat  (no parentheses needed)
-//
-// Each variant represents a common bound pattern used in optimization.
-
 /// Enum of common bound types for decision variables.
 ///
 /// Use these directly without parentheses:

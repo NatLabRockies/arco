@@ -41,9 +41,7 @@ impl PyBlockPorts {
     }
 
     fn __dir__(&self) -> Vec<String> {
-        let mut keys = self.keys.iter().cloned().collect::<Vec<_>>();
-        keys.sort();
-        keys
+        self.keys()
     }
 
     fn keys(&self) -> Vec<String> {
@@ -675,6 +673,42 @@ fn typed_block_meta_from_decorated(
     })
 }
 
+struct CallableSignature {
+    signature: PyObject,
+    empty: PyObject,
+    var_positional: PyObject,
+    var_keyword: PyObject,
+    keyword_only: PyObject,
+    params: Vec<PyObject>,
+}
+
+fn inspect_callable_signature(
+    py: Python<'_>,
+    callable: &Bound<'_, PyAny>,
+) -> PyResult<CallableSignature> {
+    let inspect = PyModule::import(py, "inspect")?;
+    let signature = inspect.getattr("signature")?.call1((callable,))?;
+    let empty = inspect.getattr("_empty")?;
+    let parameter = inspect.getattr("Parameter")?;
+    let var_positional = parameter.getattr("VAR_POSITIONAL")?;
+    let var_keyword = parameter.getattr("VAR_KEYWORD")?;
+    let keyword_only = parameter.getattr("KEYWORD_ONLY")?;
+
+    let mut params = Vec::new();
+    let parameter_values = signature.getattr("parameters")?.call_method0("values")?;
+    for param in parameter_values.try_iter()? {
+        params.push(param?.unbind());
+    }
+
+    Ok(CallableSignature {
+        signature: signature.unbind(),
+        empty: empty.unbind(),
+        var_positional: var_positional.unbind(),
+        var_keyword: var_keyword.unbind(),
+        keyword_only: keyword_only.unbind(),
+        params,
+    })
+}
 fn typed_block_meta_from_function(
     py: Python<'_>,
     func: &Bound<'_, PyAny>,
@@ -683,35 +717,24 @@ fn typed_block_meta_from_function(
     if !func.is_callable() {
         return Err(PyTypeError::new_err("block: expected a callable"));
     }
-    let inspect = PyModule::import(py, "inspect")?;
-    let signature = inspect.getattr("signature")?.call1((func,))?;
-    let empty = inspect.getattr("_empty")?;
-    let parameter = inspect.getattr("Parameter")?;
-    let var_positional = parameter.getattr("VAR_POSITIONAL")?;
-    let var_keyword = parameter.getattr("VAR_KEYWORD")?;
-    let keyword_only = parameter.getattr("KEYWORD_ONLY")?;
-
-    let mut params: Vec<PyObject> = Vec::new();
-    let parameter_values = signature.getattr("parameters")?.call_method0("values")?;
-    for param in parameter_values.try_iter()? {
-        params.push(param?.unbind());
-    }
+    let inspected = inspect_callable_signature(py, func)?;
+    let params = &inspected.params;
     if params.len() != 2 && params.len() != 3 {
         return Err(PyTypeError::new_err(
             "block: expected signature (model, data) or (model, data, ctx)",
         ));
     }
-    for param in &params {
+    for param in params {
         let kind = param.bind(py).getattr("kind")?;
-        if kind.eq(&var_positional)? || kind.eq(&var_keyword)? {
+        if kind.eq(inspected.var_positional.bind(py))? || kind.eq(inspected.var_keyword.bind(py))? {
             return Err(PyTypeError::new_err(
                 "block: variadic *args/**kwargs are not supported",
             ));
         }
     }
-    for param in &params {
+    for param in params {
         let kind = param.bind(py).getattr("kind")?;
-        if kind.eq(&keyword_only)? {
+        if kind.eq(inspected.keyword_only.bind(py))? {
             return Err(PyTypeError::new_err(
                 "block: keyword-only parameters are not supported",
             ));
@@ -719,7 +742,7 @@ fn typed_block_meta_from_function(
     }
 
     let input_schema = params[1].bind(py).getattr("annotation")?;
-    if input_schema.is(&empty) {
+    if input_schema.is(inspected.empty.bind(py)) {
         return Err(PyTypeError::new_err(
             "block: data parameter must include a schema annotation",
         ));
@@ -752,27 +775,19 @@ fn typed_extract_meta_from_function(
             "add_block: extract for block '{block_name}' must be callable"
         )));
     }
-    let inspect = PyModule::import(py, "inspect")?;
-    let signature = inspect.getattr("signature")?.call1((extract,))?;
-    let empty = inspect.getattr("_empty")?;
-    let parameter = inspect.getattr("Parameter")?;
-    let var_positional = parameter.getattr("VAR_POSITIONAL")?;
-    let var_keyword = parameter.getattr("VAR_KEYWORD")?;
-    let keyword_only = parameter.getattr("KEYWORD_ONLY")?;
-
-    let mut params: Vec<PyObject> = Vec::new();
-    let parameter_values = signature.getattr("parameters")?.call_method0("values")?;
-    for param in parameter_values.try_iter()? {
-        params.push(param?.unbind());
-    }
+    let inspected = inspect_callable_signature(py, extract)?;
+    let params = &inspected.params;
     if params.len() != 2 && params.len() != 3 {
         return Err(PyTypeError::new_err(format!(
             "add_block: extract for block '{block_name}' must use (solution, data) or (solution, data, ctx)"
         )));
     }
-    for param in &params {
+    for param in params {
         let kind = param.bind(py).getattr("kind")?;
-        if kind.eq(&var_positional)? || kind.eq(&var_keyword)? || kind.eq(&keyword_only)? {
+        if kind.eq(inspected.var_positional.bind(py))?
+            || kind.eq(inspected.var_keyword.bind(py))?
+            || kind.eq(inspected.keyword_only.bind(py))?
+        {
             return Err(PyTypeError::new_err(format!(
                 "add_block: extract for block '{block_name}' cannot use variadic or keyword-only parameters"
             )));
@@ -780,7 +795,7 @@ fn typed_extract_meta_from_function(
     }
 
     let input_annotation = params[1].bind(py).getattr("annotation")?;
-    if input_annotation.is(&empty) {
+    if input_annotation.is(inspected.empty.bind(py)) {
         return Err(PyTypeError::new_err(format!(
             "add_block: extract for block '{block_name}' must annotate the data parameter"
         )));
@@ -791,8 +806,8 @@ fn typed_extract_meta_from_function(
         )));
     }
 
-    let output_schema = signature.getattr("return_annotation")?;
-    if output_schema.is(&empty) {
+    let output_schema = inspected.signature.bind(py).getattr("return_annotation")?;
+    if output_schema.is(inspected.empty.bind(py)) {
         return Err(PyTypeError::new_err(format!(
             "add_block: extract for block '{block_name}' must annotate its return type"
         )));

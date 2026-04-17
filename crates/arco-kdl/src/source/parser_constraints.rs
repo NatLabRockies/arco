@@ -4,7 +4,7 @@ use crate::source::error::SourceError;
 use crate::source::parser_helpers::{
     ParseContext, algebra_error, algebra_text_from_node, missing_node_error,
     optional_property_string, parse_constraint_formula_decl, parse_constraint_index_binding,
-    property_string,
+    property_string, unsupported_declaration_error,
 };
 use kdl::{KdlNode, KdlValue};
 
@@ -35,12 +35,7 @@ pub(super) fn parse_constraints(
                 }
                 "slack" => {}
                 other => {
-                    return Err(SourceError::UnsupportedDeclaration {
-                        name: other.to_string(),
-                        path: context.path.to_path_buf(),
-                        source_text: Box::new(context.source_text.clone()),
-                        span: grandchild.span(),
-                    });
+                    return Err(unsupported_declaration_error(grandchild, other, context));
                 }
             }
         }

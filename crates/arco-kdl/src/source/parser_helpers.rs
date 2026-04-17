@@ -313,6 +313,19 @@ pub(super) fn invalid_value_error(
     }
 }
 
+pub(super) fn unsupported_declaration_error(
+    node: &KdlNode,
+    name: &str,
+    context: &ParseContext<'_>,
+) -> SourceError {
+    SourceError::UnsupportedDeclaration {
+        name: name.to_string(),
+        path: context.path.to_path_buf(),
+        source_text: Box::new(context.source_text.clone()),
+        span: node.span(),
+    }
+}
+
 pub(super) fn algebra_error(
     node: &KdlNode,
     reason: String,

@@ -799,28 +799,16 @@ impl PyModel {
         name: Option<String>,
     ) -> PyResult<PySlackVariable> {
         let parsed_bound = parse_slack_bound(&bound)?;
-        let constraint_id = extract_constraint_id(constraint)?;
-
+        let py_constraint = extract_constraint(constraint)?;
+        let constraint_id = {
+            let constraint_ref = py_constraint.bind(constraint.py()).borrow();
+            ConstraintId::new(constraint_ref.constraint_id)
+        };
         let handle = slf
             .borrow_mut()
             .inner
             .add_slack(constraint_id, parsed_bound, penalty, name.clone())
             .map_err(errors::model_error_to_py)?;
-
-        // Get the PyConstraint reference for identity preservation
-        let py_constraint: Py<PyConstraint> =
-            if let Ok(con) = constraint.extract::<Py<PyConstraint>>() {
-                con
-            } else {
-                // Fallback: create a new PyConstraint if a raw u32 was passed
-                let con = PyConstraint::new(
-                    constraint_id.inner(),
-                    None,
-                    Bounds::new(f64::NEG_INFINITY, f64::INFINITY),
-                );
-                Py::new(constraint.py(), con)?
-            };
-
         let model_obj: PyObject = slf.clone().unbind().into_any();
 
         Ok(PySlackVariable::new(
@@ -868,25 +856,16 @@ impl PyModel {
 
         let mut results = Vec::with_capacity(constraint_list.len());
         for (con_any, pen) in constraint_list.iter().zip(penalties.iter()) {
-            let constraint_id = extract_constraint_id(con_any)?;
-
+            let py_constraint = extract_constraint(con_any)?;
+            let constraint_id = {
+                let constraint_ref = py_constraint.bind(py).borrow();
+                ConstraintId::new(constraint_ref.constraint_id)
+            };
             let handle = slf
                 .borrow_mut()
                 .inner
                 .add_slack(constraint_id, parsed_bound, *pen, name.clone())
                 .map_err(errors::model_error_to_py)?;
-
-            let py_constraint: Py<PyConstraint> =
-                if let Ok(con) = con_any.extract::<Py<PyConstraint>>() {
-                    con
-                } else {
-                    let con = PyConstraint::new(
-                        constraint_id.inner(),
-                        None,
-                        Bounds::new(f64::NEG_INFINITY, f64::INFINITY),
-                    );
-                    Py::new(py, con)?
-                };
 
             results.push(PySlackVariable::new(
                 py_constraint,
@@ -1579,17 +1558,16 @@ fn resolve_backend(
     Ok(Box::new(arco_highs::HiGHSBackend))
 }
 
-/// Extract a `ConstraintId` from a Python object that may be a `PyConstraint` or `u32`.
+/// Extract a `PyConstraint` from a Python object.
+fn extract_constraint(ob: &Bound<'_, PyAny>) -> PyResult<Py<PyConstraint>> {
+    ob.extract::<Py<PyConstraint>>()
+        .map_err(|_| errors::ConstraintTypeError::new_err("expected a Constraint"))
+}
+/// Extract a `ConstraintId` from a `PyConstraint`.
 fn extract_constraint_id(ob: &Bound<'_, PyAny>) -> PyResult<ConstraintId> {
-    if let Ok(con) = ob.extract::<PyRef<'_, PyConstraint>>() {
-        return Ok(ConstraintId::new(con.constraint_id));
-    }
-    if let Ok(id) = ob.extract::<u32>() {
-        return Ok(ConstraintId::new(id));
-    }
-    Err(errors::ConstraintTypeError::new_err(
-        "expected a Constraint or integer constraint ID",
-    ))
+    let constraint = extract_constraint(ob)?;
+    let constraint_ref = constraint.bind(ob.py()).borrow();
+    Ok(ConstraintId::new(constraint_ref.constraint_id))
 }
 
 /// Extract a `Vec<Py<PyIndexSet>>` from the positional `*index_sets` tuple.
