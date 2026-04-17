@@ -8,6 +8,7 @@ pub(super) fn normalize_surface_syntax(text: &str) -> String {
         "upper",
         "if",
         "filter",
+        "where",
     ];
     let mut normalized = String::with_capacity(text.len());
     let bytes = text.as_bytes();
@@ -118,7 +119,7 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
         "constraint" => format!("{header} expression={encoded_body}"),
         "expression" => format!("{header} {{ formula {encoded_body} }}"),
         "minimize" | "maximize" => format!("{header} expression={encoded_body}"),
-        "lower" | "upper" | "if" | "filter" => {
+        "lower" | "upper" | "if" | "filter" | "where" => {
             format!("{header} expression={encoded_body}")
         }
         _ => return None,

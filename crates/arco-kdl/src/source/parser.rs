@@ -82,7 +82,7 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
         match child.name().value() {
             "set" => sets.push(parse_set(child, context)?),
             "param" => parameters.push(parse_param(child, context)?),
-            "control" => controls.push(parse_control(child, context)?),
+            "control" | "var" => controls.push(parse_control(child, context)?),
             "expression" => expressions.push(parse_expression(child, context)?),
             "constraint" => {}
             "minimize" => {
@@ -135,6 +135,10 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
                 name: first_arg_string(child, 0, context)?,
                 source: optional_property_string(child, "from", context)?,
             }),
+            "alias" => maps.push(crate::source::MapDecl {
+                name: first_arg_string(child, 0, context)?,
+                source: optional_property_string(child, "column", context)?,
+            }),
             "set" => sets.push(parse_set(child, context)?),
             "index" => {
                 let mut columns = Vec::new();
@@ -161,7 +165,15 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
 
     Ok(DataDecl {
         name: first_arg_string(node, 0, context)?,
-        source: property_string(node, "source", context)?,
+        source: optional_property_string(node, "source", context)?
+            .or(optional_property_string(node, "from", context)?)
+            .ok_or_else(|| SourceError::MissingProperty {
+                node: node.name().value().to_string(),
+                property: "source",
+                path: context.path.to_path_buf(),
+                source_text: Box::new(context.source_text.clone()),
+                span: node.span(),
+            })?,
         maps,
         sets,
         indices,
@@ -232,7 +244,7 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
     for child in node.iter_children() {
         match child.name().value() {
             "in" => subset_of = Some(first_arg_string(child, 0, context)?),
-            "filter" => {
+            "filter" | "where" => {
                 filter_expression = Some(algebra_text_from_node(child, context)?);
             }
             member => {
@@ -253,7 +265,8 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
     Ok(SetDecl {
         name: first_arg_string(node, 0, context)?,
         alias: node
-            .get("alias")
+            .get("as")
+            .or_else(|| node.get("alias"))
             .and_then(KdlValue::as_string)
             .map(ToString::to_string),
         subset_of,
