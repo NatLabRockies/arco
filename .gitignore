@@ -592,3 +592,10 @@ benchmarks/output/
 !examples/simple-electricity-market-storage/data/*.csv
 !examples/dense-lp/data/*.csv
 .plans/
+
+# Local generated docs and parser artifacts
+docs/reference/rfds/
+stats-output/
+tools/tree-sitter-arco-kdl/binding.gyp
+tools/tree-sitter-arco-kdl/bindings/
+tools/tree-sitter-arco-kdl/src/vendor/

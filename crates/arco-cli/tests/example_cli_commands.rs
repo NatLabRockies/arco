@@ -1,5 +1,9 @@
 use std::path::PathBuf;
 use std::process::Command;
+use std::{
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde_json::Value;
 
@@ -14,6 +18,14 @@ fn run_cli(args: &[&str]) -> std::process::Output {
         .args(args)
         .output()
         .expect("failed to execute arco binary")
+}
+
+fn unique_temp_dir(prefix: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_nanos();
+    std::env::temp_dir().join(format!("arco-cli-{prefix}-{}-{nanos}", std::process::id()))
 }
 
 #[test]
@@ -167,4 +179,66 @@ fn inspect_json_parameters_have_dtype() {
         assert!(param.get("kind").is_some());
         assert!(param.get("dtype").is_some());
     }
+}
+
+#[test]
+fn validate_surfaces_empty_filtered_subset_warning() {
+    let root = unique_temp_dir("validate-empty-filtered-subset");
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).expect("create temp data dir");
+    fs::write(data_dir.join("assets.csv"), "asset\nA\nB\n").expect("write csv");
+
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r#"
+data "assets_data" source="data/assets.csv" {
+  set "asset"
+  set "missing_assets" {
+    in "asset"
+    filter { asset == "missing" }
+  }
+}
+
+model "Dispatch" {
+  set "asset"
+
+  control "x" {
+    index "asset"
+  }
+
+  minimize "Obj" {
+    sum(x[asset] for asset in asset)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#,
+    )
+    .expect("write model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["validate", model]);
+
+    assert!(
+        output.status.success(),
+        "command failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Validated file://"));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("filtered subset resolved empty"),
+        "expected filtered-subset warning in stderr, got:\n{stderr}"
+    );
+
+    let _ = fs::remove_dir_all(root);
 }

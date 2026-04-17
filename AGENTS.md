@@ -22,6 +22,7 @@ is a README-level guide, not full system documentation.
 - Never revert or overwrite work you did not author.
 - If a command hangs for more than 5 minutes, stop, capture context, and report.
 - Use `just` targets when available for build, lint, and test workflows.
+- Before pushing, run the relevant CI-equivalent checks locally for changed areas (for example, clippy/tests/docs) to catch failures early.
 
 ## Engineering Workflow
 
@@ -32,6 +33,8 @@ Use red-green-refactor for all non-trivial changes:
 3. Refactor: simplify while preserving behavior and keeping tests green.
 
 Additional expectations:
+
+- For every new development task, create and work from a branch under `.worktrees/` unless explicitly directed otherwise.
 
 - Start from first principles, not bandaids.
 - No breadcrumbs. If you delete or move code, do not leave a comment in the old

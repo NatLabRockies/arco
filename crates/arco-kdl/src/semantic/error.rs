@@ -121,4 +121,21 @@ pub enum SemanticError {
         name: String,
         path: PathBuf,
     },
+
+    #[error(
+        "unresolved filter identifier `{identifier}` in {declaration_kind} `{declaration}` from data `{data}` in {path}"
+    )]
+    #[diagnostic(
+        code(arco::semantic::unresolved_filter_identifier),
+        help(
+            "if token is categorical value, quote it in filter, e.g. `filter {{ tech == \"wind\" }}`"
+        )
+    )]
+    UnresolvedFilterIdentifier {
+        identifier: String,
+        declaration_kind: &'static str,
+        declaration: String,
+        data: String,
+        path: PathBuf,
+    },
 }
