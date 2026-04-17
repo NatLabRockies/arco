@@ -9,7 +9,7 @@ use crate::error::BlockError;
 /// The graph stores dependencies by block index, where each index maps back to
 /// the position in the `block_names` slice used to construct it.
 #[derive(Debug, Clone)]
-pub struct BlockDag {
+pub(crate) struct BlockDag {
     /// For each block index, which blocks it depends on.
     dependencies: Vec<Vec<usize>>,
 }
@@ -23,7 +23,7 @@ impl BlockDag {
     /// Returns [`BlockError::DuplicateBlock`] when `block_names` contains the
     /// same name more than once, or [`BlockError::BlockNotFound`] when a link
     /// references a block missing from `block_names`.
-    pub fn from_links(
+    pub(crate) fn from_links(
         block_names: &[String],
         links: &[(String, String)],
     ) -> Result<Self, BlockError> {
@@ -56,7 +56,7 @@ impl BlockDag {
     ///
     /// Validates the graph is acyclic before returning levels. When a cycle is
     /// present, returns [`BlockError::CycleDetected`].
-    pub fn execution_levels(&self) -> Result<Vec<Vec<usize>>, BlockError> {
+    pub(crate) fn execution_levels(&self) -> Result<Vec<Vec<usize>>, BlockError> {
         let num_blocks = self.dependencies.len();
         let mut indegree = self
             .dependencies

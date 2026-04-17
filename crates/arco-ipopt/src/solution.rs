@@ -4,8 +4,8 @@ use crate::problem::ArcoProblem;
 use crate::status::{
     ipopt_has_solution, ipopt_status_string, ipopt_to_core_status, ipopt_to_generic_status,
 };
-use arco_core::solver::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use arco_solver::{SolutionView, SolverStatus};
+use arco_solver_types::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use ipopt::SolveStatus;
 use std::collections::BTreeMap;
 

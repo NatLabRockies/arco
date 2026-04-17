@@ -1,4 +1,4 @@
-use crate::algebra::parser::ParseError;
+use crate::algebra::error::ParseError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum TokenKind {

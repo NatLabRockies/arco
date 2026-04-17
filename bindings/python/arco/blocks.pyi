@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Callable, TypeVar
+from typing import Callable, TypeAlias, TypeVar
 
-_BlockFnT = TypeVar("_BlockFnT", bound=Callable[..., Any])
+from .arco import Model, ModelSnapshot, SolveResult, Solver
+
+_BlockFnT = TypeVar("_BlockFnT", bound=Callable[..., object])
+SchemaType: TypeAlias = type[object]
 
 class DropPolicy(Enum):
     DROP_ALL: DropPolicy
@@ -11,24 +14,24 @@ class DropPolicy(Enum):
     KEEP_MODEL: DropPolicy
 
 class BlockContext:
-    def __init__(self, *, inputs: dict[str, Any]) -> None: ...
+    def __init__(self, *, inputs: dict[str, object]) -> None: ...
     @property
-    def inputs(self) -> dict[str, Any]: ...
+    def inputs(self) -> dict[str, object]: ...
     @property
-    def attachments(self) -> dict[str, Any]: ...
-    def attach(self, key: str, value: Any) -> None: ...
+    def attachments(self) -> dict[str, object]: ...
+    def attach(self, key: str, value: object) -> None: ...
 
 class Transform:
-    def __init__(self, steps: list[Any] | None = None) -> None: ...
+    def __init__(self, steps: list[object] | None = None) -> None: ...
     def __or__(self, other: Transform) -> Transform: ...
-    def apply(self, values: Any) -> Any: ...
+    def apply(self, values: object) -> object: ...
     def clone_with_py(self) -> Transform: ...
     @staticmethod
     def identity() -> Transform: ...
     @staticmethod
-    def scale(factor: Any) -> Transform: ...
+    def scale(factor: object) -> Transform: ...
     @staticmethod
-    def offset(delta: Any) -> Transform: ...
+    def offset(delta: object) -> Transform: ...
     @staticmethod
     def shift(periods: int) -> Transform: ...
     @staticmethod
@@ -38,7 +41,7 @@ class Transform:
 
 class BlockSpec:
     def __init__(self) -> None: ...
-    def build(self, model: Any, *, data: Any, ctx: Any) -> Any: ...
+    def build(self, model: Model, *, data: object, ctx: BlockContext) -> object: ...
 
 class BlockPort:
     @property
@@ -70,13 +73,13 @@ class BlockRun:
     @property
     def name(self) -> str: ...
     @property
-    def model(self) -> Any | None: ...
+    def model(self) -> Model | None: ...
     @property
-    def solution(self) -> Any | None: ...
+    def solution(self) -> SolveResult | None: ...
     @property
-    def outputs(self) -> dict[str, Any]: ...
+    def outputs(self) -> dict[str, object]: ...
     @property
-    def attachments(self) -> dict[str, Any]: ...
+    def attachments(self) -> dict[str, object]: ...
     @property
     def diagnostics(self) -> BlockDiagnostics: ...
     def inspect(
@@ -86,13 +89,13 @@ class BlockRun:
         include_slacks: bool = True,
         variable_ids: list[int] | None = None,
         constraint_ids: list[int] | None = None,
-    ) -> Any | None: ...
+    ) -> ModelSnapshot | None: ...
 
 class BuildResult:
     @property
-    def model(self) -> Any: ...
+    def model(self) -> Model: ...
     @property
-    def outputs(self) -> Any: ...
+    def outputs(self) -> object: ...
     @property
     def spec_name(self) -> str: ...
     @property
@@ -101,12 +104,12 @@ class BuildResult:
 class Block:
     def __init__(
         self,
-        build: Any,
+        build: Callable[[BlockContext], Model],
         *,
         name: str,
-        inputs: dict[str, Any] | None = None,
-        outputs: dict[str, Any] | None = None,
-        extract: Any | None = None,
+        inputs: dict[str, object] | None = None,
+        outputs: dict[str, object] | None = None,
+        extract: Callable[..., object] | None = None,
         cache_scaffolding: bool = False,
         warm_start: bool = False,
         drop_policy: DropPolicy = ...,
@@ -114,9 +117,9 @@ class Block:
     @property
     def name(self) -> str: ...
     @property
-    def inputs(self) -> dict[str, Any]: ...
+    def inputs(self) -> dict[str, object]: ...
     @property
-    def outputs(self) -> dict[str, Any]: ...
+    def outputs(self) -> dict[str, object]: ...
     @property
     def cache_scaffolding(self) -> bool: ...
     @property
@@ -127,7 +130,7 @@ class Block:
     def output(self, key: str) -> BlockPort: ...
     @staticmethod
     def from_spec(
-        spec: Any,
+        spec: BlockSpec,
         *,
         drop_policy: DropPolicy = ...,
         warm_start: bool = False,
@@ -141,13 +144,13 @@ class BlockModel:
     def name(self) -> str: ...
     def add_block(
         self,
-        block_or_build: Any,
+        block_or_build: Block | Callable[[BlockContext], Model],
         *,
         name: str | None = None,
-        inputs: dict[str, Any] | None = None,
-        inputs_schema: dict[str, Any] | None = None,
-        outputs: dict[str, Any] | None = None,
-        extract: Any | None = None,
+        inputs: dict[str, object] | None = None,
+        inputs_schema: dict[str, object] | None = None,
+        outputs: dict[str, object] | None = None,
+        extract: Callable[..., object] | None = None,
         cache_scaffolding: bool = False,
         warm_start: bool = False,
         drop_policy: DropPolicy = ...,
@@ -162,7 +165,7 @@ class BlockModel:
     def solve(
         self,
         *,
-        solver: Any | None = None,
+        solver: Solver | None = None,
         log_to_console: bool | None = None,
         time_limit: float | None = None,
         mip_gap: float | None = None,
@@ -179,25 +182,27 @@ def block(
 def block_spec(
     *,
     name: str,
-    data_schema: Any,
-    outputs_schema: Any,
-    build: Callable[..., Any],
+    data_schema: SchemaType,
+    outputs_schema: SchemaType,
+    build: Callable[..., object],
     version: str = "0.0.0",
 ) -> BlockSpec: ...
 def build_model_from_spec(
     *,
-    spec: Any,
-    data: Any,
+    spec: BlockSpec,
+    data: object,
     allow_slacks: bool = False,
     slack_penalty: float = 1e6,
 ) -> BuildResult: ...
 def inspect_model(
     *,
-    model: Any,
+    model: Model,
     constraints: list[int] | None = None,
     variables: list[int] | None = None,
     include_coeffs: bool = False,
     include_slacks: bool = True,
-) -> Any: ...
-def schemas_compatible(schema_a: Any, schema_b: Any) -> tuple[bool, str]: ...
-def specs_are_swappable(spec_a: Any, spec_b: Any) -> tuple[bool, str]: ...
+) -> ModelSnapshot: ...
+def schemas_compatible(
+    schema_a: SchemaType, schema_b: SchemaType
+) -> tuple[bool, str]: ...
+def specs_are_swappable(spec_a: BlockSpec, spec_b: BlockSpec) -> tuple[bool, str]: ...

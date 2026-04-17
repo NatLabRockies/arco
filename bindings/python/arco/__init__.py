@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 import inspect
-from typing import Any, Callable, TypeVar, overload
+from typing import Callable, TypeVar, overload
 
 from .arco import *  # noqa: F403
 from . import arco as _arco
@@ -11,7 +11,7 @@ from . import arco as _arco
 __doc__ = _arco.__doc__
 __all__ = list(getattr(_arco, "__all__", dir(_arco)))
 
-_BlockFnT = TypeVar("_BlockFnT", bound=Callable[..., Any])
+_BlockFnT = TypeVar("_BlockFnT", bound=Callable[..., object])
 
 _ARCO_BLOCK_MARKER_ATTR = "__arco_block_marker__"
 _ARCO_BLOCK_NAME_ATTR = "__arco_block_name__"
@@ -20,16 +20,18 @@ _ARCO_BLOCK_INPUT_FIELDS_ATTR = "__arco_block_input_fields__"
 _ARCO_BLOCK_EXPECTS_CTX_ATTR = "__arco_block_expects_ctx__"
 
 
-_PydanticBaseModel: type | None
+_PydanticBaseModel: type[object] | None
 try:
     from pydantic import BaseModel
 
     _PydanticBaseModel = BaseModel
-except Exception:  # pragma: no cover - optional dependency
+except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+    if exc.name != "pydantic":
+        raise
     _PydanticBaseModel = None
 
 
-def _is_supported_schema_type(schema: Any) -> bool:
+def _is_supported_schema_type(schema: object) -> bool:
     if not inspect.isclass(schema):
         return False
     if is_dataclass(schema):
@@ -39,12 +41,12 @@ def _is_supported_schema_type(schema: Any) -> bool:
     return False
 
 
-def _schema_fields(schema: Any) -> dict[str, Any]:
+def _schema_fields(schema: type[object]) -> dict[str, object]:
     if is_dataclass(schema):
         return {field.name: field.type for field in dataclass_fields(schema)}
     if _PydanticBaseModel is not None and issubclass(schema, _PydanticBaseModel):
         return {
-            name: getattr(field, "annotation", Any)
+            name: getattr(field, "annotation", object)
             for name, field in schema.model_fields.items()
         }
     raise TypeError(

@@ -4,14 +4,14 @@ use crate::problem::ArcoProblem;
 use crate::solution::Solution;
 use crate::status::{ipopt_has_solution, ipopt_to_core_status};
 use arco_core::Model;
-use arco_core::solver::SolverError as CoreSolverError;
 use arco_expr::VariableId;
 use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
+use arco_solver_types::SolverError as CoreSolverError;
 use ipopt::Ipopt;
 use std::time::Instant;
 use tracing::{debug, warn};
 
-/// Re-export of [`arco_core::solver::SolverError`] for backward compatibility.
+/// Re-export of [`arco_solver_types::SolverError`] for backward compatibility.
 pub type SolverError = CoreSolverError;
 
 /// IPOPT solver wrapper.

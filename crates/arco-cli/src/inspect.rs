@@ -307,9 +307,7 @@ fn infer_set_dtype(resolved: &arco_kdl::semantic::ResolvedSet) -> String {
 }
 
 fn find_subset_relations(_program: &SemanticProgram, _set_name: &str) -> Vec<SetRef> {
-    // Subset relationships are tracked in the source program but not in the
-    // semantic program currently. Return empty for now — can be populated
-    // once the semantic layer exposes subset_of.
+    // SemanticProgram does not expose subset relations.
     Vec::new()
 }
 

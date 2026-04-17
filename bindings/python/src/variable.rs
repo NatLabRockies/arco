@@ -127,8 +127,6 @@ impl PyVariable {
         format!("Variable({}, {})", name, self.bounds_repr())
     }
 
-    // ── Arithmetic operators ───────────────────────────────────────────
-
     fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
         self.to_expr().add_any(other)
     }
@@ -164,8 +162,6 @@ impl PyVariable {
         Ok(self.to_expr().scale(1.0 / other))
     }
 
-    // ── Comparison operators ───────────────────────────────────────────
-
     fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintExpr> {
         self.to_expr()
             .compare_py(rhs, ComparisonSense::GreaterEqual)
@@ -179,7 +175,7 @@ impl PyVariable {
         self.to_expr().compare_py(rhs, ComparisonSense::Equal)
     }
 
-    // ── int() conversion for backwards compat with raw var ID usage ──
+    // Kept for compatibility with code that treats Variable as a raw ID.
 
     fn __int__(&self) -> u32 {
         self.var_id

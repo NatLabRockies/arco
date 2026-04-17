@@ -1,7 +1,7 @@
 use crate::execution::{ExecutionError, RustArcoAdapter, SolveStatus, execute_problem};
 use arco_kdl::ObjectiveSense;
 use arco_kdl::pipeline::{PipelineError, compile_file};
-use arco_kdl::semantic::SemanticProgram;
+use arco_kdl::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -76,25 +76,9 @@ pub struct ExpectedTimeSet {
     pub resolution: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct ExpectedParameters {
-    #[serde(default)]
-    pub series: Vec<String>,
-    #[serde(default)]
-    pub indexed: Vec<String>,
-    #[serde(default)]
-    pub asset: Vec<String>,
-}
+pub type ExpectedParameters = ResolvedParameters;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct ExpectedChronology {
-    #[serde(default)]
-    pub initial_boundary: Option<String>,
-    #[serde(default)]
-    pub terminal_boundary: Option<String>,
-    #[serde(default)]
-    pub initial_commitment_boundary: Option<String>,
-}
+pub type ExpectedChronology = ResolvedChronology;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ExpectedE2eSummary {

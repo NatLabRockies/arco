@@ -10,7 +10,7 @@ use crate::source::parser_helpers::{
     ParseContext, algebra_error, algebra_text_from_node, declaration_indices, first_arg_string,
     invalid_value_error, missing_node_error, optional_property_literal, optional_property_string,
     parse_optimize, parse_optional_filter_expression, parse_reduce, positional_value,
-    property_string,
+    property_string, unsupported_declaration_error,
 };
 use crate::source::surface::normalize_surface_syntax;
 use kdl::{KdlDocument, KdlNode, KdlValue};
@@ -62,12 +62,7 @@ fn parse_document(
             "model" => program.models.push(parse_model(node, context)?),
             "scenario" => program.scenarios.push(parse_scenario(node, context)?),
             other => {
-                return Err(SourceError::UnsupportedDeclaration {
-                    name: other.to_string(),
-                    path: context.path.to_path_buf(),
-                    source_text: Box::new(context.source_text.clone()),
-                    span: node.span(),
-                });
+                return Err(unsupported_declaration_error(node, other, context));
             }
         }
     }
@@ -111,12 +106,7 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
                 optimize = Some(parse_optimize(child, ObjectiveSense::Maximize, context)?);
             }
             other => {
-                return Err(SourceError::UnsupportedDeclaration {
-                    name: other.to_string(),
-                    path: context.path.to_path_buf(),
-                    source_text: Box::new(context.source_text.clone()),
-                    span: child.span(),
-                });
+                return Err(unsupported_declaration_error(child, other, context));
             }
         }
     }
@@ -164,12 +154,7 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
             }
             "param" => parameters.push(parse_param(child, context)?),
             other => {
-                return Err(SourceError::UnsupportedDeclaration {
-                    name: other.to_string(),
-                    path: context.path.to_path_buf(),
-                    source_text: Box::new(context.source_text.clone()),
-                    span: child.span(),
-                });
+                return Err(unsupported_declaration_error(child, other, context));
             }
         }
     }
@@ -252,12 +237,7 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
             }
             member => {
                 if !child.entries().is_empty() {
-                    return Err(SourceError::UnsupportedDeclaration {
-                        name: member.to_string(),
-                        path: context.path.to_path_buf(),
-                        source_text: Box::new(context.source_text.clone()),
-                        span: child.span(),
-                    });
+                    return Err(unsupported_declaration_error(child, member, context));
                 }
                 members.push(crate::source::LiteralValue::String(member.to_string()));
             }
@@ -328,24 +308,14 @@ fn parse_control(
                             ));
                         }
                         other => {
-                            return Err(SourceError::UnsupportedDeclaration {
-                                name: other.to_string(),
-                                path: context.path.to_path_buf(),
-                                source_text: Box::new(context.source_text.clone()),
-                                span: bound.span(),
-                            });
+                            return Err(unsupported_declaration_error(bound, other, context));
                         }
                     }
                 }
             }
             "index" => {}
             other => {
-                return Err(SourceError::UnsupportedDeclaration {
-                    name: other.to_string(),
-                    path: context.path.to_path_buf(),
-                    source_text: Box::new(context.source_text.clone()),
-                    span: child.span(),
-                });
+                return Err(unsupported_declaration_error(child, other, context));
             }
         }
     }
@@ -434,12 +404,7 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
                 }
             }
             other => {
-                return Err(SourceError::UnsupportedDeclaration {
-                    name: other.to_string(),
-                    path: context.path.to_path_buf(),
-                    source_text: Box::new(context.source_text.clone()),
-                    span: child.span(),
-                });
+                return Err(unsupported_declaration_error(child, other, context));
             }
         }
     }

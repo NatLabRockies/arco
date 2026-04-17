@@ -173,14 +173,16 @@ pub struct ResolvedSet {
     pub values: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ResolvedParameters {
     pub series: Vec<String>,
     pub indexed: Vec<String>,
     pub asset: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ResolvedChronology {
     pub initial_boundary: Option<String>,
     pub terminal_boundary: Option<String>,

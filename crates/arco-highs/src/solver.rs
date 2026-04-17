@@ -178,8 +178,6 @@ impl arco_core::solver::Solver for Solver {
         &mut self,
         model: &Model,
     ) -> Result<arco_solver_types::Solution, arco_solver_types::SolverError> {
-        // Build a temporary solver that borrows the model for solving
-        // We use our own config and primal_start
         let highs_solution = solve_model(
             model,
             &self.config,

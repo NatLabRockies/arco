@@ -2,7 +2,7 @@ use crate::once_map::OnceMap;
 use crate::schema::{
     compare_fields, dataclass_fields, is_dataclass_schema, is_pydantic_schema, validate_data,
 };
-use crate::spec::{BlockSpec, get_spec_attr, validate_spec};
+use crate::spec::{BlockSpec, get_spec_attr, spec_version_or_default, validate_spec};
 use crate::util::create_model;
 use crate::{Block, BlockContext, BlockLink, BlockRun, BuildResult, PyObject};
 use pyo3::exceptions::PyRuntimeError;
@@ -76,10 +76,7 @@ pub(crate) fn build_model_from_spec(
         "build_model_from_spec output",
     )?;
     let spec_name = get_spec_attr(spec, "name")?.extract::<String>()?;
-    let spec_version = get_spec_attr(spec, "version")
-        .ok()
-        .and_then(|value| value.extract::<String>().ok())
-        .unwrap_or_else(|| "0.0.0".to_string());
+    let spec_version = spec_version_or_default(spec)?;
     Ok(BuildResult {
         model,
         outputs: outputs_validated,

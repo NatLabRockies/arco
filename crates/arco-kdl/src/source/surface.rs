@@ -1,4 +1,4 @@
-pub fn normalize_surface_syntax(text: &str) -> String {
+pub(super) fn normalize_surface_syntax(text: &str) -> String {
     let math_keywords = [
         "constraint",
         "expression",

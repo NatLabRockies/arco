@@ -1,17 +1,8 @@
+mod common;
 use arco_kdl::semantic::validate_program;
 use arco_kdl::source::parse_program_text;
+use common::temp_root;
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn temp_root(prefix: &str) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_nanos()
-        .to_string();
-    let root = std::env::temp_dir().join(format!("arco-kdl-{prefix}-{unique}"));
-    fs::create_dir_all(&root)?;
-    Ok(root)
-}
 
 #[test]
 fn semantic_validation_rejects_missing_report_expression_target()

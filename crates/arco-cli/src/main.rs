@@ -84,22 +84,7 @@ enum SolverAction {
     /// Show the active solver backend
     Show,
     /// Set the solver backend
-    Set { backend: SolverBackendArg },
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum SolverBackendArg {
-    Highs,
-    Xpress,
-}
-
-impl From<SolverBackendArg> for SolverBackend {
-    fn from(value: SolverBackendArg) -> Self {
-        match value {
-            SolverBackendArg::Highs => SolverBackend::Highs,
-            SolverBackendArg::Xpress => SolverBackend::Xpress,
-        }
-    }
+    Set { backend: SolverBackend },
 }
 
 fn main() -> miette::Result<()> {
@@ -189,9 +174,7 @@ fn handle_solver_action(action: SolverAction) -> miette::Result<()> {
                 .into_diagnostic()?;
         }
         SolverAction::Set { backend } => {
-            let config = SolverConfig {
-                backend: backend.into(),
-            };
+            let config = SolverConfig { backend };
             let path = save_solver_config(&config)?;
             write_stdout_line(&format!("backend: {}", config.backend.as_str()))
                 .into_diagnostic()?;
