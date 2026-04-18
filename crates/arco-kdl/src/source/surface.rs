@@ -1,33 +1,34 @@
 pub(super) fn normalize_surface_syntax(text: &str) -> String {
-    let math_keywords = [
-        "constraint",
-        "expression",
-        "minimize",
-        "maximize",
-        "lower",
-        "upper",
-        "if",
-        "filter",
-    ];
     let mut normalized = String::with_capacity(text.len());
     let bytes = text.as_bytes();
     let mut index = 0;
-
     while index < bytes.len() {
-        let rewritten = math_keywords
-            .iter()
-            .find_map(|keyword| rewrite_math_block(text, index, keyword));
+        let rewritten = rewrite_math_block_at(text, index);
         if let Some((replacement, end)) = rewritten {
             normalized.push_str(&replacement);
             index = end;
             continue;
         }
-
         normalized.push(bytes[index] as char);
         index += 1;
     }
-
     normalized
+}
+
+fn rewrite_math_block_at(text: &str, start: usize) -> Option<(String, usize)> {
+    let byte = *text.as_bytes().get(start)?;
+    match byte {
+        b'c' => rewrite_math_block(text, start, "constraint"),
+        b'e' => rewrite_math_block(text, start, "expression"),
+        b'f' => rewrite_math_block(text, start, "filter"),
+        b'i' => rewrite_math_block(text, start, "if"),
+        b'l' => rewrite_math_block(text, start, "lower"),
+        b'm' => rewrite_math_block(text, start, "minimize")
+            .or_else(|| rewrite_math_block(text, start, "maximize")),
+        b'u' => rewrite_math_block(text, start, "upper"),
+        b'w' => rewrite_math_block(text, start, "where"),
+        _ => None,
+    }
 }
 
 fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String, usize)> {
@@ -118,7 +119,7 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
         "constraint" => format!("{header} expression={encoded_body}"),
         "expression" => format!("{header} {{ formula {encoded_body} }}"),
         "minimize" | "maximize" => format!("{header} expression={encoded_body}"),
-        "lower" | "upper" | "if" | "filter" => {
+        "lower" | "upper" | "if" | "filter" | "where" => {
             format!("{header} expression={encoded_body}")
         }
         _ => return None,

@@ -51,7 +51,7 @@ pub(super) fn parse_optional_filter_expression(
     context: &ParseContext<'_>,
 ) -> Result<Option<String>, SourceError> {
     for child in node.iter_children() {
-        if child.name().value() == "filter" {
+        if matches!(child.name().value(), "filter" | "where") {
             return Ok(Some(algebra_text_from_node(child, context)?));
         }
     }
@@ -91,7 +91,7 @@ pub(super) fn declaration_indices(
 
     for child in node.iter_children() {
         match child.name().value() {
-            "filter" | "bounds" => {}
+            "filter" | "where" | "bounds" => {}
             "index" => {
                 let index_name = first_arg_string(child, 0, context)?;
                 let domain = child
