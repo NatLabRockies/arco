@@ -182,40 +182,57 @@ fn resolve_variable_domains(
         .map(|a| (a.name.as_str(), a))
         .collect();
 
-    let mut asset_index: Option<usize> = None;
-    let combos = if let Some(tuple_rows) =
-        resolve_tuple_domain_rows(signature, program, family, entrypoint)?
-    {
-        tuple_rows
-    } else {
-        // Resolve each index to its domain values and track which are asset domains.
-        let mut domain_values: Vec<Vec<String>> = Vec::new();
-        for (i, index_name) in signature.indices.iter().enumerate() {
-            let values = resolve_single_index_domain(
-                index_name, signature, program, family, entrypoint,
-            )?;
-            if is_asset_domain(index_name, signature, program, &asset_names) {
-                asset_index = Some(i);
-            }
-            domain_values.push(values);
-        }
-    // Cartesian product of all domain values.
-        let mut combos: Vec<Vec<String>> = vec![vec![]];
-        for values in &domain_values {
-            let mut next = Vec::new();
-            for combo in &combos {
-                for value in values {
-                    let mut extended = combo.clone();
-                    extended.push(value.clone());
-                    next.push(extended);
-                }
-            }
-            combos = next;
-        }
-        combos
-    };
+    let asset_index = signature
+        .indices
+        .iter()
+        .position(|index_name| is_asset_domain(index_name, signature, program, &asset_names));
 
     let mut instances = Vec::new();
+    if let Some(tuple_rows) = resolve_tuple_domain_rows(signature, program, family, entrypoint)? {
+        for combo in tuple_rows {
+            let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx].as_str()).copied());
+
+            if !variable_instance_is_active(&signature.target, asset) {
+                continue;
+            }
+
+            let name = format!("{}[{}]", signature.target, combo.join(","));
+            let (lower, upper, kind) =
+                variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
+            instances.push(VariableInstance {
+                name,
+                family: family.to_string(),
+                lower,
+                upper,
+                kind,
+            });
+        }
+
+        return Ok(instances);
+    }
+
+    // Resolve each index to its domain values.
+    let mut domain_values: Vec<Vec<String>> = Vec::new();
+    for index_name in &signature.indices {
+        let values =
+            resolve_single_index_domain(index_name, signature, program, family, entrypoint)?;
+        domain_values.push(values);
+    }
+
+    // Cartesian product of all domain values.
+    let mut combos: Vec<Vec<String>> = vec![vec![]];
+    for values in &domain_values {
+        let mut next = Vec::new();
+        for combo in &combos {
+            for value in values {
+                let mut extended = combo.clone();
+                extended.push(value.clone());
+                next.push(extended);
+            }
+        }
+        combos = next;
+    }
+
     for combo in &combos {
         let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx].as_str()).copied());
 
@@ -237,12 +254,12 @@ fn resolve_variable_domains(
     Ok(instances)
 }
 
-fn resolve_tuple_domain_rows(
+fn resolve_tuple_domain_rows<'a>(
     signature: &FamilySignature,
-    program: &SemanticProgram,
+    program: &'a SemanticProgram,
     family: &str,
     entrypoint: &Path,
-) -> Result<Option<Vec<Vec<String>>>, CompileError> {
+) -> Result<Option<&'a [Vec<String>]>, CompileError> {
     if signature.indices.is_empty() {
         return Ok(None);
     }
@@ -268,7 +285,7 @@ fn resolve_tuple_domain_rows(
         return Ok(None);
     }
 
-    let Some(set) = resolve_set_struct_by_name(first_domain.as_str(), program) else {
+    let Some(set) = resolve_set_struct_by_name(first_domain, program) else {
         return Ok(None);
     };
     let (Some(tuple_components), Some(tuple_rows)) =
@@ -288,7 +305,7 @@ fn resolve_tuple_domain_rows(
         });
     }
 
-    Ok(Some(tuple_rows.clone()))
+    Ok(Some(tuple_rows.as_slice()))
 }
 
 /// Determine whether an index resolves to the assets domain by checking
@@ -334,28 +351,31 @@ fn resolve_single_index_domain(
     })
 }
 
-fn resolve_set_registry_key(name: &str, program: &SemanticProgram) -> Option<String> {
-    if program.set_registry.contains_key(name) {
-        return Some(name.to_string());
+fn resolve_set_registry_key<'a>(name: &str, program: &'a SemanticProgram) -> Option<&'a str> {
+    if let Some((key, _)) = program.set_registry.get_key_value(name) {
+        return Some(key.as_str());
     }
     if let Some(canonical) = program.set_aliases.get(name) {
-        if program.set_registry.contains_key(canonical.as_str()) {
-            return Some(canonical.clone());
+        if let Some((key, _)) = program.set_registry.get_key_value(canonical.as_str()) {
+            return Some(key.as_str());
         }
     }
     for (alias, canonical) in &program.set_aliases {
-        if canonical == name && program.set_registry.contains_key(alias.as_str()) {
-            return Some(alias.clone());
+        if canonical == name {
+            if let Some((key, _)) = program.set_registry.get_key_value(alias.as_str()) {
+                return Some(key.as_str());
+            }
         }
     }
     None
 }
+
 fn resolve_set_struct_by_name<'a>(
     name: &str,
     program: &'a SemanticProgram,
 ) -> Option<&'a crate::semantic::ResolvedSet> {
     let key = resolve_set_registry_key(name, program)?;
-    program.set_registry.get(&key)
+    program.set_registry.get(key)
 }
 /// Resolve a set name to its values, checking the registry and alias system.
 fn resolve_set_by_name(name: &str, program: &SemanticProgram) -> Option<Vec<String>> {
