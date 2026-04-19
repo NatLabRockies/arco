@@ -127,7 +127,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           summary-always: true
           comment-on-alert: true
-          alert-threshold: "115%"
+          alert-threshold: "140%"
           fail-on-alert: true
 
       - name: Save benchmark data

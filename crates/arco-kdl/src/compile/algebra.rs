@@ -153,11 +153,18 @@ fn instantiate_variable_instances(
     variable_signatures: &BTreeMap<String, FamilySignature>,
     entrypoint: &Path,
 ) -> Result<Vec<VariableInstance>, CompileError> {
+    let reverse_aliases = build_reverse_alias_lookup(program);
     let mut instances = Vec::new();
     for (family, signature) in variable_signatures {
         let overrides = program.variable_overrides.get(&signature.target);
         let resolved = resolve_variable_domains(
-            signature, program, inputs, family, overrides, entrypoint,
+            signature,
+            program,
+            &reverse_aliases,
+            inputs,
+            family,
+            overrides,
+            entrypoint,
         )?;
         instances.extend(resolved);
     }
@@ -170,12 +177,12 @@ fn instantiate_variable_instances(
 fn resolve_variable_domains(
     signature: &FamilySignature,
     program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
     inputs: &ScenarioInputs,
     family: &str,
     overrides: Option<&VariableDeclOverrides>,
     entrypoint: &Path,
 ) -> Result<Vec<VariableInstance>, CompileError> {
-    let reverse_aliases = build_reverse_alias_lookup(program);
     let asset_names: BTreeSet<&str> = inputs.assets.iter().map(|a| a.name.as_str()).collect();
     let asset_lookup: BTreeMap<&str, &AssetInputs> = inputs
         .assets
@@ -188,7 +195,7 @@ fn resolve_variable_domains(
             index_name,
             signature,
             program,
-            &reverse_aliases,
+            reverse_aliases,
             &asset_names,
         )
     });
@@ -197,7 +204,7 @@ fn resolve_variable_domains(
     if let Some(tuple_rows) = resolve_tuple_domain_rows(
         signature,
         program,
-        &reverse_aliases,
+        reverse_aliases,
         family,
         entrypoint,
     )? {
@@ -229,74 +236,70 @@ fn resolve_variable_domains(
             index_name,
             signature,
             program,
-            &reverse_aliases,
+            reverse_aliases,
             family,
             entrypoint,
         )?;
         domain_values.push(values);
     }
 
-    let mut current = Vec::with_capacity(domain_values.len());
-    let mut expansion = VariableExpansionContext {
-        signature,
-        family,
-        overrides,
-        entrypoint,
-        asset_lookup: &asset_lookup,
-        asset_index,
-        instances: &mut instances,
-    };
-    expansion.expand(&domain_values, 0, &mut current)?;
+    if domain_values.iter().any(Vec::is_empty) {
+        return Ok(instances);
+    }
+
+    if domain_values.is_empty() {
+        let (lower, upper, kind) =
+            variable_domain_policy(&signature.target, None, overrides, entrypoint)?;
+        instances.push(VariableInstance {
+            name: signature.target.clone(),
+            family: family.to_string(),
+            lower,
+            upper,
+            kind,
+        });
+        return Ok(instances);
+    }
+
+    let mut positions = vec![0usize; domain_values.len()];
+    loop {
+        let combo = positions
+            .iter()
+            .enumerate()
+            .map(|(idx, position)| domain_values[idx][*position].as_str())
+            .collect::<Vec<_>>();
+
+        let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx]).copied());
+        if variable_instance_is_active(&signature.target, asset) {
+            let name = format!("{}[{}]", signature.target, combo.join(","));
+            let (lower, upper, kind) =
+                variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
+            instances.push(VariableInstance {
+                name,
+                family: family.to_string(),
+                lower,
+                upper,
+                kind,
+            });
+        }
+
+        let mut advanced = false;
+        for idx in (0..positions.len()).rev() {
+            if positions[idx] + 1 < domain_values[idx].len() {
+                positions[idx] += 1;
+                for position in positions.iter_mut().skip(idx + 1) {
+                    *position = 0;
+                }
+                advanced = true;
+                break;
+            }
+        }
+
+        if !advanced {
+            break;
+        }
+    }
 
     Ok(instances)
-}
-
-struct VariableExpansionContext<'a> {
-    signature: &'a FamilySignature,
-    family: &'a str,
-    overrides: Option<&'a VariableDeclOverrides>,
-    entrypoint: &'a Path,
-    asset_lookup: &'a BTreeMap<&'a str, &'a AssetInputs>,
-    asset_index: Option<usize>,
-    instances: &'a mut Vec<VariableInstance>,
-}
-
-impl VariableExpansionContext<'_> {
-    fn expand(
-        &mut self,
-        domain_values: &[Vec<String>],
-        depth: usize,
-        current: &mut Vec<String>,
-    ) -> Result<(), CompileError> {
-        if depth == domain_values.len() {
-            let asset = self
-                .asset_index
-                .and_then(|idx| self.asset_lookup.get(current[idx].as_str()).copied());
-
-            if variable_instance_is_active(&self.signature.target, asset) {
-                let name = format!("{}[{}]", self.signature.target, current.join(","));
-                let (lower, upper, kind) =
-                    variable_domain_policy(&self.signature.target, asset, self.overrides, self.entrypoint)?;
-                self.instances.push(VariableInstance {
-                    name,
-                    family: self.family.to_string(),
-                    lower,
-                    upper,
-                    kind,
-                });
-            }
-
-            return Ok(());
-        }
-
-        for value in &domain_values[depth] {
-            current.push(value.clone());
-            self.expand(domain_values, depth + 1, current)?;
-            current.pop();
-        }
-
-        Ok(())
-    }
 }
 
 fn resolve_tuple_domain_rows<'a>(
