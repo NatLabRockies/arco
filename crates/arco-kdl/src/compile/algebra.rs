@@ -429,16 +429,16 @@ fn resolve_set_registry_key<'a>(
         return Some(key.as_str());
     }
 
-    if let Some(canonical) = program.set_aliases.get(name)
-        && let Some((key, _)) = program.set_registry.get_key_value(canonical.as_str())
-    {
-        return Some(key.as_str());
+    if let Some(canonical) = program.set_aliases.get(name) {
+        if let Some((key, _)) = program.set_registry.get_key_value(canonical.as_str()) {
+            return Some(key.as_str());
+        }
     }
 
-    if let Some(alias) = reverse_aliases.get(name)
-        && let Some((key, _)) = program.set_registry.get_key_value(*alias)
-    {
-        return Some(key.as_str());
+    if let Some(alias) = reverse_aliases.get(name) {
+        if let Some((key, _)) = program.set_registry.get_key_value(*alias) {
+            return Some(key.as_str());
+        }
     }
 
     None
