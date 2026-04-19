@@ -519,3 +519,55 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn semantic_validation_rejects_tuple_set_with_missing_component_column()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-tuple-set-missing-component")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,feasible\n1,wind,g1,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("missing tuple component column should fail semantic validation");
+
+    assert!(error.to_string().contains("missing required column"));
+    assert!(error.to_string().contains("bus"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}

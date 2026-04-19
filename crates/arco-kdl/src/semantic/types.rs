@@ -171,6 +171,8 @@ pub struct ResolvedTimeSet {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedSet {
     pub values: Vec<String>,
+    pub tuple_components: Option<Vec<String>>,
+    pub tuple_rows: Option<Vec<Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
