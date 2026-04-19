@@ -262,15 +262,12 @@ fn resolve_variable_domains(
 
     let mut positions = vec![0usize; domain_values.len()];
     loop {
-        let combo = positions
-            .iter()
-            .enumerate()
-            .map(|(idx, position)| domain_values[idx][*position].as_str())
-            .collect::<Vec<_>>();
+        let asset = asset_index
+            .map(|idx| domain_values[idx][positions[idx]].as_str())
+            .and_then(|asset_name| asset_lookup.get(asset_name).copied());
 
-        let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx]).copied());
         if variable_instance_is_active(&signature.target, asset) {
-            let name = format!("{}[{}]", signature.target, combo.join(","));
+            let name = build_indexed_name_from_positions(&signature.target, &domain_values, &positions);
             let (lower, upper, kind) =
                 variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
             instances.push(VariableInstance {
@@ -300,6 +297,24 @@ fn resolve_variable_domains(
     }
 
     Ok(instances)
+}
+
+fn build_indexed_name_from_positions(
+    target: &str,
+    domain_values: &[Vec<String>],
+    positions: &[usize],
+) -> String {
+    let mut name = String::with_capacity(target.len() + 2 + positions.len() * 4);
+    name.push_str(target);
+    name.push('[');
+    for (idx, position) in positions.iter().enumerate() {
+        if idx > 0 {
+            name.push(',');
+        }
+        name.push_str(&domain_values[idx][*position]);
+    }
+    name.push(']');
+    name
 }
 
 fn resolve_tuple_domain_rows<'a>(
