@@ -175,6 +175,7 @@ fn resolve_variable_domains(
     overrides: Option<&VariableDeclOverrides>,
     entrypoint: &Path,
 ) -> Result<Vec<VariableInstance>, CompileError> {
+    let reverse_aliases = build_reverse_alias_lookup(program);
     let asset_names: BTreeSet<&str> = inputs.assets.iter().map(|a| a.name.as_str()).collect();
     let asset_lookup: BTreeMap<&str, &AssetInputs> = inputs
         .assets
@@ -182,13 +183,24 @@ fn resolve_variable_domains(
         .map(|a| (a.name.as_str(), a))
         .collect();
 
-    let asset_index = signature
-        .indices
-        .iter()
-        .position(|index_name| is_asset_domain(index_name, signature, program, &asset_names));
+    let asset_index = signature.indices.iter().position(|index_name| {
+        is_asset_domain(
+            index_name,
+            signature,
+            program,
+            &reverse_aliases,
+            &asset_names,
+        )
+    });
 
     let mut instances = Vec::new();
-    if let Some(tuple_rows) = resolve_tuple_domain_rows(signature, program, family, entrypoint)? {
+    if let Some(tuple_rows) = resolve_tuple_domain_rows(
+        signature,
+        program,
+        &reverse_aliases,
+        family,
+        entrypoint,
+    )? {
         for combo in tuple_rows {
             let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx].as_str()).copied());
 
@@ -211,52 +223,86 @@ fn resolve_variable_domains(
         return Ok(instances);
     }
 
-    // Resolve each index to its domain values.
     let mut domain_values: Vec<Vec<String>> = Vec::new();
     for index_name in &signature.indices {
-        let values =
-            resolve_single_index_domain(index_name, signature, program, family, entrypoint)?;
+        let values = resolve_single_index_domain(
+            index_name,
+            signature,
+            program,
+            &reverse_aliases,
+            family,
+            entrypoint,
+        )?;
         domain_values.push(values);
     }
 
-    // Cartesian product of all domain values.
-    let mut combos: Vec<Vec<String>> = vec![vec![]];
-    for values in &domain_values {
-        let mut next = Vec::new();
-        for combo in &combos {
-            for value in values {
-                let mut extended = combo.clone();
-                extended.push(value.clone());
-                next.push(extended);
-            }
-        }
-        combos = next;
-    }
+    let mut current = Vec::with_capacity(domain_values.len());
+    let mut expansion = VariableExpansionContext {
+        signature,
+        family,
+        overrides,
+        entrypoint,
+        asset_lookup: &asset_lookup,
+        asset_index,
+        instances: &mut instances,
+    };
+    expansion.expand(&domain_values, 0, &mut current)?;
 
-    for combo in &combos {
-        let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx].as_str()).copied());
-
-        if !variable_instance_is_active(&signature.target, asset) {
-            continue;
-        }
-
-        let name = format!("{}[{}]", signature.target, combo.join(","));
-        let (lower, upper, kind) =
-            variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
-        instances.push(VariableInstance {
-            name,
-            family: family.to_string(),
-            lower,
-            upper,
-            kind,
-        });
-    }
     Ok(instances)
+}
+
+struct VariableExpansionContext<'a> {
+    signature: &'a FamilySignature,
+    family: &'a str,
+    overrides: Option<&'a VariableDeclOverrides>,
+    entrypoint: &'a Path,
+    asset_lookup: &'a BTreeMap<&'a str, &'a AssetInputs>,
+    asset_index: Option<usize>,
+    instances: &'a mut Vec<VariableInstance>,
+}
+
+impl VariableExpansionContext<'_> {
+    fn expand(
+        &mut self,
+        domain_values: &[Vec<String>],
+        depth: usize,
+        current: &mut Vec<String>,
+    ) -> Result<(), CompileError> {
+        if depth == domain_values.len() {
+            let asset = self
+                .asset_index
+                .and_then(|idx| self.asset_lookup.get(current[idx].as_str()).copied());
+
+            if variable_instance_is_active(&self.signature.target, asset) {
+                let name = format!("{}[{}]", self.signature.target, current.join(","));
+                let (lower, upper, kind) =
+                    variable_domain_policy(&self.signature.target, asset, self.overrides, self.entrypoint)?;
+                self.instances.push(VariableInstance {
+                    name,
+                    family: self.family.to_string(),
+                    lower,
+                    upper,
+                    kind,
+                });
+            }
+
+            return Ok(());
+        }
+
+        for value in &domain_values[depth] {
+            current.push(value.clone());
+            self.expand(domain_values, depth + 1, current)?;
+            current.pop();
+        }
+
+        Ok(())
+    }
 }
 
 fn resolve_tuple_domain_rows<'a>(
     signature: &FamilySignature,
     program: &'a SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
     family: &str,
     entrypoint: &Path,
 ) -> Result<Option<&'a [Vec<String>]>, CompileError> {
@@ -269,7 +315,8 @@ fn resolve_tuple_domain_rows<'a>(
         .index_domains
         .get(first_index)
         .map_or(first_index.as_str(), |domain| domain.as_str());
-    let Some(first_key) = resolve_set_registry_key(first_domain_name, program) else {
+    let Some(first_key) = resolve_set_registry_key(first_domain_name, program, reverse_aliases)
+    else {
         return Ok(None);
     };
 
@@ -278,7 +325,7 @@ fn resolve_tuple_domain_rows<'a>(
             .index_domains
             .get(index_name)
             .map_or(index_name.as_str(), |domain| domain.as_str());
-        let Some(key) = resolve_set_registry_key(domain_name, program) else {
+        let Some(key) = resolve_set_registry_key(domain_name, program, reverse_aliases) else {
             return Ok(None);
         };
         if key != first_key {
@@ -286,7 +333,7 @@ fn resolve_tuple_domain_rows<'a>(
         }
     }
 
-    let Some(set) = resolve_set_struct_by_name(first_key, program) else {
+    let Some(set) = resolve_set_struct_by_name(first_key, program, reverse_aliases) else {
         return Ok(None);
     };
     let (Some(tuple_components), Some(tuple_rows)) =
@@ -315,6 +362,7 @@ fn is_asset_domain(
     index_name: &str,
     signature: &FamilySignature,
     program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
     asset_names: &BTreeSet<&str>,
 ) -> bool {
     if asset_names.is_empty() {
@@ -325,7 +373,7 @@ fn is_asset_domain(
         .index_domains
         .get(index_name)
         .map_or(index_name, |s| s.as_str());
-    let Some(set) = resolve_set_struct_by_name(effective_name, program) else {
+    let Some(set) = resolve_set_struct_by_name(effective_name, program, reverse_aliases) else {
         return false;
     };
     if set.values.len() != asset_names.len() {
@@ -343,6 +391,7 @@ fn resolve_single_index_domain(
     index_name: &str,
     signature: &FamilySignature,
     program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
     family: &str,
     entrypoint: &Path,
 ) -> Result<Vec<String>, CompileError> {
@@ -351,43 +400,66 @@ fn resolve_single_index_domain(
         .get(index_name)
         .map_or(index_name, |s| s.as_str());
 
-    resolve_set_by_name(effective_name, program).ok_or_else(|| CompileError::InvalidFormulation {
-        message: format!(
-            "index `{index_name}` in `{family}` references unknown set `{effective_name}`"
-        ),
-        path: entrypoint.to_path_buf(),
+    resolve_set_by_name(effective_name, program, reverse_aliases).ok_or_else(|| {
+        CompileError::InvalidFormulation {
+            message: format!(
+                "index `{index_name}` in `{family}` references unknown set `{effective_name}`"
+            ),
+            path: entrypoint.to_path_buf(),
+        }
     })
 }
 
-fn resolve_set_registry_key<'a>(name: &str, program: &'a SemanticProgram) -> Option<&'a str> {
+fn build_reverse_alias_lookup(program: &SemanticProgram) -> BTreeMap<&str, &str> {
+    let mut reverse_aliases = BTreeMap::new();
+    for (alias, canonical) in &program.set_aliases {
+        reverse_aliases
+            .entry(canonical.as_str())
+            .or_insert(alias.as_str());
+    }
+    reverse_aliases
+}
+
+fn resolve_set_registry_key<'a>(
+    name: &str,
+    program: &'a SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
+) -> Option<&'a str> {
     if let Some((key, _)) = program.set_registry.get_key_value(name) {
         return Some(key.as_str());
     }
-    if let Some(canonical) = program.set_aliases.get(name) {
-        if let Some((key, _)) = program.set_registry.get_key_value(canonical.as_str()) {
-            return Some(key.as_str());
-        }
+
+    if let Some(canonical) = program.set_aliases.get(name)
+        && let Some((key, _)) = program.set_registry.get_key_value(canonical.as_str())
+    {
+        return Some(key.as_str());
     }
-    for (alias, canonical) in &program.set_aliases {
-        if canonical == name {
-            if let Some((key, _)) = program.set_registry.get_key_value(alias.as_str()) {
-                return Some(key.as_str());
-            }
-        }
+
+    if let Some(alias) = reverse_aliases.get(name)
+        && let Some((key, _)) = program.set_registry.get_key_value(*alias)
+    {
+        return Some(key.as_str());
     }
+
     None
 }
 
 fn resolve_set_struct_by_name<'a>(
     name: &str,
     program: &'a SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
 ) -> Option<&'a crate::semantic::ResolvedSet> {
-    let key = resolve_set_registry_key(name, program)?;
+    let key = resolve_set_registry_key(name, program, reverse_aliases)?;
     program.set_registry.get(key)
 }
+
 /// Resolve a set name to its values, checking the registry and alias system.
-fn resolve_set_by_name(name: &str, program: &SemanticProgram) -> Option<Vec<String>> {
-    let set = resolve_set_struct_by_name(name, program)?;
+fn resolve_set_by_name(
+    name: &str,
+    program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
+) -> Option<Vec<String>> {
+    let set = resolve_set_struct_by_name(name, program, reverse_aliases)?;
     if set.values.is_empty() {
         return None;
     }

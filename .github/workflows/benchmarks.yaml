@@ -101,10 +101,10 @@ jobs:
       - name: Run CLI benchmarks
         timeout-minutes: 15
         run: |
-          python scripts/bench.py \
+          uv run python scripts/bench.py \
             --arco-binary target/release/arco \
             --workflows validate,run \
-            --repetitions 3 \
+            --repetitions 10 \
             --output artifacts/benchmark-results.json
 
       # Cache 4: Benchmark data for trend analysis (already exists, but optimized key)
