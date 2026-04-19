@@ -182,32 +182,38 @@ fn resolve_variable_domains(
         .map(|a| (a.name.as_str(), a))
         .collect();
 
-    // Resolve each index to its domain values and track which are asset domains.
-    let mut domain_values: Vec<Vec<String>> = Vec::new();
     let mut asset_index: Option<usize> = None;
-    for (i, index_name) in signature.indices.iter().enumerate() {
-        let values = resolve_single_index_domain(
-            index_name, signature, program, family, entrypoint,
-        )?;
-        if is_asset_domain(index_name, signature, program, &asset_names) {
-            asset_index = Some(i);
-        }
-        domain_values.push(values);
-    }
-
-    // Cartesian product of all domain values.
-    let mut combos: Vec<Vec<String>> = vec![vec![]];
-    for values in &domain_values {
-        let mut next = Vec::new();
-        for combo in &combos {
-            for value in values {
-                let mut extended = combo.clone();
-                extended.push(value.clone());
-                next.push(extended);
+    let combos = if let Some(tuple_rows) =
+        resolve_tuple_domain_rows(signature, program, family, entrypoint)?
+    {
+        tuple_rows
+    } else {
+        // Resolve each index to its domain values and track which are asset domains.
+        let mut domain_values: Vec<Vec<String>> = Vec::new();
+        for (i, index_name) in signature.indices.iter().enumerate() {
+            let values = resolve_single_index_domain(
+                index_name, signature, program, family, entrypoint,
+            )?;
+            if is_asset_domain(index_name, signature, program, &asset_names) {
+                asset_index = Some(i);
             }
+            domain_values.push(values);
         }
-        combos = next;
-    }
+    // Cartesian product of all domain values.
+        let mut combos: Vec<Vec<String>> = vec![vec![]];
+        for values in &domain_values {
+            let mut next = Vec::new();
+            for combo in &combos {
+                for value in values {
+                    let mut extended = combo.clone();
+                    extended.push(value.clone());
+                    next.push(extended);
+                }
+            }
+            combos = next;
+        }
+        combos
+    };
 
     let mut instances = Vec::new();
     for combo in &combos {
@@ -229,6 +235,60 @@ fn resolve_variable_domains(
         });
     }
     Ok(instances)
+}
+
+fn resolve_tuple_domain_rows(
+    signature: &FamilySignature,
+    program: &SemanticProgram,
+    family: &str,
+    entrypoint: &Path,
+) -> Result<Option<Vec<Vec<String>>>, CompileError> {
+    if signature.indices.is_empty() {
+        return Ok(None);
+    }
+
+    let Some(effective_domains) = signature
+        .indices
+        .iter()
+        .map(|index_name| {
+            let domain_name = signature
+                .index_domains
+                .get(index_name)
+                .map_or(index_name.as_str(), |domain| domain.as_str());
+            resolve_set_registry_key(domain_name, program)
+        })
+        .collect::<Option<Vec<_>>>()
+    else {
+        return Ok(None);
+    };
+    let Some(first_domain) = effective_domains.first() else {
+        return Ok(None);
+    };
+    if !effective_domains.iter().all(|domain| domain == first_domain) {
+        return Ok(None);
+    }
+
+    let Some(set) = resolve_set_struct_by_name(first_domain.as_str(), program) else {
+        return Ok(None);
+    };
+    let (Some(tuple_components), Some(tuple_rows)) =
+        (set.tuple_components.as_ref(), set.tuple_rows.as_ref())
+    else {
+        return Ok(None);
+    };
+
+    if tuple_components != &signature.indices {
+        return Err(CompileError::InvalidFormulation {
+            message: format!(
+                "index order mismatch for `{family}`: expected `{}`, received `{}`",
+                tuple_components.join(","),
+                signature.indices.join(",")
+            ),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
+    Ok(Some(tuple_rows.clone()))
 }
 
 /// Determine whether an index resolves to the assets domain by checking
@@ -274,33 +334,36 @@ fn resolve_single_index_domain(
     })
 }
 
-/// Resolve a set name to its values, checking the registry and alias system.
-fn resolve_set_by_name(name: &str, program: &SemanticProgram) -> Option<Vec<String>> {
-    // Direct registry lookup.
-    if let Some(set) = program.set_registry.get(name) {
-        if !set.values.is_empty() {
-            return Some(set.values.clone());
-        }
+fn resolve_set_registry_key(name: &str, program: &SemanticProgram) -> Option<String> {
+    if program.set_registry.contains_key(name) {
+        return Some(name.to_string());
     }
-    // Alias lookup: name -> canonical -> registry.
     if let Some(canonical) = program.set_aliases.get(name) {
-        if let Some(set) = program.set_registry.get(canonical.as_str()) {
-            if !set.values.is_empty() {
-                return Some(set.values.clone());
-            }
+        if program.set_registry.contains_key(canonical.as_str()) {
+            return Some(canonical.clone());
         }
     }
-    // Reverse alias: check if name is a canonical form whose alias has registry entries.
     for (alias, canonical) in &program.set_aliases {
-        if canonical == name {
-            if let Some(set) = program.set_registry.get(alias.as_str()) {
-                if !set.values.is_empty() {
-                    return Some(set.values.clone());
-                }
-            }
+        if canonical == name && program.set_registry.contains_key(alias.as_str()) {
+            return Some(alias.clone());
         }
     }
     None
+}
+fn resolve_set_struct_by_name<'a>(
+    name: &str,
+    program: &'a SemanticProgram,
+) -> Option<&'a crate::semantic::ResolvedSet> {
+    let key = resolve_set_registry_key(name, program)?;
+    program.set_registry.get(&key)
+}
+/// Resolve a set name to its values, checking the registry and alias system.
+fn resolve_set_by_name(name: &str, program: &SemanticProgram) -> Option<Vec<String>> {
+    let set = resolve_set_struct_by_name(name, program)?;
+    if set.values.is_empty() {
+        return None;
+    }
+    Some(set.values.clone())
 }
 
 fn variable_domain_policy(
