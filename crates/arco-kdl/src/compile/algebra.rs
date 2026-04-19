@@ -260,32 +260,33 @@ fn resolve_tuple_domain_rows<'a>(
     family: &str,
     entrypoint: &Path,
 ) -> Result<Option<&'a [Vec<String>]>, CompileError> {
-    if signature.indices.is_empty() {
+    if signature.indices.len() < 2 {
         return Ok(None);
     }
 
-    let Some(effective_domains) = signature
-        .indices
-        .iter()
-        .map(|index_name| {
-            let domain_name = signature
-                .index_domains
-                .get(index_name)
-                .map_or(index_name.as_str(), |domain| domain.as_str());
-            resolve_set_registry_key(domain_name, program)
-        })
-        .collect::<Option<Vec<_>>>()
-    else {
+    let first_index = &signature.indices[0];
+    let first_domain_name = signature
+        .index_domains
+        .get(first_index)
+        .map_or(first_index.as_str(), |domain| domain.as_str());
+    let Some(first_key) = resolve_set_registry_key(first_domain_name, program) else {
         return Ok(None);
     };
-    let Some(first_domain) = effective_domains.first() else {
-        return Ok(None);
-    };
-    if !effective_domains.iter().all(|domain| domain == first_domain) {
-        return Ok(None);
+
+    for index_name in signature.indices.iter().skip(1) {
+        let domain_name = signature
+            .index_domains
+            .get(index_name)
+            .map_or(index_name.as_str(), |domain| domain.as_str());
+        let Some(key) = resolve_set_registry_key(domain_name, program) else {
+            return Ok(None);
+        };
+        if key != first_key {
+            return Ok(None);
+        }
     }
 
-    let Some(set) = resolve_set_struct_by_name(first_domain, program) else {
+    let Some(set) = resolve_set_struct_by_name(first_key, program) else {
         return Ok(None);
     };
     let (Some(tuple_components), Some(tuple_rows)) =
@@ -319,14 +320,21 @@ fn is_asset_domain(
     if asset_names.is_empty() {
         return false;
     }
+
     let effective_name = signature
         .index_domains
         .get(index_name)
         .map_or(index_name, |s| s.as_str());
-    resolve_set_by_name(effective_name, program).is_some_and(|vals| {
-        let set: BTreeSet<&str> = vals.iter().map(|v| v.as_str()).collect();
-        set == *asset_names
-    })
+    let Some(set) = resolve_set_struct_by_name(effective_name, program) else {
+        return false;
+    };
+    if set.values.len() != asset_names.len() {
+        return false;
+    }
+
+    set.values
+        .iter()
+        .all(|value| asset_names.contains(value.as_str()))
 }
 
 /// Resolve values for a single index. Checks the signature's explicit domain
