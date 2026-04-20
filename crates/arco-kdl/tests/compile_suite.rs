@@ -509,3 +509,80 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn lowering_intersects_data_and_rule_tuple_sources_for_domain()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-domain-intersection")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n1,wind,g1,b2,1\n2,solar,g2,b3,1\n2,wind,g2,b4,0\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area"
+  set "tech"
+  set "generators"
+  set "buses"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "generators" }
+  index "b" { in "buses" }
+  where { a == "1" }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let x_instances = compiled
+        .algebra
+        .variable_instances
+        .iter()
+        .map(|instance| instance.name.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        x_instances,
+        vec!["x[1,wind,g1,b1]".to_string(), "x[1,wind,g1,b2]".to_string(),]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
