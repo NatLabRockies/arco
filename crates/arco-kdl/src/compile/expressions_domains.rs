@@ -3,7 +3,13 @@ fn expand_generation_bindings(
     inputs: &ScenarioInputs,
     program: &SemanticProgram,
     entrypoint: &Path,
+    binding_context: &str,
 ) -> Result<Vec<LinearizationBindings>, CompileError> {
+    if let Some(tuple_scopes) =
+        expand_tuple_generation_bindings(bindings, program, entrypoint, binding_context)?
+    {
+        return Ok(tuple_scopes);
+    }
     let mut scopes = vec![LinearizationBindings::default()];
     for binding in bindings {
         let values = reduction_domain_values(&binding.domain, inputs, program, entrypoint)?;
@@ -18,6 +24,81 @@ fn expand_generation_bindings(
         scopes = next;
     }
     Ok(scopes)
+}
+
+fn expand_tuple_generation_bindings(
+    bindings: &[GenerationBinding],
+    program: &SemanticProgram,
+    entrypoint: &Path,
+    binding_context: &str,
+) -> Result<Option<Vec<LinearizationBindings>>, CompileError> {
+    if bindings.is_empty() {
+        return Ok(None);
+    }
+
+    let reverse_aliases = build_reverse_alias_lookup(program);
+    let first_domain = bindings[0].domain.as_str();
+    let Some(first_key) = resolve_set_registry_key(first_domain, program, &reverse_aliases) else {
+        return Ok(None);
+    };
+
+    for binding in bindings.iter().skip(1) {
+        let Some(key) = resolve_set_registry_key(binding.domain.as_str(), program, &reverse_aliases)
+        else {
+            return Ok(None);
+        };
+        if key != first_key {
+            return Ok(None);
+        }
+    }
+
+    let Some(set) = resolve_set_struct_by_name(first_key, program, &reverse_aliases) else {
+        return Ok(None);
+    };
+    let (Some(tuple_components), Some(tuple_rows)) =
+        (set.tuple_components.as_ref(), set.tuple_rows.as_ref())
+    else {
+        return Ok(None);
+    };
+
+    let received_components = bindings
+        .iter()
+        .map(|binding| binding.variable.clone())
+        .collect::<Vec<_>>();
+    if tuple_components != &received_components {
+        return Err(CompileError::InvalidFormulation {
+            message: format!(
+                "index order mismatch for `{binding_context}`: expected `{}`, received `{}`",
+                tuple_components.join(","),
+                received_components.join(",")
+            ),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
+    let mut scopes = Vec::with_capacity(tuple_rows.len());
+    for row in tuple_rows {
+        if row.len() != bindings.len() {
+            return Err(CompileError::InvalidFormulation {
+                message: format!(
+                    "tuple row arity mismatch for `{binding_context}`: expected `{}`, received `{}`",
+                    bindings.len(),
+                    row.len()
+                ),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+
+        let mut scope = LinearizationBindings::default();
+        for (binding, value) in bindings.iter().zip(row.iter()) {
+            scope
+                .values
+                .insert(binding.variable.clone(), FilterValue::String(value.clone()));
+        }
+        scopes.push(scope);
+    }
+
+    Ok(Some(scopes))
 }
 
 fn reduction_domain_values(

@@ -172,6 +172,7 @@ pub struct ResolvedTimeSet {
 pub struct ResolvedSet {
     pub values: Vec<String>,
     pub tuple_components: Option<Vec<String>>,
+    pub tuple_component_domains: Option<Vec<String>>,
     pub tuple_rows: Option<Vec<Vec<String>>>,
 }
 
