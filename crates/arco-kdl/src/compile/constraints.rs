@@ -42,6 +42,7 @@ fn compile_constraint_instances(
                 inputs,
                 program,
                 entrypoint,
+                &constraint.name,
             )?;
             for scope in generation_scopes {
                 if let Some(filter) = &constraint.generation_filter {

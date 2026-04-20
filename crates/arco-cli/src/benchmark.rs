@@ -324,6 +324,7 @@ mod tests {
             ResolvedSet {
                 values: vec!["g1".to_string(), "g2".to_string()],
                 tuple_components: None,
+                tuple_component_domains: None,
                 tuple_rows: None,
             },
         );

@@ -586,3 +586,157 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn lowering_instantiates_constraint_bindings_from_tuple_subset_rows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-subset-constraint-bindings")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n1,wind,g1,b2,1\n1,solar,g2,b3,1\n2,solar,g3,b4,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area" as="a"
+  set "tech" as="i"
+  set "generators" as="g"
+  set "buses" as="b"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+set "target_pairs" {
+  in "feasible_links"
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  where { generators == "g1" }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  constraint "capacity_target" {
+    index "a" { in "target_pairs" }
+    index "i" { in "target_pairs" }
+    expression {
+      0 == 0
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let constraint_names = compiled
+        .algebra
+        .constraints
+        .iter()
+        .map(|constraint| constraint.name.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        constraint_names,
+        vec!["capacity_target[1,wind]".to_string()]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_rejects_constraint_auto_projection_from_high_dim_tuple_domain()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-subset-auto-projection")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area" as="a"
+  set "tech" as="i"
+  set "generators" as="g"
+  set "buses" as="b"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  constraint "bad_projection" {
+    index "a" { in "feasible_links" }
+    expression { 0 == 0 }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let error = compile_program(&semantic, &parsed.program, &path)
+        .expect_err("auto projection from tuple domains should fail in V1");
+
+    match error {
+        CompileError::InvalidFormulation { message, .. } => {
+            assert!(message.contains("index order mismatch for `bad_projection`"));
+        }
+        other => panic!("expected InvalidFormulation, got {other:?}"),
+    }
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}

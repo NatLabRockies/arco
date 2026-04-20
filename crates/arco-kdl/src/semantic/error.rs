@@ -153,6 +153,35 @@ pub enum SemanticError {
     },
 
     #[error(
+        "tuple subset index `{index}` in `{set}` resolves ambiguously to multiple parent components `{candidates}` in {path}"
+    )]
+    #[diagnostic(
+        code(arco::semantic::ambiguous_tuple_subset_index),
+        help("disambiguate by using the canonical tuple component name for the parent tuple set")
+    )]
+    AmbiguousTupleSubsetIndex {
+        set: String,
+        index: String,
+        candidates: String,
+        path: PathBuf,
+    },
+
+    #[error(
+        "tuple subset index `{index}` in `{set}` declares domain `{received_domain}` but parent tuple domain is `{expected_domain}` in {path}"
+    )]
+    #[diagnostic(
+        code(arco::semantic::tuple_subset_domain_mismatch),
+        help("align subset index `in` domain with the matched parent tuple component domain")
+    )]
+    TupleSubsetDomainMismatch {
+        set: String,
+        index: String,
+        expected_domain: String,
+        received_domain: String,
+        path: PathBuf,
+    },
+
+    #[error(
         "tuple component schema mismatch for merged tuple set `{set}` in {path}: existing `{existing_components}` vs incoming `{incoming_components}`"
     )]
     #[diagnostic(

@@ -665,3 +665,102 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn semantic_validation_rejects_tuple_set_domain_schema_mismatch_across_sources()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-tuple-set-domain-schema-mismatch")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "1"; "2" }
+set "region" { "1"; "2" }
+set "tech" { "wind"; "solar" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+set "feasible_links" {
+  index "a" { in "region" }
+  index "i" { in "tech" }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path).expect_err(
+        "tuple set domain schema mismatch across tuple sources should fail semantic validation",
+    );
+
+    assert!(
+        error
+            .to_string()
+            .contains("tuple component schema mismatch")
+    );
+    assert!(error.to_string().contains("domains: area,tech"));
+    assert!(error.to_string().contains("domains: region,tech"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_tuple_subset_with_component_domain_mismatch()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-tuple-subset-domain-mismatch")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "1"; "2" }
+set "tech" { "wind"; "solar" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+set "target_pairs" {
+  in "feasible_links"
+  index "a" { in "tech" }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("tuple subset domain mismatch should fail semantic validation");
+
+    assert!(
+        error
+            .to_string()
+            .contains("tuple subset index `a` in `target_pairs` declares domain `tech`")
+    );
+    assert!(error.to_string().contains("parent tuple domain is `area`"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
