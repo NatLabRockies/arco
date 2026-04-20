@@ -1,8 +1,8 @@
 use crate::ObjectiveSense;
 use crate::algebra::parse_value_formula;
 use crate::source::ast::{
-    BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, ModelDecl, ParsedSource,
-    ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram, VariableKindDecl,
+    BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, IndexDecl, ModelDecl,
+    ParsedSource, ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram, VariableKindDecl,
 };
 use crate::source::error::SourceError;
 use crate::source::parser_constraints::parse_constraints;
@@ -236,6 +236,7 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
     let mut subset_of = None;
     let mut filter_expression = parse_optional_filter_expression(node, context)?;
     let mut members = Vec::new();
+    let mut tuple_indices = Vec::new();
 
     if let Some(parent) = optional_property_string(node, "in", context)? {
         subset_of = Some(parent);
@@ -244,6 +245,25 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
     for child in node.iter_children() {
         match child.name().value() {
             "in" => subset_of = Some(first_arg_string(child, 0, context)?),
+            "index" => {
+                let index_name = first_arg_string(child, 0, context)?;
+                let domain = child
+                    .iter_children()
+                    .find(|grandchild| grandchild.name().value() == "in")
+                    .map(|in_node| first_arg_string(in_node, 0, context))
+                    .transpose()?
+                    .or_else(|| {
+                        child
+                            .get("in")
+                            .and_then(KdlValue::as_string)
+                            .map(ToString::to_string)
+                    })
+                    .unwrap_or_else(|| index_name.clone());
+                tuple_indices.push(IndexDecl {
+                    name: index_name,
+                    domain: Some(domain),
+                });
+            }
             "filter" | "where" => {
                 filter_expression = Some(algebra_text_from_node(child, context)?);
             }
@@ -270,6 +290,7 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
             .and_then(KdlValue::as_string)
             .map(ToString::to_string),
         subset_of,
+        tuple_indices,
         members,
         filter_expression,
         parsed_filter_expression,

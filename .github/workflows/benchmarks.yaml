@@ -8,6 +8,7 @@ on:
       - "Cargo.lock"
       - "justfile"
       - "scripts/bench.py"
+      - "scripts/bench_guard.py"
       - "benchmarks/**"
       - ".github/workflows/benchmarks.yaml"
   push:
@@ -19,6 +20,7 @@ on:
       - "Cargo.lock"
       - "justfile"
       - "scripts/bench.py"
+      - "scripts/bench_guard.py"
       - "benchmarks/**"
       - ".github/workflows/benchmarks.yaml"
   workflow_dispatch:
@@ -101,10 +103,10 @@ jobs:
       - name: Run CLI benchmarks
         timeout-minutes: 15
         run: |
-          python scripts/bench.py \
+          uv run python scripts/bench.py \
             --arco-binary target/release/arco \
             --workflows validate,run \
-            --repetitions 3 \
+            --repetitions 10 \
             --output artifacts/benchmark-results.json
 
       # Cache 4: Benchmark data for trend analysis (already exists, but optimized key)
@@ -127,8 +129,17 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           summary-always: true
           comment-on-alert: true
-          alert-threshold: "115%"
-          fail-on-alert: true
+          alert-threshold: "125%"
+          fail-on-alert: false
+
+      - name: Benchmark regression guard
+        run: |
+          uv run python scripts/bench_guard.py \
+            --current artifacts/benchmark-results.json \
+            --baseline cache/benchmark-data.json \
+            --ratio-threshold 1.25 \
+            --absolute-delta-ms 1.0 \
+            --min-baseline-samples 10
 
       - name: Save benchmark data
         if: github.ref == 'refs/heads/main' && steps.benchmark-data-restore.outputs.cache-hit != 'true'

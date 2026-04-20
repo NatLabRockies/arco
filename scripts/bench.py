@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -56,7 +57,7 @@ class BenchmarkCase:
 class BenchmarkResult:
     case: str
     workflow: str
-    duration_ms: float
+    median_duration_ms: float
     peak_rss_mb: float
     samples: int
 
@@ -148,7 +149,9 @@ def _estimate_inner_iterations(arco_cmd: list[str]) -> int | None:
     return max(1, min(MAX_INNER_ITERATIONS, estimated))
 
 
-def _build_monitored_command(arco_cmd: list[str], *, inner_iterations: int) -> list[str]:
+def _build_monitored_command(
+    arco_cmd: list[str], *, inner_iterations: int
+) -> list[str]:
     if inner_iterations <= 1:
         return arco_cmd
     return [
@@ -167,7 +170,10 @@ def run_benchmark(
     durations: list[float] = []
     peak_rss: list[float] = []
 
-    arco_cmd = [arco_binary, *_build_arco_args(workflow=case.workflow, model_path=case.kdl_path)]
+    arco_cmd = [
+        arco_binary,
+        *_build_arco_args(workflow=case.workflow, model_path=case.kdl_path),
+    ]
     inner_iterations = _estimate_inner_iterations(arco_cmd)
     if inner_iterations is None:
         return None
@@ -178,7 +184,9 @@ def run_benchmark(
             file=sys.stderr,
         )
 
-    monitored_cmd = _build_monitored_command(arco_cmd, inner_iterations=inner_iterations)
+    monitored_cmd = _build_monitored_command(
+        arco_cmd, inner_iterations=inner_iterations
+    )
 
     for repetition in range(repetitions):
         started = time.perf_counter()
@@ -217,7 +225,9 @@ def run_benchmark(
                 *monitored_cmd,
             ]
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=300
+                )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 print(f"  rmon failed to launch: {exc}", file=sys.stderr)
                 return None
@@ -241,7 +251,7 @@ def run_benchmark(
     return BenchmarkResult(
         case=case.name,
         workflow=case.workflow,
-        duration_ms=sum(durations) / len(durations),
+        median_duration_ms=statistics.median(durations),
         peak_rss_mb=max(peak_rss) if peak_rss else 0.0,
         samples=repetitions,
     )
@@ -268,7 +278,7 @@ def main() -> int:
             "Comma-separated workflows. Supported: " + ", ".join(SUPPORTED_WORKFLOWS)
         ),
     )
-    parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--repetitions", type=int, default=10)
     parser.add_argument("--output", type=Path, default=Path("benchmark-results.json"))
     args = parser.parse_args()
 
@@ -305,24 +315,38 @@ def main() -> int:
 
         results.append(result)
         print(
-            f"  {result.duration_ms:.1f}ms, {result.peak_rss_mb:.1f}MiB",
+            f"  {result.median_duration_ms:.1f}ms, {result.peak_rss_mb:.1f}MiB",
             file=sys.stderr,
         )
 
-    output = [
-        {
-            "name": f"{r.workflow}/{r.case}",
-            "unit": "ms",
-            "value": round(r.duration_ms, 3),
-            "range": str(r.samples),
-            "extra": (
-                f"workflow={r.workflow}\n"
-                f"case={r.case}\n"
-                f"peak_rss_mb={r.peak_rss_mb:.2f}"
-            ),
-        }
-        for r in results
-    ]
+    validate_medians = {
+        r.case: r.median_duration_ms for r in results if r.workflow == "validate"
+    }
+
+    output = []
+    for r in results:
+        extra_lines = [
+            f"workflow={r.workflow}",
+            f"case={r.case}",
+            f"peak_rss_mb={r.peak_rss_mb:.2f}",
+            "aggregation=median",
+        ]
+        if r.workflow == "run" and r.case in validate_medians:
+            validate_median = validate_medians[r.case]
+            extra_lines.append(f"validate_median_ms={validate_median:.3f}")
+            extra_lines.append(
+                f"solve_estimate_ms={max(0.0, r.median_duration_ms - validate_median):.3f}"
+            )
+
+        output.append(
+            {
+                "name": f"{r.workflow}/{r.case}",
+                "unit": "ms",
+                "value": round(r.median_duration_ms, 3),
+                "range": str(r.samples),
+                "extra": "\n".join(extra_lines),
+            }
+        )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(output, indent=2))

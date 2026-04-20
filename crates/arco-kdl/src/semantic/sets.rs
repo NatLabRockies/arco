@@ -48,8 +48,8 @@ pub(crate) fn extend_set_registry_from_low_level_declarations(
         let rows = read_csv_rows(&csv_path)?;
         validate_data_filter_identifiers(data_decl, &rows, &csv_path)?;
         for set_decl in &data_decl.sets {
-            let values = values_for_data_set(data_decl, set_decl, &rows);
-            registry.insert(set_decl.name.clone(), ResolvedSet { values });
+            let resolved_set = resolved_set_for_data_set(data_decl, set_decl, &rows, &csv_path)?;
+            registry.insert(set_decl.name.clone(), resolved_set);
         }
     }
 
@@ -59,7 +59,14 @@ pub(crate) fn extend_set_registry_from_low_level_declarations(
             .iter()
             .map(literal_to_string)
             .collect::<Vec<_>>();
-        registry.insert(set_decl.name.clone(), ResolvedSet { values });
+        registry.insert(
+            set_decl.name.clone(),
+            ResolvedSet {
+                values,
+                tuple_components: None,
+                tuple_rows: None,
+            },
+        );
     }
 
     Ok(())
@@ -430,11 +437,36 @@ fn validate_filter_identifier(
     })
 }
 
-fn values_for_data_set(
+fn resolved_set_for_data_set(
     data_decl: &DataDecl,
     set_decl: &SetDecl,
     rows: &[BTreeMap<String, String>],
-) -> Vec<String> {
+    path: &Path,
+) -> Result<ResolvedSet, SemanticError> {
+    if !set_decl.tuple_indices.is_empty() {
+        let tuple_rows = tuple_rows_for_data_set(data_decl, set_decl, rows, path)?;
+        if set_decl.parsed_filter_expression.is_some() && !rows.is_empty() && tuple_rows.is_empty()
+        {
+            warn!(
+                data = %data_decl.name,
+                set = %set_decl.name,
+                filter = ?set_decl.filter_expression,
+                "filtered subset resolved empty"
+            );
+        }
+
+        return Ok(ResolvedSet {
+            values: Vec::new(),
+            tuple_components: Some(
+                set_decl
+                    .tuple_indices
+                    .iter()
+                    .map(|index| index.name.clone())
+                    .collect(),
+            ),
+            tuple_rows: Some(tuple_rows),
+        });
+    }
     let source_set_name = source_set_name_for_data_set_values(data_decl, set_decl);
     let target_column = source_column_for_logical_name(data_decl, &source_set_name);
     let mut values = BTreeSet::new();
@@ -446,7 +478,6 @@ fn values_for_data_set(
             values.insert(value.clone());
         }
     }
-
     let values = values.into_iter().collect::<Vec<_>>();
     if set_decl.parsed_filter_expression.is_some() && !rows.is_empty() && values.is_empty() {
         warn!(
@@ -457,7 +488,57 @@ fn values_for_data_set(
         );
     }
 
-    values
+    Ok(ResolvedSet {
+        values,
+        tuple_components: None,
+        tuple_rows: None,
+    })
+}
+
+fn tuple_rows_for_data_set(
+    data_decl: &DataDecl,
+    set_decl: &SetDecl,
+    rows: &[BTreeMap<String, String>],
+    path: &Path,
+) -> Result<Vec<Vec<String>>, SemanticError> {
+    let mut tuples = BTreeSet::new();
+    for (row_index, row) in rows.iter().enumerate() {
+        if !matches_data_set_filter(row, data_decl, set_decl) {
+            continue;
+        }
+
+        let mut tuple = Vec::with_capacity(set_decl.tuple_indices.len());
+        for tuple_index in &set_decl.tuple_indices {
+            let logical_name = tuple_index
+                .domain
+                .as_deref()
+                .unwrap_or(tuple_index.name.as_str());
+            let source_column = source_column_for_logical_name(data_decl, logical_name);
+            if let Some(value) = row
+                .get(&source_column)
+                .or_else(|| row.get(logical_name))
+                .cloned()
+            {
+                tuple.push(value);
+            } else {
+                return Err(SemanticError::MissingColumn {
+                    column: source_column,
+                    path: path.to_path_buf(),
+                });
+            }
+        }
+
+        if tuple.len() != set_decl.tuple_indices.len() {
+            return Err(SemanticError::MissingCell {
+                column: set_decl.tuple_indices[tuple.len()].name.clone(),
+                row: row_index + 1,
+                path: path.to_path_buf(),
+            });
+        }
+        tuples.insert(tuple);
+    }
+
+    Ok(tuples.into_iter().collect())
 }
 
 fn source_set_name_for_data_set_values(data_decl: &DataDecl, set_decl: &SetDecl) -> String {

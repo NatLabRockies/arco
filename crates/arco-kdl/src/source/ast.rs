@@ -57,6 +57,7 @@ pub struct SetDecl {
     pub name: String,
     pub alias: Option<String>,
     pub subset_of: Option<String>,
+    pub tuple_indices: Vec<IndexDecl>,
     pub members: Vec<LiteralValue>,
     pub filter_expression: Option<String>,
     pub parsed_filter_expression: Option<Expr>,

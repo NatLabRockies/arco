@@ -153,11 +153,18 @@ fn instantiate_variable_instances(
     variable_signatures: &BTreeMap<String, FamilySignature>,
     entrypoint: &Path,
 ) -> Result<Vec<VariableInstance>, CompileError> {
+    let reverse_aliases = build_reverse_alias_lookup(program);
     let mut instances = Vec::new();
     for (family, signature) in variable_signatures {
         let overrides = program.variable_overrides.get(&signature.target);
         let resolved = resolve_variable_domains(
-            signature, program, inputs, family, overrides, entrypoint,
+            signature,
+            program,
+            &reverse_aliases,
+            inputs,
+            family,
+            overrides,
+            entrypoint,
         )?;
         instances.extend(resolved);
     }
@@ -170,6 +177,7 @@ fn instantiate_variable_instances(
 fn resolve_variable_domains(
     signature: &FamilySignature,
     program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
     inputs: &ScenarioInputs,
     family: &str,
     overrides: Option<&VariableDeclOverrides>,
@@ -182,53 +190,188 @@ fn resolve_variable_domains(
         .map(|a| (a.name.as_str(), a))
         .collect();
 
-    // Resolve each index to its domain values and track which are asset domains.
-    let mut domain_values: Vec<Vec<String>> = Vec::new();
-    let mut asset_index: Option<usize> = None;
-    for (i, index_name) in signature.indices.iter().enumerate() {
-        let values = resolve_single_index_domain(
-            index_name, signature, program, family, entrypoint,
-        )?;
-        if is_asset_domain(index_name, signature, program, &asset_names) {
-            asset_index = Some(i);
+    let asset_index = signature.indices.iter().position(|index_name| {
+        is_asset_domain(
+            index_name,
+            signature,
+            program,
+            reverse_aliases,
+            &asset_names,
+        )
+    });
+
+    let mut instances = Vec::new();
+    if let Some(tuple_rows) = resolve_tuple_domain_rows(
+        signature,
+        program,
+        reverse_aliases,
+        family,
+        entrypoint,
+    )? {
+        for combo in tuple_rows {
+            let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx].as_str()).copied());
+
+            if !variable_instance_is_active(&signature.target, asset) {
+                continue;
+            }
+
+            let name = format!("{}[{}]", signature.target, combo.join(","));
+            let (lower, upper, kind) =
+                variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
+            instances.push(VariableInstance {
+                name,
+                family: family.to_string(),
+                lower,
+                upper,
+                kind,
+            });
         }
+
+        return Ok(instances);
+    }
+
+    let mut domain_values: Vec<Vec<String>> = Vec::new();
+    for index_name in &signature.indices {
+        let values = resolve_single_index_domain(
+            index_name,
+            signature,
+            program,
+            reverse_aliases,
+            family,
+            entrypoint,
+        )?;
         domain_values.push(values);
     }
 
-    // Cartesian product of all domain values.
-    let mut combos: Vec<Vec<String>> = vec![vec![]];
-    for values in &domain_values {
-        let mut next = Vec::new();
-        for combo in &combos {
-            for value in values {
-                let mut extended = combo.clone();
-                extended.push(value.clone());
-                next.push(extended);
-            }
-        }
-        combos = next;
+    if domain_values.iter().any(Vec::is_empty) {
+        return Ok(instances);
     }
 
-    let mut instances = Vec::new();
-    for combo in &combos {
-        let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx].as_str()).copied());
-
-        if !variable_instance_is_active(&signature.target, asset) {
-            continue;
-        }
-
-        let name = format!("{}[{}]", signature.target, combo.join(","));
+    if domain_values.is_empty() {
         let (lower, upper, kind) =
-            variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
+            variable_domain_policy(&signature.target, None, overrides, entrypoint)?;
         instances.push(VariableInstance {
-            name,
+            name: signature.target.clone(),
             family: family.to_string(),
             lower,
             upper,
             kind,
         });
+        return Ok(instances);
     }
+
+    let mut positions = vec![0usize; domain_values.len()];
+    loop {
+        let asset = asset_index
+            .map(|idx| domain_values[idx][positions[idx]].as_str())
+            .and_then(|asset_name| asset_lookup.get(asset_name).copied());
+
+        if variable_instance_is_active(&signature.target, asset) {
+            let name = build_indexed_name_from_positions(&signature.target, &domain_values, &positions);
+            let (lower, upper, kind) =
+                variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
+            instances.push(VariableInstance {
+                name,
+                family: family.to_string(),
+                lower,
+                upper,
+                kind,
+            });
+        }
+
+        let mut advanced = false;
+        for idx in (0..positions.len()).rev() {
+            if positions[idx] + 1 < domain_values[idx].len() {
+                positions[idx] += 1;
+                for position in positions.iter_mut().skip(idx + 1) {
+                    *position = 0;
+                }
+                advanced = true;
+                break;
+            }
+        }
+
+        if !advanced {
+            break;
+        }
+    }
+
     Ok(instances)
+}
+
+fn build_indexed_name_from_positions(
+    target: &str,
+    domain_values: &[Vec<String>],
+    positions: &[usize],
+) -> String {
+    let mut name = String::with_capacity(target.len() + 2 + positions.len() * 4);
+    name.push_str(target);
+    name.push('[');
+    for (idx, position) in positions.iter().enumerate() {
+        if idx > 0 {
+            name.push(',');
+        }
+        name.push_str(&domain_values[idx][*position]);
+    }
+    name.push(']');
+    name
+}
+
+fn resolve_tuple_domain_rows<'a>(
+    signature: &FamilySignature,
+    program: &'a SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
+    family: &str,
+    entrypoint: &Path,
+) -> Result<Option<&'a [Vec<String>]>, CompileError> {
+    if signature.indices.len() < 2 {
+        return Ok(None);
+    }
+
+    let first_index = &signature.indices[0];
+    let first_domain_name = signature
+        .index_domains
+        .get(first_index)
+        .map_or(first_index.as_str(), |domain| domain.as_str());
+    let Some(first_key) = resolve_set_registry_key(first_domain_name, program, reverse_aliases)
+    else {
+        return Ok(None);
+    };
+
+    for index_name in signature.indices.iter().skip(1) {
+        let domain_name = signature
+            .index_domains
+            .get(index_name)
+            .map_or(index_name.as_str(), |domain| domain.as_str());
+        let Some(key) = resolve_set_registry_key(domain_name, program, reverse_aliases) else {
+            return Ok(None);
+        };
+        if key != first_key {
+            return Ok(None);
+        }
+    }
+
+    let Some(set) = resolve_set_struct_by_name(first_key, program, reverse_aliases) else {
+        return Ok(None);
+    };
+    let (Some(tuple_components), Some(tuple_rows)) =
+        (set.tuple_components.as_ref(), set.tuple_rows.as_ref())
+    else {
+        return Ok(None);
+    };
+
+    if tuple_components != &signature.indices {
+        return Err(CompileError::InvalidFormulation {
+            message: format!(
+                "index order mismatch for `{family}`: expected `{}`, received `{}`",
+                tuple_components.join(","),
+                signature.indices.join(",")
+            ),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
+    Ok(Some(tuple_rows.as_slice()))
 }
 
 /// Determine whether an index resolves to the assets domain by checking
@@ -237,19 +380,27 @@ fn is_asset_domain(
     index_name: &str,
     signature: &FamilySignature,
     program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
     asset_names: &BTreeSet<&str>,
 ) -> bool {
     if asset_names.is_empty() {
         return false;
     }
+
     let effective_name = signature
         .index_domains
         .get(index_name)
         .map_or(index_name, |s| s.as_str());
-    resolve_set_by_name(effective_name, program).is_some_and(|vals| {
-        let set: BTreeSet<&str> = vals.iter().map(|v| v.as_str()).collect();
-        set == *asset_names
-    })
+    let Some(set) = resolve_set_struct_by_name(effective_name, program, reverse_aliases) else {
+        return false;
+    };
+    if set.values.len() != asset_names.len() {
+        return false;
+    }
+
+    set.values
+        .iter()
+        .all(|value| asset_names.contains(value.as_str()))
 }
 
 /// Resolve values for a single index. Checks the signature's explicit domain
@@ -258,6 +409,7 @@ fn resolve_single_index_domain(
     index_name: &str,
     signature: &FamilySignature,
     program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
     family: &str,
     entrypoint: &Path,
 ) -> Result<Vec<String>, CompileError> {
@@ -266,41 +418,70 @@ fn resolve_single_index_domain(
         .get(index_name)
         .map_or(index_name, |s| s.as_str());
 
-    resolve_set_by_name(effective_name, program).ok_or_else(|| CompileError::InvalidFormulation {
-        message: format!(
-            "index `{index_name}` in `{family}` references unknown set `{effective_name}`"
-        ),
-        path: entrypoint.to_path_buf(),
+    resolve_set_by_name(effective_name, program, reverse_aliases).ok_or_else(|| {
+        CompileError::InvalidFormulation {
+            message: format!(
+                "index `{index_name}` in `{family}` references unknown set `{effective_name}`"
+            ),
+            path: entrypoint.to_path_buf(),
+        }
     })
 }
 
-/// Resolve a set name to its values, checking the registry and alias system.
-fn resolve_set_by_name(name: &str, program: &SemanticProgram) -> Option<Vec<String>> {
-    // Direct registry lookup.
-    if let Some(set) = program.set_registry.get(name) {
-        if !set.values.is_empty() {
-            return Some(set.values.clone());
-        }
-    }
-    // Alias lookup: name -> canonical -> registry.
-    if let Some(canonical) = program.set_aliases.get(name) {
-        if let Some(set) = program.set_registry.get(canonical.as_str()) {
-            if !set.values.is_empty() {
-                return Some(set.values.clone());
-            }
-        }
-    }
-    // Reverse alias: check if name is a canonical form whose alias has registry entries.
+fn build_reverse_alias_lookup(program: &SemanticProgram) -> BTreeMap<&str, &str> {
+    let mut reverse_aliases = BTreeMap::new();
     for (alias, canonical) in &program.set_aliases {
-        if canonical == name {
-            if let Some(set) = program.set_registry.get(alias.as_str()) {
-                if !set.values.is_empty() {
-                    return Some(set.values.clone());
-                }
-            }
+        reverse_aliases
+            .entry(canonical.as_str())
+            .or_insert(alias.as_str());
+    }
+    reverse_aliases
+}
+
+fn resolve_set_registry_key<'a>(
+    name: &str,
+    program: &'a SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
+) -> Option<&'a str> {
+    if let Some((key, _)) = program.set_registry.get_key_value(name) {
+        return Some(key.as_str());
+    }
+
+    if let Some(canonical) = program.set_aliases.get(name) {
+        if let Some((key, _)) = program.set_registry.get_key_value(canonical.as_str()) {
+            return Some(key.as_str());
         }
     }
+
+    if let Some(alias) = reverse_aliases.get(name) {
+        if let Some((key, _)) = program.set_registry.get_key_value(*alias) {
+            return Some(key.as_str());
+        }
+    }
+
     None
+}
+
+fn resolve_set_struct_by_name<'a>(
+    name: &str,
+    program: &'a SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
+) -> Option<&'a crate::semantic::ResolvedSet> {
+    let key = resolve_set_registry_key(name, program, reverse_aliases)?;
+    program.set_registry.get(key)
+}
+
+/// Resolve a set name to its values, checking the registry and alias system.
+fn resolve_set_by_name(
+    name: &str,
+    program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
+) -> Option<Vec<String>> {
+    let set = resolve_set_struct_by_name(name, program, reverse_aliases)?;
+    if set.values.is_empty() {
+        return None;
+    }
+    Some(set.values.clone())
 }
 
 fn variable_domain_policy(

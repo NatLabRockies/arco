@@ -373,3 +373,139 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn lowering_instantiates_tuple_domain_variables_from_data_rows()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-domain-from-data")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n1,wind,g1,b2,1\n1,solar,g9,b9,0\n2,solar,g2,b3,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let x_instances = compiled
+        .algebra
+        .variable_instances
+        .iter()
+        .map(|instance| instance.name.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        x_instances,
+        vec![
+            "x[1,wind,g1,b1]".to_string(),
+            "x[1,wind,g1,b2]".to_string(),
+            "x[2,solar,g2,b3]".to_string(),
+        ]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_tuple_domain_instantiation_handles_alias_and_canonical_set_names()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-domain-alias-canonical")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n1,wind,g1,b2,1\n2,solar,g2,b3,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "feasible_links" as="fl" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "fl" }
+    index "i" { in "feasible_links" }
+    index "g" { in "fl" }
+    index "b" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let x_instances = compiled
+        .algebra
+        .variable_instances
+        .iter()
+        .map(|instance| instance.name.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        x_instances,
+        vec![
+            "x[1,wind,g1,b1]".to_string(),
+            "x[1,wind,g1,b2]".to_string(),
+            "x[2,solar,g2,b3]".to_string(),
+        ]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
