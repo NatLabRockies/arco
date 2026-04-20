@@ -764,3 +764,231 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn semantic_validation_rejects_duplicate_data_tuple_rows_with_provenance()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-duplicate-data-tuples")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n1,wind,g1,b1,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("duplicate tuple rows from data should fail semantic validation");
+
+    assert!(error.to_string().contains("duplicate feasible tuples"));
+    assert!(error.to_string().contains("1,wind,g1,b1"));
+    assert!(error.to_string().contains("data `data/links.csv` row 1"));
+    assert!(error.to_string().contains("data `data/links.csv` row 2"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_duplicate_rule_tuple_rows_with_provenance()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-duplicate-rule-tuples")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "1"; "1" }
+set "tech" { "wind" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("duplicate tuple rows from rule expansion should fail semantic validation");
+
+    assert!(error.to_string().contains("duplicate feasible tuples"));
+    assert!(error.to_string().contains("1,wind"));
+    assert!(
+        error
+            .to_string()
+            .contains("rule `feasible_links.rule_1` candidate #1")
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("rule `feasible_links.rule_1` candidate #2")
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_reports_deterministic_inferred_rule_ids_in_duplicate_diagnostics()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-duplicate-rule-tuples-inferred-id")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "1"; "1" }
+set "tech" { "wind" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let first_error = validate_program(&parsed.program, &path)
+        .expect_err("duplicate tuple rows from rule expansion should fail semantic validation");
+    let first_message = first_error.to_string();
+
+    let second_error = validate_program(&parsed.program, &path)
+        .expect_err("duplicate tuple rows from rule expansion should fail semantic validation");
+    let second_message = second_error.to_string();
+
+    assert_eq!(first_message, second_message);
+    assert!(first_message.contains("rule `feasible_links.rule_1` candidate #1"));
+    assert!(first_message.contains("rule `feasible_links.rule_1` candidate #2"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_prefers_user_rule_ids_in_duplicate_diagnostics()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-duplicate-rule-tuples-user-id")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "1"; "1" }
+set "tech" { "wind" }
+
+set "feasible_links" id="LinksRule" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("duplicate tuple rows from rule expansion should fail semantic validation");
+
+    let message = error.to_string();
+    assert!(message.contains("rule `LinksRule` candidate #1"));
+    assert!(message.contains("rule `LinksRule` candidate #2"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_assigns_stable_scoped_inferred_constraint_ids()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-inferred-constraint-id")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+model "Dispatch" {
+  constraint {
+    expression { 0 == 0 }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let first_semantic = validate_program(&parsed.program, &path)?;
+    let second_semantic = validate_program(&parsed.program, &path)?;
+
+    assert_eq!(first_semantic.active_constraints.len(), 1);
+    assert_eq!(second_semantic.active_constraints.len(), 1);
+
+    assert_eq!(first_semantic.active_constraints[0].name, "constraint_1");
+    assert_eq!(
+        first_semantic.active_constraints[0].diagnostic_id,
+        "S1.Dispatch.constraint_1"
+    );
+    assert_eq!(
+        first_semantic.active_constraints[0].diagnostic_id,
+        second_semantic.active_constraints[0].diagnostic_id
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}

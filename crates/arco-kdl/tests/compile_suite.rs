@@ -733,6 +733,192 @@ scenario "S1" {
     match error {
         CompileError::InvalidFormulation { message, .. } => {
             assert!(message.contains("index order mismatch for `bad_projection`"));
+            assert!(message.contains("expected `a,i,g,b`"));
+            assert!(message.contains("received `a`"));
+        }
+        other => panic!("expected InvalidFormulation, got {other:?}"),
+    }
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_reports_all_empty_constraint_relevant_tuple_subset_keys()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-subset-empty-keys")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+set "area" { "2"; "1" }
+set "tech" { "wind"; "solar" }
+
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  constraint "capacity_target" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    expression {
+      sum(1 for g in feasible_links for b in feasible_links) == 1
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let error = compile_program(&semantic, &parsed.program, &path)
+        .expect_err("empty tuple-domain reductions should fail with all offending keys");
+
+    match error {
+        CompileError::InvalidFormulation { message, .. } => {
+            assert!(
+                message.contains("empty constraint-relevant tuple subset for `capacity_target`")
+            );
+            assert!(message.contains("1,solar; 1,wind; 2,solar; 2,wind"));
+        }
+        other => panic!("expected InvalidFormulation, got {other:?}"),
+    }
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_exports_scoped_inferred_constraint_ids() -> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("scoped-inferred-constraint-ids")?;
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+model "Dispatch" {
+  constraint {
+    expression { 0 == 0 }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    assert_eq!(semantic.active_constraints.len(), 1);
+    assert_eq!(semantic.active_constraints[0].name, "constraint_1");
+    assert_eq!(
+        semantic.active_constraints[0].diagnostic_id,
+        "S1.Dispatch.constraint_1"
+    );
+
+    assert_eq!(compiled.constraints.len(), 1);
+    assert_eq!(compiled.constraints[0].name, "constraint_1");
+    assert_eq!(
+        compiled.constraints[0].diagnostic_id,
+        "S1.Dispatch.constraint_1"
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_reports_scoped_inferred_constraint_ids_in_tuple_projection_errors()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-projection-scoped-constraint-id")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  constraint {
+    index "a" { in "feasible_links" }
+    expression { 0 == 0 }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let error = compile_program(&semantic, &parsed.program, &path)
+        .expect_err("auto projection from tuple domains should fail in V1");
+
+    match error {
+        CompileError::InvalidFormulation { message, .. } => {
+            assert!(message.contains("index order mismatch for `S1.TupleDispatch.constraint_1`"));
+            assert!(message.contains("expected `a,i,g,b`"));
+            assert!(message.contains("received `a`"));
         }
         other => panic!("expected InvalidFormulation, got {other:?}"),
     }
