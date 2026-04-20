@@ -43,33 +43,424 @@ pub(crate) fn extend_set_registry_from_low_level_declarations(
     entry_dir: &Path,
     registry: &mut BTreeMap<String, ResolvedSet>,
 ) -> Result<(), SemanticError> {
+    let set_aliases = collect_set_aliases(program, None);
     for data_decl in &program.data {
         let csv_path = entry_dir.join(&data_decl.source);
         let rows = read_csv_rows(&csv_path)?;
         validate_data_filter_identifiers(data_decl, &rows, &csv_path)?;
         for set_decl in &data_decl.sets {
             let resolved_set = resolved_set_for_data_set(data_decl, set_decl, &rows, &csv_path)?;
-            registry.insert(set_decl.name.clone(), resolved_set);
+            merge_resolved_set_into_registry(&set_decl.name, resolved_set, registry, entry_dir)?;
         }
     }
-
     for set_decl in &program.sets {
+        let resolved_set =
+            resolved_set_for_program_set(set_decl, registry, &set_aliases, entry_dir)?;
+        merge_resolved_set_into_registry(&set_decl.name, resolved_set, registry, entry_dir)?;
+    }
+    Ok(())
+}
+fn merge_resolved_set_into_registry(
+    set_name: &str,
+    next: ResolvedSet,
+    registry: &mut BTreeMap<String, ResolvedSet>,
+    merge_path: &Path,
+) -> Result<(), SemanticError> {
+    if let Some(existing) = registry.get(set_name) {
+        if let Some(intersection) =
+            intersect_tuple_set_sources(set_name, existing, &next, merge_path)?
+        {
+            registry.insert(set_name.to_string(), intersection);
+            return Ok(());
+        }
+    }
+    registry.insert(set_name.to_string(), next);
+    Ok(())
+}
+
+fn intersect_tuple_set_sources(
+    set_name: &str,
+    existing: &ResolvedSet,
+    next: &ResolvedSet,
+    merge_path: &Path,
+) -> Result<Option<ResolvedSet>, SemanticError> {
+    let (Some(existing_components), Some(existing_rows), Some(next_components), Some(next_rows)) = (
+        existing.tuple_components.as_ref(),
+        existing.tuple_rows.as_ref(),
+        next.tuple_components.as_ref(),
+        next.tuple_rows.as_ref(),
+    ) else {
+        return Ok(None);
+    };
+    if existing_components != next_components {
+        return Err(SemanticError::TupleSetSchemaMismatch {
+            set: set_name.to_string(),
+            existing_components: existing_components.join(","),
+            incoming_components: next_components.join(","),
+            path: merge_path.to_path_buf(),
+        });
+    }
+    let existing_rows = existing_rows.iter().cloned().collect::<BTreeSet<_>>();
+    let next_rows = next_rows.iter().cloned().collect::<BTreeSet<_>>();
+    let intersected_rows = existing_rows
+        .intersection(&next_rows)
+        .cloned()
+        .collect::<Vec<_>>();
+    Ok(Some(ResolvedSet {
+        values: Vec::new(),
+        tuple_components: Some(existing_components.clone()),
+        tuple_rows: Some(intersected_rows),
+    }))
+}
+
+fn resolved_set_for_program_set(
+    set_decl: &SetDecl,
+    registry: &BTreeMap<String, ResolvedSet>,
+    set_aliases: &BTreeMap<String, String>,
+    path: &Path,
+) -> Result<ResolvedSet, SemanticError> {
+    if set_decl.tuple_indices.is_empty() {
         let values = set_decl
             .members
             .iter()
             .map(literal_to_string)
             .collect::<Vec<_>>();
-        registry.insert(
-            set_decl.name.clone(),
-            ResolvedSet {
-                values,
-                tuple_components: None,
-                tuple_rows: None,
-            },
-        );
+        return Ok(ResolvedSet {
+            values,
+            tuple_components: None,
+            tuple_rows: None,
+        });
     }
 
-    Ok(())
+    let tuple_rows = tuple_rows_for_rule_set(set_decl, registry, set_aliases, path)?;
+    Ok(ResolvedSet {
+        values: Vec::new(),
+        tuple_components: Some(
+            set_decl
+                .tuple_indices
+                .iter()
+                .map(|tuple_index| tuple_index.name.clone())
+                .collect(),
+        ),
+        tuple_rows: Some(tuple_rows),
+    })
+}
+
+fn tuple_rows_for_rule_set(
+    set_decl: &SetDecl,
+    registry: &BTreeMap<String, ResolvedSet>,
+    set_aliases: &BTreeMap<String, String>,
+    path: &Path,
+) -> Result<Vec<Vec<String>>, SemanticError> {
+    let mut domain_values = Vec::with_capacity(set_decl.tuple_indices.len());
+    for tuple_index in &set_decl.tuple_indices {
+        let domain_name = tuple_index
+            .domain
+            .as_deref()
+            .unwrap_or(tuple_index.name.as_str());
+        let domain_set = resolve_set_for_rule_domain(domain_name, registry, set_aliases)
+            .ok_or_else(|| SemanticError::MissingDeclaration {
+                kind: "set",
+                name: domain_name.to_string(),
+                path: path.to_path_buf(),
+            })?;
+        if domain_set.values.is_empty() {
+            return Err(SemanticError::MissingDeclaration {
+                kind: "set",
+                name: domain_name.to_string(),
+                path: path.to_path_buf(),
+            });
+        }
+        domain_values.push(domain_set.values.clone());
+    }
+
+    let allowed_identifiers = tuple_rule_filter_identifiers(set_decl, set_aliases);
+    validate_rule_set_filter_identifiers(set_decl, &allowed_identifiers, path)?;
+
+    let mut combinations = vec![Vec::new()];
+    for values in &domain_values {
+        let mut next = Vec::new();
+        for combo in &combinations {
+            for value in values {
+                let mut extended = combo.clone();
+                extended.push(value.clone());
+                next.push(extended);
+            }
+        }
+        combinations = next;
+    }
+
+    let mut tuples = BTreeSet::new();
+    for combo in combinations {
+        let mut binding_values = BTreeMap::new();
+        for (position, tuple_index) in set_decl.tuple_indices.iter().enumerate() {
+            let value = combo[position].clone();
+            binding_values.insert(tuple_index.name.clone(), value.clone());
+            let domain_name = tuple_index
+                .domain
+                .as_deref()
+                .unwrap_or(tuple_index.name.as_str());
+            add_tuple_rule_binding_aliases(&mut binding_values, domain_name, value, set_aliases);
+        }
+
+        if matches_rule_set_filter(&binding_values, set_decl) {
+            tuples.insert(combo);
+        }
+    }
+
+    Ok(tuples.into_iter().collect())
+}
+
+fn resolve_set_for_rule_domain<'a>(
+    name: &str,
+    registry: &'a BTreeMap<String, ResolvedSet>,
+    set_aliases: &BTreeMap<String, String>,
+) -> Option<&'a ResolvedSet> {
+    if let Some(set) = registry.get(name) {
+        return Some(set);
+    }
+    if let Some(canonical) = set_aliases.get(name) {
+        if let Some(set) = registry.get(canonical.as_str()) {
+            return Some(set);
+        }
+    }
+    for (alias, canonical) in set_aliases {
+        if canonical == name {
+            if let Some(set) = registry.get(alias.as_str()) {
+                return Some(set);
+            }
+        }
+    }
+
+    None
+}
+
+fn add_tuple_rule_binding_aliases(
+    binding_values: &mut BTreeMap<String, String>,
+    domain_name: &str,
+    value: String,
+    set_aliases: &BTreeMap<String, String>,
+) {
+    binding_values.insert(domain_name.to_string(), value.clone());
+    if let Some(canonical) = set_aliases.get(domain_name) {
+        binding_values.insert(canonical.clone(), value.clone());
+    }
+    for (alias, canonical) in set_aliases {
+        if canonical == domain_name {
+            binding_values.insert(alias.clone(), value.clone());
+        }
+    }
+}
+
+fn tuple_rule_filter_identifiers(
+    set_decl: &SetDecl,
+    set_aliases: &BTreeMap<String, String>,
+) -> BTreeSet<String> {
+    let mut identifiers = BTreeSet::new();
+    for tuple_index in &set_decl.tuple_indices {
+        identifiers.insert(tuple_index.name.clone());
+        let domain_name = tuple_index
+            .domain
+            .as_deref()
+            .unwrap_or(tuple_index.name.as_str());
+        identifiers.insert(domain_name.to_string());
+        collect_domain_aliases_for_rule_filter(&mut identifiers, domain_name, set_aliases);
+    }
+
+    identifiers
+}
+
+fn collect_domain_aliases_for_rule_filter(
+    identifiers: &mut BTreeSet<String>,
+    domain_name: &str,
+    set_aliases: &BTreeMap<String, String>,
+) {
+    if let Some(canonical) = set_aliases.get(domain_name) {
+        identifiers.insert(canonical.clone());
+    }
+    for (alias, canonical) in set_aliases {
+        if canonical == domain_name {
+            identifiers.insert(alias.clone());
+        }
+    }
+}
+
+fn validate_rule_set_filter_identifiers(
+    set_decl: &SetDecl,
+    allowed_identifiers: &BTreeSet<String>,
+    path: &Path,
+) -> Result<(), SemanticError> {
+    let Some(expr) = set_decl.parsed_filter_expression.as_ref() else {
+        return Ok(());
+    };
+
+    validate_rule_set_filter_expr_internal(expr, allowed_identifiers, &set_decl.name, path, false)
+}
+
+fn validate_rule_set_filter_expr_internal(
+    expr: &Expr,
+    allowed_identifiers: &BTreeSet<String>,
+    set_name: &str,
+    path: &Path,
+    allow_unresolved_identifier: bool,
+) -> Result<(), SemanticError> {
+    match expr {
+        Expr::Comparison { left, right, .. } => {
+            validate_rule_set_filter_column_side_expr(left, allowed_identifiers, set_name, path)?;
+            validate_rule_set_filter_expr_internal(right, allowed_identifiers, set_name, path, true)
+        }
+        Expr::Unary { expr, .. } => validate_rule_set_filter_expr_internal(
+            expr,
+            allowed_identifiers,
+            set_name,
+            path,
+            allow_unresolved_identifier,
+        ),
+        Expr::Binary { left, right, .. } => {
+            validate_rule_set_filter_expr_internal(
+                left,
+                allowed_identifiers,
+                set_name,
+                path,
+                allow_unresolved_identifier,
+            )?;
+            validate_rule_set_filter_expr_internal(
+                right,
+                allowed_identifiers,
+                set_name,
+                path,
+                allow_unresolved_identifier,
+            )
+        }
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                validate_rule_set_filter_expr_internal(
+                    arg,
+                    allowed_identifiers,
+                    set_name,
+                    path,
+                    allow_unresolved_identifier,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Indexed { indices, .. } => {
+            for index in indices {
+                validate_rule_set_filter_expr_internal(
+                    index,
+                    allowed_identifiers,
+                    set_name,
+                    path,
+                    allow_unresolved_identifier,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Reduction(reduction) => {
+            validate_rule_set_filter_expr_internal(
+                &reduction.body,
+                allowed_identifiers,
+                set_name,
+                path,
+                allow_unresolved_identifier,
+            )?;
+            for filter in &reduction.filters {
+                validate_rule_set_filter_expr_internal(
+                    filter,
+                    allowed_identifiers,
+                    set_name,
+                    path,
+                    allow_unresolved_identifier,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Identifier(identifier) => {
+            if allow_unresolved_identifier {
+                Ok(())
+            } else {
+                validate_rule_set_filter_identifier(identifier, allowed_identifiers, set_name, path)
+            }
+        }
+        Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) => Ok(()),
+    }
+}
+
+fn validate_rule_set_filter_column_side_expr(
+    expr: &Expr,
+    allowed_identifiers: &BTreeSet<String>,
+    set_name: &str,
+    path: &Path,
+) -> Result<(), SemanticError> {
+    match expr {
+        Expr::Identifier(identifier) => {
+            validate_rule_set_filter_identifier(identifier, allowed_identifiers, set_name, path)
+        }
+        Expr::Unary { expr, .. } => {
+            validate_rule_set_filter_column_side_expr(expr, allowed_identifiers, set_name, path)
+        }
+        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+            validate_rule_set_filter_column_side_expr(left, allowed_identifiers, set_name, path)?;
+            validate_rule_set_filter_column_side_expr(right, allowed_identifiers, set_name, path)
+        }
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                validate_rule_set_filter_column_side_expr(
+                    arg,
+                    allowed_identifiers,
+                    set_name,
+                    path,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Indexed { indices, .. } => {
+            for index in indices {
+                validate_rule_set_filter_column_side_expr(
+                    index,
+                    allowed_identifiers,
+                    set_name,
+                    path,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Reduction(reduction) => {
+            validate_rule_set_filter_column_side_expr(
+                &reduction.body,
+                allowed_identifiers,
+                set_name,
+                path,
+            )?;
+            for filter in &reduction.filters {
+                validate_rule_set_filter_column_side_expr(
+                    filter,
+                    allowed_identifiers,
+                    set_name,
+                    path,
+                )?;
+            }
+            Ok(())
+        }
+        Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) => Ok(()),
+    }
+}
+
+fn validate_rule_set_filter_identifier(
+    identifier: &str,
+    allowed_identifiers: &BTreeSet<String>,
+    set_name: &str,
+    path: &Path,
+) -> Result<(), SemanticError> {
+    if allowed_identifiers.contains(identifier) {
+        return Ok(());
+    }
+
+    Err(SemanticError::UnresolvedRuleSetFilterIdentifier {
+        identifier: identifier.to_string(),
+        set: set_name.to_string(),
+        path: path.to_path_buf(),
+    })
 }
 
 fn read_csv_rows(path: &Path) -> Result<Vec<BTreeMap<String, String>>, SemanticError> {
@@ -563,39 +954,57 @@ fn matches_data_set_filter(
     let Some(expr) = set_decl.parsed_filter_expression.as_ref() else {
         return true;
     };
-
     evaluate_data_set_filter_expr(expr, row, data_decl)
         .and_then(|value| truthy_data_set_filter_value(&value))
         .unwrap_or(false)
 }
 
+fn matches_rule_set_filter(row: &BTreeMap<String, String>, set_decl: &SetDecl) -> bool {
+    let Some(expr) = set_decl.parsed_filter_expression.as_ref() else {
+        return true;
+    };
+
+    evaluate_rule_set_filter_expr(expr, row)
+        .and_then(|value| truthy_data_set_filter_value(&value))
+        .unwrap_or(false)
+}
 #[derive(Debug, Clone)]
 enum DataSetFilterValue {
     Number(f64),
     String(String),
     Boolean(bool),
 }
-
 fn evaluate_data_set_filter_expr(
     expr: &Expr,
     row: &BTreeMap<String, String>,
     data_decl: &DataDecl,
 ) -> Option<DataSetFilterValue> {
+    evaluate_set_filter_expr(expr, &|name| {
+        let source_name = source_column_for_logical_name(data_decl, name);
+        row.get(name).or_else(|| row.get(&source_name)).cloned()
+    })
+}
+
+fn evaluate_rule_set_filter_expr(
+    expr: &Expr,
+    row: &BTreeMap<String, String>,
+) -> Option<DataSetFilterValue> {
+    evaluate_set_filter_expr(expr, &|name| row.get(name).cloned())
+}
+
+fn evaluate_set_filter_expr<F>(expr: &Expr, resolve_identifier: &F) -> Option<DataSetFilterValue>
+where
+    F: Fn(&str) -> Option<String>,
+{
     match expr {
         Expr::Number(value) => value.parse::<f64>().ok().map(DataSetFilterValue::Number),
         Expr::String(value) => Some(DataSetFilterValue::String(value.clone())),
         Expr::Boolean(value) => Some(DataSetFilterValue::Boolean(*value)),
-        Expr::Identifier(name) => {
-            let source_name = source_column_for_logical_name(data_decl, name);
-            let value = row
-                .get(name)
-                .or_else(|| row.get(&source_name))
-                .cloned()
-                .unwrap_or_else(|| name.clone());
-            Some(DataSetFilterValue::String(value))
-        }
+        Expr::Identifier(name) => Some(DataSetFilterValue::String(
+            resolve_identifier(name).unwrap_or_else(|| name.clone()),
+        )),
         Expr::Unary { op, expr } => {
-            let value = evaluate_data_set_filter_expr(expr, row, data_decl)?;
+            let value = evaluate_set_filter_expr(expr, resolve_identifier)?;
             match op {
                 UnaryOp::Negate => {
                     data_set_filter_numeric_value(&value).map(|v| DataSetFilterValue::Number(-v))
@@ -603,8 +1012,8 @@ fn evaluate_data_set_filter_expr(
             }
         }
         Expr::Binary { op, left, right } => {
-            let left = evaluate_data_set_filter_expr(left, row, data_decl)?;
-            let right = evaluate_data_set_filter_expr(right, row, data_decl)?;
+            let left = evaluate_set_filter_expr(left, resolve_identifier)?;
+            let right = evaluate_set_filter_expr(right, resolve_identifier)?;
             let left = data_set_filter_numeric_value(&left)?;
             let right = data_set_filter_numeric_value(&right)?;
             Some(DataSetFilterValue::Number(match op {
@@ -615,8 +1024,8 @@ fn evaluate_data_set_filter_expr(
             }))
         }
         Expr::Comparison { op, left, right } => {
-            let left = evaluate_data_set_filter_expr(left, row, data_decl)?;
-            let right = evaluate_data_set_filter_expr(right, row, data_decl)?;
+            let left = evaluate_set_filter_expr(left, resolve_identifier)?;
+            let right = evaluate_set_filter_expr(right, resolve_identifier)?;
             compare_data_set_filter_values(*op, &left, &right).map(DataSetFilterValue::Boolean)
         }
         Expr::Indexed { .. } | Expr::FunctionCall { .. } | Expr::Reduction(_) => None,

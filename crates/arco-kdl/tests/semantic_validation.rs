@@ -571,3 +571,97 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn semantic_validation_rejects_unresolved_rule_set_filter_identifier()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-rule-set-filter-unresolved-identifier")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "1"; "2" }
+set "tech" { "wind"; "solar" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  where { unknown_col == "1" }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("unresolved rule-set filter identifier should fail semantic validation");
+
+    assert!(
+        error
+            .to_string()
+            .contains("unresolved identifier `unknown_col`")
+    );
+    assert!(error.to_string().contains("top-level set filter"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_tuple_set_schema_mismatch_across_sources()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-tuple-set-schema-mismatch")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "1"; "2" }
+set "tech" { "wind"; "solar" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+set "feasible_links" {
+  index "i" { in "tech" }
+  index "a" { in "area" }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path).expect_err(
+        "tuple set schema mismatch across tuple sources should fail semantic validation",
+    );
+
+    assert!(
+        error
+            .to_string()
+            .contains("tuple component schema mismatch")
+    );
+    assert!(error.to_string().contains("existing `a,i`"));
+    assert!(error.to_string().contains("incoming `i,a`"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}

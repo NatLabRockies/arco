@@ -138,4 +138,31 @@ pub enum SemanticError {
         data: String,
         path: PathBuf,
     },
+
+    #[error("unresolved identifier `{identifier}` in top-level set filter for `{set}` in {path}")]
+    #[diagnostic(
+        code(arco::semantic::unresolved_rule_set_filter_identifier),
+        help(
+            "if token is a categorical value, quote it in filter, e.g. `where {{ a == \"north\" }}`"
+        )
+    )]
+    UnresolvedRuleSetFilterIdentifier {
+        identifier: String,
+        set: String,
+        path: PathBuf,
+    },
+
+    #[error(
+        "tuple component schema mismatch for merged tuple set `{set}` in {path}: existing `{existing_components}` vs incoming `{incoming_components}`"
+    )]
+    #[diagnostic(
+        code(arco::semantic::tuple_set_schema_mismatch),
+        help("ensure all tuple sources for a set use the exact same component names and order")
+    )]
+    TupleSetSchemaMismatch {
+        set: String,
+        existing_components: String,
+        incoming_components: String,
+        path: PathBuf,
+    },
 }
