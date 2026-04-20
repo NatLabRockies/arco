@@ -100,6 +100,25 @@ fn intersect_tuple_set_sources(
             path: merge_path.to_path_buf(),
         });
     }
+
+    let existing_domains = tuple_component_domains_for_resolved_set(existing, existing_components);
+    let next_domains = tuple_component_domains_for_resolved_set(next, next_components);
+    if existing_domains != next_domains {
+        return Err(SemanticError::TupleSetSchemaMismatch {
+            set: set_name.to_string(),
+            existing_components: format!(
+                "{} (domains: {})",
+                existing_components.join(","),
+                existing_domains.join(",")
+            ),
+            incoming_components: format!(
+                "{} (domains: {})",
+                next_components.join(","),
+                next_domains.join(",")
+            ),
+            path: merge_path.to_path_buf(),
+        });
+    }
     let existing_rows = existing_rows.iter().cloned().collect::<BTreeSet<_>>();
     let next_rows = next_rows.iter().cloned().collect::<BTreeSet<_>>();
     let intersected_rows = existing_rows
@@ -109,10 +128,7 @@ fn intersect_tuple_set_sources(
     Ok(Some(ResolvedSet {
         values: Vec::new(),
         tuple_components: Some(existing_components.clone()),
-        tuple_component_domains: existing
-            .tuple_component_domains
-            .clone()
-            .or_else(|| Some(existing_components.clone())),
+        tuple_component_domains: Some(existing_domains.clone()),
         tuple_rows: Some(intersected_rows),
     }))
 }
@@ -230,34 +246,19 @@ fn tuple_rows_for_rule_subset(
         .as_ref()
         .expect("checked by caller");
     let parent_rows = parent_set.tuple_rows.as_ref().expect("checked by caller");
-    let parent_domains = parent_set
-        .tuple_component_domains
-        .as_ref()
-        .filter(|domains| domains.len() == parent_components.len())
-        .cloned()
-        .unwrap_or_else(|| parent_components.clone());
+    let parent_domains = tuple_component_domains_for_resolved_set(parent_set, parent_components);
 
     let mut projection_positions = Vec::with_capacity(set_decl.tuple_indices.len());
     for tuple_index in &set_decl.tuple_indices {
-        let requested_domain = tuple_index
-            .domain
-            .as_deref()
-            .unwrap_or(tuple_index.name.as_str());
-        let position = parent_components
-            .iter()
-            .zip(parent_domains.iter())
-            .position(|(component, domain)| {
-                component == &tuple_index.name
-                    || domain == &tuple_index.name
-                    || component == requested_domain
-                    || domain == requested_domain
-            })
-            .ok_or_else(|| SemanticError::MissingDeclaration {
-                kind: "tuple component",
-                name: tuple_index.name.clone(),
-                path: path.to_path_buf(),
-            })?;
-        projection_positions.push(position);
+        let projection_position = resolve_subset_projection_position(
+            set_decl,
+            tuple_index,
+            parent_components,
+            &parent_domains,
+            set_aliases,
+            path,
+        )?;
+        projection_positions.push(projection_position);
     }
 
     let allowed_identifiers = tuple_rule_filter_identifiers_for_tuple_source(
@@ -326,6 +327,18 @@ fn tuple_component_domains_for_decl(set_decl: &SetDecl) -> Vec<String> {
         .collect()
 }
 
+fn tuple_component_domains_for_resolved_set(
+    resolved_set: &ResolvedSet,
+    components: &[String],
+) -> Vec<String> {
+    resolved_set
+        .tuple_component_domains
+        .as_ref()
+        .filter(|domains| domains.len() == components.len())
+        .cloned()
+        .unwrap_or_else(|| components.to_vec())
+}
+
 fn tuple_rule_filter_identifiers_for_tuple_source(
     components: &[String],
     domains: &[String],
@@ -340,6 +353,91 @@ fn tuple_rule_filter_identifiers_for_tuple_source(
     }
 
     identifiers
+}
+
+fn resolve_subset_projection_position(
+    set_decl: &SetDecl,
+    tuple_index: &crate::source::IndexDecl,
+    parent_components: &[String],
+    parent_domains: &[String],
+    set_aliases: &BTreeMap<String, String>,
+    path: &Path,
+) -> Result<usize, SemanticError> {
+    let mut matches = parent_components
+        .iter()
+        .enumerate()
+        .filter_map(|(position, component)| {
+            if component == &tuple_index.name {
+                Some(position)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if matches.is_empty() {
+        matches = parent_domains
+            .iter()
+            .enumerate()
+            .filter_map(|(position, domain)| {
+                if set_name_matches(domain, &tuple_index.name, set_aliases) {
+                    Some(position)
+                } else {
+                    None
+                }
+            })
+            .collect();
+    }
+
+    if matches.is_empty() {
+        return Err(SemanticError::MissingDeclaration {
+            kind: "tuple component",
+            name: tuple_index.name.clone(),
+            path: path.to_path_buf(),
+        });
+    }
+
+    if matches.len() > 1 {
+        let candidates = matches
+            .iter()
+            .map(|position| {
+                let component = &parent_components[*position];
+                let domain = &parent_domains[*position];
+                format!("{component}:{domain}")
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        return Err(SemanticError::AmbiguousTupleSubsetIndex {
+            set: set_decl.name.clone(),
+            index: tuple_index.name.clone(),
+            candidates,
+            path: path.to_path_buf(),
+        });
+    }
+
+    let position = matches[0];
+    if let Some(received_domain) = tuple_index.domain.as_deref() {
+        let expected_domain = parent_domains[position].as_str();
+        if !set_name_matches(expected_domain, received_domain, set_aliases) {
+            return Err(SemanticError::TupleSubsetDomainMismatch {
+                set: set_decl.name.clone(),
+                index: tuple_index.name.clone(),
+                expected_domain: expected_domain.to_string(),
+                received_domain: received_domain.to_string(),
+                path: path.to_path_buf(),
+            });
+        }
+    }
+
+    Ok(position)
+}
+
+fn set_name_matches(left: &str, right: &str, set_aliases: &BTreeMap<String, String>) -> bool {
+    left == right || canonical_set_name(left, set_aliases) == canonical_set_name(right, set_aliases)
+}
+
+fn canonical_set_name<'a>(name: &'a str, set_aliases: &'a BTreeMap<String, String>) -> &'a str {
+    set_aliases.get(name).map_or(name, String::as_str)
 }
 
 fn resolve_set_for_rule_domain<'a>(
