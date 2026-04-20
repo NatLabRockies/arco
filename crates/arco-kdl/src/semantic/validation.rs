@@ -76,6 +76,7 @@ pub fn validate_program(
             name: constraint.name.clone(),
             source_kind: "model".to_string(),
             source_name: model.name.clone(),
+            diagnostic_id: constraint_diagnostic_id(constraint, model, scenario),
             expression_text: constraint.expression.clone(),
             expression: constraint.parsed_expression.clone(),
             generation_bindings: constraint.generation_bindings.clone(),
@@ -325,4 +326,16 @@ pub(crate) fn collect_control_overrides<'a>(
         }
     }
     overrides
+}
+
+fn constraint_diagnostic_id(
+    constraint: &crate::source::ConstraintDecl,
+    model: &ModelDecl,
+    scenario: &ScenarioDecl,
+) -> String {
+    if !constraint.name_inferred {
+        return constraint.name.clone();
+    }
+
+    format!("{}.{}.{}", scenario.name, model.name, constraint.name)
 }

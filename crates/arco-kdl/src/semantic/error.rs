@@ -194,4 +194,17 @@ pub enum SemanticError {
         incoming_components: String,
         path: PathBuf,
     },
+
+    #[error("duplicate feasible tuples detected for `{set}` in {path}: {duplicates}")]
+    #[diagnostic(
+        code(arco::semantic::duplicate_tuple_rows),
+        help(
+            "remove duplicate tuple rows or correct tuple projection/filter rules so each tuple appears once"
+        )
+    )]
+    DuplicateTupleRows {
+        set: String,
+        duplicates: String,
+        path: PathBuf,
+    },
 }

@@ -86,6 +86,14 @@ pub enum CompileError {
         message: String,
         path: PathBuf,
     },
+    #[error("empty tuple-domain reduction over `{domain}` during compilation in {path}")]
+    #[diagnostic(
+        code(arco::compile::empty_tuple_reduction),
+        help(
+            "declare explicit tuple subsets so each constrained key retains at least one feasible tuple"
+        )
+    )]
+    EmptyTupleReduction { domain: String, path: PathBuf },
     #[error("invalid formulation during compilation in {path}: {message}")]
     #[diagnostic(
         code(arco::compile::invalid_formulation),

@@ -53,12 +53,38 @@ pub(crate) fn extend_set_registry_from_low_level_declarations(
             merge_resolved_set_into_registry(&set_decl.name, resolved_set, registry, entry_dir)?;
         }
     }
+    let mut inferred_rule_counters = BTreeMap::<String, usize>::new();
     for set_decl in &program.sets {
-        let resolved_set =
-            resolved_set_for_program_set(set_decl, registry, &set_aliases, entry_dir)?;
+        let rule_identifier = if set_decl.tuple_indices.is_empty() {
+            None
+        } else {
+            Some(next_rule_identifier(set_decl, &mut inferred_rule_counters))
+        };
+        let resolved_set = resolved_set_for_program_set(
+            set_decl,
+            registry,
+            &set_aliases,
+            entry_dir,
+            rule_identifier.as_deref(),
+        )?;
         merge_resolved_set_into_registry(&set_decl.name, resolved_set, registry, entry_dir)?;
     }
     Ok(())
+}
+
+fn next_rule_identifier(
+    set_decl: &SetDecl,
+    inferred_rule_counters: &mut BTreeMap<String, usize>,
+) -> String {
+    if let Some(rule_id) = set_decl.rule_id.as_ref() {
+        return rule_id.clone();
+    }
+
+    let next_counter = inferred_rule_counters
+        .entry(set_decl.name.clone())
+        .and_modify(|counter| *counter += 1)
+        .or_insert(1);
+    format!("{}.rule_{}", set_decl.name, *next_counter)
 }
 fn merge_resolved_set_into_registry(
     set_name: &str,
@@ -138,6 +164,7 @@ fn resolved_set_for_program_set(
     registry: &BTreeMap<String, ResolvedSet>,
     set_aliases: &BTreeMap<String, String>,
     path: &Path,
+    rule_identifier: Option<&str>,
 ) -> Result<ResolvedSet, SemanticError> {
     if set_decl.tuple_indices.is_empty() {
         let values = set_decl
@@ -152,7 +179,13 @@ fn resolved_set_for_program_set(
             tuple_rows: None,
         });
     }
-    let tuple_rows = tuple_rows_for_rule_set(set_decl, registry, set_aliases, path)?;
+    let tuple_rows = tuple_rows_for_rule_set(
+        set_decl,
+        registry,
+        set_aliases,
+        path,
+        rule_identifier.unwrap_or(set_decl.name.as_str()),
+    )?;
     Ok(ResolvedSet {
         values: Vec::new(),
         tuple_components: Some(
@@ -171,11 +204,18 @@ fn tuple_rows_for_rule_set(
     registry: &BTreeMap<String, ResolvedSet>,
     set_aliases: &BTreeMap<String, String>,
     path: &Path,
+    rule_identifier: &str,
 ) -> Result<Vec<Vec<String>>, SemanticError> {
     if let Some(parent_name) = set_decl.subset_of.as_deref() {
         if let Some(parent_set) = resolve_set_for_rule_domain(parent_name, registry, set_aliases) {
             if parent_set.tuple_components.is_some() && parent_set.tuple_rows.is_some() {
-                return tuple_rows_for_rule_subset(set_decl, parent_set, set_aliases, path);
+                return tuple_rows_for_rule_subset(
+                    set_decl,
+                    parent_set,
+                    set_aliases,
+                    path,
+                    rule_identifier,
+                );
             }
         }
     }
@@ -201,7 +241,7 @@ fn tuple_rows_for_rule_set(
         domain_values.push(domain_set.values.clone());
     }
     let allowed_identifiers = tuple_rule_filter_identifiers(set_decl, set_aliases);
-    validate_rule_set_filter_identifiers(set_decl, &allowed_identifiers, path)?;
+    validate_rule_set_filter_identifiers(set_decl, &allowed_identifiers, path, rule_identifier)?;
     let mut combinations = vec![Vec::new()];
     for values in &domain_values {
         let mut next = Vec::new();
@@ -215,8 +255,8 @@ fn tuple_rows_for_rule_set(
         combinations = next;
     }
 
-    let mut tuples = BTreeSet::new();
-    for combo in combinations {
+    let mut tuple_occurrences = BTreeMap::<Vec<String>, Vec<String>>::new();
+    for (candidate_index, combo) in combinations.into_iter().enumerate() {
         let mut binding_values = BTreeMap::new();
         for (position, tuple_index) in set_decl.tuple_indices.iter().enumerate() {
             let value = combo[position].clone();
@@ -228,11 +268,28 @@ fn tuple_rows_for_rule_set(
             add_tuple_rule_binding_aliases(&mut binding_values, domain_name, value, set_aliases);
         }
         if matches_rule_set_filter(&binding_values, set_decl) {
-            tuples.insert(combo);
+            let provenance = set_decl.filter_expression.as_ref().map_or_else(
+                || {
+                    format!(
+                        "rule `{}` candidate #{}",
+                        rule_identifier,
+                        candidate_index + 1
+                    )
+                },
+                |filter| {
+                    format!(
+                        "rule `{}` candidate #{} (where `{filter}`)",
+                        rule_identifier,
+                        candidate_index + 1
+                    )
+                },
+            );
+            tuple_occurrences.entry(combo).or_default().push(provenance);
         }
     }
 
-    Ok(tuples.into_iter().collect())
+    validate_duplicate_tuple_rows(&set_decl.name, &tuple_occurrences, path)?;
+    Ok(unique_tuple_rows(&tuple_occurrences))
 }
 
 fn tuple_rows_for_rule_subset(
@@ -240,6 +297,7 @@ fn tuple_rows_for_rule_subset(
     parent_set: &ResolvedSet,
     set_aliases: &BTreeMap<String, String>,
     path: &Path,
+    rule_identifier: &str,
 ) -> Result<Vec<Vec<String>>, SemanticError> {
     let parent_components = parent_set
         .tuple_components
@@ -266,7 +324,7 @@ fn tuple_rows_for_rule_subset(
         &parent_domains,
         set_aliases,
     );
-    validate_rule_set_filter_identifiers(set_decl, &allowed_identifiers, path)?;
+    validate_rule_set_filter_identifiers(set_decl, &allowed_identifiers, path, rule_identifier)?;
 
     let mut tuples = BTreeSet::new();
     for (row_index, row) in parent_rows.iter().enumerate() {
@@ -312,6 +370,31 @@ fn tuple_rows_for_rule_subset(
     }
 
     Ok(tuples.into_iter().collect())
+}
+
+fn validate_duplicate_tuple_rows(
+    set_name: &str,
+    tuple_occurrences: &BTreeMap<Vec<String>, Vec<String>>,
+    path: &Path,
+) -> Result<(), SemanticError> {
+    let duplicates = tuple_occurrences
+        .iter()
+        .filter(|(_, provenance)| provenance.len() > 1)
+        .map(|(tuple, provenance)| format!("`{}` -> {}", tuple.join(","), provenance.join("; ")))
+        .collect::<Vec<_>>();
+    if duplicates.is_empty() {
+        return Ok(());
+    }
+
+    Err(SemanticError::DuplicateTupleRows {
+        set: set_name.to_string(),
+        duplicates: duplicates.join(" | "),
+        path: path.to_path_buf(),
+    })
+}
+
+fn unique_tuple_rows(tuple_occurrences: &BTreeMap<Vec<String>, Vec<String>>) -> Vec<Vec<String>> {
+    tuple_occurrences.keys().cloned().collect()
 }
 
 fn tuple_component_domains_for_decl(set_decl: &SetDecl) -> Vec<String> {
@@ -518,12 +601,13 @@ fn validate_rule_set_filter_identifiers(
     set_decl: &SetDecl,
     allowed_identifiers: &BTreeSet<String>,
     path: &Path,
+    rule_identifier: &str,
 ) -> Result<(), SemanticError> {
     let Some(expr) = set_decl.parsed_filter_expression.as_ref() else {
         return Ok(());
     };
 
-    validate_rule_set_filter_expr_internal(expr, allowed_identifiers, &set_decl.name, path, false)
+    validate_rule_set_filter_expr_internal(expr, allowed_identifiers, rule_identifier, path, false)
 }
 
 fn validate_rule_set_filter_expr_internal(
@@ -1123,12 +1207,11 @@ fn tuple_rows_for_data_set(
     rows: &[BTreeMap<String, String>],
     path: &Path,
 ) -> Result<Vec<Vec<String>>, SemanticError> {
-    let mut tuples = BTreeSet::new();
+    let mut tuple_occurrences = BTreeMap::<Vec<String>, Vec<String>>::new();
     for (row_index, row) in rows.iter().enumerate() {
         if !matches_data_set_filter(row, data_decl, set_decl) {
             continue;
         }
-
         let mut tuple = Vec::with_capacity(set_decl.tuple_indices.len());
         for tuple_index in &set_decl.tuple_indices {
             let logical_name = tuple_index
@@ -1149,7 +1232,6 @@ fn tuple_rows_for_data_set(
                 });
             }
         }
-
         if tuple.len() != set_decl.tuple_indices.len() {
             return Err(SemanticError::MissingCell {
                 column: set_decl.tuple_indices[tuple.len()].name.clone(),
@@ -1157,10 +1239,13 @@ fn tuple_rows_for_data_set(
                 path: path.to_path_buf(),
             });
         }
-        tuples.insert(tuple);
+
+        let provenance = format!("data `{}` row {}", data_decl.source, row_index + 1);
+        tuple_occurrences.entry(tuple).or_default().push(provenance);
     }
 
-    Ok(tuples.into_iter().collect())
+    validate_duplicate_tuple_rows(&set_decl.name, &tuple_occurrences, path)?;
+    Ok(unique_tuple_rows(&tuple_occurrences))
 }
 
 fn source_set_name_for_data_set_values(data_decl: &DataDecl, set_decl: &SetDecl) -> String {

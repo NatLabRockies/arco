@@ -19,6 +19,11 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use tracing::{debug, info};
 
+/// Lowered artifact emitted by the KDL compiler.
+///
+/// Note: this serialized shape is an internal compiler contract and may change
+/// between releases; consumers should treat it as versioned-by-binary, not as
+/// a stable cross-version interchange format.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompiledProblem {
     pub parameters: Vec<CompiledParameter>,
@@ -48,6 +53,7 @@ pub struct CompiledConstraint {
     pub name: String,
     pub source_kind: String,
     pub source_name: String,
+    pub diagnostic_id: String,
     pub expression: String,
 }
 
@@ -296,6 +302,7 @@ fn compile_constraint(constraint: &ResolvedConstraint) -> CompiledConstraint {
         name: constraint.name.clone(),
         source_kind: constraint.source_kind.clone(),
         source_name: constraint.source_name.clone(),
+        diagnostic_id: constraint.diagnostic_id.clone(),
         expression: constraint.expression_text.clone(),
     }
 }

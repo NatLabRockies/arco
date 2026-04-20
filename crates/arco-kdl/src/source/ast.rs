@@ -61,6 +61,7 @@ pub struct SetDecl {
     pub members: Vec<LiteralValue>,
     pub filter_expression: Option<String>,
     pub parsed_filter_expression: Option<Expr>,
+    pub rule_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +102,7 @@ pub struct GenerationBinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConstraintDecl {
     pub name: String,
+    pub name_inferred: bool,
     pub expression: String,
     pub parsed_expression: ConstraintBody,
     pub generation_bindings: Vec<GenerationBinding>,

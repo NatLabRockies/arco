@@ -8,6 +8,13 @@ fn compile_constraint_instances(
 ) -> Result<Vec<LinearConstraint>, CompileError> {
     let mut constraints = Vec::new();
     for constraint in &program.active_constraints {
+        let binding_order = constraint
+            .generation_bindings
+            .iter()
+            .map(|binding| binding.variable.clone())
+            .collect::<Vec<_>>();
+        let mut empty_subset_keys = BTreeSet::new();
+
         if constraint.generation_bindings.is_empty() {
             for bindings in
                 constraint_instance_bindings(constraint, inputs, program.sets.time.steps)
@@ -25,7 +32,8 @@ fn compile_constraint_instances(
                         continue;
                     }
                 }
-                constraints.extend(linearize_constraint_body(
+
+                match linearize_constraint_body(
                     constraint,
                     &bindings,
                     program,
@@ -34,7 +42,13 @@ fn compile_constraint_instances(
                     variable_signatures,
                     instantiated_names,
                     entrypoint,
-                )?);
+                ) {
+                    Ok(linearized) => constraints.extend(linearized),
+                    Err(CompileError::EmptyTupleReduction { .. }) => {
+                        empty_subset_keys.insert(constraint_scope_key(&bindings, &binding_order));
+                    }
+                    Err(error) => return Err(error),
+                }
             }
         } else {
             let generation_scopes = expand_generation_bindings(
@@ -42,11 +56,11 @@ fn compile_constraint_instances(
                 inputs,
                 program,
                 entrypoint,
-                &constraint.name,
+                &constraint.diagnostic_id,
             )?;
             for scope in generation_scopes {
                 if let Some(filter) = &constraint.generation_filter {
-                    if !evaluate_reduction_filter(
+                    match evaluate_reduction_filter(
                         filter,
                         &scope,
                         program,
@@ -55,11 +69,18 @@ fn compile_constraint_instances(
                         variable_signatures,
                         instantiated_names,
                         entrypoint,
-                    )? {
-                        continue;
+                    ) {
+                        Ok(false) => continue,
+                        Ok(true) => {}
+                        Err(CompileError::EmptyTupleReduction { .. }) => {
+                            empty_subset_keys.insert(constraint_scope_key(&scope, &binding_order));
+                            continue;
+                        }
+                        Err(error) => return Err(error),
                     }
                 }
-                constraints.extend(linearize_constraint_body(
+
+                match linearize_constraint_body(
                     constraint,
                     &scope,
                     program,
@@ -68,11 +89,63 @@ fn compile_constraint_instances(
                     variable_signatures,
                     instantiated_names,
                     entrypoint,
-                )?);
+                ) {
+                    Ok(linearized) => constraints.extend(linearized),
+                    Err(CompileError::EmptyTupleReduction { .. }) => {
+                        empty_subset_keys.insert(constraint_scope_key(&scope, &binding_order));
+                    }
+                    Err(error) => return Err(error),
+                }
             }
+        }
+
+        if !empty_subset_keys.is_empty() {
+            return Err(CompileError::InvalidFormulation {
+                message: format!(
+                    "empty constraint-relevant tuple subset for `{}` at keys: {}",
+                    constraint.diagnostic_id,
+                    empty_subset_keys.into_iter().collect::<Vec<_>>().join("; ")
+                ),
+                path: entrypoint.to_path_buf(),
+            });
         }
     }
     Ok(constraints)
+}
+
+fn constraint_scope_key(bindings: &LinearizationBindings, binding_order: &[String]) -> String {
+    let mut values = Vec::new();
+    if binding_order.is_empty() {
+        for value in bindings.values.values() {
+            values.push(render_filter_value(value));
+        }
+    } else {
+        for name in binding_order {
+            if let Some(value) = bindings.values.get(name) {
+                values.push(render_filter_value(value));
+            }
+        }
+    }
+
+    if values.is_empty() {
+        "<scalar>".to_string()
+    } else {
+        values.join(",")
+    }
+}
+
+fn render_filter_value(value: &FilterValue) -> String {
+    match value {
+        FilterValue::String(value) => value.clone(),
+        FilterValue::Number(value) => {
+            if value.fract() == 0.0 {
+                (*value as i64).to_string()
+            } else {
+                value.to_string()
+            }
+        }
+        FilterValue::Boolean(value) => value.to_string(),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
