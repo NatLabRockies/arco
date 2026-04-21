@@ -1778,6 +1778,19 @@ data generators source="data/generators.csv" {
 }
 ```
 
+### Conformance matrix for filter RHS semantics
+
+| Case                            | Example                                                      | Interpretation                                         |
+| ------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------ |
+| Quoted categorical RHS          | `filter { tech == "wind" }`                                  | Compare string literal value from CSV                  |
+| Bare categorical RHS            | `filter { tech == wind }`                                    | Compare against string literal `wind`                  |
+| Mapped-column lhs with bare RHS | `map "tech" from="technology"` and `filter { tech == wind }` | Map applies to lhs only; rhs stays literal             |
+| Parent alias + filtered subset  | `set candidates { in active; filter { is_candidate == 1 } }` | Alias resolution and predicate evaluation are combined |
+
+Conformance tests for this behavior are tracked in
+[`crates/arco-kdl/tests/semantic_validation.rs`](../crates/arco-kdl/tests/semantic_validation.rs),
+covering §9 semantics for quoted RHS, bare RHS, mapped-column use, and alias+filter.
+
 ---
 
 ## 10. Validation requirements
