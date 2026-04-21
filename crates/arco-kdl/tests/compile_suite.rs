@@ -381,6 +381,83 @@ scenario "S1" {
 }
 
 #[test]
+fn lowering_applies_data_param_filters_with_mapped_identifier_rhs()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("data-param-filter-mapped-identifier")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("load.csv"),
+        "period,technology,demand\n1,wind,10\n1,solar,90\n2,wind,20\n2,solar,80\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+set "time" { "1"; "2" }
+
+data "inputs" source="data/load.csv" {
+  map "time" from="period"
+  map "tech" from="technology"
+
+  param "demand" from="demand" reduce="sum" {
+    index "time"
+    // Spec: §9 — map applies to lhs lookup; bare RHS remains literal.
+    filter { tech == wind }
+  }
+}
+
+model "Dispatch" {
+  set "time" alias="t"
+
+  param "demand" {
+    index "t"
+  }
+
+  control "x" {
+    index "t"
+  }
+
+  constraint "balance[t]" {
+    x[t] = demand[t]
+  }
+
+  minimize "Obj" {
+    sum(x[t] for t in time)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let bal_1 = compiled
+        .algebra
+        .constraints
+        .iter()
+        .find(|c| c.name == "balance[t][1]")
+        .ok_or("missing balance constraint at t=1")?;
+    let bal_2 = compiled
+        .algebra
+        .constraints
+        .iter()
+        .find(|c| c.name == "balance[t][2]")
+        .ok_or("missing balance constraint at t=2")?;
+
+    assert_eq!(bal_1.rhs, 10.0);
+    assert_eq!(bal_2.rhs, 20.0);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
 fn lowering_instantiates_tuple_domain_variables_from_data_rows()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_test_dir("tuple-domain-from-data")?;

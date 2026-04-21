@@ -230,6 +230,7 @@ data "tech_data" source="data/tech.csv" {
   set "tech"
   set "wind_tech" {
     in "tech"
+    // Spec: §9 — bare RHS is categorical literal, not column lookup.
     filter { tech == wind }
   }
 }
@@ -259,6 +260,113 @@ scenario "S1" {
         .get("wind_tech")
         .ok_or("missing set wind_tech")?;
     assert_eq!(wind_tech.values, vec!["wind".to_string()]);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_applies_mapped_column_set_filters() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = temp_root("semantic-set-filter-mapped-column")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("tech.csv"),
+        "technology\nwind\nsolar\nwind\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "tech_data" source="data/tech.csv" {
+  map "tech" from="technology"
+
+  set "tech"
+  set "wind_tech" {
+    in "tech"
+    // Spec: §9 — map applies to lhs, RHS bare token remains literal.
+    filter { tech == wind }
+  }
+}
+
+model "Dispatch" {
+  set "tech"
+
+  control "x" {
+    index "tech"
+  }
+
+  minimize "Obj" {
+    sum(x[tech] for tech in tech)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+
+    let wind_tech = semantic
+        .set_registry
+        .get("wind_tech")
+        .ok_or("missing set wind_tech")?;
+    assert_eq!(wind_tech.values, vec!["wind".to_string()]);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_applies_set_filter_with_parent_alias_and_bare_rhs()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-subset-filter-parent-bare-rhs")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("assets.csv"),
+        "asset_name,zone_raw\nA,north\nB,south\nC,north\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "assets_data" source="data/assets.csv" {
+  map "asset_id" from="asset_name"
+  map "zone" from="zone_raw"
+
+  set "asset_id" alias="a"
+  set "south_assets" {
+    in "a"
+    // Spec: §9 — alias resolution and bare RHS semantics together.
+    filter { zone == south }
+  }
+}
+
+model "Dispatch" {
+  set "asset_id" alias="a"
+
+  control "x" {
+    index "a"
+  }
+
+  minimize "Obj" {
+    sum(x[a] for a in asset_id)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+
+    let south_assets = semantic
+        .set_registry
+        .get("south_assets")
+        .ok_or("missing set south_assets")?;
+    assert_eq!(south_assets.values, vec!["B".to_string()]);
 
     fs::remove_dir_all(&root)?;
     Ok(())
