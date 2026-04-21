@@ -30,6 +30,54 @@ Scope of this specification:
 
 ---
 
+## Table of Contents
+
+- [1. Conformance](#1-conformance)
+  - [1.1 KDL compatibility](#11-kdl-compatibility)
+  - [1.2 Naming convention](#12-naming-convention)
+  - [1.3 Alias rules](#13-alias-rules)
+- [2. Terminology](#2-terminology)
+- [3. Top-level declarations](#3-top-level-declarations)
+  - [3.1 Inline scalar parameters](#31-inline-scalar-parameters)
+- [4. `set` declaration (top-level)](#4-set-declaration-top-level)
+- [5. `data` declaration](#5-data-declaration)
+  - [5.1 `map`](#51-map)
+  - [5.2 `set` (inside `data`)](#52-set-inside-data)
+  - [5.3 `index` (inside `data`)](#53-index-inside-data)
+  - [5.4 `param` (inside `data`)](#54-param-inside-data)
+  - [5.5 Inline selectors](#55-inline-selectors)
+- [6. `model` declaration](#6-model-declaration)
+  - [6.1 `set` (inside `model`)](#61-set-inside-model)
+  - [6.2 `param` (inside `model`)](#62-param-inside-model)
+  - [6.3 `control`](#63-control)
+  - [6.4 `expression`](#64-expression)
+  - [6.5 `constraint`](#65-constraint)
+  - [6.6 Objective](#66-objective)
+- [7. `scenario` declaration](#7-scenario-declaration)
+  - [7.1 `use`](#71-use)
+  - [7.2 `data` (inside `scenario`)](#72-data-inside-scenario)
+  - [7.3 `report` (inside `scenario`)](#73-report-inside-scenario)
+  - [7.4 Data scoping](#74-data-scoping)
+    - [Global namespace design note](#global-namespace-design-note)
+    - [Multi-model data sharing example](#multi-model-data-sharing-example)
+- [8. KDL 2.0 type annotations (optional)](#8-kdl-20-type-annotations-optional)
+- [9. Filter predicate semantics](#9-filter-predicate-semantics)
+- [10. Validation requirements](#10-validation-requirements)
+  - [10.1 Error reporting strategy](#101-error-reporting-strategy)
+- [11. Grammar (low-level profile)](#11-grammar-low-level-profile)
+- [12. Algebra expression summary](#12-algebra-expression-summary)
+  - [12.1 Literals](#121-literals)
+  - [12.2 Operators and precedence](#122-operators-and-precedence)
+  - [12.3 Comparison operators](#123-comparison-operators)
+  - [12.4 Indexing](#124-indexing)
+  - [12.5 Reductions](#125-reductions)
+  - [12.6 Built-in functions](#126-built-in-functions)
+  - [12.7 Inline selectors (inside algebra only)](#127-inline-selectors-inside-algebra-only)
+  - [12.8 Expression references](#128-expression-references)
+  - [12.9 Constraint body forms](#129-constraint-body-forms)
+
+---
+
 ## 1. Conformance
 
 Arco files are KDL-based with non-KDL subgrammars. The structural layer MUST conform to [KDL 2.0](https://kdl.dev/spec/) everywhere Arco does not define an algebra or predicate subgrammar:
