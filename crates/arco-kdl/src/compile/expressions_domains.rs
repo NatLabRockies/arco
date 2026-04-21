@@ -67,10 +67,11 @@ fn expand_tuple_generation_bindings(
         .collect::<Vec<_>>();
     if tuple_components != &received_components {
         return Err(CompileError::InvalidFormulation {
-            message: format!(
-                "index order mismatch for `{binding_context}`: expected `{}`, received `{}`",
-                tuple_components.join(","),
-                received_components.join(",")
+            message: tuple_domain_index_order_mismatch_message(
+                binding_context,
+                first_key,
+                tuple_components,
+                &received_components,
             ),
             path: entrypoint.to_path_buf(),
         });

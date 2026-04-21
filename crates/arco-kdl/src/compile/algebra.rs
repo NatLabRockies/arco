@@ -362,10 +362,11 @@ fn resolve_tuple_domain_rows<'a>(
 
     if tuple_components != &signature.indices {
         return Err(CompileError::InvalidFormulation {
-            message: format!(
-                "index order mismatch for `{family}`: expected `{}`, received `{}`",
-                tuple_components.join(","),
-                signature.indices.join(",")
+            message: tuple_domain_index_order_mismatch_message(
+                family,
+                first_key,
+                tuple_components,
+                &signature.indices,
             ),
             path: entrypoint.to_path_buf(),
         });
