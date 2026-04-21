@@ -289,6 +289,11 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
             .or_else(|| node.get("alias"))
             .and_then(KdlValue::as_string)
             .map(ToString::to_string),
+        rule_id: node
+            .get("id")
+            .or_else(|| node.get("rule_id"))
+            .and_then(KdlValue::as_string)
+            .map(ToString::to_string),
         subset_of,
         tuple_indices,
         members,

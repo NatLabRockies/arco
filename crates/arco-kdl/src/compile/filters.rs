@@ -320,10 +320,7 @@ fn invalid_constraint_filter(
     message: impl Into<String>,
 ) -> CompileError {
     CompileError::InvalidConstraintFilter {
-        constraint: format!(
-            "{}:{}:{}",
-            constraint.source_kind, constraint.source_name, constraint.name
-        ),
+        constraint: constraint.diagnostic_id.clone(),
         message: message.into(),
         path: path.to_path_buf(),
     }

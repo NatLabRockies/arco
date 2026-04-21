@@ -184,9 +184,11 @@ fn linearize_reduction(
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<AffineExpr, CompileError> {
+    let tuple_reduction_domain = tuple_reduction_domain_name(&reduction.bindings, program);
     let expanded =
         expand_reduction_bindings(&reduction.bindings, bindings, inputs, program, entrypoint)?;
     let mut total = AffineExpr::default();
+    let mut matched_scope_count = 0usize;
     'outer: for scope in expanded {
         for filter in &reduction.filters {
             if !evaluate_reduction_filter(
@@ -202,6 +204,7 @@ fn linearize_reduction(
                 continue 'outer;
             }
         }
+        matched_scope_count += 1;
         total.add_assign(linearize_value_expr(
             &reduction.body,
             &scope,
@@ -213,7 +216,39 @@ fn linearize_reduction(
             entrypoint,
         )?);
     }
+    if matched_scope_count == 0 {
+        if let Some(domain) = tuple_reduction_domain {
+            return Err(CompileError::EmptyTupleReduction {
+                domain,
+                path: entrypoint.to_path_buf(),
+            });
+        }
+    }
     Ok(total)
+}
+
+fn tuple_reduction_domain_name(
+    bindings: &[crate::algebra::Binding],
+    program: &SemanticProgram,
+) -> Option<String> {
+    let reverse_aliases = build_reverse_alias_lookup(program);
+    let tuple_domains = bindings
+        .iter()
+        .filter_map(|binding| {
+            let key = resolve_set_registry_key(binding.domain.as_str(), program, &reverse_aliases)?;
+            let set = resolve_set_struct_by_name(key, program, &reverse_aliases)?;
+            if set.tuple_rows.is_some() && set.tuple_components.is_some() {
+                Some(key.to_string())
+            } else {
+                None
+            }
+        })
+        .collect::<BTreeSet<_>>();
+    if tuple_domains.is_empty() {
+        None
+    } else {
+        Some(tuple_domains.into_iter().collect::<Vec<_>>().join(","))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

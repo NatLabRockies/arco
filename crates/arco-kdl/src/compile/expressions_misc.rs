@@ -98,6 +98,7 @@ fn synthetic_constraint(name: &str) -> ResolvedConstraint {
         name: name.to_string(),
         source_kind: "compile".to_string(),
         source_name: "synthetic".to_string(),
+        diagnostic_id: format!("compile.synthetic.{name}"),
         expression_text: String::new(),
         expression: ConstraintBody::Comparison {
             op: ComparisonOp::Equal,

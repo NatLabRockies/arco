@@ -48,8 +48,10 @@ pub(super) fn parse_constraints(
             Some(generation_filters.join(" and "))
         };
 
+        let (name, name_inferred) = constraint_name(child, index);
         constraints.push(ConstraintDecl {
-            name: constraint_name(child, index),
+            name,
+            name_inferred,
             parsed_expression: parse_constraint_formula_decl(&expression, child, context)?,
             generation_bindings,
             parsed_generation_filter: generation_filter
@@ -64,8 +66,9 @@ pub(super) fn parse_constraints(
     Ok(constraints)
 }
 
-fn constraint_name(node: &KdlNode, index: usize) -> String {
-    node.get("name")
+fn constraint_name(node: &KdlNode, index: usize) -> (String, bool) {
+    if let Some(name) = node
+        .get("name")
         .and_then(KdlValue::as_string)
         .map(ToString::to_string)
         .or_else(|| {
@@ -73,5 +76,9 @@ fn constraint_name(node: &KdlNode, index: usize) -> String {
                 .and_then(KdlValue::as_string)
                 .map(ToString::to_string)
         })
-        .unwrap_or_else(|| format!("constraint_{}", index + 1))
+    {
+        return (name, false);
+    }
+
+    (format!("constraint_{}", index + 1), true)
 }

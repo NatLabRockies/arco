@@ -197,6 +197,7 @@ pub struct ResolvedConstraint {
     pub name: String,
     pub source_kind: String,
     pub source_name: String,
+    pub diagnostic_id: String,
     pub expression_text: String,
     pub expression: ConstraintBody,
     pub generation_bindings: Vec<GenerationBinding>,
