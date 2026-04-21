@@ -13,10 +13,10 @@ Most example folders follow the same layout:
 From the repository root, validate, inspect, print, or solve an example with `arco-cli`:
 
 ```bash
-cargo run -p arco-cli -- validate examples/generator-allocation/input.kdl
-cargo run -p arco-cli -- inspect examples/generator-allocation/input.kdl --section constraints
-cargo run -p arco-cli -- print-model examples/generator-allocation/input.kdl
-cargo run -p arco-cli -- run examples/generator-allocation/input.kdl
+cargo run -p arco-cli -- validate examples/nodal-allocation/input.kdl
+cargo run -p arco-cli -- inspect examples/nodal-allocation/input.kdl --section constraints
+cargo run -p arco-cli -- print-model examples/nodal-allocation/input.kdl
+cargo run -p arco-cli -- run examples/nodal-allocation/input.kdl
 ```
 
 For larger models, `--compact` keeps the solver output readable:
@@ -29,7 +29,8 @@ cargo run -p arco-cli -- run examples/unit-commitment/input.kdl --compact
 
 | Example                                | Path                                                   | Purpose                                                                                                                         | Status                                    |
 | -------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Generator allocation                   | `examples/generator-allocation/input.kdl`              | Smallest end-to-end dispatch-style example for validating the core CLI flow.                                                    | Ready                                     |
+| Nodal allocation                       | `examples/nodal-allocation/input.kdl`                  | Tuple-domain tracer bullet for feasible node-generator allocations, explicit subsets, and sparse tuple-membership lowering.     | Ready                                     |
+| Generator allocation                   | `examples/generator-allocation/input.kdl`              | Smallest Cartesian indexed dispatch example for validating the legacy core CLI flow.                                            | Ready                                     |
 | Price-taker battery                    | `examples/price-taker-battery/input.kdl`               | Battery charge and discharge scheduling against an exogenous price curve.                                                       | Ready                                     |
 | Simple electricity market with storage | `examples/simple-electricity-market-storage/input.kdl` | Single-zone dispatch with time-varying availability, load, and storage decisions.                                               | Ready                                     |
 | Capacity expansion                     | `examples/capacity-expansion/input.kdl`                | Build versus dispatch tradeoffs, candidate assets, and unmet-demand penalties.                                                  | Ready                                     |
@@ -61,11 +62,29 @@ This leaves `model`, `solve()`, `solution`, and `payload` available in the promp
 
 If you are new to the repo, this order ramps up nicely:
 
-1. `generator-allocation`, to learn the basic data and model structure
-2. `price-taker-battery`, to see time coupling and storage dynamics
-3. `capacity-expansion`, to see investment-style modeling
-4. `dcopf-angle` and `dcopf-ptdf`, to compare equivalent network formulations
-5. `unit-commitment` or `sdom`, when you want a heavier mixed-integer case
+1. `nodal-allocation`, to see tuple-domain feasible-set semantics and explicit subsets in a small end-to-end flow
+2. `generator-allocation`, to compare against a simple Cartesian indexed formulation
+3. `price-taker-battery`, to see time coupling and storage dynamics
+4. `capacity-expansion`, to see investment-style modeling
+5. `dcopf-angle` and `dcopf-ptdf`, to compare equivalent network formulations
+6. `unit-commitment` or `sdom`, when you want a heavier mixed-integer case
+
+## Tuple-domain diagnostics contract
+
+The `nodal-allocation` example is the user-facing tracer bullet for tuple-domain
+V1 behavior:
+
+- `dispatch[a,i,g,b]` is instantiated only for members of `feasible_links`.
+  There is no Cartesian fallback.
+- Reduced or filtered scopes are modeled with named subsets such as
+  `priority_links`; V1 does not auto-project high-dimensional tuple domains.
+- Compile-time diagnostics use scoped identifiers and canonical ordering. For
+  example:
+
+  ```text
+  index order mismatch for `NodalAllocationDay.NodalAllocation.constraint_1` over tuple domain `feasible_links`
+  empty constraint-relevant tuple subset for `NodalAllocationDay.NodalAllocation.capacity_target` at keys: north,solar; north,wind; south,gas; south,solar
+  ```
 
 ## Current caveats
 

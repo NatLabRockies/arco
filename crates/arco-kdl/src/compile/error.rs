@@ -1,3 +1,16 @@
+fn tuple_domain_index_order_mismatch_message(
+    provenance: &str,
+    tuple_domain: &str,
+    expected: &[String],
+    received: &[String],
+) -> String {
+    format!(
+        "index order mismatch for `{provenance}` over tuple domain `{tuple_domain}`: expected `{}`, received `{}`",
+        expected.join(","),
+        received.join(",")
+    )
+}
+
 #[derive(Debug, Error, Diagnostic)]
 pub enum CompileError {
     #[error("missing scenario `{name}` during compilation in {path}")]

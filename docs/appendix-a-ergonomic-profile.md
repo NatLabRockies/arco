@@ -65,6 +65,60 @@ data branch_data from="data/branches.csv" {
 >   constraint).
 > - Use `filter` to distinguish connected vs. disconnected edges, directional
 >   subsets, or capacity tiers.
+>
+> Tuple-domain feasible-set pattern for nodal allocation:
+>
+> ```kdl
+> data links source="data/links.csv" {
+>   set area as=a
+>   set tech as=i
+>   alias generators column=gen
+>   alias buses column=bus
+>   set generators as=g
+>   set buses as=b
+>
+>   set feasible_links {
+>     index a { in area }
+>     index i { in tech }
+>     index g { in generators }
+>     index b { in buses }
+>     where { feasible > 0 }
+>   }
+> }
+>
+> set priority_links {
+>   in feasible_links
+>   index a { in area }
+>   index i { in tech }
+>   index g { in generators }
+>   index b { in buses }
+>   where { area == "south" }
+> }
+>
+> model nodal_allocation {
+>   control dispatch lower=0 {
+>     index a { in feasible_links }
+>     index i { in feasible_links }
+>     index g { in feasible_links }
+>     index b { in feasible_links }
+>   }
+>
+>   constraint priority_floor {
+>     index a { in priority_links }
+>     index i { in priority_links }
+>     index g { in priority_links }
+>     index b { in priority_links }
+>     expression { dispatch[a,i,g,b] >= 0 }
+>   }
+> }
+> ```
+>
+> In V1, tuple-domain variables mean membership in `feasible_links`, not
+> Cartesian expansion over `area × tech × generators × buses`. Projection stays
+> explicit: define a named subset and iterate that subset directly. If the index
+> order is wrong, diagnostics report both the scoped source ID and the canonical
+> tuple domain. Empty-subset diagnostics list every offending key in
+> deterministic tuple order.
 
 ## A.4 Ergonomic grammar
 

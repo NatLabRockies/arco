@@ -182,6 +182,59 @@ fn inspect_json_parameters_have_dtype() {
 }
 
 #[test]
+fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
+    let model_path = example_path("examples/nodal-allocation/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let inspect_output = run_cli(&["inspect", model, "--json"]);
+    assert!(
+        inspect_output.status.success(),
+        "inspect failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&inspect_output.stdout),
+        String::from_utf8_lossy(&inspect_output.stderr)
+    );
+
+    let inspect_payload: Value =
+        serde_json::from_slice(&inspect_output.stdout).expect("valid inspect json");
+    let variables = inspect_payload["variable"]
+        .as_array()
+        .expect("variable array");
+    let dispatch = variables
+        .iter()
+        .find(|record| record["name"] == "dispatch")
+        .expect("dispatch variable record");
+    let sets = dispatch["set"].as_array().expect("dispatch set array");
+    assert_eq!(
+        sets.len(),
+        4,
+        "tuple-domain variable should keep four components"
+    );
+    for binding in sets {
+        assert_eq!(binding["name"], "feasible_links");
+    }
+
+    let run_output = run_cli(&["run", model, "--compact"]);
+    assert!(
+        run_output.status.success(),
+        "run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let summary: Value = serde_json::from_slice(&run_output.stdout).expect("valid run json");
+    assert_eq!(summary["active_scenario"], "NodalAllocationDay");
+    assert_eq!(summary["objective"]["name"], "tuple_membership_tracer");
+    assert_eq!(summary["objective"]["value"], 0.0);
+    assert_eq!(summary["solve_status"], "optimal");
+
+    let counts = summary["counts"].as_object().expect("counts object");
+    assert_eq!(counts.get("variables"), Some(&Value::from(1)));
+    assert_eq!(counts.get("constraints"), Some(&Value::from(2)));
+}
+
+#[test]
 fn validate_surfaces_empty_filtered_subset_warning() {
     let root = unique_temp_dir("validate-empty-filtered-subset");
     let data_dir = root.join("data");

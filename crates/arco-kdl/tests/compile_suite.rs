@@ -17,6 +17,12 @@ fn temp_test_dir(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(root)
 }
 
+fn repo_example_path(relative: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative)
+}
+
 #[test]
 fn lowering_loads_top_level_data_block_params() -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_test_dir("top-level-data")?;
@@ -733,8 +739,72 @@ scenario "S1" {
     match error {
         CompileError::InvalidFormulation { message, .. } => {
             assert!(message.contains("index order mismatch for `bad_projection`"));
+            assert!(message.contains("tuple domain `feasible_links`"));
             assert!(message.contains("expected `a,i,g,b`"));
             assert!(message.contains("received `a`"));
+        }
+        other => panic!("expected InvalidFormulation, got {other:?}"),
+    }
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_reports_tuple_domain_provenance_for_variable_index_order_mismatches()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-domain-variable-order")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    where { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let error = compile_program(&semantic, &parsed.program, &path)
+        .expect_err("tuple-domain variable order mismatches should fail compilation");
+
+    match error {
+        CompileError::InvalidFormulation { message, .. } => {
+            assert!(message.contains("index order mismatch for `x[a,g,i,b]`"));
+            assert!(message.contains("tuple domain `feasible_links`"));
+            assert!(message.contains("expected `a,i,g,b`"));
+            assert!(message.contains("received `a,g,i,b`"));
         }
         other => panic!("expected InvalidFormulation, got {other:?}"),
     }
@@ -861,6 +931,49 @@ scenario "S1" {
 }
 
 #[test]
+fn lowering_example_nodal_allocation_preserves_sparse_tuple_membership()
+-> Result<(), Box<dyn std::error::Error>> {
+    let path = repo_example_path("examples/nodal-allocation/input.kdl");
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let dispatch_instances = compiled
+        .algebra
+        .variable_instances
+        .iter()
+        .map(|instance| instance.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        dispatch_instances,
+        vec![
+            "dispatch[north,wind,g1,b1]".to_string(),
+            "dispatch[north,wind,g2,b2]".to_string(),
+            "dispatch[south,gas,g4,b3]".to_string(),
+            "dispatch[south,solar,g3,b3]".to_string(),
+        ]
+    );
+
+    let priority_constraints = compiled
+        .algebra
+        .constraints
+        .iter()
+        .filter(|constraint| constraint.name.starts_with("priority_floor"))
+        .map(|constraint| constraint.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        priority_constraints,
+        vec![
+            "priority_floor[south,b3,g3,solar]".to_string(),
+            "priority_floor[south,b3,g4,gas]".to_string(),
+        ]
+    );
+
+    Ok(())
+}
+
+#[test]
 fn lowering_reports_scoped_inferred_constraint_ids_in_tuple_projection_errors()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_test_dir("tuple-projection-scoped-constraint-id")?;
@@ -917,6 +1030,7 @@ scenario "S1" {
     match error {
         CompileError::InvalidFormulation { message, .. } => {
             assert!(message.contains("index order mismatch for `S1.TupleDispatch.constraint_1`"));
+            assert!(message.contains("tuple domain `feasible_links`"));
             assert!(message.contains("expected `a,i,g,b`"));
             assert!(message.contains("received `a`"));
         }

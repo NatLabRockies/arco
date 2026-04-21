@@ -10,6 +10,7 @@ import shutil
 import subprocess
 
 DEFAULT_EXAMPLES: tuple[str, ...] = (
+    "nodal-allocation",
     "generator-allocation",
     "price-taker-battery",
     "simple-electricity-market-storage",
