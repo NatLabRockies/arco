@@ -128,7 +128,7 @@ jobs:
           external-data-json-path: ./cache/benchmark-data.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           summary-always: true
-          comment-on-alert: true
+          comment-on-alert: ${{ github.event_name == 'pull_request' }}
           alert-threshold: "125%"
           fail-on-alert: false
 
