@@ -830,8 +830,9 @@ fn estimate_constraint_instances(
             .map_or(binding.domain.as_str(), String::as_str);
 
         if let Some(resolved_set) = program.set_registry.get(canonical_domain) {
-            // For tuple-domain sets, count each canonical set only once to avoid
-            // Cartesian overcounting when multiple bindings share the same domain.
+            // Non-tuple sets are always counted; tuple-domain sets are counted only
+            // once per canonical domain to avoid Cartesian overcounting when
+            // multiple bindings share the same tuple domain.
             let should_count = resolved_set.tuple_rows.is_none()
                 || seen_tuple_domains.insert(canonical_domain);
             if should_count {
