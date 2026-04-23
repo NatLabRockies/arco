@@ -165,15 +165,15 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
 
     Ok(DataDecl {
         name: first_arg_string(node, 0, context)?,
-        source: optional_property_string(node, "source", context)?
-            .or(optional_property_string(node, "from", context)?)
-            .ok_or_else(|| SourceError::MissingProperty {
+        source: optional_property_string(node, "source", context)?.ok_or_else(|| {
+            SourceError::MissingProperty {
                 node: node.name().value().to_string(),
                 property: "source",
                 path: context.path.to_path_buf(),
                 source_text: Box::new(context.source_text.clone()),
                 span: node.span(),
-            })?,
+            }
+        })?,
         maps,
         sets,
         indices,
@@ -209,6 +209,13 @@ fn parse_param(
         .map(parse_value_formula)
         .transpose()
         .map_err(|error| algebra_error(node, error.to_string(), context))?;
+
+    for child in node.iter_children() {
+        match child.name().value() {
+            "index" | "filter" | "reduce" => {}
+            other => return Err(unsupported_declaration_error(child, other, context)),
+        }
+    }
 
     Ok(crate::source::ParamDecl {
         name: first_arg_string(node, 0, context)?,
@@ -264,7 +271,7 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
                     domain: Some(domain),
                 });
             }
-            "filter" | "where" => {
+            "filter" => {
                 filter_expression = Some(algebra_text_from_node(child, context)?);
             }
             member => {
@@ -562,14 +569,8 @@ data "D" source="file.csv" {
     }
 
     #[test]
-    fn data_from_property_parses_same_as_source() {
+    fn data_from_property_is_rejected() {
         let path = PathBuf::from("test.kdl");
-
-        let with_source = r#"
-data "D" source="file.csv" {
-  map "X" from="name"
-}
-"#;
 
         let with_from = r#"
 data "D" from="file.csv" {
@@ -577,16 +578,8 @@ data "D" from="file.csv" {
 }
 "#;
 
-        let source_parsed = parse_program_text(with_source, &path).expect("source= syntax parses");
-        let from_parsed = parse_program_text(with_from, &path).expect("from= syntax parses");
-
-        assert_eq!(source_parsed.program.data.len(), 1);
-        assert_eq!(from_parsed.program.data.len(), 1);
-        assert_eq!(
-            source_parsed.program.data[0].source,
-            from_parsed.program.data[0].source
-        );
-        assert_eq!(from_parsed.program.data[0].source, "file.csv");
+        let error = parse_program_text(with_from, &path).expect_err("from= should be rejected");
+        assert!(error.to_string().contains("source"));
     }
 
     #[test]
@@ -610,30 +603,19 @@ data "D" from="file.csv" {
     }
 
     #[test]
-    fn where_keyword_parses_same_as_filter() {
+    fn where_keyword_is_rejected() {
         let path = PathBuf::from("test.kdl");
 
         let with_where = r#"set "thermal" { in "gen"; where { type == "thermal" } }"#;
-        let with_filter = r#"set "thermal" { in "gen"; filter { type == "thermal" } }"#;
 
-        let where_parsed = parse_program_text(with_where, &path).expect("where syntax parses");
-        let filter_parsed = parse_program_text(with_filter, &path).expect("filter syntax parses");
-
-        assert_eq!(where_parsed.program.sets.len(), 1);
-        assert_eq!(filter_parsed.program.sets.len(), 1);
-
-        assert_eq!(
-            where_parsed.program.sets[0].filter_expression,
-            filter_parsed.program.sets[0].filter_expression
-        );
-        assert!(where_parsed.program.sets[0].filter_expression.is_some());
+        parse_program_text(with_where, &path).expect_err("where syntax should fail");
     }
 
     #[test]
     fn mixed_old_and_new_syntax_parses() {
         let path = PathBuf::from("test.kdl");
 
-        // Mix of old (control, map, alias=, filter) and new (var, alias, as=, where)
+        // Mix of legacy-compatible and canonical forms we still support.
         let mixed = r#"
 data "D" source="file.csv" {
   map "old_col" from="x"
@@ -654,16 +636,13 @@ scenario "S" { use "M" }
 
         let parsed = parse_program_text(mixed, &path).expect("mixed syntax parses");
 
-        // Verify data block
         assert_eq!(parsed.program.data.len(), 1);
         assert_eq!(parsed.program.data[0].maps.len(), 2);
 
-        // Verify sets
         assert_eq!(parsed.program.sets.len(), 2);
         assert_eq!(parsed.program.sets[0].alias, Some("o".to_string()));
         assert_eq!(parsed.program.sets[1].alias, Some("n".to_string()));
 
-        // Verify model controls (both var and control)
         assert_eq!(parsed.program.models.len(), 1);
         assert_eq!(parsed.program.models[0].controls.len(), 2);
     }

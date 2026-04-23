@@ -392,17 +392,16 @@ Required properties:
 
 - `source`: CSV file path. Relative paths are resolved from the directory
   containing the `.kdl` file being parsed. Absolute paths are also accepted.
-  - `from`: compatibility alias for `source` (legacy syntax). Prefer `source` in
-    new files.
-    CSV parsing: Arco expects RFC 4180-compliant CSV files (comma-delimited,
-    optional double-quote escaping, CRLF or LF line endings). The first row MUST be
-    a header row containing column names. Column names in the header MUST be unique;
-    duplicate column names MUST fail validation (see
-    [§10](#10-validation-requirements), rule 73). CSV files MUST be UTF-8 encoded.
-    Implementations SHOULD accept files with or without a UTF-8 BOM. Empty cells in
-    a numeric column MUST fail validation. Empty cells in a string/categorical
-    column are treated as empty strings. Column matching is always by name, not by
-    position.
+
+CSV parsing: Arco expects RFC 4180-compliant CSV files (comma-delimited,
+optional double-quote escaping, CRLF or LF line endings). The first row MUST be
+a header row containing column names. Column names in the header MUST be unique;
+duplicate column names MUST fail validation (see
+[§10](#10-validation-requirements), rule 73). CSV files MUST be UTF-8 encoded.
+Implementations SHOULD accept files with or without a UTF-8 BOM. Empty cells in
+a numeric column MUST fail validation. Empty cells in a string/categorical
+column are treated as empty strings. Column matching is always by name, not by
+position.
 
 Allowed children:
 
