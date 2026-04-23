@@ -198,6 +198,28 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
 
     let inspect_payload: Value =
         serde_json::from_slice(&inspect_output.stdout).expect("valid inspect json");
+
+    let inspect_sets = inspect_payload["set"].as_array().expect("set array");
+    let feasible_links = inspect_sets
+        .iter()
+        .find(|record| record["name"] == "feasible_links")
+        .expect("feasible_links set record");
+    assert_eq!(
+        feasible_links["size"],
+        Value::from(4),
+        "feasible_links should report tuple-row cardinality"
+    );
+
+    let priority_links = inspect_sets
+        .iter()
+        .find(|record| record["name"] == "priority_links")
+        .expect("priority_links set record");
+    assert_eq!(
+        priority_links["size"],
+        Value::from(2),
+        "priority_links should report filtered tuple-row cardinality"
+    );
+
     let variables = inspect_payload["variable"]
         .as_array()
         .expect("variable array");
@@ -213,7 +235,35 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
     );
     for binding in sets {
         assert_eq!(binding["name"], "feasible_links");
+        assert_eq!(
+            binding["size"],
+            Value::from(4),
+            "tuple-domain binding should use tuple-row cardinality"
+        );
     }
+
+    let constraints = inspect_payload["constraint"]
+        .as_array()
+        .expect("constraint array");
+    let dispatch_capacity = constraints
+        .iter()
+        .find(|record| record["name"] == "dispatch_capacity")
+        .expect("dispatch_capacity constraint record");
+    assert_eq!(
+        dispatch_capacity["instances"],
+        Value::from(4),
+        "tuple-domain constraint instances should track tuple rows, not Cartesian powers"
+    );
+
+    let priority_floor = constraints
+        .iter()
+        .find(|record| record["name"] == "priority_floor")
+        .expect("priority_floor constraint record");
+    assert_eq!(
+        priority_floor["instances"],
+        Value::from(2),
+        "filtered tuple-domain constraint instances should track tuple rows"
+    );
 
     let run_output = run_cli(&["run", model, "--compact"]);
     assert!(

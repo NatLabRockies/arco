@@ -190,11 +190,16 @@ pub fn build_inspect_payload(entrypoint: &Path, program: &SemanticProgram) -> In
     let set_records = build_set_records(program, filtered_set_names);
 
     // Build a lookup from set name → size for bindings
-    let set_sizes: BTreeMap<&str, usize> = program
+    let mut set_sizes: BTreeMap<&str, usize> = program
         .set_registry
         .iter()
-        .map(|(name, resolved)| (name.as_str(), resolved.values.len()))
+        .map(|(name, resolved)| (name.as_str(), resolved_set_cardinality(resolved)))
         .collect();
+    for (alias, canonical) in &program.set_aliases {
+        if let Some(size) = set_sizes.get(canonical.as_str()).copied() {
+            set_sizes.entry(alias.as_str()).or_insert(size);
+        }
+    }
 
     // Build variable records
     let variable_records = build_variable_records(program, &set_sizes);
@@ -262,7 +267,7 @@ fn build_set_records(program: &SemanticProgram, filtered_set_names: &[&str]) -> 
             id,
             name: name.clone(),
             alias,
-            size: resolved.values.len(),
+            size: resolved_set_cardinality(resolved),
             dtype,
             subset_of,
         });
@@ -272,23 +277,17 @@ fn build_set_records(program: &SemanticProgram, filtered_set_names: &[&str]) -> 
 }
 
 fn find_set_alias(program: &SemanticProgram, set_name: &str) -> Option<String> {
-    // Check variable families for index aliases that map to this set
-    for family in &program.variable_families {
-        for (index, domain) in &family.index_domains {
-            if domain == set_name && index != set_name {
-                return Some(index.clone());
-            }
-        }
-    }
-    // Check constraint generation bindings
-    for constraint in &program.active_constraints {
-        for binding in &constraint.generation_bindings {
-            if binding.domain == set_name && binding.variable != set_name {
-                return Some(binding.variable.clone());
-            }
-        }
-    }
-    None
+    program
+        .set_aliases
+        .iter()
+        .find_map(|(alias, canonical)| (canonical == set_name).then(|| alias.clone()))
+}
+
+fn resolved_set_cardinality(resolved: &arco_kdl::semantic::ResolvedSet) -> usize {
+    resolved
+        .tuple_rows
+        .as_ref()
+        .map_or(resolved.values.len(), Vec::len)
 }
 
 fn infer_set_dtype(resolved: &arco_kdl::semantic::ResolvedSet) -> String {
@@ -716,6 +715,7 @@ fn build_constraint_records(
             build_constraint_record(
                 id,
                 constraint,
+                program,
                 variable_targets,
                 parameter_targets,
                 set_sizes,
@@ -727,12 +727,13 @@ fn build_constraint_records(
 fn build_constraint_record(
     id: usize,
     constraint: &ResolvedConstraint,
+    program: &SemanticProgram,
     variable_targets: &BTreeSet<String>,
     parameter_targets: &BTreeSet<String>,
     set_sizes: &BTreeMap<&str, usize>,
 ) -> ConstraintRecord {
     let scope = build_constraint_scope(constraint, set_sizes);
-    let instances = scope.iter().map(|s| s.size).product::<usize>().max(1);
+    let instances = estimate_constraint_instances(program, constraint, set_sizes);
 
     let symbol_to_set: BTreeMap<&str, &str> = constraint
         .generation_bindings
@@ -812,6 +813,42 @@ fn build_constraint_scope(
             }
         })
         .collect()
+}
+
+fn estimate_constraint_instances(
+    program: &SemanticProgram,
+    constraint: &ResolvedConstraint,
+    set_sizes: &BTreeMap<&str, usize>,
+) -> usize {
+    let mut instances = 1usize;
+    let mut seen_tuple_domains = BTreeSet::new();
+
+    for binding in &constraint.generation_bindings {
+        let canonical_domain = program
+            .set_aliases
+            .get(binding.domain.as_str())
+            .map_or(binding.domain.as_str(), String::as_str);
+
+        if let Some(resolved_set) = program.set_registry.get(canonical_domain) {
+            if resolved_set.tuple_rows.is_some() {
+                if seen_tuple_domains.insert(canonical_domain) {
+                    instances = instances.saturating_mul(resolved_set_cardinality(resolved_set));
+                }
+            } else {
+                instances = instances.saturating_mul(resolved_set_cardinality(resolved_set));
+            }
+            continue;
+        }
+
+        let size = set_sizes
+            .get(canonical_domain)
+            .copied()
+            .or_else(|| set_sizes.get(binding.domain.as_str()).copied())
+            .unwrap_or(0);
+        instances = instances.saturating_mul(size);
+    }
+
+    instances.max(1)
 }
 
 fn build_term_refs(
