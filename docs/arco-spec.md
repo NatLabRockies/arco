@@ -468,6 +468,22 @@ Semantics:
   expression is evaluated per row against the dataset columns. This uses the
   same bare-math block syntax as `expression`, `if`, and `lower`/`upper`.
   Supported operators: `==`, `>`, `>=`, `<`, `<=`, `!=`.
+- A dedicated boolean feasibility column is optional. Filters MAY use any
+  available columns and expressions (for example,
+  `filter { area == south and capacity_mw > 0 }`). A helper column like
+  `feasible` is only one modeling pattern, not a grammar requirement.
+
+Tuple-domain membership semantics (non-Cartesian):
+
+- If a set is defined with multiple `index` children (tuple-domain set),
+  bindings like `index a { in tuple_set }`, `index b { in tuple_set }`, ... in
+  the same generated family/constraint refer to membership in the same tuple
+  rows.
+- Implementations MUST NOT expand those bindings as a Cartesian product over
+  tuple components.
+- Projection to lower-dimensional domains is explicit: define a named subset
+  and iterate it directly. Implementations MUST NOT auto-project high-dimensional
+  tuple sets.
 
 ```arco
 set thermal_gen {

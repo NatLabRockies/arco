@@ -74,6 +74,19 @@ If you are new to the repo, this order ramps up nicely:
 The `nodal-allocation` example is the user-facing tracer bullet for tuple-domain
 V1 behavior:
 
+Input CSV shape (first rows):
+
+```csv
+area,tech,gen,bus,feasible,capacity_mw,priority_floor_mw
+north,wind,g1,b1,1,10,4
+north,wind,g2,b2,1,8,0
+south,solar,g3,b3,1,6,2
+```
+
+`feasible` is not required by the language. It is one way to define a tuple
+subset. You can filter from any available columns, for example:
+`filter { area == south and capacity_mw > 0 }`.
+
 - `dispatch[a,i,g,b]` is instantiated only for members of `feasible_links`.
   There is no Cartesian fallback.
 - Reduced or filtered scopes are modeled with named subsets such as
