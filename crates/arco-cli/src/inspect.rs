@@ -52,8 +52,8 @@ pub struct Counts {
 pub struct SetRecord {
     pub id: usize,
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alias: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
     pub size: usize,
     pub dtype: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -190,32 +190,36 @@ pub fn build_inspect_payload(entrypoint: &Path, program: &SemanticProgram) -> In
     let set_records = build_set_records(program, filtered_set_names);
 
     // Build a lookup from set name → size for bindings
-    let mut set_sizes: BTreeMap<&str, usize> = program
+    let set_sizes: BTreeMap<&str, usize> = program
         .set_registry
         .iter()
         .map(|(name, resolved)| (name.as_str(), resolved_set_cardinality(resolved)))
         .collect();
-    for (alias, canonical) in &program.set_aliases {
-        if let Some(size) = set_sizes.get(canonical.as_str()).copied() {
-            set_sizes.entry(alias.as_str()).or_insert(size);
-        }
-    }
 
     // Build variable records
     let variable_records = build_variable_records(program, &set_sizes);
 
     // Build parameter records
-    let parameter_records =
-        build_parameter_records(program, &parameter_targets, &variable_targets, &set_sizes);
+    let parameter_records = build_parameter_records(
+        program,
+        &parameter_targets,
+        &variable_targets,
+        &set_sizes,
+        &program.set_aliases,
+    );
 
     // Build expression records
     let expression_records =
         build_expression_records(program, &variable_targets, &parameter_targets);
 
     // Build constraint records
-    let constraint_records =
-        build_constraint_records(program, &variable_targets, &parameter_targets, &set_sizes);
-
+    let constraint_records = build_constraint_records(
+        program,
+        &variable_targets,
+        &parameter_targets,
+        &set_sizes,
+        &program.set_aliases,
+    );
     // Build objective record
     let objective_record = build_objective_record(program, &variable_targets, &parameter_targets);
 
@@ -259,14 +263,14 @@ fn build_set_records(program: &SemanticProgram, filtered_set_names: &[&str]) -> 
         .filter(|(name, _)| !filtered_set_names.contains(&name.as_str()))
         .enumerate()
     {
-        let alias = find_set_alias(program, name);
+        let aliases = find_set_aliases(program, name);
         let dtype = infer_set_dtype(resolved);
         let subset_of = find_subset_relations(program, name);
 
         records.push(SetRecord {
             id,
             name: name.clone(),
-            alias,
+            aliases,
             size: resolved_set_cardinality(resolved),
             dtype,
             subset_of,
@@ -276,11 +280,13 @@ fn build_set_records(program: &SemanticProgram, filtered_set_names: &[&str]) -> 
     records
 }
 
-fn find_set_alias(program: &SemanticProgram, set_name: &str) -> Option<String> {
+fn find_set_aliases(program: &SemanticProgram, set_name: &str) -> Vec<String> {
     program
         .set_aliases
         .iter()
-        .find_map(|(alias, canonical)| (canonical == set_name).then(|| alias.clone()))
+        .filter(|(_, canonical)| *canonical == set_name)
+        .map(|(alias, _)| alias.clone())
+        .collect()
 }
 
 fn resolved_set_cardinality(resolved: &arco_kdl::semantic::ResolvedSet) -> usize {
@@ -288,6 +294,30 @@ fn resolved_set_cardinality(resolved: &arco_kdl::semantic::ResolvedSet) -> usize
         .tuple_rows
         .as_ref()
         .map_or(resolved.values.len(), Vec::len)
+}
+
+fn canonical_set_name<'a>(set_name: &'a str, set_aliases: &'a BTreeMap<String, String>) -> &'a str {
+    set_aliases.get(set_name).map_or(set_name, String::as_str)
+}
+
+fn lookup_set_size_option(
+    set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
+    set_name: &str,
+) -> Option<usize> {
+    let canonical = canonical_set_name(set_name, set_aliases);
+    set_sizes
+        .get(canonical)
+        .copied()
+        .or_else(|| set_sizes.get(set_name).copied())
+}
+
+fn lookup_set_size(
+    set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
+    set_name: &str,
+) -> usize {
+    lookup_set_size_option(set_sizes, set_aliases, set_name).unwrap_or(0)
 }
 
 fn infer_set_dtype(resolved: &arco_kdl::semantic::ResolvedSet) -> String {
@@ -330,7 +360,7 @@ fn build_variable_records(
                 kind,
                 lower,
                 upper,
-                set: build_family_set_bindings(family, set_sizes),
+                set: build_family_set_bindings(family, set_sizes, &program.set_aliases),
             }
         })
         .collect()
@@ -401,6 +431,7 @@ fn render_bound(bound: &arco_kdl::source::BoundExpr) -> BoundValue {
 fn build_family_set_bindings(
     family: &FamilySignature,
     set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
 ) -> Vec<SetBinding> {
     family
         .indices
@@ -411,7 +442,7 @@ fn build_family_set_bindings(
                 .get(index)
                 .cloned()
                 .unwrap_or_else(|| index.clone());
-            let size = set_sizes.get(set_name.as_str()).copied().unwrap_or(0);
+            let size = lookup_set_size(set_sizes, set_aliases, set_name.as_str());
             let alias = if index == &set_name {
                 None
             } else {
@@ -433,6 +464,7 @@ fn build_parameter_records(
     parameter_targets: &BTreeSet<String>,
     _variable_targets: &BTreeSet<String>,
     set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
 ) -> Vec<ParameterRecord> {
     let mut records = Vec::new();
     let mut id = 0;
@@ -466,11 +498,11 @@ fn build_parameter_records(
                 .map(|set_name| SetBinding {
                     name: set_name.to_string(),
                     alias: None,
-                    size: set_sizes.get(set_name).copied().unwrap_or(0),
+                    size: lookup_set_size(set_sizes, set_aliases, set_name),
                 })
                 .collect()
         } else {
-            infer_parameter_sets(program, name, set_sizes)
+            infer_parameter_sets(program, name, set_sizes, set_aliases)
         };
 
         records.push(ParameterRecord {
@@ -491,7 +523,7 @@ fn build_parameter_records(
                 name: name.clone(),
                 kind: "inferred".to_string(),
                 dtype: infer_parameter_dtype(name),
-                set: infer_parameter_sets(program, name, set_sizes),
+                set: infer_parameter_sets(program, name, set_sizes, set_aliases),
             });
             id += 1;
         }
@@ -512,6 +544,7 @@ fn infer_parameter_sets(
     program: &SemanticProgram,
     parameter_name: &str,
     set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
 ) -> Vec<SetBinding> {
     // Try to find indexing from constraint/expression usage
     let mut set_refs = Vec::new();
@@ -529,7 +562,7 @@ fn infer_parameter_sets(
         return set_refs
             .into_iter()
             .map(|set_name| {
-                let size = set_sizes.get(set_name.as_str()).copied().unwrap_or(0);
+                let size = lookup_set_size(set_sizes, set_aliases, set_name.as_str());
                 SetBinding {
                     name: set_name,
                     alias: None,
@@ -545,7 +578,7 @@ fn infer_parameter_sets(
         .asset
         .contains(&parameter_name.to_string())
     {
-        if let Some(&size) = set_sizes.get("asset_id") {
+        if let Some(size) = lookup_set_size_option(set_sizes, set_aliases, "asset_id") {
             return vec![SetBinding {
                 name: "asset_id".to_string(),
                 alias: None,
@@ -559,7 +592,7 @@ fn infer_parameter_sets(
         .series
         .contains(&parameter_name.to_string())
     {
-        if let Some(&size) = set_sizes.get("time") {
+        if let Some(size) = lookup_set_size_option(set_sizes, set_aliases, "time") {
             return vec![SetBinding {
                 name: "time".to_string(),
                 alias: None,
@@ -706,6 +739,7 @@ fn build_constraint_records(
     variable_targets: &BTreeSet<String>,
     parameter_targets: &BTreeSet<String>,
     set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
 ) -> Vec<ConstraintRecord> {
     program
         .active_constraints
@@ -719,6 +753,7 @@ fn build_constraint_records(
                 variable_targets,
                 parameter_targets,
                 set_sizes,
+                set_aliases,
             )
         })
         .collect()
@@ -731,8 +766,9 @@ fn build_constraint_record(
     variable_targets: &BTreeSet<String>,
     parameter_targets: &BTreeSet<String>,
     set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
 ) -> ConstraintRecord {
-    let scope = build_constraint_scope(constraint, set_sizes);
+    let scope = build_constraint_scope(constraint, set_sizes, set_aliases);
     let instances = estimate_constraint_instances(program, constraint, set_sizes);
 
     let symbol_to_set: BTreeMap<&str, &str> = constraint
@@ -750,6 +786,7 @@ fn build_constraint_record(
                 parameter_targets,
                 &symbol_to_set,
                 set_sizes,
+                set_aliases,
             );
             let rhs = build_term_refs(
                 right,
@@ -757,6 +794,7 @@ fn build_constraint_record(
                 parameter_targets,
                 &symbol_to_set,
                 set_sizes,
+                set_aliases,
             );
             (relation, lhs, rhs)
         }
@@ -771,6 +809,7 @@ fn build_constraint_record(
                 parameter_targets,
                 &symbol_to_set,
                 set_sizes,
+                set_aliases,
             );
             (relation, lhs, Vec::new())
         }
@@ -795,12 +834,13 @@ fn build_constraint_record(
 fn build_constraint_scope(
     constraint: &ResolvedConstraint,
     set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
 ) -> Vec<SetBinding> {
     constraint
         .generation_bindings
         .iter()
         .map(|binding| {
-            let size = set_sizes.get(binding.domain.as_str()).copied().unwrap_or(0);
+            let size = lookup_set_size(set_sizes, set_aliases, binding.domain.as_str());
             let alias = if binding.variable == binding.domain {
                 None
             } else {
@@ -824,10 +864,7 @@ fn estimate_constraint_instances(
     let mut seen_tuple_domains = BTreeSet::new();
 
     for binding in &constraint.generation_bindings {
-        let canonical_domain = program
-            .set_aliases
-            .get(binding.domain.as_str())
-            .map_or(binding.domain.as_str(), String::as_str);
+        let canonical_domain = canonical_set_name(binding.domain.as_str(), &program.set_aliases);
 
         if let Some(resolved_set) = program.set_registry.get(canonical_domain) {
             // Non-tuple sets are always counted; tuple-domain sets are counted only
@@ -841,11 +878,7 @@ fn estimate_constraint_instances(
             continue;
         }
 
-        let size = set_sizes
-            .get(canonical_domain)
-            .copied()
-            .or_else(|| set_sizes.get(binding.domain.as_str()).copied())
-            .unwrap_or(0);
+        let size = lookup_set_size(set_sizes, &program.set_aliases, binding.domain.as_str());
         instances = instances.saturating_mul(size);
     }
 
@@ -858,6 +891,7 @@ fn build_term_refs(
     parameter_targets: &BTreeSet<String>,
     symbol_to_set: &BTreeMap<&str, &str>,
     set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
 ) -> Vec<TermRef> {
     let additive_terms = split_additive_terms(expr);
     let mut refs = Vec::new();
@@ -869,6 +903,7 @@ fn build_term_refs(
             parameter_targets,
             symbol_to_set,
             set_sizes,
+            set_aliases,
             &mut refs,
         );
     }
@@ -895,6 +930,7 @@ fn collect_term_refs_from_expr(
     parameter_targets: &BTreeSet<String>,
     symbol_to_set: &BTreeMap<&str, &str>,
     set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
     out: &mut Vec<TermRef>,
 ) {
     match expr {
@@ -914,7 +950,7 @@ fn collect_term_refs_from_expr(
                         let set_name = symbol_to_set
                             .get(symbol.as_str())
                             .map_or(symbol.clone(), |&s| s.to_string());
-                        let size = set_sizes.get(set_name.as_str()).copied().unwrap_or(0);
+                        let size = lookup_set_size(set_sizes, set_aliases, set_name.as_str());
                         let alias = if *symbol == set_name {
                             None
                         } else {
@@ -969,6 +1005,7 @@ fn collect_term_refs_from_expr(
                     parameter_targets,
                     &extended,
                     set_sizes,
+                    set_aliases,
                     &mut inner_refs,
                 );
                 for mut inner_ref in inner_refs {
@@ -988,6 +1025,7 @@ fn collect_term_refs_from_expr(
                 parameter_targets,
                 symbol_to_set,
                 set_sizes,
+                set_aliases,
                 out,
             );
             collect_term_refs_from_expr(
@@ -996,6 +1034,7 @@ fn collect_term_refs_from_expr(
                 parameter_targets,
                 symbol_to_set,
                 set_sizes,
+                set_aliases,
                 out,
             );
         }
@@ -1006,6 +1045,7 @@ fn collect_term_refs_from_expr(
                 parameter_targets,
                 symbol_to_set,
                 set_sizes,
+                set_aliases,
                 out,
             );
         }
@@ -1017,6 +1057,7 @@ fn collect_term_refs_from_expr(
                     parameter_targets,
                     symbol_to_set,
                     set_sizes,
+                    set_aliases,
                     out,
                 );
             }
@@ -1029,6 +1070,7 @@ fn collect_term_refs_from_expr(
                 parameter_targets,
                 symbol_to_set,
                 set_sizes,
+                set_aliases,
                 out,
             );
             collect_term_refs_from_expr(
@@ -1037,6 +1079,7 @@ fn collect_term_refs_from_expr(
                 parameter_targets,
                 symbol_to_set,
                 set_sizes,
+                set_aliases,
                 out,
             );
         }

@@ -285,6 +285,138 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
 }
 
 #[test]
+fn inspect_uses_canonical_set_size_for_alias_collision_bindings() {
+    let root = unique_temp_dir("inspect-alias-collision");
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).expect("create temp data dir");
+    fs::write(
+        data_dir.join("rows.csv"),
+        "i,node\n1,a\n1,b\n2,c\n2,d\n3,e\n",
+    )
+    .expect("write csv");
+
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r#"
+data collision_data source="data/rows.csv" {
+  map nodes from="node"
+  set i
+  set nodes alias="i"
+}
+
+model Collision {
+  set i
+  set nodes
+
+  control x {
+    index nodes
+  }
+
+  constraint c {
+    index n { in i }
+    expression { x[n] <= 1 }
+  }
+
+  minimize Obj {
+    sum(x[n] for n in nodes)
+  }
+}
+
+scenario S1 {
+  use Collision
+}
+"#,
+    )
+    .expect("write model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["inspect", model, "--json"]);
+
+    assert!(
+        output.status.success(),
+        "inspect failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid inspect json");
+    let constraints = payload["constraint"].as_array().expect("constraint array");
+    let constraint = constraints
+        .iter()
+        .find(|record| record["name"] == "c")
+        .expect("constraint record");
+
+    assert_eq!(constraint["instances"], Value::from(5));
+    assert_eq!(constraint["scope"][0]["size"], Value::from(5));
+    assert_eq!(constraint["lhs"][0]["over"][0]["size"], Value::from(5));
+}
+
+#[test]
+fn inspect_set_records_include_all_aliases() {
+    let root = unique_temp_dir("inspect-multi-alias");
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).expect("create temp data dir");
+    fs::write(data_dir.join("lines.csv"), "lines\nL1\nL2\nL3\n").expect("write csv");
+
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r#"
+data line_data source="data/lines.csv" {
+  set lines alias="i"
+}
+
+model AliasModel {
+  set lines alias="j"
+
+  control flow {
+    index lines
+  }
+
+  minimize Obj {
+    sum(flow[l] for l in lines)
+  }
+}
+
+scenario S1 {
+  use AliasModel
+}
+"#,
+    )
+    .expect("write model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["inspect", model, "--json"]);
+
+    assert!(
+        output.status.success(),
+        "inspect failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid inspect json");
+    let sets = payload["set"].as_array().expect("set array");
+    let lines_set = sets
+        .iter()
+        .find(|record| record["name"] == "lines")
+        .expect("lines set record");
+
+    let aliases = lines_set["aliases"].as_array().expect("aliases array");
+    let alias_values: Vec<&str> = aliases
+        .iter()
+        .map(|value| value.as_str().expect("alias string"))
+        .collect();
+
+    assert_eq!(alias_values, vec!["i", "j"]);
+}
+
+#[test]
 fn validate_surfaces_empty_filtered_subset_warning() {
     let root = unique_temp_dir("validate-empty-filtered-subset");
     let data_dir = root.join("data");
