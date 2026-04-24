@@ -72,7 +72,7 @@ If you are new to the repo, this order ramps up nicely:
 ## Tuple-domain diagnostics contract
 
 The `nodal-allocation` example is the user-facing tracer bullet for tuple-domain
-V1 behavior:
+V1 behavior.
 
 Input CSV shape (first rows):
 
@@ -83,14 +83,38 @@ north,wind,g2,b2,1,8,0
 south,solar,g3,b3,1,6,2
 ```
 
-`feasible` is not required by the language. It is one way to define a tuple
-subset. You can filter from any available columns, for example:
-`filter { area == south and capacity_mw > 0 }`.
+### Defining tuple subsets
 
-- `dispatch[a,i,g,b]` is instantiated only for members of `feasible_links`.
-  There is no Cartesian fallback.
-- Reduced or filtered scopes are modeled with named subsets such as
-  `priority_links`; V1 does not auto-project high-dimensional tuple domains.
+`nodal-allocation` keeps subset logic minimal and focused on the runnable
+example. The full pattern guidance belongs in docs.
+
+In this example, subset membership is defined with a feasibility flag:
+
+```kdl
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "generators" }
+  index "b" { in "buses" }
+  filter { feasible > 0 }
+}
+```
+
+If your source encodes booleans directly, use `filter { feasible == true }`.
+If you do not have a feasibility column, filter from other columns (for
+example: `filter { area == "south" and capacity_mw > 0 }`).
+
+For full language-level guidance on subset/filter patterns, see:
+
+- [Arco spec §5.2 `set` (inside `data`)](../docs/arco-spec.md#52-set-inside-data)
+- [Appendix A.3 edge-domain patterns](../docs/appendix-a-ergonomic-profile.md#a3-edge-domain-patterns)
+
+### Why this matters in V1
+
+- `dispatch[a,i,g,b]` is instantiated only for members of the tuple subset you
+  bind to (for example, `feasible_links`). There is no Cartesian fallback.
+- Reduced scopes must be named explicitly (for example, `priority_links`). V1
+  does not auto-project high-dimensional tuple domains.
 - Compile-time diagnostics use scoped identifiers and canonical ordering. For
   example:
 

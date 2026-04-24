@@ -471,7 +471,9 @@ Semantics:
 - A dedicated boolean feasibility column is optional. Filters MAY use any
   available columns and expressions (for example,
   `filter { area == south and capacity_mw > 0 }`). A helper column like
-  `feasible` is only one modeling pattern, not a grammar requirement.
+  `feasible` is only one modeling pattern, not a grammar requirement. When a
+  helper column is used, common forms are `filter { feasible == true }` (boolean
+  column) or `filter { feasible > 0 }` (0/1 numeric encoding).
 
 Tuple-domain membership semantics (non-Cartesian):
 
