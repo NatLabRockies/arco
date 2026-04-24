@@ -58,7 +58,7 @@ jobs:
 
       # Cache 1: rmon binary (saves ~20-40s avoiding git install)
       - name: Cache rmon binary
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         id: rmon-cache
         with:
           path: ~/.local/bin/rmon
@@ -77,7 +77,7 @@ jobs:
           rust-cache-shared-key: rust-bench
       # Cache 3: Pre-built arco-cli binary (saves ~2-5min when Cargo.lock unchanged)
       - name: Cache arco-cli binary
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         id: arco-binary-cache
         with:
           path: target/release/arco
@@ -111,7 +111,7 @@ jobs:
 
       # Cache 4: Benchmark data for trend analysis (already exists, but optimized key)
       - name: Restore previous benchmark data
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         id: benchmark-data-restore
         with:
           path: ./cache
@@ -143,7 +143,7 @@ jobs:
 
       - name: Save benchmark data
         if: github.ref == 'refs/heads/main' && steps.benchmark-data-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ./cache
           key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}
