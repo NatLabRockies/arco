@@ -870,8 +870,8 @@ fn estimate_constraint_instances(
             // Non-tuple sets are always counted; tuple-domain sets are counted only
             // once per canonical domain to avoid Cartesian overcounting when
             // multiple bindings share the same tuple domain.
-            let should_count = resolved_set.tuple_rows.is_none()
-                || seen_tuple_domains.insert(canonical_domain);
+            let should_count =
+                resolved_set.tuple_rows.is_none() || seen_tuple_domains.insert(canonical_domain);
             if should_count {
                 instances = instances.saturating_mul(resolved_set_cardinality(resolved_set));
             }
