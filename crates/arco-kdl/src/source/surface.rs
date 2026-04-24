@@ -26,7 +26,6 @@ fn rewrite_math_block_at(text: &str, start: usize) -> Option<(String, usize)> {
         b'm' => rewrite_math_block(text, start, "minimize")
             .or_else(|| rewrite_math_block(text, start, "maximize")),
         b'u' => rewrite_math_block(text, start, "upper"),
-        b'w' => rewrite_math_block(text, start, "where"),
         _ => None,
     }
 }
@@ -119,7 +118,7 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
         "constraint" => format!("{header} expression={encoded_body}"),
         "expression" => format!("{header} {{ formula {encoded_body} }}"),
         "minimize" | "maximize" => format!("{header} expression={encoded_body}"),
-        "lower" | "upper" | "if" | "filter" | "where" => {
+        "lower" | "upper" | "if" | "filter" => {
             format!("{header} expression={encoded_body}")
         }
         _ => return None,

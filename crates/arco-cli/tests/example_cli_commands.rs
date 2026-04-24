@@ -46,7 +46,6 @@ fn inspect_produces_valid_toml() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: toml::Value = toml::from_str(&stdout).expect("output should be valid TOML");
 
-    // Check top-level sections exist
     assert!(parsed.get("meta").is_some(), "should have meta section");
     assert!(parsed.get("set").is_some(), "should have set section");
     assert!(
@@ -84,7 +83,6 @@ fn inspect_json_produces_valid_json() {
 
     let payload: Value = serde_json::from_slice(&output.stdout).expect("valid inspect json");
 
-    // Check structure matches TOML layout
     assert!(payload.get("meta").is_some());
     assert!(payload.get("set").is_some());
     assert!(payload.get("variable").is_some());
@@ -92,7 +90,6 @@ fn inspect_json_produces_valid_json() {
     assert!(payload.get("constraint").is_some());
     assert!(payload.get("objective").is_some());
 
-    // Check counts
     let counts = payload["meta"]["counts"]
         .as_object()
         .expect("counts object");

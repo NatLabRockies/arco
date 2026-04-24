@@ -272,7 +272,6 @@ fn build_set_records(program: &SemanticProgram, filtered_set_names: &[&str]) -> 
 }
 
 fn find_set_alias(program: &SemanticProgram, set_name: &str) -> Option<String> {
-    // Check variable families for index aliases that map to this set
     for family in &program.variable_families {
         for (index, domain) in &family.index_domains {
             if domain == set_name && index != set_name {
@@ -280,7 +279,6 @@ fn find_set_alias(program: &SemanticProgram, set_name: &str) -> Option<String> {
             }
         }
     }
-    // Check constraint generation bindings
     for constraint in &program.active_constraints {
         for binding in &constraint.generation_bindings {
             if binding.domain == set_name && binding.variable != set_name {
@@ -295,11 +293,9 @@ fn infer_set_dtype(resolved: &arco_kdl::semantic::ResolvedSet) -> String {
     if resolved.values.is_empty() {
         return "string".to_string();
     }
-    // Check if all values are integers
     if resolved.values.iter().all(|v| v.parse::<i64>().is_ok()) {
         return "int".to_string();
     }
-    // Check if all values are floats
     if resolved.values.iter().all(|v| v.parse::<f64>().is_ok()) {
         return "float64".to_string();
     }
@@ -893,7 +889,6 @@ fn collect_term_refs_from_expr(
                 })
                 .collect();
 
-            // Check if this target is already in the output
             if !out.iter().any(|r| r.name == *target) {
                 out.push(TermRef {
                     name: target.clone(),
@@ -1064,7 +1059,6 @@ fn build_objective_terms(
                 });
             }
             Expr::Reduction(reduction) => {
-                // Check if the body references named expressions
                 let body_terms = split_additive_terms(&reduction.body);
                 let mut found_expressions = false;
                 for body_term in &body_terms {

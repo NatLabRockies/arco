@@ -480,7 +480,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
@@ -548,7 +548,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
@@ -621,7 +621,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
@@ -630,7 +630,7 @@ set "feasible_links" {
   index "i" { in "tech" }
   index "g" { in "generators" }
   index "b" { in "buses" }
-  where { a == "1" }
+  filter { a == "1" }
 }
 
 model "TupleDispatch" {
@@ -698,7 +698,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
@@ -706,7 +706,7 @@ set "target_pairs" {
   in "feasible_links"
   index "a" { in "area" }
   index "i" { in "tech" }
-  where { generators == "g1" }
+  filter { generators == "g1" }
 }
 
 model "TupleDispatch" {
@@ -782,7 +782,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
@@ -850,7 +850,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
@@ -916,7 +916,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
@@ -1073,7 +1073,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 

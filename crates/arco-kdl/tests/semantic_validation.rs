@@ -649,7 +649,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
@@ -692,7 +692,7 @@ set "tech" { "wind"; "solar" }
 set "feasible_links" {
   index "a" { in "area" }
   index "i" { in "tech" }
-  where { unknown_col == "1" }
+  filter { unknown_col == "1" }
 }
 
 model "Dispatch" {
@@ -894,7 +894,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 }
 
