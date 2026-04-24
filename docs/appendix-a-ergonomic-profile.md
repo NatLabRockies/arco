@@ -51,7 +51,7 @@ canonical `set { in ...; filter { ... } }` syntax defined in
 This is a usage guide, not new grammar.
 
 ```kdl
-data branch_data from="data/branches.csv" {
+data branch_data source="data/branches.csv" {
   set edge
   set active_edge { in edge; filter { conex == 1 } }
   param conex index=edge

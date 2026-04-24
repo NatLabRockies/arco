@@ -392,17 +392,16 @@ Required properties:
 
 - `source`: CSV file path. Relative paths are resolved from the directory
   containing the `.kdl` file being parsed. Absolute paths are also accepted.
-  - `from`: compatibility alias for `source` (legacy syntax). Prefer `source` in
-    new files.
-    CSV parsing: Arco expects RFC 4180-compliant CSV files (comma-delimited,
-    optional double-quote escaping, CRLF or LF line endings). The first row MUST be
-    a header row containing column names. Column names in the header MUST be unique;
-    duplicate column names MUST fail validation (see
-    [§10](#10-validation-requirements), rule 73). CSV files MUST be UTF-8 encoded.
-    Implementations SHOULD accept files with or without a UTF-8 BOM. Empty cells in
-    a numeric column MUST fail validation. Empty cells in a string/categorical
-    column are treated as empty strings. Column matching is always by name, not by
-    position.
+
+CSV parsing: Arco expects RFC 4180-compliant CSV files (comma-delimited,
+optional double-quote escaping, CRLF or LF line endings). The first row MUST be
+a header row containing column names. Column names in the header MUST be unique;
+duplicate column names MUST fail validation (see
+[§10](#10-validation-requirements), rule 73). CSV files MUST be UTF-8 encoded.
+Implementations SHOULD accept files with or without a UTF-8 BOM. Empty cells in
+a numeric column MUST fail validation. Empty cells in a string/categorical
+column are treated as empty strings. Column matching is always by name, not by
+position.
 
 Allowed children:
 
@@ -468,6 +467,27 @@ Semantics:
   expression is evaluated per row against the dataset columns. This uses the
   same bare-math block syntax as `expression`, `if`, and `lower`/`upper`.
   Supported operators: `==`, `>`, `>=`, `<`, `<=`, `!=`.
+- A dedicated subset-filtering column is optional. A subset-filtering column
+  is any column used only to mark membership in a subset, for example a boolean
+  flag (`feasible`, `is_active`) or a categorical label (`status`).
+- Filters MAY use any available columns and expressions (for example,
+  `filter { area == south and capacity_mw > 0 }`). A helper flag such as
+  `feasible` is only one modeling pattern, not a grammar requirement. Common
+  forms are `filter { feasible == true }` (boolean column),
+  `filter { feasible > 0 }` (0/1 numeric encoding), or
+  `filter { status == active }` (categorical encoding).
+
+Tuple-domain membership semantics (non-Cartesian):
+
+- If a set is defined with multiple `index` children (tuple-domain set),
+  bindings like `index a { in tuple_set }`, `index b { in tuple_set }`, ... in
+  the same generated family/constraint refer to membership in the same tuple
+  rows.
+- Implementations MUST NOT expand those bindings as a Cartesian product over
+  tuple components.
+- Projection to lower-dimensional domains is explicit: define a named subset
+  and iterate it directly. Implementations MUST NOT auto-project high-dimensional
+  tuple sets.
 
 ```arco
 set thermal_gen {

@@ -143,7 +143,7 @@ pub enum SemanticError {
     #[diagnostic(
         code(arco::semantic::unresolved_rule_set_filter_identifier),
         help(
-            "if token is a categorical value, quote it in filter, e.g. `where {{ a == \"north\" }}`"
+            "if token is a categorical value, quote it in filter, e.g. `filter {{ a == \"north\" }}`"
         )
     )]
     UnresolvedRuleSetFilterIdentifier {

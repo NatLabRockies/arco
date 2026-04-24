@@ -324,11 +324,9 @@ fn infer_set_dtype(resolved: &arco_kdl::semantic::ResolvedSet) -> String {
     if resolved.values.is_empty() {
         return "string".to_string();
     }
-    // Check if all values are integers
     if resolved.values.iter().all(|v| v.parse::<i64>().is_ok()) {
         return "int".to_string();
     }
-    // Check if all values are floats
     if resolved.values.iter().all(|v| v.parse::<f64>().is_ok()) {
         return "float64".to_string();
     }
@@ -967,7 +965,6 @@ fn collect_term_refs_from_expr(
                 })
                 .collect();
 
-            // Check if this target is already in the output
             if !out.iter().any(|r| r.name == *target) {
                 out.push(TermRef {
                     name: target.clone(),
@@ -1145,7 +1142,6 @@ fn build_objective_terms(
                 });
             }
             Expr::Reduction(reduction) => {
-                // Check if the body references named expressions
                 let body_terms = split_additive_terms(&reduction.body);
                 let mut found_expressions = false;
                 for body_term in &body_terms {
