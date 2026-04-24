@@ -12,7 +12,7 @@ data "links" source="data/links.csv" {
     index "i" { in "tech" }
     index "g" { in "generators" }
     index "b" { in "buses" }
-    where { feasible > 0 }
+    filter { feasible > 0 }
   }
 
   param "capacity_mw" {
@@ -36,7 +36,7 @@ set "priority_links" {
   index "i" { in "tech" }
   index "g" { in "generators" }
   index "b" { in "buses" }
-  where { area == "south" }
+  filter { area == "south" }
 }
 
 model "NodalAllocation" {
