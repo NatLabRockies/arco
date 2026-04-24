@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.5.0](https://github.com/NatLabRockies/arco/compare/v0.4.0...v0.5.0) (2026-04-24)
+
+
+### Features
+
+* **bench:** resource-monitor integration for benchmark orchestration ([#159](https://github.com/NatLabRockies/arco/issues/159)) ([#160](https://github.com/NatLabRockies/arco/issues/160)) ([69d05b0](https://github.com/NatLabRockies/arco/commit/69d05b0d56649150ebd96d91c254576a31dadbc3))
+* **kdl:** add scoped inferred IDs for tuple diagnostics ([#195](https://github.com/NatLabRockies/arco/issues/195)) ([5f28bf3](https://github.com/NatLabRockies/arco/commit/5f28bf3894b8a0323a942e40f5ccd202ce2ac3ea))
+* **kdl:** add tuple-domain validation and nodal tracer bullet ([#196](https://github.com/NatLabRockies/arco/issues/196)) ([016b3db](https://github.com/NatLabRockies/arco/commit/016b3dbe74712fdf283157e75c5e10a98f7f4c81))
+* **kdl:** explicit tuple subset declarations for constraints ([#192](https://github.com/NatLabRockies/arco/issues/192)) ([b768778](https://github.com/NatLabRockies/arco/commit/b7687783b66f8f4e79c68a4943f3cc60546f171e))
+* **kdl:** parse new syntax aliases with compatibility tests ([#182](https://github.com/NatLabRockies/arco/issues/182)) ([493cd8d](https://github.com/NatLabRockies/arco/commit/493cd8d9d3ef9eee9ffc4af3530bb9838e68ec57))
+
+
+### Bug Fixes
+
+* addressing subset inspection ([#173](https://github.com/NatLabRockies/arco/issues/173)) ([767136c](https://github.com/NatLabRockies/arco/commit/767136c23eb257d77831323e1c904aab381ad1c3))
+* **cli:** correct tuple-domain sizes in inspect ([#203](https://github.com/NatLabRockies/arco/issues/203)) ([0e4d0c7](https://github.com/NatLabRockies/arco/commit/0e4d0c7e547dae974a5c22dcc8ed1c61ee19d7b6))
+* **kdl:** enforce tuple-source validation for rule sets ([#191](https://github.com/NatLabRockies/arco/issues/191)) ([6f872e3](https://github.com/NatLabRockies/arco/commit/6f872e357a82b24ca79e4ddd283883a6df305cbe))
+* **tree-sitter:** simplify arco-kdl multiline strings ([#161](https://github.com/NatLabRockies/arco/issues/161)) ([8f2b527](https://github.com/NatLabRockies/arco/commit/8f2b5275cd6d60309bf8125b594d271229c41674))
+* tuple domain ([#190](https://github.com/NatLabRockies/arco/issues/190)) ([f9b089a](https://github.com/NatLabRockies/arco/commit/f9b089a963e05b07a692ed62782811c3d76dc5ab))
+
+
+### Refactoring
+
+* removing more slop ([#175](https://github.com/NatLabRockies/arco/issues/175)) ([5140041](https://github.com/NatLabRockies/arco/commit/5140041a6e2f3f03697b8d8c4da37d27e96e60b9))
+
+
+### Documentation
+
+* add filter RHS semantics conformance matrix ([#198](https://github.com/NatLabRockies/arco/issues/198)) ([1a43c13](https://github.com/NatLabRockies/arco/commit/1a43c13fd9f40b27b132f205f5aafd353b21a70c))
+* add table of contents to arco KDL syntax specification ([#194](https://github.com/NatLabRockies/arco/issues/194)) ([386f2b8](https://github.com/NatLabRockies/arco/commit/386f2b869d508a74afe5232f8c73f1e1764a1536))
+* refresh README syntax examples ([#174](https://github.com/NatLabRockies/arco/issues/174)) ([9b0cf57](https://github.com/NatLabRockies/arco/commit/9b0cf5754710f4797e326be12224a532835c4086))
+
+
+### CI
+
+* gate benchmark alerts to pull requests ([#197](https://github.com/NatLabRockies/arco/issues/197)) ([46e102a](https://github.com/NatLabRockies/arco/commit/46e102aa13fef863272d3bdd7a7ba2fa53ebd310))
+
+
+### Build
+
+* **deps:** bump actions/cache from 5.0.4 to 5.0.5 ([#201](https://github.com/NatLabRockies/arco/issues/201)) ([4d5f9b5](https://github.com/NatLabRockies/arco/commit/4d5f9b5c59144daa588c3eee3b93f62b4055c527))
+* **deps:** bump actions/upload-artifact from 7.0.0 to 7.0.1 ([#200](https://github.com/NatLabRockies/arco/issues/200)) ([a2c9f45](https://github.com/NatLabRockies/arco/commit/a2c9f45f0eaaff414cb4796286c4ed3c2c828932))
+* **deps:** bump googleapis/release-please-action from 4.4.0 to 4.4.1 ([#168](https://github.com/NatLabRockies/arco/issues/168)) ([d06890a](https://github.com/NatLabRockies/arco/commit/d06890a982180a0008f4c54d37755bb5c342b53c))
+
+
+### Tests
+
+* expand filter RHS conformance coverage for mapped and alias cases ([#199](https://github.com/NatLabRockies/arco/issues/199)) ([5d3483f](https://github.com/NatLabRockies/arco/commit/5d3483f1e5de8c3c146f5006de4e6c2a1dd8e702))
+
 ## [0.4.0](https://github.com/NatLabRockies/arco/compare/v0.3.0...v0.4.0) (2026-04-13)
 
 
