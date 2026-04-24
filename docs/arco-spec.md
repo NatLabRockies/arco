@@ -468,12 +468,15 @@ Semantics:
   expression is evaluated per row against the dataset columns. This uses the
   same bare-math block syntax as `expression`, `if`, and `lower`/`upper`.
   Supported operators: `==`, `>`, `>=`, `<`, `<=`, `!=`.
-- A dedicated boolean feasibility column is optional. Filters MAY use any
-  available columns and expressions (for example,
-  `filter { area == south and capacity_mw > 0 }`). A helper column like
-  `feasible` is only one modeling pattern, not a grammar requirement. When a
-  helper column is used, common forms are `filter { feasible == true }` (boolean
-  column) or `filter { feasible > 0 }` (0/1 numeric encoding).
+- A dedicated subset-filtering column is optional. A subset-filtering column
+  is any column used only to mark membership in a subset, for example a boolean
+  flag (`feasible`, `is_active`) or a categorical label (`status`).
+- Filters MAY use any available columns and expressions (for example,
+  `filter { area == south and capacity_mw > 0 }`). A helper flag such as
+  `feasible` is only one modeling pattern, not a grammar requirement. Common
+  forms are `filter { feasible == true }` (boolean column),
+  `filter { feasible > 0 }` (0/1 numeric encoding), or
+  `filter { status == active }` (categorical encoding).
 
 Tuple-domain membership semantics (non-Cartesian):
 
