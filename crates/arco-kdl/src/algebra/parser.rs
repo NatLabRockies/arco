@@ -1,8 +1,8 @@
 use crate::algebra::error::ParseError;
 use crate::algebra::tokenizer::{Token, TokenKind, is_builtin_function, tokenize};
 use crate::algebra::types::{
-    BinaryOp, Binding, BindingPattern, ComparisonOp, ConstraintBody, Expr, ReductionExpr,
-    ReductionOp, UnaryOp,
+    BinaryOp, Binding, BindingPattern, ComparisonOp, ConstraintBody, Expr, LogicalOp,
+    ReductionExpr, ReductionOp, UnaryOp,
 };
 pub fn parse_value_formula(text: &str) -> Result<Expr, ParseError> {
     parse_formula(text, |parser| parser.parse_value_expr())
@@ -62,6 +62,24 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_value_expr(&mut self) -> Result<Expr, ParseError> {
+        self.parse_or_expr()
+    }
+
+    fn parse_or_expr(&mut self) -> Result<Expr, ParseError> {
+        self.parse_logical_expr(Parser::parse_and_expr, |kind| match kind {
+            TokenKind::KeywordOr => Some(LogicalOp::Or),
+            _ => None,
+        })
+    }
+
+    fn parse_and_expr(&mut self) -> Result<Expr, ParseError> {
+        self.parse_logical_expr(Parser::parse_comparison_expr, |kind| match kind {
+            TokenKind::KeywordAnd => Some(LogicalOp::And),
+            _ => None,
+        })
+    }
+
+    fn parse_comparison_expr(&mut self) -> Result<Expr, ParseError> {
         let left = self.parse_arithmetic_expr()?;
         if let Some(op) = self.maybe_comparison_operator() {
             let right = self.parse_arithmetic_expr()?;
@@ -90,7 +108,6 @@ impl<'a> Parser<'a> {
             _ => None,
         })
     }
-
     fn parse_unary_expr(&mut self) -> Result<Expr, ParseError> {
         if self.matches(|kind| matches!(kind, TokenKind::Minus)) {
             return Ok(Expr::Unary {
@@ -359,6 +376,27 @@ impl<'a> Parser<'a> {
         } else {
             Err(ParseError::new(token.position, message))
         }
+    }
+
+    fn parse_logical_expr(
+        &mut self,
+        parse_operand: impl Fn(&mut Self) -> Result<Expr, ParseError>,
+        operator_for: impl Fn(&TokenKind) -> Option<LogicalOp>,
+    ) -> Result<Expr, ParseError> {
+        let mut expression = parse_operand(self)?;
+        while let Some(token) = self.tokens.get(self.index) {
+            let Some(op) = operator_for(&token.kind) else {
+                break;
+            };
+            self.index += 1;
+            let right = parse_operand(self)?;
+            expression = Expr::Logical {
+                op,
+                left: Box::new(expression),
+                right: Box::new(right),
+            };
+        }
+        Ok(expression)
     }
 
     fn parse_binary_expr(

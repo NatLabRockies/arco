@@ -45,7 +45,9 @@ fn collect_named_dependencies(
             }
         }
         Expr::Unary { expr, .. } => collect_named_dependencies(expr, bound, names),
-        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+        Expr::Binary { left, right, .. }
+        | Expr::Logical { left, right, .. }
+        | Expr::Comparison { left, right, .. } => {
             collect_named_dependencies(left, bound, names);
             collect_named_dependencies(right, bound, names);
         }
@@ -79,7 +81,9 @@ fn expr_mentions_previous_time(expr: &Expr) -> bool {
     match expr {
         Expr::Indexed { indices, .. } => indices.iter().any(index_mentions_previous_time),
         Expr::Unary { expr, .. } => expr_mentions_previous_time(expr),
-        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+        Expr::Binary { left, right, .. }
+        | Expr::Logical { left, right, .. }
+        | Expr::Comparison { left, right, .. } => {
             expr_mentions_previous_time(left) || expr_mentions_previous_time(right)
         }
         Expr::FunctionCall { args, .. } => args.iter().any(expr_mentions_previous_time),

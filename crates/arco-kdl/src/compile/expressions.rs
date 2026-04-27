@@ -142,13 +142,13 @@ fn linearize_value_expr(
             instantiated_names,
             entrypoint,
         ),
-        Expr::String(_) | Expr::Boolean(_) | Expr::Comparison { .. } => {
-            Err(CompileError::InvalidFormulation {
-                message: "boolean and string expressions cannot appear in linear algebra"
-                    .to_string(),
-                path: entrypoint.to_path_buf(),
-            })
-        }
+        Expr::Logical { .. }
+        | Expr::String(_)
+        | Expr::Boolean(_)
+        | Expr::Comparison { .. } => Err(CompileError::InvalidFormulation {
+            message: "boolean and string expressions cannot appear in linear algebra".to_string(),
+            path: entrypoint.to_path_buf(),
+        })
     }
 }
 
@@ -262,52 +262,87 @@ fn evaluate_reduction_filter(
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<bool, CompileError> {
-    if let Expr::Comparison { op, left, right } = filter {
-        let left_affine = linearize_value_expr(
-            left,
-            bindings,
-            program,
-            inputs,
-            named_expressions,
-            variable_signatures,
-            instantiated_names,
-            entrypoint,
-        )?;
-        let right_affine = linearize_value_expr(
-            right,
-            bindings,
-            program,
-            inputs,
-            named_expressions,
-            variable_signatures,
-            instantiated_names,
-            entrypoint,
-        )?;
-        let left_value = left_affine.as_scalar(entrypoint, "reduction filter operand")?;
-        let right_value = right_affine.as_scalar(entrypoint, "reduction filter operand")?;
-        Ok(match op {
-            ComparisonOp::Equal | ComparisonOp::DoubleEqual => {
-                (left_value - right_value).abs() < 1e-12
+    match filter {
+        Expr::Comparison { op, left, right } => {
+            let left_affine = linearize_value_expr(
+                left,
+                bindings,
+                program,
+                inputs,
+                named_expressions,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            )?;
+            let right_affine = linearize_value_expr(
+                right,
+                bindings,
+                program,
+                inputs,
+                named_expressions,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            )?;
+            let left_value = left_affine.as_scalar(entrypoint, "reduction filter operand")?;
+            let right_value = right_affine.as_scalar(entrypoint, "reduction filter operand")?;
+            Ok(match op {
+                ComparisonOp::Equal | ComparisonOp::DoubleEqual => {
+                    (left_value - right_value).abs() < 1e-12
+                }
+                ComparisonOp::NotEqual => (left_value - right_value).abs() >= 1e-12,
+                ComparisonOp::Less => left_value < right_value,
+                ComparisonOp::LessEqual => left_value <= right_value,
+                ComparisonOp::Greater => left_value > right_value,
+                ComparisonOp::GreaterEqual => left_value >= right_value,
+            })
+        }
+        Expr::Logical { op, left, right } => {
+            let left_value = evaluate_reduction_filter(
+                left,
+                bindings,
+                program,
+                inputs,
+                named_expressions,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            )?;
+            match op {
+                LogicalOp::And if !left_value => Ok(false),
+                LogicalOp::Or if left_value => Ok(true),
+                _ => {
+                    let right_value = evaluate_reduction_filter(
+                        right,
+                        bindings,
+                        program,
+                        inputs,
+                        named_expressions,
+                        variable_signatures,
+                        instantiated_names,
+                        entrypoint,
+                    )?;
+                    Ok(match op {
+                        LogicalOp::And => left_value && right_value,
+                        LogicalOp::Or => left_value || right_value,
+                    })
+                }
             }
-            ComparisonOp::NotEqual => (left_value - right_value).abs() >= 1e-12,
-            ComparisonOp::Less => left_value < right_value,
-            ComparisonOp::LessEqual => left_value <= right_value,
-            ComparisonOp::Greater => left_value > right_value,
-            ComparisonOp::GreaterEqual => left_value >= right_value,
-        })
-    } else {
-        let value = linearize_value_expr(
-            filter,
-            bindings,
-            program,
-            inputs,
-            named_expressions,
-            variable_signatures,
-            instantiated_names,
-            entrypoint,
-        )?
-        .as_scalar(entrypoint, "reduction filter expression")?;
-        Ok(value.abs() >= 1e-12)
+        }
+        _ => {
+            let value = linearize_value_expr(
+                filter,
+                bindings,
+                program,
+                inputs,
+                named_expressions,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            )?
+            .as_scalar(entrypoint, "reduction filter expression")?;
+            Ok(value.abs() >= 1e-12)
+        }
     }
 }
 

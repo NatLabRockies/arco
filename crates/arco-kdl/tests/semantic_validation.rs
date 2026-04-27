@@ -1420,3 +1420,53 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn semantic_validation_applies_set_filters_with_logical_and()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-set-filter-logical-and")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(root.join("data").join("hours.csv"), "t\n1\n2\n3\n4\n5\n")?;
+
+    let path = root.join("input.kdl");
+    let text = r#"
+data "hours" source="data/hours.csv" {
+  set "t"
+  set "mid_hours" {
+    in "t"
+    filter { t > 1 and t <= 4 }
+  }
+}
+
+model "Dispatch" {
+  set "t"
+
+  control "x" {
+    index "mid_hours"
+  }
+
+  minimize "Obj" {
+    sum(x[h] for h in mid_hours)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+
+    let mid_hours = semantic
+        .set_registry
+        .get("mid_hours")
+        .ok_or("missing set mid_hours")?;
+    assert_eq!(
+        mid_hours.values,
+        vec!["2".to_string(), "3".to_string(), "4".to_string()]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}

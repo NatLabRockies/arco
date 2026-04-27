@@ -152,3 +152,25 @@ fn parses_abs_function_call_with_indexed_argument() -> Result<(), Box<dyn std::e
 
     Ok(())
 }
+
+#[test]
+fn parses_logical_and_or_with_expected_precedence() -> Result<(), Box<dyn std::error::Error>> {
+    let expression = parse_value_formula("t > 730 and t <= 1460 or t == 1")?;
+
+    assert_eq!(expression.to_string(), "t > 730 and t <= 1460 or t == 1");
+
+    let Expr::Logical { op, left, right } = expression else {
+        return Err("expected top-level logical expression".into());
+    };
+    assert!(matches!(op, arco_kdl::algebra::LogicalOp::Or));
+    assert!(matches!(
+        *left,
+        Expr::Logical {
+            op: arco_kdl::algebra::LogicalOp::And,
+            ..
+        }
+    ));
+    assert!(matches!(*right, Expr::Comparison { .. }));
+
+    Ok(())
+}

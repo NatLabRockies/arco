@@ -1,4 +1,4 @@
-use crate::algebra::{BinaryOp, ComparisonOp, Expr, UnaryOp};
+use crate::algebra::{BinaryOp, ComparisonOp, Expr, LogicalOp, UnaryOp};
 use crate::semantic::error::SemanticError;
 use crate::semantic::types::ResolvedSet;
 use crate::source::{DataDecl, LiteralValue, ModelDecl, SetDecl, SourceProgram};
@@ -663,7 +663,7 @@ fn validate_rule_set_filter_expr_internal(
             path,
             allow_unresolved_identifier,
         ),
-        Expr::Binary { left, right, .. } => {
+        Expr::Binary { left, right, .. } | Expr::Logical { left, right, .. } => {
             validate_rule_set_filter_expr_internal(
                 left,
                 allowed_identifiers,
@@ -746,7 +746,9 @@ fn validate_rule_set_filter_column_side_expr(
         Expr::Unary { expr, .. } => {
             validate_rule_set_filter_column_side_expr(expr, allowed_identifiers, set_name, path)
         }
-        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+        Expr::Binary { left, right, .. }
+        | Expr::Logical { left, right, .. }
+        | Expr::Comparison { left, right, .. } => {
             validate_rule_set_filter_column_side_expr(left, allowed_identifiers, set_name, path)?;
             validate_rule_set_filter_column_side_expr(right, allowed_identifiers, set_name, path)
         }
@@ -970,7 +972,7 @@ fn validate_filter_expr_internal(
             path,
             allow_unresolved_identifier,
         ),
-        Expr::Binary { left, right, .. } => {
+        Expr::Binary { left, right, .. } | Expr::Logical { left, right, .. } => {
             validate_filter_expr_internal(
                 left,
                 data_decl,
@@ -1084,7 +1086,9 @@ fn validate_filter_column_side_expr(
             declaration_name,
             path,
         ),
-        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+        Expr::Binary { left, right, .. }
+        | Expr::Logical { left, right, .. }
+        | Expr::Comparison { left, right, .. } => {
             validate_filter_column_side_expr(
                 left,
                 data_decl,
@@ -1388,6 +1392,22 @@ where
                 BinaryOp::Multiply => left * right,
                 BinaryOp::Divide => left / right,
             }))
+        }
+        Expr::Logical { op, left, right } => {
+            let left = evaluate_set_filter_expr(left, resolve_identifier)?;
+            let left_truthy = truthy_data_set_filter_value(&left)?;
+            match op {
+                LogicalOp::And if !left_truthy => Some(DataSetFilterValue::Boolean(false)),
+                LogicalOp::Or if left_truthy => Some(DataSetFilterValue::Boolean(true)),
+                _ => {
+                    let right = evaluate_set_filter_expr(right, resolve_identifier)?;
+                    let right_truthy = truthy_data_set_filter_value(&right)?;
+                    Some(DataSetFilterValue::Boolean(match op {
+                        LogicalOp::And => left_truthy && right_truthy,
+                        LogicalOp::Or => left_truthy || right_truthy,
+                    }))
+                }
+            }
         }
         Expr::Comparison { op, left, right } => {
             let left = evaluate_set_filter_expr(left, resolve_identifier)?;

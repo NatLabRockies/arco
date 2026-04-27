@@ -24,6 +24,8 @@ pub(super) enum TokenKind {
     KeywordFor,
     KeywordIf,
     KeywordIn,
+    KeywordAnd,
+    KeywordOr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +104,26 @@ pub(super) fn tokenize(text: &str) -> Result<Vec<Token>, ParseError> {
                 index += 1;
                 Token {
                     kind: TokenKind::NotEqual,
+                    position: index - 1,
+                }
+            }
+            '&' => {
+                if bytes.get(index + 1) != Some(&b'&') {
+                    return Err(ParseError::new(index, "unexpected `&`"));
+                }
+                index += 1;
+                Token {
+                    kind: TokenKind::KeywordAnd,
+                    position: index - 1,
+                }
+            }
+            '|' => {
+                if bytes.get(index + 1) != Some(&b'|') {
+                    return Err(ParseError::new(index, "unexpected `|`"));
+                }
+                index += 1;
+                Token {
+                    kind: TokenKind::KeywordOr,
                     position: index - 1,
                 }
             }
@@ -192,6 +214,8 @@ pub(super) fn tokenize(text: &str) -> Result<Vec<Token>, ParseError> {
                     "for" => TokenKind::KeywordFor,
                     "if" => TokenKind::KeywordIf,
                     "in" => TokenKind::KeywordIn,
+                    "and" => TokenKind::KeywordAnd,
+                    "or" => TokenKind::KeywordOr,
                     _ => TokenKind::Identifier(identifier.to_string()),
                 };
                 Token {

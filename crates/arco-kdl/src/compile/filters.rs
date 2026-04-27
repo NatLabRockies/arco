@@ -48,6 +48,22 @@ fn evaluate_filter_expr(
             };
             Ok(FilterValue::Number(value))
         }
+        Expr::Logical { op, left, right } => {
+            let left = evaluate_filter_expr(left, constraint, scope, inputs, path)?;
+            let left_truthy = truthy_filter_value(&left, constraint, path)?;
+            match op {
+                LogicalOp::And if !left_truthy => Ok(FilterValue::Boolean(false)),
+                LogicalOp::Or if left_truthy => Ok(FilterValue::Boolean(true)),
+                _ => {
+                    let right = evaluate_filter_expr(right, constraint, scope, inputs, path)?;
+                    let right_truthy = truthy_filter_value(&right, constraint, path)?;
+                    Ok(FilterValue::Boolean(match op {
+                        LogicalOp::And => left_truthy && right_truthy,
+                        LogicalOp::Or => left_truthy || right_truthy,
+                    }))
+                }
+            }
+        }
         Expr::Comparison { op, left, right } => {
             let left = evaluate_filter_expr(left, constraint, scope, inputs, path)?;
             let right = evaluate_filter_expr(right, constraint, scope, inputs, path)?;

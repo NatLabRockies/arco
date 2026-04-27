@@ -1,4 +1,4 @@
-use crate::algebra::{ConstraintBody, collect_named_expression_dependencies};
+use crate::algebra::collect_named_expression_dependencies;
 use crate::semantic::error::SemanticError;
 use crate::semantic::types::{
     ResolvedConstraint, ResolvedDualReport, ResolvedExpression, ResolvedObjective, ResolvedReport,
@@ -89,9 +89,9 @@ pub(crate) fn resolve_model_scenario_reports(
 
 pub(crate) fn resolve_active_model_expressions(
     model: &ModelDecl,
+    constraints: &[ResolvedConstraint],
     objective: &ResolvedObjective,
     reports: &[ResolvedReport],
-    constraints: &[ResolvedConstraint],
     entrypoint: &Path,
 ) -> Result<Vec<ResolvedExpression>, SemanticError> {
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -163,9 +163,106 @@ pub(crate) fn resolve_active_model_expressions(
         Ok(())
     }
 
+    fn visit_if_expression(
+        name: &str,
+        expression_index: &BTreeMap<&str, &crate::source::ExpressionDecl>,
+        resolved: &mut BTreeSet<String>,
+        states: &mut BTreeMap<String, VisitState>,
+        stack: &mut Vec<String>,
+        entrypoint: &Path,
+    ) -> Result<(), SemanticError> {
+        if expression_index.contains_key(name) {
+            visit_expression_name(name, expression_index, resolved, states, stack, entrypoint)?;
+        }
+        Ok(())
+    }
+
     for dependency in collect_named_expression_dependencies(&objective.expression) {
-        if expression_index.contains_key(dependency.as_str()) {
-            visit_expression_name(
+        visit_if_expression(
+            &dependency,
+            &expression_index,
+            &mut resolved,
+            &mut states,
+            &mut stack,
+            entrypoint,
+        )?;
+    }
+
+    for constraint in constraints {
+        match &constraint.expression {
+            crate::algebra::ConstraintBody::Comparison { left, right, .. } => {
+                for dependency in collect_named_expression_dependencies(left) {
+                    visit_if_expression(
+                        &dependency,
+                        &expression_index,
+                        &mut resolved,
+                        &mut states,
+                        &mut stack,
+                        entrypoint,
+                    )?;
+                }
+                for dependency in collect_named_expression_dependencies(right) {
+                    visit_if_expression(
+                        &dependency,
+                        &expression_index,
+                        &mut resolved,
+                        &mut states,
+                        &mut stack,
+                        entrypoint,
+                    )?;
+                }
+            }
+            crate::algebra::ConstraintBody::Range {
+                lower,
+                middle,
+                upper,
+                ..
+            } => {
+                for dependency in collect_named_expression_dependencies(lower) {
+                    visit_if_expression(
+                        &dependency,
+                        &expression_index,
+                        &mut resolved,
+                        &mut states,
+                        &mut stack,
+                        entrypoint,
+                    )?;
+                }
+                for dependency in collect_named_expression_dependencies(middle) {
+                    visit_if_expression(
+                        &dependency,
+                        &expression_index,
+                        &mut resolved,
+                        &mut states,
+                        &mut stack,
+                        entrypoint,
+                    )?;
+                }
+                for dependency in collect_named_expression_dependencies(upper) {
+                    visit_if_expression(
+                        &dependency,
+                        &expression_index,
+                        &mut resolved,
+                        &mut states,
+                        &mut stack,
+                        entrypoint,
+                    )?;
+                }
+            }
+        }
+    }
+
+    for report in reports {
+        visit_if_expression(
+            &report.name,
+            &expression_index,
+            &mut resolved,
+            &mut states,
+            &mut stack,
+            entrypoint,
+        )?;
+        for dependency in collect_named_expression_dependencies(&report.formula) {
+            visit_if_expression(
                 &dependency,
                 &expression_index,
                 &mut resolved,
@@ -173,48 +270,6 @@ pub(crate) fn resolve_active_model_expressions(
                 &mut stack,
                 entrypoint,
             )?;
-        }
-    }
-
-    for constraint in constraints {
-        for dependency in
-            collect_named_expression_dependencies_from_constraint(&constraint.expression)
-        {
-            if expression_index.contains_key(dependency.as_str()) {
-                visit_expression_name(
-                    &dependency,
-                    &expression_index,
-                    &mut resolved,
-                    &mut states,
-                    &mut stack,
-                    entrypoint,
-                )?;
-            }
-        }
-    }
-
-    for report in reports {
-        if expression_index.contains_key(report.name.as_str()) {
-            visit_expression_name(
-                &report.name,
-                &expression_index,
-                &mut resolved,
-                &mut states,
-                &mut stack,
-                entrypoint,
-            )?;
-        }
-        for dependency in collect_named_expression_dependencies(&report.formula) {
-            if expression_index.contains_key(dependency.as_str()) {
-                visit_expression_name(
-                    &dependency,
-                    &expression_index,
-                    &mut resolved,
-                    &mut states,
-                    &mut stack,
-                    entrypoint,
-                )?;
-            }
         }
     }
 
@@ -232,27 +287,4 @@ pub(crate) fn resolve_active_model_expressions(
         .collect::<Vec<_>>();
     expressions.sort_by_key(|expression| expression.name.clone());
     Ok(expressions)
-}
-
-fn collect_named_expression_dependencies_from_constraint(
-    constraint: &ConstraintBody,
-) -> BTreeSet<String> {
-    match constraint {
-        ConstraintBody::Comparison { left, right, .. } => {
-            let mut names = collect_named_expression_dependencies(left);
-            names.extend(collect_named_expression_dependencies(right));
-            names
-        }
-        ConstraintBody::Range {
-            lower,
-            middle,
-            upper,
-            ..
-        } => {
-            let mut names = collect_named_expression_dependencies(lower);
-            names.extend(collect_named_expression_dependencies(middle));
-            names.extend(collect_named_expression_dependencies(upper));
-            names
-        }
-    }
 }

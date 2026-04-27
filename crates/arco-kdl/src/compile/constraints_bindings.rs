@@ -102,7 +102,9 @@ fn expr_uses_free_index(expr: &Expr, name: &str, bound: &mut BTreeSet<String>) -
             .iter()
             .any(|index| expr_uses_free_index(index, name, bound)),
         Expr::Unary { expr, .. } => expr_uses_free_index(expr, name, bound),
-        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+        Expr::Binary { left, right, .. }
+        | Expr::Logical { left, right, .. }
+        | Expr::Comparison { left, right, .. } => {
             expr_uses_free_index(left, name, bound) || expr_uses_free_index(right, name, bound)
         }
         Expr::Reduction(reduction) => {

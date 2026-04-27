@@ -97,9 +97,9 @@ pub fn validate_program(
         resolve_model_scenario_reports(model, scenario, &active_constraints, entrypoint)?;
     let mut active_expressions = resolve_active_model_expressions(
         model,
+        &active_constraints,
         &active_objective,
         &active_reports,
-        &active_constraints,
         entrypoint,
     )?;
 

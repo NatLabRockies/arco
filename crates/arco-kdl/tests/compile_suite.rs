@@ -1118,3 +1118,58 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn lowering_resolves_named_expressions_used_only_in_constraints()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("constraint-expression-dependency")?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+set "time" { "1" }
+
+model "Dispatch" {
+  set "time" alias="t"
+
+  expression "alpha" {
+    12
+  }
+
+  control "x" {
+    index "time"
+  }
+
+  constraint "cap[t]" {
+    index "t" { in "time" }
+    expression { x[t] <= alpha }
+  }
+
+  minimize "Obj" {
+    sum(x[t] for t in time)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let cap = compiled
+        .algebra
+        .constraints
+        .iter()
+        .find(|c| c.name == "cap[t][1]")
+        .ok_or("missing cap constraint")?;
+
+    assert_eq!(cap.rhs, 12.0);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}

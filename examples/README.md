@@ -39,6 +39,7 @@ cargo run -p arco-cli -- run examples/unit-commitment/input.kdl --compact
 | Unit commitment                        | `examples/unit-commitment/input.kdl`                   | Mixed-integer unit commitment with startup, shutdown, ramping, and piecewise costs, adapted from PSOPTLIB UC.                   | Ready                                     |
 | Dense LP benchmark                     | `examples/dense-lp/input.kdl`                          | Synthetic dense LP used to stress model construction and compare against the bundled Python formulation.                        | Ready                                     |
 | SDOM                                   | `examples/sdom/input.kdl`                              | Storage deployment optimization with renewables, thermal capacity, storage sizing, and policy-style generation mix constraints. | Ready                                     |
+| SDOM (bad-scaling data variant)        | `examples/sdom/input_bad_scaling.kdl`                  | SDOM variant wired to `examples/bad-scaling/data/` with imports/exports, hydro monthly budgets, and net-load trade gating.      | Ready                                     |
 | DEAD + ESS + wind, linearized          | `examples/ded-ess-wind-linearized/input.kdl`           | Linearized dynamic economic dispatch with ramping, storage state of charge, and wind curtailment.                               | Incomplete, `data/storage.csv` is missing |
 
 ## Python-backed examples
@@ -127,5 +128,6 @@ For full language-level guidance on subset/filter patterns, see:
 
 - All commands are intended to be run from the repository root.
 - Each runnable example directory contains its own `input.kdl` and any required CSV fixtures in `data/`.
+- For the SDOM bad-scaling variant, refresh the upstream dataset with `examples/sdom/download_bad_scaling_data.sh`.
 - `examples/infeasible/` currently holds fixture data only and is not listed as a runnable example yet.
 - `examples/ded-ess-wind-linearized/input.kdl` currently references `data/storage.csv`, which is not present in the repository.

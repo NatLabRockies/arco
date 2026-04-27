@@ -2,7 +2,7 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
-use crate::algebra::{BinaryOp, ComparisonOp, ConstraintBody, Expr, UnaryOp};
+use crate::algebra::{BinaryOp, ComparisonOp, ConstraintBody, Expr, LogicalOp, UnaryOp};
 use crate::semantic::{
     FamilySignature, ResolvedConstraint, ResolvedObjective, ResolvedReport, SemanticProgram,
     VariableDeclOverrides,

@@ -20,6 +20,11 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    Logical {
+        op: LogicalOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Comparison {
         op: ComparisonOp,
         left: Box<Expr>,
@@ -79,6 +84,12 @@ pub enum ComparisonOp {
     Less,
     Greater,
     NotEqual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LogicalOp {
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,6 +162,15 @@ impl Display for ComparisonOp {
     }
 }
 
+impl Display for LogicalOp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::And => "and",
+            Self::Or => "or",
+        })
+    }
+}
+
 fn format_expr(expr: &Expr, f: &mut Formatter<'_>, parent_precedence: u8) -> fmt::Result {
     let precedence = expr_precedence(expr);
     let needs_parens = precedence < parent_precedence;
@@ -177,6 +197,11 @@ fn format_expr(expr: &Expr, f: &mut Formatter<'_>, parent_precedence: u8) -> fmt
             format_expr(expr, f, precedence)?;
         }
         Expr::Binary { op, left, right } => {
+            format_expr(left, f, precedence)?;
+            write!(f, " {op} ")?;
+            format_expr(right, f, precedence + 1)?;
+        }
+        Expr::Logical { op, left, right } => {
             format_expr(left, f, precedence)?;
             write!(f, " {op} ")?;
             format_expr(right, f, precedence + 1)?;
@@ -232,22 +257,28 @@ fn format_expr(expr: &Expr, f: &mut Formatter<'_>, parent_precedence: u8) -> fmt
 
 fn expr_precedence(expr: &Expr) -> u8 {
     match expr {
-        Expr::Comparison { .. } => 1,
+        Expr::Logical {
+            op: LogicalOp::Or, ..
+        } => 1,
+        Expr::Logical {
+            op: LogicalOp::And, ..
+        } => 2,
+        Expr::Comparison { .. } => 3,
         Expr::Binary {
             op: BinaryOp::Add | BinaryOp::Subtract,
             ..
-        } => 2,
+        } => 4,
         Expr::Binary {
             op: BinaryOp::Multiply | BinaryOp::Divide,
             ..
-        } => 3,
-        Expr::Unary { .. } => 4,
+        } => 5,
+        Expr::Unary { .. } => 6,
         Expr::Number(_)
         | Expr::String(_)
         | Expr::Boolean(_)
         | Expr::Identifier(_)
         | Expr::Indexed { .. }
         | Expr::FunctionCall { .. }
-        | Expr::Reduction(_) => 5,
+        | Expr::Reduction(_) => 7,
     }
 }

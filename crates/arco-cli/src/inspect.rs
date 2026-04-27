@@ -657,7 +657,9 @@ fn collect_parameter_sets_from_expr(
         Expr::Unary { expr, .. } => {
             collect_parameter_sets_from_expr(expr, parameter_name, symbol_to_set, out);
         }
-        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+        Expr::Binary { left, right, .. }
+        | Expr::Logical { left, right, .. }
+        | Expr::Comparison { left, right, .. } => {
             collect_parameter_sets_from_expr(left, parameter_name, symbol_to_set, out);
             collect_parameter_sets_from_expr(right, parameter_name, symbol_to_set, out);
         }
@@ -1014,7 +1016,7 @@ fn collect_term_refs_from_expr(
                 }
             }
         }
-        Expr::Binary { left, right, .. } => {
+        Expr::Binary { left, right, .. } | Expr::Logical { left, right, .. } => {
             // For multiplication etc, descend into both sides
             collect_term_refs_from_expr(
                 left,
@@ -1310,7 +1312,9 @@ fn collect_indexed_targets(expr: &Expr, out: &mut BTreeSet<String>) {
             }
         }
         Expr::Unary { expr, .. } => collect_indexed_targets(expr, out),
-        Expr::Binary { left, right, .. } | Expr::Comparison { left, right, .. } => {
+        Expr::Binary { left, right, .. }
+        | Expr::Logical { left, right, .. }
+        | Expr::Comparison { left, right, .. } => {
             collect_indexed_targets(left, out);
             collect_indexed_targets(right, out);
         }

@@ -66,6 +66,22 @@ fn evaluate_data_param_filter_expr(
                 BinaryOp::Divide => left / right,
             }))
         }
+        Expr::Logical { op, left, right } => {
+            let left = evaluate_data_param_filter_expr(left, row, data_decl)?;
+            let left_truthy = truthy_data_param_filter_value(&left)?;
+            match op {
+                LogicalOp::And if !left_truthy => Some(FilterValue::Boolean(false)),
+                LogicalOp::Or if left_truthy => Some(FilterValue::Boolean(true)),
+                _ => {
+                    let right = evaluate_data_param_filter_expr(right, row, data_decl)?;
+                    let right_truthy = truthy_data_param_filter_value(&right)?;
+                    Some(FilterValue::Boolean(match op {
+                        LogicalOp::And => left_truthy && right_truthy,
+                        LogicalOp::Or => left_truthy || right_truthy,
+                    }))
+                }
+            }
+        }
         Expr::Comparison { op, left, right } => {
             let left = evaluate_data_param_filter_expr(left, row, data_decl)?;
             let right = evaluate_data_param_filter_expr(right, row, data_decl)?;
