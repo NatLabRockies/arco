@@ -124,6 +124,8 @@ pub fn validate_program(
         extend_set_registry_from_low_level_declarations(program, entry_dir, &mut set_registry)?;
     }
 
+    validate_projection_source_domains(program, &set_registry, entrypoint)?;
+
     let time_steps = set_registry
         .get("time")
         .or_else(|| set_registry.get("t"))
@@ -165,6 +167,42 @@ pub fn validate_program(
         active_variable_reports,
         active_dual_reports,
     })
+}
+
+fn validate_projection_source_domains(
+    program: &SourceProgram,
+    set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    for projection in &program.projections {
+        let Some(source_domain) = set_registry.get(&projection.from_domain) else {
+            return Err(SemanticError::MissingDeclaration {
+                kind: "projection source domain",
+                name: projection.from_domain.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        };
+
+        let Some(source_keys) = source_domain.tuple_components.as_ref() else {
+            return Err(SemanticError::MissingDeclaration {
+                kind: "projection source tuple signature",
+                name: projection.from_domain.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        };
+
+        for target_key in &projection.to_keys {
+            if !source_keys.contains(target_key) {
+                return Err(SemanticError::MissingDeclaration {
+                    kind: "projection target key",
+                    name: target_key.clone(),
+                    path: entrypoint.to_path_buf(),
+                });
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn resolve_scenario<'a>(

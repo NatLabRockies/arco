@@ -1062,6 +1062,80 @@ scenario "S1" {
 }
 
 #[test]
+fn semantic_validation_rejects_projection_with_unknown_source_domain()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-projection-unknown-source-domain")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+projection "ai" {
+  from "missing_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("unknown projection source domain should fail semantic validation");
+
+    assert!(error.to_string().contains("missing_links"));
+    assert!(error.to_string().contains("projection source domain"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_projection_with_unknown_target_key()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-projection-unknown-target-key")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "a1" }
+set "tech" { "solar" }
+set "gen" { "g1" }
+set "bus" { "b1" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "gen" }
+  index "b" { in "bus" }
+}
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "z"
+}
+
+model "Dispatch" {
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("unknown projection target key should fail semantic validation");
+
+    assert!(error.to_string().contains("projection target key"));
+    assert!(error.to_string().contains("z"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
 fn semantic_validation_assigns_stable_scoped_inferred_constraint_ids()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_root("semantic-inferred-constraint-id")?;
