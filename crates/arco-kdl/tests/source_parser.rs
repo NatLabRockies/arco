@@ -217,6 +217,27 @@ scenario Base {
 }
 
 #[test]
+fn parses_top_level_projection_declaration() -> Result<(), Box<dyn std::error::Error>> {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    assert_eq!(parsed.program.projections.len(), 1);
+
+    let projection = &parsed.program.projections[0];
+    assert_eq!(projection.name, "ai");
+    assert_eq!(projection.from_domain, "feasible_links");
+    assert_eq!(projection.to_keys, vec!["a", "i"]);
+
+    Ok(())
+}
+
+#[test]
 fn rejects_unsupported_top_level_declarations() {
     let path = PathBuf::from("test.kdl");
     let cases = [

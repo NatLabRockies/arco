@@ -2,7 +2,8 @@ use crate::ObjectiveSense;
 use crate::algebra::parse_value_formula;
 use crate::source::ast::{
     BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, IndexDecl, ModelDecl,
-    ParsedSource, ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram, VariableKindDecl,
+    ParsedSource, ProjectionDecl, ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram,
+    VariableKindDecl,
 };
 use crate::source::error::SourceError;
 use crate::source::parser_constraints::parse_constraints;
@@ -60,6 +61,7 @@ fn parse_document(
             "data" => program.data.push(parse_data(node, context)?),
             "param" => program.params.push(parse_param(node, context)?),
             "model" => program.models.push(parse_model(node, context)?),
+            "projection" => program.projections.push(parse_projection(node, context)?),
             "scenario" => program.scenarios.push(parse_scenario(node, context)?),
             other => {
                 return Err(unsupported_declaration_error(node, other, context));
@@ -398,6 +400,47 @@ fn parse_expression(
         parsed_formula: parse_value_formula(&formula)
             .map_err(|error| algebra_error(node, error.to_string(), context))?,
         formula,
+    })
+}
+
+fn parse_projection(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<ProjectionDecl, SourceError> {
+    let mut from_domain = None;
+    let mut to_keys = Vec::new();
+
+    for child in node.iter_children() {
+        match child.name().value() {
+            "from" => {
+                from_domain = Some(first_arg_string(child, 0, context)?);
+            }
+            "to" => {
+                let mut position = 0;
+                while let Some(value) = child.get(position) {
+                    let Some(key) = value.as_string() else {
+                        return Err(invalid_value_error(
+                            child,
+                            format!("argument {position}"),
+                            context,
+                        ));
+                    };
+                    to_keys.push(key.to_string());
+                    position += 1;
+                }
+            }
+            other => return Err(unsupported_declaration_error(child, other, context)),
+        }
+    }
+
+    if to_keys.is_empty() {
+        return Err(missing_node_error("to", node, context));
+    }
+
+    Ok(ProjectionDecl {
+        name: first_arg_string(node, 0, context)?,
+        from_domain: from_domain.ok_or_else(|| missing_node_error("from", node, context))?,
+        to_keys,
     })
 }
 
