@@ -307,7 +307,7 @@ fn projection_source_keys<'a>(
 }
 
 fn lower_reduce_projection_expressions(
-    active_expressions: &mut Vec<ResolvedExpression>,
+    active_expressions: &mut [ResolvedExpression],
     model: &ModelDecl,
     program: &SourceProgram,
     set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
@@ -368,10 +368,13 @@ fn lower_reduce_projection_expressions(
             .collect::<Vec<_>>()
             .join(",");
 
-        let bindings = dropped
-            .iter()
-            .map(|key| format!(" for {key}_r in {}", projection_decl.from_domain))
-            .collect::<String>();
+        let mut bindings = String::new();
+        for key in &dropped {
+            bindings.push_str(" for ");
+            bindings.push_str(key);
+            bindings.push_str("_r in ");
+            bindings.push_str(&projection_decl.from_domain);
+        }
         let lowered_formula = format!("{op}({target}[{body_indices}]{bindings})");
         let parsed = parse_value_formula(&lowered_formula).map_err(|error| {
             SemanticError::MissingDeclaration {

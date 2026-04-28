@@ -1129,7 +1129,7 @@ scenario "S1" {
         .expect_err("unknown projection target key should fail semantic validation");
 
     assert!(error.to_string().contains("projection target key"));
-    assert!(error.to_string().contains("z"));
+    assert!(error.to_string().contains('z'));
 
     fs::remove_dir_all(&root)?;
     Ok(())
