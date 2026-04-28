@@ -3,6 +3,7 @@
 This file encodes rendering guarantees for the Python API as executable doctests.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import arco
 model = arco.Model()
@@ -71,6 +72,7 @@ max(operator_columns) - min(operator_columns) <= 1
 ```
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import contextlib
 import io
@@ -116,6 +118,7 @@ full = buf.getvalue()
 ```
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import arco
 model = arco.Model()

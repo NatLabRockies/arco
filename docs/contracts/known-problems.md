@@ -16,6 +16,7 @@ mathematical formulation, a runnable Arco model, and expected solution values.
 Known optimum: `x = 1`, `y = 4`, objective `11`.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import arco
 model = arco.Model()
@@ -63,6 +64,7 @@ round(solution.get_primal(index=y), 6)
 Known optimum: `x = 20`, `y = 60`, objective `2600`.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import arco
 model = arco.Model()
@@ -120,6 +122,7 @@ A=\begin{bmatrix}1 & 1 \\ 1 & 0\end{bmatrix},\quad b=\begin{bmatrix}3 \\ 1\end{b
 Known solution: `x = [1, 2]`.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import numpy as np
 import arco
@@ -175,6 +178,7 @@ With values `[6,5,4]` and weights `[3,2,1]`, the known optimum value is `10`
 (select items 1 and 3).
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import arco
 items = ["a", "b", "c"]
@@ -230,6 +234,7 @@ Known optimum on the small test graph: objective `2` using the direct arc
 `0 \to 1`.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import numpy as np
 import arco
@@ -296,6 +301,7 @@ Known optimum for this two-unit instance: objective `275`, generation
 `[100, 20]`, commitment `[1, 1]`.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import numpy as np
 import arco
@@ -362,6 +368,7 @@ Known optimum for this toy graph: select edges `0->1` and `1->3`, objective
 `-4.8`.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import numpy as np
 import arco
@@ -448,6 +455,7 @@ Known optimum for `T=2` with initial storage `2`: objective `40`, thermal
 generation `[2,2]`.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import numpy as np
 import arco
@@ -529,6 +537,7 @@ tuple(float(v) for v in np.round(solution.get_value(d), 6))
 For `N=4`, the model is feasible with objective `0`.
 
 <!-- copy-paste: auto-generated from doctest -->
+
 ```python
 import numpy as np
 import arco
