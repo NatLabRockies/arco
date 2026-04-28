@@ -318,17 +318,27 @@ fn expand_reduction_bindings(
     program: &SemanticProgram,
     entrypoint: &Path,
 ) -> Result<Vec<LinearizationBindings>, CompileError> {
+    let reverse_aliases = build_reverse_alias_lookup(program);
     let mut scopes = vec![current.clone()];
+
     for binding in bindings {
-        let values = reduction_domain_values(&binding.domain, inputs, program, entrypoint)?;
         let mut next = Vec::new();
         for scope in &scopes {
             match &binding.pattern {
                 crate::algebra::BindingPattern::Name(name) => {
+                    let values = reduction_values_for_binding_scope(
+                        binding.domain.as_str(),
+                        name,
+                        scope,
+                        inputs,
+                        program,
+                        &reverse_aliases,
+                        entrypoint,
+                    )?;
                     for value in &values {
-                        let mut scope = scope.clone();
-                        scope.values.insert(name.clone(), value.clone());
-                        next.push(scope);
+                        let mut scoped = scope.clone();
+                        scoped.values.insert(name.clone(), value.clone());
+                        next.push(scoped);
                     }
                 }
                 crate::algebra::BindingPattern::Tuple(_) => {
@@ -341,5 +351,112 @@ fn expand_reduction_bindings(
         }
         scopes = next;
     }
+
     Ok(scopes)
+}
+
+fn reduction_values_for_binding_scope(
+    domain: &str,
+    binding_name: &str,
+    scope: &LinearizationBindings,
+    inputs: &ScenarioInputs,
+    program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
+    entrypoint: &Path,
+) -> Result<Vec<FilterValue>, CompileError> {
+    let Some(domain_key) = resolve_set_registry_key(domain, program, reverse_aliases) else {
+        return reduction_domain_values(domain, inputs, program, entrypoint);
+    };
+
+    let Some(set) = resolve_set_struct_by_name(domain_key, program, reverse_aliases) else {
+        return reduction_domain_values(domain, inputs, program, entrypoint);
+    };
+
+    let (Some(tuple_components), Some(tuple_rows)) =
+        (set.tuple_components.as_ref(), set.tuple_rows.as_ref())
+    else {
+        return reduction_domain_values(domain, inputs, program, entrypoint);
+    };
+
+    tuple_reduction_binding_values(
+        domain_key,
+        binding_name,
+        tuple_components,
+        tuple_rows,
+        scope,
+        entrypoint,
+    )
+}
+
+fn tuple_reduction_binding_values(
+    domain_key: &str,
+    binding_name: &str,
+    tuple_components: &[String],
+    tuple_rows: &[Vec<String>],
+    scope: &LinearizationBindings,
+    entrypoint: &Path,
+) -> Result<Vec<FilterValue>, CompileError> {
+    let Some(binding_component_index) =
+        tuple_reduction_component_index(binding_name, tuple_components)
+    else {
+        return Err(CompileError::InvalidFormulation {
+            message: format!(
+                "reduction binding `{binding_name}` does not match tuple domain `{domain_key}` components `{}`",
+                tuple_components.join(",")
+            ),
+            path: entrypoint.to_path_buf(),
+        });
+    };
+
+    let scoped_component_values = scope
+        .values
+        .iter()
+        .filter_map(|(name, value)| {
+            tuple_reduction_component_index(name, tuple_components).map(|index| (index, value))
+        })
+        .map(|(index, value)| {
+            filter_value_to_key_component(value, entrypoint).map(|key_value| (index, key_value))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut projected_values = BTreeSet::new();
+
+    'rows: for row in tuple_rows {
+        if row.len() != tuple_components.len() {
+            return Err(CompileError::InvalidFormulation {
+                message: format!(
+                    "tuple row arity mismatch for tuple reduction domain `{domain_key}`: expected `{}`, received `{}`",
+                    tuple_components.len(),
+                    row.len()
+                ),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+
+        for (component_index, scoped_value) in &scoped_component_values {
+            if row[*component_index] != *scoped_value {
+                continue 'rows;
+            }
+        }
+
+        projected_values.insert(row[binding_component_index].clone());
+    }
+
+    Ok(projected_values
+        .into_iter()
+        .map(FilterValue::String)
+        .collect())
+}
+
+fn tuple_reduction_component_index(name: &str, tuple_components: &[String]) -> Option<usize> {
+    tuple_components
+        .iter()
+        .position(|component| component == name)
+        .or_else(|| {
+            name.strip_suffix("_r").and_then(|candidate| {
+                tuple_components
+                    .iter()
+                    .position(|component| component == candidate)
+            })
+        })
 }

@@ -955,7 +955,7 @@ scenario "S1" {
             assert!(
                 message.contains("empty constraint-relevant tuple subset for `capacity_target`")
             );
-            assert!(message.contains("1,solar; 1,wind; 2,solar; 2,wind"));
+            assert!(message.contains("1,solar; 2,solar; 2,wind"));
         }
         other => panic!("expected InvalidFormulation, got {other:?}"),
     }
@@ -1016,19 +1016,19 @@ fn lowering_example_nodal_allocation_preserves_sparse_tuple_membership()
     let semantic = validate_program(&parsed.program, &path)?;
     let compiled = compile_program(&semantic, &parsed.program, &path)?;
 
-    let dispatch_instances = compiled
+    let investment_instances = compiled
         .algebra
         .variable_instances
         .iter()
         .map(|instance| instance.name.clone())
         .collect::<Vec<_>>();
     assert_eq!(
-        dispatch_instances,
+        investment_instances,
         vec![
-            "dispatch[north,wind,g1,b1]".to_string(),
-            "dispatch[north,wind,g2,b2]".to_string(),
-            "dispatch[south,gas,g4,b3]".to_string(),
-            "dispatch[south,solar,g3,b3]".to_string(),
+            "investment[north,wind,g1,b1]".to_string(),
+            "investment[north,wind,g2,b2]".to_string(),
+            "investment[south,gas,g4,b3]".to_string(),
+            "investment[south,solar,g3,b3]".to_string(),
         ]
     );
 

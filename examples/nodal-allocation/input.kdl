@@ -51,7 +51,7 @@ set "feasible_ai" {
   index "i" { in "tech" }
 }
 
-projection "ai" {
+projection name="ai" {
   from "feasible_links"
   to "a" "i"
 }
