@@ -125,6 +125,7 @@ pub fn validate_program(
     }
 
     validate_projection_source_domains(program, &set_registry, entrypoint)?;
+    validate_reduce_projection_expressions(model, program, &set_registry, entrypoint)?;
 
     let time_steps = set_registry
         .get("time")
@@ -175,21 +176,7 @@ fn validate_projection_source_domains(
     entrypoint: &Path,
 ) -> Result<(), SemanticError> {
     for projection in &program.projections {
-        let Some(source_domain) = set_registry.get(&projection.from_domain) else {
-            return Err(SemanticError::MissingDeclaration {
-                kind: "projection source domain",
-                name: projection.from_domain.clone(),
-                path: entrypoint.to_path_buf(),
-            });
-        };
-
-        let Some(source_keys) = source_domain.tuple_components.as_ref() else {
-            return Err(SemanticError::MissingDeclaration {
-                kind: "projection source tuple signature",
-                name: projection.from_domain.clone(),
-                path: entrypoint.to_path_buf(),
-            });
-        };
+        let source_keys = projection_source_keys(projection, set_registry, entrypoint)?;
 
         for target_key in &projection.to_keys {
             if !source_keys.contains(target_key) {
@@ -200,9 +187,110 @@ fn validate_projection_source_domains(
                 });
             }
         }
+
+        if projection.to_keys.len() >= source_keys.len() {
+            return Err(SemanticError::MissingDeclaration {
+                kind: "projection dimensional reduction",
+                name: projection.name.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        }
     }
 
     Ok(())
+}
+
+fn validate_reduce_projection_expressions(
+    model: &ModelDecl,
+    program: &SourceProgram,
+    set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    let projections = program
+        .projections
+        .iter()
+        .map(|projection| (projection.name.as_str(), projection))
+        .collect::<BTreeMap<_, _>>();
+
+    for expression in &model.expressions {
+        let Some(abstraction) = &expression.abstraction else {
+            continue;
+        };
+
+        let crate::source::ExpressionAbstractionDecl::ReduceProjection {
+            projection,
+            op,
+            target,
+        } = abstraction;
+
+        if op != "sum" {
+            return Err(SemanticError::MissingDeclaration {
+                kind: "reduce projection operation",
+                name: op.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+
+        let projection_decl = projections.get(projection.as_str()).ok_or_else(|| {
+            SemanticError::MissingDeclaration {
+                kind: "projection",
+                name: projection.clone(),
+                path: entrypoint.to_path_buf(),
+            }
+        })?;
+
+        let source_keys = projection_source_keys(projection_decl, set_registry, entrypoint)?;
+
+        let target_family = model
+            .controls
+            .iter()
+            .find(|control| control.name == *target)
+            .ok_or_else(|| SemanticError::MissingDeclaration {
+                kind: "reduce projection target",
+                name: target.clone(),
+                path: entrypoint.to_path_buf(),
+            })?;
+
+        let target_indices = target_family
+            .indices
+            .iter()
+            .map(|index| index.name.as_str())
+            .collect::<Vec<_>>();
+
+        let source_signature = source_keys.iter().map(String::as_str).collect::<Vec<_>>();
+        if target_indices != source_signature {
+            return Err(SemanticError::MissingDeclaration {
+                kind: "reduce projection target signature",
+                name: target.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn projection_source_keys<'a>(
+    projection: &'a crate::source::ProjectionDecl,
+    set_registry: &'a BTreeMap<String, crate::semantic::ResolvedSet>,
+    entrypoint: &Path,
+) -> Result<&'a Vec<String>, SemanticError> {
+    let source_domain = set_registry.get(&projection.from_domain).ok_or_else(|| {
+        SemanticError::MissingDeclaration {
+            kind: "projection source domain",
+            name: projection.from_domain.clone(),
+            path: entrypoint.to_path_buf(),
+        }
+    })?;
+
+    source_domain
+        .tuple_components
+        .as_ref()
+        .ok_or_else(|| SemanticError::MissingDeclaration {
+            kind: "projection source tuple signature",
+            name: projection.from_domain.clone(),
+            path: entrypoint.to_path_buf(),
+        })
 }
 
 fn resolve_scenario<'a>(

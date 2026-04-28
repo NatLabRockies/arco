@@ -144,6 +144,16 @@ pub struct ExpressionDecl {
     pub name: String,
     pub formula: String,
     pub parsed_formula: Expr,
+    pub abstraction: Option<ExpressionAbstractionDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExpressionAbstractionDecl {
+    ReduceProjection {
+        projection: String,
+        op: String,
+        target: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
