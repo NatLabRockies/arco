@@ -36,7 +36,10 @@ fn collect_named_dependencies(
                 names.insert(name.clone());
             }
         }
-        Expr::Indexed { indices, .. } => {
+        Expr::Indexed { target, indices } => {
+            if !bound.contains(target) {
+                names.insert(target.clone());
+            }
             for index in indices {
                 collect_named_dependencies(index, bound, names);
             }

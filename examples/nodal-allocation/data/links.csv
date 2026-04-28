@@ -1,6 +1,6 @@
-area,tech,gen,bus,feasible,capacity_mw,priority_floor_mw
-north,wind,g1,b1,1,10,4
-north,wind,g2,b2,1,8,0
-south,solar,g3,b3,1,6,2
-south,gas,g4,b3,1,12,0
-north,solar,g5,b4,0,9,0
+area,tech,gen,bus,feasible,capacity_mw,priority_floor_mw,mw_target
+north,wind,g1,b1,1,10,4,12
+north,wind,g2,b2,1,8,0,12
+south,solar,g3,b3,1,6,2,5
+south,gas,g4,b3,1,12,0,4
+north,solar,g5,b4,0,9,0,0

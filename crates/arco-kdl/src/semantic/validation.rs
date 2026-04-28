@@ -1,3 +1,4 @@
+use crate::algebra::parse_value_formula;
 use crate::semantic::error::SemanticError;
 use crate::semantic::resolution::{
     resolve_active_model_expressions, resolve_model_scenario_reports,
@@ -94,8 +95,13 @@ pub fn validate_program(
 
     let (active_reports, active_dual_reports, active_variable_reports) =
         resolve_model_scenario_reports(model, scenario, &active_constraints, entrypoint)?;
-    let mut active_expressions =
-        resolve_active_model_expressions(model, &active_objective, &active_reports, entrypoint)?;
+    let mut active_expressions = resolve_active_model_expressions(
+        model,
+        &active_objective,
+        &active_reports,
+        &active_constraints,
+        entrypoint,
+    )?;
 
     // Inject inline scalar params (e.g. `param fcr_vre 0.072649`) as synthetic
     // named expressions so they are resolvable in algebra and index positions.
@@ -126,6 +132,13 @@ pub fn validate_program(
 
     validate_projection_source_domains(program, &set_registry, entrypoint)?;
     validate_reduce_projection_expressions(model, program, &set_registry, entrypoint)?;
+    lower_reduce_projection_expressions(
+        &mut active_expressions,
+        model,
+        program,
+        &set_registry,
+        entrypoint,
+    )?;
 
     let time_steps = set_registry
         .get("time")
@@ -291,6 +304,88 @@ fn projection_source_keys<'a>(
             name: projection.from_domain.clone(),
             path: entrypoint.to_path_buf(),
         })
+}
+
+fn lower_reduce_projection_expressions(
+    active_expressions: &mut Vec<ResolvedExpression>,
+    model: &ModelDecl,
+    program: &SourceProgram,
+    set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    let projections = program
+        .projections
+        .iter()
+        .map(|projection| (projection.name.as_str(), projection))
+        .collect::<BTreeMap<_, _>>();
+
+    let expression_abstractions = model
+        .expressions
+        .iter()
+        .filter_map(|expr| {
+            expr.abstraction
+                .as_ref()
+                .map(|abstraction| (expr.name.as_str(), abstraction))
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for resolved in active_expressions.iter_mut() {
+        let Some(abstraction) = expression_abstractions.get(resolved.name.as_str()) else {
+            continue;
+        };
+
+        let crate::source::ExpressionAbstractionDecl::ReduceProjection {
+            projection,
+            op,
+            target,
+        } = abstraction;
+
+        let projection_decl = projections.get(projection.as_str()).ok_or_else(|| {
+            SemanticError::MissingDeclaration {
+                kind: "projection",
+                name: projection.clone(),
+                path: entrypoint.to_path_buf(),
+            }
+        })?;
+        let source_keys = projection_source_keys(projection_decl, set_registry, entrypoint)?;
+
+        let dropped = source_keys
+            .iter()
+            .filter(|key| !projection_decl.to_keys.contains(*key))
+            .cloned()
+            .collect::<Vec<_>>();
+        let dropped_lookup = dropped.iter().cloned().collect::<BTreeSet<_>>();
+
+        let body_indices = source_keys
+            .iter()
+            .map(|key| {
+                if dropped_lookup.contains(key) {
+                    format!("{key}_r")
+                } else {
+                    key.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+
+        let bindings = dropped
+            .iter()
+            .map(|key| format!(" for {key}_r in {}", projection_decl.from_domain))
+            .collect::<String>();
+        let lowered_formula = format!("{op}({target}[{body_indices}]{bindings})");
+        let parsed = parse_value_formula(&lowered_formula).map_err(|error| {
+            SemanticError::MissingDeclaration {
+                kind: "reduce projection lowered formula",
+                name: error.to_string(),
+                path: entrypoint.to_path_buf(),
+            }
+        })?;
+
+        resolved.formula_text = lowered_formula;
+        resolved.formula = parsed;
+    }
+
+    Ok(())
 }
 
 fn resolve_scenario<'a>(

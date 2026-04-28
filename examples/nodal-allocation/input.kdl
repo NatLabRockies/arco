@@ -28,6 +28,12 @@ data "links" source="data/links.csv" {
     index "g"
     index "b"
   }
+
+  param "mw_target" {
+    index "a"
+    index "i"
+    reduce "max"
+  }
 }
 
 set "priority_links" {
@@ -37,6 +43,17 @@ set "priority_links" {
   index "g" { in "generators" }
   index "b" { in "buses" }
   filter { area == "south" }
+}
+
+set "feasible_ai" {
+  in "feasible_links"
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
 }
 
 model "NodalAllocation" {
@@ -54,20 +71,31 @@ model "NodalAllocation" {
     index "b"
   }
 
-  control "dispatch" lower=0 {
+  param "mw_target" {
+    index "a"
+    index "i"
+  }
+
+  control "investment" lower=0 {
     index "a" { in "feasible_links" }
     index "i" { in "feasible_links" }
     index "g" { in "feasible_links" }
     index "b" { in "feasible_links" }
   }
 
-  constraint "dispatch_capacity" {
+  expression "investment_by_area_tech" {
+    reduce "ai" {
+      sum "investment"
+    }
+  }
+
+  constraint "investment_capacity" {
     index "a" { in "feasible_links" }
     index "i" { in "feasible_links" }
     index "g" { in "feasible_links" }
     index "b" { in "feasible_links" }
     expression {
-      dispatch[a,i,g,b] <= capacity_mw[a,i,g,b]
+      investment[a,i,g,b] <= capacity_mw[a,i,g,b]
     }
   }
 
@@ -77,7 +105,15 @@ model "NodalAllocation" {
     index "g" { in "priority_links" }
     index "b" { in "priority_links" }
     expression {
-      dispatch[a,i,g,b] >= priority_floor_mw[a,i,g,b]
+      investment[a,i,g,b] >= priority_floor_mw[a,i,g,b]
+    }
+  }
+
+  constraint "enforce_mw_target" {
+    index "a" { in "feasible_ai" }
+    index "i" { in "feasible_ai" }
+    expression {
+      investment_by_area_tech[a,i] >= mw_target[a,i]
     }
   }
 
