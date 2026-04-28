@@ -143,20 +143,9 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
             }),
             "set" => sets.push(parse_set(child, context)?),
             "index" => {
-                let mut columns = Vec::new();
-                let mut position = 0;
-                while let Some(value) = child.get(position) {
-                    let Some(name) = value.as_string() else {
-                        return Err(invalid_value_error(
-                            child,
-                            format!("argument {position}"),
-                            context,
-                        ));
-                    };
-                    columns.push(name.to_string());
-                    position += 1;
-                }
-                indices.push(DataIndexDecl { columns });
+                indices.push(DataIndexDecl {
+                    columns: collect_string_args(child, context)?,
+                });
             }
             "param" => parameters.push(parse_param(child, context)?),
             other => {
@@ -416,18 +405,7 @@ fn parse_projection(
                 from_domain = Some(first_arg_string(child, 0, context)?);
             }
             "to" => {
-                let mut position = 0;
-                while let Some(value) = child.get(position) {
-                    let Some(key) = value.as_string() else {
-                        return Err(invalid_value_error(
-                            child,
-                            format!("argument {position}"),
-                            context,
-                        ));
-                    };
-                    to_keys.push(key.to_string());
-                    position += 1;
-                }
+                to_keys = collect_string_args(child, context)?;
             }
             other => return Err(unsupported_declaration_error(child, other, context)),
         }
@@ -442,6 +420,28 @@ fn parse_projection(
         from_domain: from_domain.ok_or_else(|| missing_node_error("from", node, context))?,
         to_keys,
     })
+}
+
+fn collect_string_args(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<Vec<String>, SourceError> {
+    let mut values = Vec::new();
+    let mut position = 0;
+
+    while let Some(value) = node.get(position) {
+        let Some(value_text) = value.as_string() else {
+            return Err(invalid_value_error(
+                node,
+                format!("argument {position}"),
+                context,
+            ));
+        };
+        values.push(value_text.to_string());
+        position += 1;
+    }
+
+    Ok(values)
 }
 
 fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<ScenarioDecl, SourceError> {
