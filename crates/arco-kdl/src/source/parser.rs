@@ -410,8 +410,10 @@ fn parse_expression(
 
 fn parse_reduce_projection_formula(formula: &str) -> Option<(String, String, String)> {
     let trimmed = formula.trim();
-    let reduce_pos = trimmed.find("reduce")?;
-    let after_reduce = trimmed[reduce_pos + "reduce".len()..].trim_start();
+    if !trimmed.starts_with("reduce") {
+        return None;
+    }
+    let after_reduce = trimmed["reduce".len()..].trim_start();
 
     let open_brace_rel = after_reduce.find('{')?;
     let head = after_reduce[..open_brace_rel].trim();

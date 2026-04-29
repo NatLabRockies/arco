@@ -321,6 +321,33 @@ scenario "S1" {
 }
 
 #[test]
+fn rejects_expression_with_prefixed_math_before_reduce() {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  expression "investment_by_area_tech[a,i]" {
+    1 + reduce "ai" { sum "investment" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let error =
+        parse_program_text(text, &path).expect_err("prefixed math before reduce should fail parse");
+    assert!(error.to_string().contains("expression"));
+}
+
+#[test]
 fn rejects_unsupported_top_level_declarations() {
     let path = PathBuf::from("test.kdl");
     let cases = [

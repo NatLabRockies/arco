@@ -1175,8 +1175,8 @@ expression "investment_by_area_tech" {
 }
 ```
 
-This form aggregates a higher-dimensional control/expression onto a named
-projection domain.
+This form aggregates a higher-dimensional control onto a named projection
+domain.
 
 Rules:
 
