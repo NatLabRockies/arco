@@ -95,6 +95,36 @@ summary_df = solution.to_pandas(table="summary")
 variables_pl = solution.to_polars(table="variables")
 ```
 
+## Progress Callbacks In Python
+
+You can pass a callable to `solve(progress=...)` to receive progress events
+from Python.
+
+```python
+import arco
+
+events: list[dict[str, object]] = []
+
+def on_progress(event: dict[str, object]) -> None:
+    events.append(event)
+    stage = event.get("stage")
+    if stage == "done":
+        print(
+            "status=",
+            event.get("status"),
+            "objective=",
+            event.get("objective_value"),
+        )
+
+solution = model.solve(log_to_console=False, progress=on_progress)
+```
+
+Emitted event payloads include:
+
+- `{"stage": "start", "num_variables": ..., "num_constraints": ...}`
+- `{"stage": "done", "status": ..., "objective_value": ..., "solve_time_seconds": ...}`
+- `{"stage": "error", "error_type": ..., "error": ...}`
+
 ## Exception Handling
 
 The Python bindings expose a structured exception hierarchy rooted at

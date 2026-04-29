@@ -132,3 +132,14 @@ def test_solve_result_stub_exposes_dataframe_export_signatures() -> None:
         block=solve_result_block,
         expected_signatures=expected_signatures,
     )
+
+
+def test_model_stub_exposes_solve_progress_callback_signature() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    model_block = _class_block(source=source, class_name="Model")
+    expected_signatures = [
+        "def solve(self, *, solver: Solver | None = None, log_to_console: bool | None = None, primal_start: Sequence[tuple[int, float]] | None = None, time_limit: float | None = None, mip_gap: float | None = None, verbosity: int | None = None, progress: Callable[[Mapping[str, object]], object] | None = None,) -> SolveResult: ...",
+    ]
+    _assert_signatures_present(
+        block=model_block, expected_signatures=expected_signatures
+    )

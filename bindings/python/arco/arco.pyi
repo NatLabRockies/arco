@@ -627,6 +627,7 @@ class Model:
         time_limit: float | None = None,
         mip_gap: float | None = None,
         verbosity: int | None = None,
+        progress: Callable[[Mapping[str, object]], object] | None = None,
     ) -> SolveResult: ...
     def inspect(
         self,

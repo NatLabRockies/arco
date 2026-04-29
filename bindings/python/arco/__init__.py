@@ -20,6 +20,7 @@ _ARCO_BLOCK_INPUT_FIELDS_ATTR = "__arco_block_input_fields__"
 _ARCO_BLOCK_EXPECTS_CTX_ATTR = "__arco_block_expects_ctx__"
 
 _MODEL_SCENARIOS: dict[int, dict[str, dict[str, object]]] = {}
+_MODEL_SOLVE = _arco.Model.solve
 
 
 _PydanticBaseModel: type[object] | None
@@ -200,6 +201,63 @@ def _model_run_scenario(
     return self.solve(**solve_kwargs)
 
 
+def _model_solve(
+    self: _arco.Model,
+    *,
+    solver: _arco.Solver | None = None,
+    log_to_console: bool | None = None,
+    primal_start: list[tuple[int, float]] | None = None,
+    time_limit: float | None = None,
+    mip_gap: float | None = None,
+    verbosity: int | None = None,
+    progress: Callable[[dict[str, object]], object] | None = None,
+) -> _arco.SolveResult:
+    if progress is not None and not callable(progress):
+        raise TypeError("solve: progress must be a callable or None")
+
+    if progress is not None:
+        progress(
+            {
+                "stage": "start",
+                "num_variables": self.num_variables,
+                "num_constraints": self.num_constraints,
+            }
+        )
+
+    try:
+        result = _MODEL_SOLVE(
+            self,
+            solver=solver,
+            log_to_console=log_to_console,
+            primal_start=primal_start,
+            time_limit=time_limit,
+            mip_gap=mip_gap,
+            verbosity=verbosity,
+        )
+    except Exception as exc:
+        if progress is not None:
+            progress(
+                {
+                    "stage": "error",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+        raise
+
+    if progress is not None:
+        progress(
+            {
+                "stage": "done",
+                "status": result.status_string(),
+                "objective_value": result.objective_value,
+                "solve_time_seconds": result.solve_time_seconds(),
+            }
+        )
+
+    return result
+
+
 def _solve_result_records(
     self: _arco.SolveResult,
     *,
@@ -272,6 +330,7 @@ def _solve_result_to_polars(
 setattr(_arco.Model, "control", _model_control)
 setattr(_arco.Model, "scenario", _model_scenario)
 setattr(_arco.Model, "run_scenario", _model_run_scenario)
+setattr(_arco.Model, "solve", _model_solve)
 setattr(_arco.SolveResult, "to_pandas", _solve_result_to_pandas)
 setattr(_arco.SolveResult, "to_polars", _solve_result_to_polars)
 
