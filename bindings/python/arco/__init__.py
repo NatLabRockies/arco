@@ -19,6 +19,8 @@ _ARCO_BLOCK_INPUT_SCHEMA_ATTR = "__arco_block_input_schema__"
 _ARCO_BLOCK_INPUT_FIELDS_ATTR = "__arco_block_input_fields__"
 _ARCO_BLOCK_EXPECTS_CTX_ATTR = "__arco_block_expects_ctx__"
 
+_MODEL_SCENARIOS: dict[int, dict[str, dict[str, object]]] = {}
+
 
 _PydanticBaseModel: type[object] | None
 try:
@@ -138,7 +140,69 @@ def _model_control(
     )
 
 
+def _model_scenario(
+    self: _arco.Model,
+    name: str,
+    *,
+    solver: _arco.Solver | None = None,
+    log_to_console: bool | None = None,
+    primal_start: list[tuple[int, float]] | None = None,
+    time_limit: float | None = None,
+    mip_gap: float | None = None,
+    verbosity: int | None = None,
+) -> None:
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("scenario: name must be a non-empty string")
+
+    scenario_config = {
+        "solver": solver,
+        "log_to_console": log_to_console,
+        "primal_start": primal_start,
+        "time_limit": time_limit,
+        "mip_gap": mip_gap,
+        "verbosity": verbosity,
+    }
+    _MODEL_SCENARIOS.setdefault(id(self), {})[name] = scenario_config
+
+
+def _model_run_scenario(
+    self: _arco.Model,
+    name: str,
+    *,
+    solver: _arco.Solver | None = None,
+    log_to_console: bool | None = None,
+    primal_start: list[tuple[int, float]] | None = None,
+    time_limit: float | None = None,
+    mip_gap: float | None = None,
+    verbosity: int | None = None,
+) -> _arco.SolveResult:
+    scenario_map = _MODEL_SCENARIOS.get(id(self), {})
+    if name not in scenario_map:
+        known = ", ".join(sorted(scenario_map))
+        message = f"run_scenario: unknown scenario {name!r}"
+        if known:
+            message = f"{message}; known scenarios: {known}"
+        raise KeyError(message)
+
+    solve_kwargs = dict(scenario_map[name])
+    overrides = {
+        "solver": solver,
+        "log_to_console": log_to_console,
+        "primal_start": primal_start,
+        "time_limit": time_limit,
+        "mip_gap": mip_gap,
+        "verbosity": verbosity,
+    }
+    for key, value in overrides.items():
+        if value is not None:
+            solve_kwargs[key] = value
+
+    return self.solve(**solve_kwargs)
+
+
 setattr(_arco.Model, "control", _model_control)
+setattr(_arco.Model, "scenario", _model_scenario)
+setattr(_arco.Model, "run_scenario", _model_run_scenario)
 
 
 if "block" not in __all__:

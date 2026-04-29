@@ -533,6 +533,28 @@ class Model:
         is_integer: bool = False,
         is_binary: bool = False,
     ) -> Variable | VariableArray: ...
+    def scenario(
+        self,
+        name: str,
+        *,
+        solver: Solver | None = None,
+        log_to_console: bool | None = None,
+        primal_start: Sequence[tuple[int, float]] | None = None,
+        time_limit: float | None = None,
+        mip_gap: float | None = None,
+        verbosity: int | None = None,
+    ) -> None: ...
+    def run_scenario(
+        self,
+        name: str,
+        *,
+        solver: Solver | None = None,
+        log_to_console: bool | None = None,
+        primal_start: Sequence[tuple[int, float]] | None = None,
+        time_limit: float | None = None,
+        mip_gap: float | None = None,
+        verbosity: int | None = None,
+    ) -> SolveResult: ...
     def add_constraint(
         self,
         expr: ConstraintExpr | Variable | Expr,
