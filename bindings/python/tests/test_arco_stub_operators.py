@@ -119,3 +119,15 @@ def test_model_stub_exposes_scenario_declaration_signatures() -> None:
     _assert_signatures_present(
         block=model_block, expected_signatures=expected_signatures
     )
+
+    def test_solve_result_stub_exposes_dataframe_export_signatures() -> None:
+        source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+        solve_result_block = _class_block(source=source, class_name="SolveResult")
+        expected_signatures = [
+            'def to_pandas(self, *, table: str = "variables") -> object: ...',
+            'def to_polars(self, *, table: str = "variables") -> object: ...',
+        ]
+        _assert_signatures_present(
+            block=solve_result_block,
+            expected_signatures=expected_signatures,
+        )

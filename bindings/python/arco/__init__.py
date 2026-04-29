@@ -200,9 +200,80 @@ def _model_run_scenario(
     return self.solve(**solve_kwargs)
 
 
+def _solve_result_records(
+    self: _arco.SolveResult,
+    *,
+    table: str = "variables",
+) -> list[dict[str, object]]:
+    if table == "variables":
+        return [
+            {
+                "variable_id": idx,
+                "value": primal,
+                "reduced_cost": reduced_cost,
+            }
+            for idx, (primal, reduced_cost) in enumerate(
+                zip(self.primal_values, self.variable_duals, strict=True)
+            )
+        ]
+
+    if table == "constraints":
+        return [
+            {
+                "constraint_id": idx,
+                "dual": dual,
+            }
+            for idx, dual in enumerate(self.constraint_duals)
+        ]
+
+    if table == "summary":
+        return [
+            {
+                "status": self.status_string(),
+                "objective_value": self.objective_value,
+                "solve_time_seconds": self.solve_time_seconds(),
+                "is_optimal": self.is_optimal(),
+            }
+        ]
+
+    raise ValueError("table must be one of {'variables', 'constraints', 'summary'}")
+
+
+def _solve_result_to_pandas(
+    self: _arco.SolveResult,
+    *,
+    table: str = "variables",
+) -> object:
+    try:
+        import pandas as pd
+    except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+        raise ModuleNotFoundError(
+            "to_pandas() requires pandas. Install with `uv add pandas` or `pip install pandas`."
+        ) from exc
+
+    return pd.DataFrame.from_records(_solve_result_records(self, table=table))
+
+
+def _solve_result_to_polars(
+    self: _arco.SolveResult,
+    *,
+    table: str = "variables",
+) -> object:
+    try:
+        import polars as pl
+    except ModuleNotFoundError as exc:  # pragma: no cover - optional dependency
+        raise ModuleNotFoundError(
+            "to_polars() requires polars. Install with `uv add polars` or `pip install polars`."
+        ) from exc
+
+    return pl.DataFrame(_solve_result_records(self, table=table))
+
+
 setattr(_arco.Model, "control", _model_control)
 setattr(_arco.Model, "scenario", _model_scenario)
 setattr(_arco.Model, "run_scenario", _model_run_scenario)
+setattr(_arco.SolveResult, "to_pandas", _solve_result_to_pandas)
+setattr(_arco.SolveResult, "to_polars", _solve_result_to_polars)
 
 
 if "block" not in __all__:

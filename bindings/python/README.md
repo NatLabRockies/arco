@@ -69,3 +69,44 @@ model.scenario("baseline", log_to_console=False)
 solution = model.run_scenario("baseline")
 assert solution.is_optimal()
 ```
+
+## Result Export To pandas/polars DataFrames
+
+Solve results can be exported directly to DataFrames for analysis workflows.
+
+- `solution.to_pandas(table="variables")`
+- `solution.to_polars(table="variables")`
+
+Supported `table` values are:
+
+- `"variables"`: one row per variable with primal value and reduced cost.
+- `"constraints"`: one row per constraint with dual value.
+- `"summary"`: one-row solve summary (status, objective, solve time).
+
+Example:
+
+```python
+solution = model.run_scenario("baseline")
+
+variables_df = solution.to_pandas(table="variables")
+constraints_df = solution.to_pandas(table="constraints")
+summary_df = solution.to_pandas(table="summary")
+
+variables_pl = solution.to_polars(table="variables")
+```
+
+Install optional dependencies as needed:
+
+```bash
+cd bindings/python
+uv pip install pandas
+uv pip install polars
+```
+
+or
+
+```bash
+cd bindings/python
+uv add pandas
+uv add polars
+```
