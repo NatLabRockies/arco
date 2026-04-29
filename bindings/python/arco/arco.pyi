@@ -641,6 +641,18 @@ class Model:
         solver_params: Mapping[str, bool | int | float | str] | None = None,
         progress: Callable[[Mapping[str, object]], object] | None = None,
     ) -> SolveResult: ...
+    async def solve_async(
+        self,
+        *,
+        solver: Solver | None = None,
+        log_to_console: bool | None = None,
+        primal_start: Sequence[tuple[int, float]] | None = None,
+        time_limit: float | None = None,
+        mip_gap: float | None = None,
+        verbosity: int | None = None,
+        solver_params: Mapping[str, bool | int | float | str] | None = None,
+        progress: Callable[[Mapping[str, object]], object] | None = None,
+    ) -> SolveResult: ...
     def inspect(
         self,
         *,

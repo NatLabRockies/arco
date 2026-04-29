@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
+import functools
 import inspect
 from typing import Callable, Mapping, TypeVar, overload
 
@@ -272,6 +274,33 @@ def _model_solve(
     return result
 
 
+async def _model_solve_async(
+    self: _arco.Model,
+    *,
+    solver: _arco.Solver | None = None,
+    log_to_console: bool | None = None,
+    primal_start: list[tuple[int, float]] | None = None,
+    time_limit: float | None = None,
+    mip_gap: float | None = None,
+    verbosity: int | None = None,
+    solver_params: Mapping[str, bool | int | float | str] | None = None,
+    progress: Callable[[dict[str, object]], object] | None = None,
+) -> _arco.SolveResult:
+    # Keep the blocking solver call off the event loop thread.
+    solve_call = functools.partial(
+        self.solve,
+        solver=solver,
+        log_to_console=log_to_console,
+        primal_start=primal_start,
+        time_limit=time_limit,
+        mip_gap=mip_gap,
+        verbosity=verbosity,
+        solver_params=solver_params,
+        progress=progress,
+    )
+    return await asyncio.to_thread(solve_call)
+
+
 def _solve_result_records(
     self: _arco.SolveResult,
     *,
@@ -345,6 +374,7 @@ setattr(_arco.Model, "control", _model_control)
 setattr(_arco.Model, "scenario", _model_scenario)
 setattr(_arco.Model, "run_scenario", _model_run_scenario)
 setattr(_arco.Model, "solve", _model_solve)
+setattr(_arco.Model, "solve_async", _model_solve_async)
 setattr(_arco.SolveResult, "to_pandas", _solve_result_to_pandas)
 setattr(_arco.SolveResult, "to_polars", _solve_result_to_polars)
 

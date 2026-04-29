@@ -124,6 +124,33 @@ def on_progress(event: dict[str, object]) -> None:
 solution = model.solve(log_to_console=False, progress=on_progress)
 ```
 
+## Async Solve Support (asyncio)
+
+Use `await model.solve_async(...)` to run solves without blocking the event
+loop.
+
+```python
+import asyncio
+import arco
+
+async def main() -> None:
+  model = arco.Model()
+  # ... build model ...
+  result = await model.solve_async(
+    solver=arco.HiGHS(solver_params={"random_seed": 7}),
+    progress=lambda event: print(event.get("stage")),
+  )
+  print(result.status_string())
+
+asyncio.run(main())
+```
+
+Notes:
+
+- `solve_async` supports the same keyword arguments as `solve`.
+- The solve runs on a worker thread via `asyncio.to_thread`.
+- The optional `progress` callback runs on that worker thread.
+
 ## Backend-Specific Solver Parameters
 
 You can pass backend options directly with `solver_params` on either

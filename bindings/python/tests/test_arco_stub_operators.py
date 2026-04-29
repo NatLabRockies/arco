@@ -115,7 +115,7 @@ def test_solver_stub_exposes_solver_params_signatures() -> None:
     expected_signatures = [
         "def __init__(self, *, presolve: bool | None = None, threads: int | None = None, tolerance: float | None = None, time_limit: float | None = None, mip_gap: float | None = None, verbosity: int | None = None, log_to_console: bool | None = None, solver_params: Mapping[str, bool | int | float | str] | None = None,) -> None: ...",
         "def solver_params(self) -> dict[str, bool | int | float | str]: ...",
-        "def copy(self, *, update: Mapping[str, bool | int | float | str | Mapping[str, bool | int | float | str] | None] | None = None,) -> Solver: ...",
+        "def copy(self, *, update: Mapping[str, bool | int | float | str | Mapping[str, bool | int | float | str] | None,] | None = None,) -> Solver: ...",
     ]
     _assert_signatures_present(
         block=solver_block, expected_signatures=expected_signatures
@@ -152,6 +152,17 @@ def test_model_stub_exposes_solve_progress_callback_signature() -> None:
     model_block = _class_block(source=source, class_name="Model")
     expected_signatures = [
         "def solve(self, *, solver: Solver | None = None, log_to_console: bool | None = None, primal_start: Sequence[tuple[int, float]] | None = None, time_limit: float | None = None, mip_gap: float | None = None, verbosity: int | None = None, solver_params: Mapping[str, bool | int | float | str] | None = None, progress: Callable[[Mapping[str, object]], object] | None = None,) -> SolveResult: ...",
+    ]
+    _assert_signatures_present(
+        block=model_block, expected_signatures=expected_signatures
+    )
+
+
+def test_model_stub_exposes_async_solve_signature() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    model_block = _class_block(source=source, class_name="Model")
+    expected_signatures = [
+        "async def solve_async(self, *, solver: Solver | None = None, log_to_console: bool | None = None, primal_start: Sequence[tuple[int, float]] | None = None, time_limit: float | None = None, mip_gap: float | None = None, verbosity: int | None = None, solver_params: Mapping[str, bool | int | float | str] | None = None, progress: Callable[[Mapping[str, object]], object] | None = None,) -> SolveResult: ...",
     ]
     _assert_signatures_present(
         block=model_block, expected_signatures=expected_signatures
