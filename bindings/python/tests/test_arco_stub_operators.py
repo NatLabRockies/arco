@@ -102,7 +102,7 @@ def test_model_stub_exposes_control_declaration_signature() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
     model_block = _class_block(source=source, class_name="Model")
     expected_signatures = [
-        "def control(self, name: str, *index_sets: IndexSet, bounds: Bounds | BoundType, is_integer: bool = False, is_binary: bool = False) -> Variable | VariableArray: ...",
+        "def control(self, name: str, *index_sets: IndexSet, bounds: Bounds | BoundType, is_integer: bool = False, is_binary: bool = False,) -> Variable | VariableArray: ...",
     ]
     _assert_signatures_present(
         block=model_block, expected_signatures=expected_signatures
@@ -113,21 +113,22 @@ def test_model_stub_exposes_scenario_declaration_signatures() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
     model_block = _class_block(source=source, class_name="Model")
     expected_signatures = [
-        "def scenario(self, name: str, *, solver: Solver | None = None, log_to_console: bool | None = None, primal_start: Sequence[tuple[int, float]] | None = None, time_limit: float | None = None, mip_gap: float | None = None, verbosity: int | None = None) -> None: ...",
-        "def run_scenario(self, name: str, *, solver: Solver | None = None, log_to_console: bool | None = None, primal_start: Sequence[tuple[int, float]] | None = None, time_limit: float | None = None, mip_gap: float | None = None, verbosity: int | None = None) -> SolveResult: ...",
+        "def scenario(self, name: str, *, solver: Solver | None = None, log_to_console: bool | None = None, primal_start: Sequence[tuple[int, float]] | None = None, time_limit: float | None = None, mip_gap: float | None = None, verbosity: int | None = None,) -> None: ...",
+        "def run_scenario(self, name: str, *, solver: Solver | None = None, log_to_console: bool | None = None, primal_start: Sequence[tuple[int, float]] | None = None, time_limit: float | None = None, mip_gap: float | None = None, verbosity: int | None = None,) -> SolveResult: ...",
     ]
     _assert_signatures_present(
         block=model_block, expected_signatures=expected_signatures
     )
 
-    def test_solve_result_stub_exposes_dataframe_export_signatures() -> None:
-        source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
-        solve_result_block = _class_block(source=source, class_name="SolveResult")
-        expected_signatures = [
-            'def to_pandas(self, *, table: str = "variables") -> object: ...',
-            'def to_polars(self, *, table: str = "variables") -> object: ...',
-        ]
-        _assert_signatures_present(
-            block=solve_result_block,
-            expected_signatures=expected_signatures,
-        )
+
+def test_solve_result_stub_exposes_dataframe_export_signatures() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    solve_result_block = _class_block(source=source, class_name="SolveResult")
+    expected_signatures = [
+        'def to_pandas(self, *, table: str = "variables") -> object: ...',
+        'def to_polars(self, *, table: str = "variables") -> object: ...',
+    ]
+    _assert_signatures_present(
+        block=solve_result_block,
+        expected_signatures=expected_signatures,
+    )
