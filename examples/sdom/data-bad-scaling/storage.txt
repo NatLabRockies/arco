@@ -1,0 +1,5 @@
+tech_id,p_capex,e_capex,efficiency,min_duration,max_duration,max_p,max_cycles,coupled,fom,vom,lifetime,cost_ratio
+Li-Ion,737,0,0.85,2,2,20000,5000,1,18,0,16,0.5
+CAES,1242,0,0.85,4,4,20000,100000,0,31,0,16,0.5
+PHS,1746,0,0.85,6,6,20000,100000,1,44,0,16,0.5
+H2,2250,0,0.85,8,8,20000,100000,0,70,0,16,0.5

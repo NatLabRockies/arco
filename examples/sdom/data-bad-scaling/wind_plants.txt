@@ -1,0 +1,2 @@
+plant_id,max_capacity,capex_m,fom_m,trans_cap_cost
+Nordeste,1,8278.76364,172.07232,0

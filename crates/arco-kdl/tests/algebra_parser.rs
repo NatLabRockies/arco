@@ -172,5 +172,24 @@ fn parses_logical_and_or_with_expected_precedence() -> Result<(), Box<dyn std::e
     ));
     assert!(matches!(*right, Expr::Comparison { .. }));
 
+    let symbolic_expression = parse_value_formula("t > 730 && t <= 1460 || t == 1")?;
+    let Expr::Logical {
+        op: symbolic_op,
+        left: symbolic_left,
+        right: symbolic_right,
+    } = symbolic_expression
+    else {
+        return Err("expected top-level logical expression for symbolic operators".into());
+    };
+    assert!(matches!(symbolic_op, arco_kdl::algebra::LogicalOp::Or));
+    assert!(matches!(
+        *symbolic_left,
+        Expr::Logical {
+            op: arco_kdl::algebra::LogicalOp::And,
+            ..
+        }
+    ));
+    assert!(matches!(*symbolic_right, Expr::Comparison { .. }));
+
     Ok(())
 }
