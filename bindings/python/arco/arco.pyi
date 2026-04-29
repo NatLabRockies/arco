@@ -525,6 +525,14 @@ class Model:
         is_binary: bool = False,
         name: str | None = None,
     ) -> VariableArray: ...
+    def control(
+        self,
+        name: str,
+        *index_sets: IndexSet,
+        bounds: Bounds | BoundType,
+        is_integer: bool = False,
+        is_binary: bool = False,
+    ) -> Variable | VariableArray: ...
     def add_constraint(
         self,
         expr: ConstraintExpr | Variable | Expr,

@@ -96,3 +96,14 @@ def test_expr_array_stub_exposes_operator_signatures() -> None:
     _assert_signatures_present(
         block=expr_array_block, expected_signatures=expected_signatures
     )
+
+
+def test_model_stub_exposes_control_declaration_signature() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    model_block = _class_block(source=source, class_name="Model")
+    expected_signatures = [
+        "def control(self, name: str, *index_sets: IndexSet, bounds: Bounds | BoundType, is_integer: bool = False, is_binary: bool = False) -> Variable | VariableArray: ...",
+    ]
+    _assert_signatures_present(
+        block=model_block, expected_signatures=expected_signatures
+    )

@@ -110,5 +110,36 @@ def block(
     return _decorate_block(func=func, name=name)
 
 
+def _model_control(
+    self: _arco.Model,
+    name: str,
+    *index_sets: _arco.IndexSet,
+    bounds: _arco.Bounds | _arco.BoundType,
+    is_integer: bool = False,
+    is_binary: bool = False,
+) -> _arco.Variable | _arco.VariableArray:
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("control: name must be a non-empty string")
+
+    if index_sets:
+        return self.add_variables(
+            *index_sets,
+            bounds=bounds,
+            is_integer=is_integer,
+            is_binary=is_binary,
+            name=name,
+        )
+
+    return self.add_variable(
+        bounds=bounds,
+        is_integer=is_integer,
+        is_binary=is_binary,
+        name=name,
+    )
+
+
+setattr(_arco.Model, "control", _model_control)
+
+
 if "block" not in __all__:
     __all__.append("block")
