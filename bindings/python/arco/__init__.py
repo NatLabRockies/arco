@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 import inspect
-from typing import Callable, TypeVar, overload
+from typing import Callable, Mapping, TypeVar, overload
 
 from .arco import *  # noqa: F403
 from . import arco as _arco
@@ -151,6 +151,7 @@ def _model_scenario(
     time_limit: float | None = None,
     mip_gap: float | None = None,
     verbosity: int | None = None,
+    solver_params: Mapping[str, bool | int | float | str] | None = None,
 ) -> None:
     if not isinstance(name, str) or not name.strip():
         raise ValueError("scenario: name must be a non-empty string")
@@ -162,6 +163,7 @@ def _model_scenario(
         "time_limit": time_limit,
         "mip_gap": mip_gap,
         "verbosity": verbosity,
+        "solver_params": solver_params,
     }
     _MODEL_SCENARIOS.setdefault(id(self), {})[name] = scenario_config
 
@@ -176,6 +178,7 @@ def _model_run_scenario(
     time_limit: float | None = None,
     mip_gap: float | None = None,
     verbosity: int | None = None,
+    solver_params: Mapping[str, bool | int | float | str] | None = None,
 ) -> _arco.SolveResult:
     scenario_map = _MODEL_SCENARIOS.get(id(self), {})
     if name not in scenario_map:
@@ -193,6 +196,7 @@ def _model_run_scenario(
         "time_limit": time_limit,
         "mip_gap": mip_gap,
         "verbosity": verbosity,
+        "solver_params": solver_params,
     }
     for key, value in overrides.items():
         if value is not None:
@@ -210,10 +214,20 @@ def _model_solve(
     time_limit: float | None = None,
     mip_gap: float | None = None,
     verbosity: int | None = None,
+    solver_params: Mapping[str, bool | int | float | str] | None = None,
     progress: Callable[[dict[str, object]], object] | None = None,
 ) -> _arco.SolveResult:
     if progress is not None and not callable(progress):
         raise TypeError("solve: progress must be a callable or None")
+
+    effective_solver = solver
+    if solver_params is not None:
+        if not isinstance(solver_params, Mapping):
+            raise TypeError("solve: solver_params must be a mapping or None")
+        base_solver = solver if solver is not None else _arco.Solver()
+        effective_solver = base_solver.copy(
+            update={"solver_params": dict(solver_params)}
+        )
 
     if progress is not None:
         progress(
@@ -227,7 +241,7 @@ def _model_solve(
     try:
         result = _MODEL_SOLVE(
             self,
-            solver=solver,
+            solver=effective_solver,
             log_to_console=log_to_console,
             primal_start=primal_start,
             time_limit=time_limit,

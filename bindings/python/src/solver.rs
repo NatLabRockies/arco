@@ -2,7 +2,8 @@
 
 use crate::errors::SolverInvalidSettingError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyString};
+use std::collections::BTreeMap;
 
 /// Overrides for solve() calls that don't modify the solver's base settings.
 #[derive(Debug, Clone, Default)]
@@ -23,6 +24,48 @@ pub struct SolverSettings {
     pub mip_gap: Option<f64>,
     pub verbosity: Option<u32>,
     pub log_to_console: Option<bool>,
+    pub solver_params: BTreeMap<String, arco_solver::SolverParamValue>,
+}
+
+fn parse_solver_param_value(value: &Bound<'_, PyAny>) -> PyResult<arco_solver::SolverParamValue> {
+    if value.is_instance_of::<PyBool>() {
+        return Ok(arco_solver::SolverParamValue::Bool(value.extract()?));
+    }
+    if value.is_instance_of::<PyInt>() {
+        let raw: i64 = value.extract()?;
+        let parsed = i32::try_from(raw).map_err(|_| {
+            SolverInvalidSettingError::new_err(
+                "solver_params integer values must fit in signed 32-bit range",
+            )
+        })?;
+        return Ok(arco_solver::SolverParamValue::Int(parsed));
+    }
+    if value.is_instance_of::<PyFloat>() {
+        return Ok(arco_solver::SolverParamValue::Float(value.extract()?));
+    }
+    if value.is_instance_of::<PyString>() {
+        return Ok(arco_solver::SolverParamValue::Str(value.extract()?));
+    }
+    Err(SolverInvalidSettingError::new_err(
+        "solver_params values must be bool, int, float, or str",
+    ))
+}
+
+fn parse_solver_params_dict(
+    value: &Bound<'_, PyAny>,
+) -> PyResult<BTreeMap<String, arco_solver::SolverParamValue>> {
+    let dict = value.cast::<PyDict>().map_err(|_| {
+        SolverInvalidSettingError::new_err("solver_params must be a dict[str, bool|int|float|str]")
+    })?;
+    let mut params = BTreeMap::new();
+    for (key, val) in dict.iter() {
+        let key: String = key.extract().map_err(|_| {
+            SolverInvalidSettingError::new_err("solver_params keys must be strings")
+        })?;
+        let parsed = parse_solver_param_value(&val)?;
+        params.insert(key, parsed);
+    }
+    Ok(params)
 }
 
 impl SolverSettings {
@@ -43,6 +86,7 @@ impl SolverSettings {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        solver_params: BTreeMap<String, arco_solver::SolverParamValue>,
     ) -> PyResult<Self> {
         if let Some(threads) = threads {
             if threads == 0 {
@@ -66,6 +110,7 @@ impl SolverSettings {
             mip_gap,
             verbosity,
             log_to_console,
+            solver_params,
         })
     }
 
@@ -78,6 +123,7 @@ impl SolverSettings {
             overrides.mip_gap.or(self.mip_gap),
             overrides.verbosity.or(self.verbosity),
             overrides.log_to_console.or(self.log_to_console),
+            self.solver_params.clone(),
         )
     }
 
@@ -129,6 +175,9 @@ impl SolverSettings {
         if let Some(log_to_console) = self.log_to_console {
             config = config.with_log_to_console(log_to_console);
         }
+        for (name, value) in &self.solver_params {
+            config = config.with_solver_param(name.clone(), value.clone());
+        }
         config
     }
 }
@@ -160,6 +209,13 @@ pub fn apply_solver_updates(
             "mip_gap" => settings.mip_gap = extract_optional(&value)?,
             "verbosity" => settings.verbosity = extract_optional(&value)?,
             "log_to_console" => settings.log_to_console = extract_optional(&value)?,
+            "solver_params" => {
+                if value.is_none() {
+                    settings.solver_params.clear();
+                } else {
+                    settings.solver_params = parse_solver_params_dict(&value)?;
+                }
+            }
             _ => {
                 return Err(SolverInvalidSettingError::new_err(format!(
                     "Unknown solver setting '{key}'",
@@ -175,12 +231,13 @@ pub fn apply_solver_updates(
         settings.mip_gap,
         settings.verbosity,
         settings.log_to_console,
+        settings.solver_params,
     )
 }
 
 fn solver_repr(label: &str, settings: &SolverSettings) -> String {
     format!(
-        "{label}(presolve={:?}, threads={:?}, tolerance={:?}, time_limit={:?}, mip_gap={:?}, verbosity={:?}, log_to_console={:?})",
+        "{label}(presolve={:?}, threads={:?}, tolerance={:?}, time_limit={:?}, mip_gap={:?}, verbosity={:?}, log_to_console={:?}, solver_params={:?})",
         settings.presolve,
         settings.threads,
         settings.tolerance,
@@ -188,6 +245,7 @@ fn solver_repr(label: &str, settings: &SolverSettings) -> String {
         settings.mip_gap,
         settings.verbosity,
         settings.log_to_console,
+        settings.solver_params,
     )
 }
 
@@ -201,7 +259,7 @@ pub struct PySolver {
 impl PySolver {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, solver_params=None)
     )]
     fn new(
         presolve: Option<bool>,
@@ -211,7 +269,13 @@ impl PySolver {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        solver_params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
+        let parsed_solver_params = if let Some(dict) = solver_params {
+            parse_solver_params_dict(dict.as_any())?
+        } else {
+            BTreeMap::new()
+        };
         let settings = SolverSettings::new(
             presolve,
             threads,
@@ -220,6 +284,7 @@ impl PySolver {
             mip_gap,
             verbosity,
             log_to_console,
+            parsed_solver_params,
         )?;
         Ok(Self { settings })
     }
@@ -259,6 +324,20 @@ impl PySolver {
         self.settings.log_to_console
     }
 
+    #[getter]
+    fn solver_params(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        for (name, value) in &self.settings.solver_params {
+            match value {
+                arco_solver::SolverParamValue::Bool(v) => dict.set_item(name, *v)?,
+                arco_solver::SolverParamValue::Int(v) => dict.set_item(name, *v)?,
+                arco_solver::SolverParamValue::Float(v) => dict.set_item(name, *v)?,
+                arco_solver::SolverParamValue::Str(v) => dict.set_item(name, v)?,
+            }
+        }
+        Ok(dict.unbind())
+    }
+
     #[pyo3(signature = (*, update=None))]
     fn copy(&self, py: Python<'_>, update: Option<&Bound<'_, PyDict>>) -> PyResult<Py<Self>> {
         let settings = apply_solver_updates(self.settings.clone(), update)?;
@@ -278,7 +357,7 @@ pub struct PyHiGHS;
 impl PyHiGHS {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, solver_params=None)
     )]
     fn new(
         presolve: Option<bool>,
@@ -288,7 +367,13 @@ impl PyHiGHS {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        solver_params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<(Self, PySolver)> {
+        let parsed_solver_params = if let Some(dict) = solver_params {
+            parse_solver_params_dict(dict.as_any())?
+        } else {
+            BTreeMap::new()
+        };
         let settings = SolverSettings::new(
             presolve,
             threads,
@@ -297,6 +382,7 @@ impl PyHiGHS {
             mip_gap,
             verbosity,
             log_to_console,
+            parsed_solver_params,
         )?;
         Ok((PyHiGHS, PySolver { settings }))
     }
@@ -326,7 +412,7 @@ pub struct PyXpress;
 impl PyXpress {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, solver_params=None)
     )]
     fn new(
         presolve: Option<bool>,
@@ -336,7 +422,13 @@ impl PyXpress {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        solver_params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<(Self, PySolver)> {
+        let parsed_solver_params = if let Some(dict) = solver_params {
+            parse_solver_params_dict(dict.as_any())?
+        } else {
+            BTreeMap::new()
+        };
         let settings = SolverSettings::new(
             presolve,
             threads,
@@ -345,6 +437,7 @@ impl PyXpress {
             mip_gap,
             verbosity,
             log_to_console,
+            parsed_solver_params,
         )?;
         Ok((PyXpress, PySolver { settings }))
     }
@@ -376,7 +469,7 @@ pub struct PyIpopt;
 impl PyIpopt {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, solver_params=None)
     )]
     fn new(
         presolve: Option<bool>,
@@ -386,7 +479,13 @@ impl PyIpopt {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        solver_params: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<(Self, PySolver)> {
+        let parsed_solver_params = if let Some(dict) = solver_params {
+            parse_solver_params_dict(dict.as_any())?
+        } else {
+            BTreeMap::new()
+        };
         let settings = SolverSettings::new(
             presolve,
             threads,
@@ -395,6 +494,7 @@ impl PyIpopt {
             mip_gap,
             verbosity,
             log_to_console,
+            parsed_solver_params,
         )?;
         Ok((PyIpopt, PySolver { settings }))
     }

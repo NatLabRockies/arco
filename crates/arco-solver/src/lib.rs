@@ -24,7 +24,7 @@ mod config;
 mod traits;
 
 pub use backend::SolverBackend;
-pub use config::SolverConfig;
+pub use config::{SolverConfig, SolverParamValue};
 pub use traits::{SolutionView, Solve};
 
 // Re-export solver types from arco-solver-types for convenience

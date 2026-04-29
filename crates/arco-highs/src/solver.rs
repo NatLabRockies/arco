@@ -6,7 +6,7 @@ use crate::solution::Solution;
 use crate::status::{highs_has_solution, highs_to_core_status};
 use arco_core::{Model, Sense};
 use arco_expr::{ConstraintId, VariableId};
-use arco_solver::{Solve, SolverBackend, SolverConfig};
+use arco_solver::{Solve, SolverBackend, SolverConfig, SolverParamValue};
 use arco_solver_types::SolverError as GenericSolverError;
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
@@ -306,6 +306,15 @@ fn apply_solver_config(
             HighsOption::Float(tolerance),
         );
         highs_model.set_option("dual_feasibility_tolerance", HighsOption::Float(tolerance));
+    }
+    for (name, value) in &config.solver_params {
+        let option = match value {
+            SolverParamValue::Bool(v) => HighsOption::Bool(*v),
+            SolverParamValue::Int(v) => HighsOption::Int(*v),
+            SolverParamValue::Float(v) => HighsOption::Float(*v),
+            SolverParamValue::Str(v) => HighsOption::Str(v.clone()),
+        };
+        highs_model.set_option(name, option);
     }
     Ok(())
 }

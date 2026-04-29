@@ -136,6 +136,7 @@ class Solver:
         mip_gap: float | None = None,
         verbosity: int | None = None,
         log_to_console: bool | None = None,
+        solver_params: Mapping[str, bool | int | float | str] | None = None,
     ) -> None: ...
     @property
     def presolve(self) -> bool | None: ...
@@ -151,8 +152,16 @@ class Solver:
     def verbosity(self) -> int | None: ...
     @property
     def log_to_console(self) -> bool | None: ...
+    @property
+    def solver_params(self) -> dict[str, bool | int | float | str]: ...
     def copy(
-        self, *, update: Mapping[str, bool | int | float | None] | None = None
+        self,
+        *,
+        update: Mapping[
+            str,
+            bool | int | float | str | Mapping[str, bool | int | float | str] | None,
+        ]
+        | None = None,
     ) -> Solver: ...
 
 class HiGHS(Solver): ...
@@ -545,6 +554,7 @@ class Model:
         time_limit: float | None = None,
         mip_gap: float | None = None,
         verbosity: int | None = None,
+        solver_params: Mapping[str, bool | int | float | str] | None = None,
     ) -> None: ...
     def run_scenario(
         self,
@@ -556,6 +566,7 @@ class Model:
         time_limit: float | None = None,
         mip_gap: float | None = None,
         verbosity: int | None = None,
+        solver_params: Mapping[str, bool | int | float | str] | None = None,
     ) -> SolveResult: ...
     def add_constraint(
         self,
@@ -627,6 +638,7 @@ class Model:
         time_limit: float | None = None,
         mip_gap: float | None = None,
         verbosity: int | None = None,
+        solver_params: Mapping[str, bool | int | float | str] | None = None,
         progress: Callable[[Mapping[str, object]], object] | None = None,
     ) -> SolveResult: ...
     def inspect(

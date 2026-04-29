@@ -1,5 +1,20 @@
 //! Solver configuration types.
 
+use std::collections::BTreeMap;
+
+/// Backend-specific solver parameter value.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SolverParamValue {
+    /// Boolean option value.
+    Bool(bool),
+    /// Integer option value.
+    Int(i32),
+    /// Floating-point option value.
+    Float(f64),
+    /// String option value.
+    Str(String),
+}
+
 /// Configuration options for solver behavior.
 #[derive(Debug, Clone, Default)]
 pub struct SolverConfig {
@@ -17,6 +32,8 @@ pub struct SolverConfig {
     pub tolerance: Option<f64>,
     /// Log solver output to console. `None` uses solver default.
     pub log_to_console: Option<bool>,
+    /// Backend-specific raw solver parameters.
+    pub solver_params: BTreeMap<String, SolverParamValue>,
 }
 
 impl SolverConfig {
@@ -67,6 +84,12 @@ impl SolverConfig {
         self
     }
 
+    /// Set a backend-specific raw solver parameter.
+    pub fn with_solver_param(mut self, key: impl Into<String>, value: SolverParamValue) -> Self {
+        self.solver_params.insert(key.into(), value);
+        self
+    }
+
     /// Check if this configuration is completely empty (all defaults).
     pub fn is_empty(&self) -> bool {
         self.time_limit.is_none()
@@ -76,6 +99,7 @@ impl SolverConfig {
             && self.threads.is_none()
             && self.tolerance.is_none()
             && self.log_to_console.is_none()
+            && self.solver_params.is_empty()
     }
 }
 
@@ -108,6 +132,7 @@ mod tests {
         assert_eq!(config.threads, Some(4));
         assert_eq!(config.tolerance, Some(1e-6));
         assert_eq!(config.log_to_console, Some(false));
+        assert!(config.solver_params.is_empty());
     }
 
     #[test]
@@ -116,6 +141,7 @@ mod tests {
         assert!(!config.is_empty());
         assert_eq!(config.time_limit, Some(30.0));
         assert_eq!(config.mip_gap, None);
+        assert!(config.solver_params.is_empty());
     }
 
     #[test]

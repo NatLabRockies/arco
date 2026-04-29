@@ -41,6 +41,7 @@ execution entrypoints:
   (indexed).
 - `model.scenario(...)`: declare a named execution configuration.
 - `model.run_scenario(...)`: execute a previously declared scenario.
+- `solver_params={...}`: pass backend-specific raw solver options.
 
 Example:
 
@@ -65,7 +66,11 @@ for k in range(-(N - 1), N):
 model.minimize(0.0)
 
 # scenario declaration (execution entrypoint)
-model.scenario("baseline", log_to_console=False)
+model.scenario(
+    "baseline",
+    log_to_console=False,
+    solver_params={"random_seed": 7},
+)
 solution = model.run_scenario("baseline")
 assert solution.is_optimal()
 ```
@@ -118,6 +123,82 @@ def on_progress(event: dict[str, object]) -> None:
 
 solution = model.solve(log_to_console=False, progress=on_progress)
 ```
+
+## Backend-Specific Solver Parameters
+
+You can pass backend options directly with `solver_params` on either
+`Solver(...)`, `solve(...)`, or scenario declarations.
+
+```python
+solver = arco.HiGHS(
+    solver_params={
+        "random_seed": 7,
+        "simplex_strategy": 4,
+        "mip_detect_symmetry": True,
+    }
+)
+
+solution = model.solve(solver=solver)
+
+# Or as per-call overrides
+solution = model.solve(solver_params={"random_seed": 11})
+```
+
+`solver_params` values must be `bool`, `int`, `float`, or `str`.
+
+### Backend Support
+
+- `HiGHS`: generic `solver_params` pass-through is supported. Any valid HiGHS
+  option name can be provided.
+- `Ipopt`: generic `solver_params` pass-through is supported. Any valid IPOPT
+  option name can be provided.
+- `Xpress`: generic `solver_params` pass-through is not yet implemented.
+  Use typed settings (`time_limit`, `mip_gap`, `presolve`, `threads`,
+  `tolerance`, `verbosity`, `log_to_console`) for now.
+
+### Common HiGHS Options
+
+These are examples; you are not limited to these names:
+
+```python
+solution = model.solve(
+        solver=arco.HiGHS(
+                solver_params={
+                        "random_seed": 7,
+                        "simplex_strategy": 4,
+                        "mip_detect_symmetry": True,
+                        "presolve": "on",
+                        "threads": 8,
+                }
+        )
+)
+```
+
+### Common IPOPT Options
+
+```python
+solution = model.solve(
+        solver=arco.Ipopt(
+                solver_params={
+                        "print_level": 5,
+                        "max_iter": 2000,
+                        "linear_solver": "mumps",
+                        "warm_start_init_point": "yes",
+                        "tol": 1e-8,
+                }
+        )
+)
+```
+
+### How To Find All Option Names
+
+- HiGHS options reference:
+  https://ergo-code.github.io/HiGHS/dev/options/definitions
+- IPOPT options reference:
+  https://coin-or.github.io/Ipopt/OPTIONS.html
+
+If an option name/value is invalid for the selected backend, the backend solve
+will fail with a solver-specific error.
 
 Emitted event payloads include:
 

@@ -5,7 +5,9 @@ use crate::solution::Solution;
 use crate::status::{ipopt_has_solution, ipopt_to_core_status};
 use arco_core::Model;
 use arco_expr::VariableId;
-use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
+use arco_solver::{
+    Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError, SolverParamValue,
+};
 use arco_solver_types::SolverError as CoreSolverError;
 use ipopt::Ipopt;
 use std::time::Instant;
@@ -171,6 +173,23 @@ fn apply_ipopt_config<P: ipopt::ConstrainedProblem>(ipopt: &mut Ipopt<P>, config
     if let Some(tol) = config.tolerance {
         ipopt.set_option("tol", tol);
         ipopt.set_option("constr_viol_tol", tol);
+    }
+
+    for (name, value) in &config.solver_params {
+        match value {
+            SolverParamValue::Bool(v) => {
+                ipopt.set_option(name, if *v { "yes" } else { "no" });
+            }
+            SolverParamValue::Int(v) => {
+                ipopt.set_option(name, *v);
+            }
+            SolverParamValue::Float(v) => {
+                ipopt.set_option(name, *v);
+            }
+            SolverParamValue::Str(v) => {
+                ipopt.set_option(name, v.as_str());
+            }
+        }
     }
 }
 
