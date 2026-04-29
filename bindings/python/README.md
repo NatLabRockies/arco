@@ -95,6 +95,67 @@ summary_df = solution.to_pandas(table="summary")
 variables_pl = solution.to_polars(table="variables")
 ```
 
+## Exception Handling
+
+The Python bindings expose a structured exception hierarchy rooted at
+`arco.ArcoError`, and Rust errors are mapped into these subclasses.
+
+Core Rust-to-Python mappings include:
+
+- `arco_core::model::ModelError::EmptyModel` -> `arco.ModelEmptyError`
+- `arco_core::model::ModelError::InvalidVariableId` -> `arco.VariableInvalidIdError`
+- `arco_core::model::ModelError::InvalidVariableBounds` -> `arco.VariableInvalidBoundsError`
+- `arco_core::model::ModelError::InvalidConstraintId` -> `arco.ConstraintInvalidIdError`
+- `arco_core::model::ModelError::InvalidConstraintBounds` -> `arco.ConstraintInvalidBoundsError`
+- `arco_core::model::ModelError::NoObjective` -> `arco.ObjectiveMissingError`
+- `arco_core::model::ModelError::MultipleObjectives` -> `arco.ObjectiveAlreadySetError`
+- `arco_solver::SolverError::SolveFailure(Infeasible)` -> `arco.SolverInfeasibleError`
+- `arco_solver::SolverError::SolveFailure(Unbounded)` -> `arco.SolverUnboundedError`
+- `arco_solver::SolverError::SolveFailure(TimeLimit)` -> `arco.SolverTimeLimitError`
+
+Wrapper-level helper APIs also raise standard Python exceptions when appropriate:
+
+- `ValueError`: invalid declaration arguments (for example, empty control or
+  scenario names).
+- `KeyError`: unknown scenario name passed to `run_scenario(...)`.
+- `ModuleNotFoundError`: optional dependency missing for DataFrame export
+  (`pandas` or `polars`).
+
+Recommended handling pattern:
+
+```python
+import arco
+
+try:
+    model.control("", rows, cols, bounds=arco.Binary)
+except ValueError as exc:
+    print(f"Invalid control declaration: {exc}")
+
+model.scenario("baseline", log_to_console=False)
+try:
+    solution = model.run_scenario("baseline")
+except KeyError as exc:
+    print(f"Unknown scenario: {exc}")
+    raise
+
+try:
+    # Catch all Rust-mapped errors first.
+    solution = model.solve()
+except arco.ArcoError as exc:
+    print(f"Arco engine error: {type(exc).__name__}: {exc}")
+    raise
+
+try:
+    variables_df = solution.to_pandas(table="variables")
+except ModuleNotFoundError:
+    print("Install pandas first: uv add pandas")
+
+try:
+    variables_pl = solution.to_polars(table="variables")
+except ModuleNotFoundError:
+    print("Install polars first: uv add polars")
+```
+
 Install optional dependencies as needed:
 
 ```bash
