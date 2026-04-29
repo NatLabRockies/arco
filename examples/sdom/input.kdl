@@ -1,336 +1,157 @@
-// Storage Deployment Optimization Model (SDOM)
-// Adapted from: https://github.com/Omar0902/SDOM
-//
-// SDOM optimizes energy storage deployment and renewable energy system planning
-// to achieve carbon-free electricity generation targets at minimum cost.
-// This example implements the "no resiliency, run-of-river hydro" configuration
-// from the SDOM test suite (24-hour horizon).
-//
-// Objective: minimize total annual system cost
-//   = VRE CAPEX + VRE FOM
-//   + Storage CAPEX (power + energy) + Storage FOM + Storage VOM
-//   + Thermal CAPEX + Thermal FOM + Thermal fuel cost + Thermal VOM
-//
-// Key constraints:
-//   - Supply balance (demand = generation + storage discharge - storage charge)
-//   - Generation mix target (limits thermal share of total demand)
-//   - VRE balance (generation + curtailment = available capacity)
-//   - Storage SOC dynamics (cyclical, efficiency losses via sqrt)
-//   - Storage charge/discharge mutual exclusion (binary variable)
-//   - Storage capacity bounds (min/max duration, max power, max annual cycles)
-//   - Hydro run-of-river (generation fixed to availability)
-//   - Thermal capacity limits
-
-// ============================================================================
-// DATA BLOCKS
-// ============================================================================
-
 data demand_data source="data/demand.csv" {
-  set t
-  param demand {
-    index t
-  }
+  map time from="t"
+  set time alias="t"
+  index time
+  param demand
 }
 
 data nuclear_data source="data/nuclear.csv" {
-  param nuclear_mw {
-    index t
-  }
+  map time from="t"
+  index time
+  param nuclear_mw
 }
 
 data hydro_data source="data/hydro.csv" {
-  param hydro_mw {
-    index t
-  }
+  map time from="t"
+  index time
+  param hydro_mw
 }
 
 data other_renewables_data source="data/other_renewables.csv" {
-  param other_renewables_mw {
-    index t
-  }
+  map time from="t"
+  index time
+  param other_renewables_mw
 }
 
 data wind_plants_data source="data/wind_plants.csv" {
   map wind_plant from="plant_id"
-
   set wind_plant alias="wp"
-  param wind_max_capacity from="max_capacity" {
-    index wind_plant
-  }
-  param wind_capex_m from="capex_m" {
-    index wind_plant
-  }
-  param wind_fom_m from="fom_m" {
-    index wind_plant
-  }
-  param wind_trans_cost from="trans_cap_cost" {
-    index wind_plant
-  }
+  index wind_plant
+  param wind_max_capacity from="max_capacity"
+  param wind_capex_m from="capex_m"
+  param wind_fom_m from="fom_m"
+  param wind_trans_cost from="trans_cap_cost"
 }
 
 data solar_plants_data source="data/solar_plants.csv" {
   map solar_plant from="plant_id"
-
   set solar_plant alias="sp"
-  param solar_max_capacity from="max_capacity" {
-    index solar_plant
-  }
-  param solar_capex_m from="capex_m" {
-    index solar_plant
-  }
-  param solar_fom_m from="fom_m" {
-    index solar_plant
-  }
-  param solar_trans_cost from="trans_cap_cost" {
-    index solar_plant
-  }
+  index solar_plant
+  param solar_max_capacity from="max_capacity"
+  param solar_capex_m from="capex_m"
+  param solar_fom_m from="fom_m"
+  param solar_trans_cost from="trans_cap_cost"
 }
 
 data wind_cf_data source="data/wind_cf.csv" {
+  map time from="t"
   map wind_plant from="plant_id"
-
-  set wind_plant
-  param wind_cf {
-    index t
-    index wind_plant
-  }
+  index time wind_plant
+  param wind_cf
 }
 
 data solar_cf_data source="data/solar_cf.csv" {
+  map time from="t"
   map solar_plant from="plant_id"
-
-  set solar_plant
-  param solar_cf {
-    index t
-    index solar_plant
-  }
+  index time solar_plant
+  param solar_cf
 }
 
 data storage_data source="data/storage.csv" {
   map storage_tech from="tech_id"
-
   set storage_tech alias="j"
-  param p_capex {
-    index storage_tech
+  index storage_tech
+  param p_capex
+  param e_capex
+  param efficiency
+  param min_duration
+  param max_duration
+  param max_p
+  param max_cycles
+  param coupled
+  set coupled_storage {
+    in storage_tech
+    filter { coupled > 0 }
   }
-  param e_capex {
-    index storage_tech
-  }
-  param efficiency {
-    index storage_tech
-  }
-  param min_duration {
-    index storage_tech
-  }
-  param max_duration {
-    index storage_tech
-  }
-  param max_p {
-    index storage_tech
-  }
-  param max_cycles {
-    index storage_tech
-  }
-  param coupled {
-    index storage_tech
-  }
-  param storage_fom from="fom" {
-    index storage_tech
-  }
-  param storage_vom from="vom" {
-    index storage_tech
-  }
-  param storage_lifetime from="lifetime" {
-    index storage_tech
-  }
-  param cost_ratio {
-    index storage_tech
-  }
-  param storage_crf from="crf" {
-    index storage_tech
-  }
+  param storage_fom from="fom"
+  param storage_vom from="vom"
+  param storage_lifetime from="lifetime"
+  param cost_ratio
+  param storage_crf from="crf"
 }
 
 data thermal_data source="data/thermal.csv" {
   map thermal_unit from="plant_id"
-
   set thermal_unit alias="bu"
-  param min_capacity {
-    index thermal_unit
-  }
-  param max_capacity {
-    index thermal_unit
-  }
-  param thermal_capex from="capex" {
-    index thermal_unit
-  }
-  param heat_rate {
-    index thermal_unit
-  }
-  param fuel_cost {
-    index thermal_unit
-  }
-  param thermal_vom from="vom" {
-    index thermal_unit
-  }
-  param thermal_fom from="fom" {
-    index thermal_unit
-  }
-  param thermal_crf from="crf" {
-    index thermal_unit
-  }
+  index thermal_unit
+  param min_capacity
+  param max_capacity
+  param thermal_capex from="capex"
+  param heat_rate
+  param fuel_cost
+  param thermal_vom from="vom"
+  param thermal_fom from="fom"
+  param thermal_crf from="crf"
 }
 
-// ============================================================================
-// MODEL
-// ============================================================================
-
 model sdom {
-  set time alias="t"
-
-  // FCR_VRE = r*(1+r)^lifetime / ((1+r)^lifetime - 1) with r=0.06, lifetime=30
   param fcr_vre 0.072649
   param mw_to_kw 1000
   param num_steps 24
-  param demand {
-    index time
-  }
-  param nuclear_mw {
-    index time
-  }
-  param hydro_mw {
-    index time
-  }
-  param other_renewables_mw {
-    index time
-  }
 
-  // --- Wind plant parameters ---
-  param wind_max_capacity {
-    index wind_plant
-  }
-  param wind_capex_m {
-    index wind_plant
-  }
-  param wind_fom_m {
-    index wind_plant
-  }
-  param wind_trans_cost {
-    index wind_plant
-  }
+  param demand index=time
+  param nuclear_mw index=time
+  param hydro_mw index=time
+  param other_renewables_mw index=time
+
+  param wind_max_capacity index=wind_plant
+  param wind_capex_m index=wind_plant
+  param wind_fom_m index=wind_plant
+  param wind_trans_cost index=wind_plant
   param wind_cf {
     index time
     index wind_plant
   }
 
-  // --- Solar plant parameters ---
-  param solar_max_capacity {
-    index solar_plant
-  }
-  param solar_capex_m {
-    index solar_plant
-  }
-  param solar_fom_m {
-    index solar_plant
-  }
-  param solar_trans_cost {
-    index solar_plant
-  }
+  param solar_max_capacity index=solar_plant
+  param solar_capex_m index=solar_plant
+  param solar_fom_m index=solar_plant
+  param solar_trans_cost index=solar_plant
   param solar_cf {
     index time
     index solar_plant
   }
 
-  // --- Storage parameters ---
-  param p_capex {
-    index storage_tech
-  }
-  param e_capex {
-    index storage_tech
-  }
-  param efficiency {
-    index storage_tech
-  }
-  param min_duration {
-    index storage_tech
-  }
-  param max_duration {
-    index storage_tech
-  }
-  param max_p {
-    index storage_tech
-  }
-  param max_cycles {
-    index storage_tech
-  }
-  param coupled {
-    index storage_tech
-  }
-  param storage_fom {
-    index storage_tech
-  }
-  param storage_vom {
-    index storage_tech
-  }
-  param storage_lifetime {
-    index storage_tech
-  }
-  param cost_ratio {
-    index storage_tech
-  }
-  param storage_crf {
-    index storage_tech
-  }
+  param p_capex index=storage_tech
+  param e_capex index=storage_tech
+  param efficiency index=storage_tech
+  param min_duration index=storage_tech
+  param max_duration index=storage_tech
+  param max_p index=storage_tech
+  param max_cycles index=storage_tech
+  param coupled index=storage_tech
+  param storage_fom index=storage_tech
+  param storage_vom index=storage_tech
+  param storage_lifetime index=storage_tech
+  param cost_ratio index=storage_tech
+  param storage_crf index=storage_tech
 
-  // --- Thermal parameters ---
-  param min_capacity {
-    index thermal_unit
-  }
-  param max_capacity {
-    index thermal_unit
-  }
-  param thermal_capex {
-    index thermal_unit
-  }
-  param heat_rate {
-    index thermal_unit
-  }
-  param fuel_cost {
-    index thermal_unit
-  }
-  param thermal_vom {
-    index thermal_unit
-  }
-  param thermal_fom {
-    index thermal_unit
-  }
-  param thermal_crf {
-    index thermal_unit
-  }
+  param min_capacity index=thermal_unit
+  param max_capacity index=thermal_unit
+  param thermal_capex index=thermal_unit
+  param heat_rate index=thermal_unit
+  param fuel_cost index=thermal_unit
+  param thermal_vom index=thermal_unit
+  param thermal_fom index=thermal_unit
+  param thermal_crf index=thermal_unit
 
-  // ========================================================================
-  // DECISION VARIABLES (controls)
-  // ========================================================================
+  control wind_cap_frac lower=0 upper=1 index=wind_plant
+  control solar_cap_frac lower=0 upper=1 index=solar_plant
 
-  control wind_cap_frac lower=0 upper=1 {
-    index wind_plant
-  }
-  control solar_cap_frac lower=0 upper=1 {
-    index solar_plant
-  }
-
-  control wind_gen lower=0 {
-    index time
-  }
-  control wind_curtail lower=0 {
-    index time
-  }
-  control solar_gen lower=0 {
-    index time
-  }
-  control solar_curtail lower=0 {
-    index time
-  }
+  control wind_gen lower=0 index=time
+  control wind_curtail lower=0 index=time
+  control solar_gen lower=0 index=time
+  control solar_curtail lower=0 index=time
 
   control pc lower=0 {
     index time
@@ -345,32 +166,22 @@ model sdom {
     index storage_tech
   }
 
-  control pcha lower=0 {
-    index storage_tech
-  }
-  control pdis lower=0 {
-    index storage_tech
-  }
-  control ecap lower=0 {
-    index storage_tech
-  }
+  control pcha lower=0 index=storage_tech
+  control pdis lower=0 index=storage_tech
+  control ecap lower=0 index=storage_tech
 
   control storage_binary kind=binary {
     index storage_tech
     index time
   }
 
-  control thermal_cap lower=0 {
-    index thermal_unit
-  }
+  control thermal_cap lower=0 index=thermal_unit
   control thermal_gen lower=0 {
     index time
     index thermal_unit
   }
 
-  control hydro_gen lower=0 {
-    index time
-  }
+  control hydro_gen lower=0 index=time
 
   expression wind_capex {
     fcr_vre * sum((wind_capex_m[wp] * mw_to_kw + wind_trans_cost[wp]) * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
@@ -432,7 +243,6 @@ model sdom {
     thermal_total_capex + thermal_total_fom + thermal_fuel_cost + thermal_var_om
   }
 
-
   constraint supply_balance {
     index t { in time }
     expression {
@@ -448,8 +258,6 @@ model sdom {
     }
   }
 
-  // --- Generation mix target: thermal + imports <= (1 - target) * adjusted demand ---
-  // With GenMix_Target=1 (100% clean), this forces thermal generation to zero
   constraint gen_mix_share {
     expression {
       sum(thermal_gen[t,bu] for t in time for bu in thermal_unit) <= 0
@@ -472,7 +280,6 @@ model sdom {
     }
   }
 
-  // Cyclical SOC: t=1 wraps to the last time step
   constraint soc_balance_initial {
     index j { in storage_tech }
     expression {
@@ -547,10 +354,8 @@ model sdom {
     }
   }
 
-  // Coupled technologies (Li-Ion, PHS) must have equal charge/discharge capacity
   constraint charge_equals_discharge {
-    index j { in storage_tech }
-    if { coupled[j] > 0 }
+    index j { in coupled_storage }
     expression {
       pcha[j] = pdis[j]
     }
@@ -606,6 +411,6 @@ scenario sdom_no_resiliency_24h {
   report wind_cap_frac
   report pcha
   report soc {
-    filter { storage_tech == "Li-Ion"}
+    filter { storage_tech == "Li-Ion" }
   }
 }
