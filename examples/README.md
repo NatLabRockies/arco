@@ -111,7 +111,7 @@ For full language-level guidance on subset/filter patterns, see:
 
 ### Why this matters in V1
 
-- `dispatch[a,i,g,b]` is instantiated only for members of the tuple subset you
+- `investment[a,i,g,b]` is instantiated only for members of the tuple subset you
   bind to (for example, `feasible_links`). There is no Cartesian fallback.
 - Reduced scopes must be named explicitly (for example, `priority_links`). V1
   does not auto-project high-dimensional tuple domains.
@@ -120,7 +120,7 @@ For full language-level guidance on subset/filter patterns, see:
 
   ```text
   index order mismatch for `NodalAllocationDay.NodalAllocation.constraint_1` over tuple domain `feasible_links`
-  empty constraint-relevant tuple subset for `NodalAllocationDay.NodalAllocation.capacity_target` at keys: north,solar; north,wind; south,gas; south,solar
+  empty constraint-relevant tuple subset for `NodalAllocationDay.NodalAllocation.enforce_mw_target` at keys: north,solar; north,wind; south,gas; south,solar
   ```
 
 ## Current caveats

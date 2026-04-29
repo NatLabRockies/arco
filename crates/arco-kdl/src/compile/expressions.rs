@@ -319,6 +319,80 @@ fn expand_reduction_bindings(
     entrypoint: &Path,
 ) -> Result<Vec<LinearizationBindings>, CompileError> {
     let reverse_aliases = build_reverse_alias_lookup(program);
+
+    if let Some(first) = bindings.first() {
+        let same_domain = bindings.iter().all(|binding| binding.domain == first.domain);
+        let name_bindings = bindings
+            .iter()
+            .map(|binding| match &binding.pattern {
+                crate::algebra::BindingPattern::Name(name) => Some(name.clone()),
+                crate::algebra::BindingPattern::Tuple(_) => None,
+            })
+            .collect::<Option<Vec<_>>>();
+
+        if same_domain {
+            if let (Some(names), Some(set)) =
+                (name_bindings, program.set_registry.get(&first.domain))
+            {
+                if let (Some(tuple_components), Some(tuple_rows)) =
+                    (set.tuple_components.as_ref(), set.tuple_rows.as_ref())
+                {
+                    let mut component_to_binding = BTreeMap::new();
+                    for name in &names {
+                        let component = name
+                            .strip_suffix("_r")
+                            .unwrap_or(name.as_str())
+                            .to_string();
+                        component_to_binding.insert(component, name.clone());
+                    }
+
+                    let mut scopes = Vec::new();
+                    for row in tuple_rows {
+                        if row.len() != tuple_components.len() {
+                            return Err(CompileError::InvalidFormulation {
+                                message: format!(
+                                    "tuple row arity mismatch in reduction over `{}`: expected `{}`, received `{}`",
+                                    first.domain,
+                                    tuple_components.len(),
+                                    row.len()
+                                ),
+                                path: entrypoint.to_path_buf(),
+                            });
+                        }
+
+                        let mut scope = current.clone();
+                        let mut matches_anchor = true;
+                        for (component, value) in tuple_components.iter().zip(row.iter()) {
+                            if let Some(binding_name) = component_to_binding.get(component) {
+                                scope.values.insert(
+                                    binding_name.clone(),
+                                    FilterValue::String(value.clone()),
+                                );
+                                continue;
+                            }
+
+                            if let Some(existing) = current.values.get(component) {
+                                let tuple_value = FilterValue::String(value.clone());
+                                if existing != &tuple_value {
+                                    matches_anchor = false;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if matches_anchor {
+                            scopes.push(scope);
+                        }
+                    }
+
+                    if !scopes.is_empty() {
+                        return Ok(scopes);
+                    }
+                }
+            }
+        }
+    }
+
     let mut scopes = vec![current.clone()];
 
     for binding in bindings {

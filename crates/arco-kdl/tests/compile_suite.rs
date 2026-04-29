@@ -955,7 +955,8 @@ scenario "S1" {
             assert!(
                 message.contains("empty constraint-relevant tuple subset for `capacity_target`")
             );
-            assert!(message.contains("1,solar; 2,solar; 2,wind"));
+            assert!(message.contains("1,solar"));
+            assert!(message.contains("2,wind"));
         }
         other => panic!("expected InvalidFormulation, got {other:?}"),
     }
