@@ -2,7 +2,8 @@ use crate::ObjectiveSense;
 use crate::algebra::parse_value_formula;
 use crate::source::ast::{
     BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, IndexDecl, ModelDecl,
-    ParsedSource, ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram, VariableKindDecl,
+    ParsedSource, ProjectionDecl, ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram,
+    VariableKindDecl,
 };
 use crate::source::error::SourceError;
 use crate::source::parser_constraints::parse_constraints;
@@ -60,6 +61,7 @@ fn parse_document(
             "data" => program.data.push(parse_data(node, context)?),
             "param" => program.params.push(parse_param(node, context)?),
             "model" => program.models.push(parse_model(node, context)?),
+            "projection" => program.projections.push(parse_projection(node, context)?),
             "scenario" => program.scenarios.push(parse_scenario(node, context)?),
             other => {
                 return Err(unsupported_declaration_error(node, other, context));
@@ -141,20 +143,9 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
             }),
             "set" => sets.push(parse_set(child, context)?),
             "index" => {
-                let mut columns = Vec::new();
-                let mut position = 0;
-                while let Some(value) = child.get(position) {
-                    let Some(name) = value.as_string() else {
-                        return Err(invalid_value_error(
-                            child,
-                            format!("argument {position}"),
-                            context,
-                        ));
-                    };
-                    columns.push(name.to_string());
-                    position += 1;
-                }
-                indices.push(DataIndexDecl { columns });
+                indices.push(DataIndexDecl {
+                    columns: collect_string_args(child, context)?,
+                });
             }
             "param" => parameters.push(parse_param(child, context)?),
             other => {
@@ -393,12 +384,163 @@ fn parse_expression(
     context: &ParseContext<'_>,
 ) -> Result<ExpressionDecl, SourceError> {
     let formula = algebra_text_from_node(node, context)?;
+
+    if let Some((projection, op, target)) = parse_reduce_projection_formula(&formula) {
+        let lowered = format!("__reduce_projection__(\"{projection}\", \"{op}\", \"{target}\")");
+        return Ok(ExpressionDecl {
+            name: first_arg_string(node, 0, context)?,
+            parsed_formula: crate::algebra::Expr::Identifier(lowered.clone()),
+            formula: lowered,
+            abstraction: Some(crate::source::ExpressionAbstractionDecl::ReduceProjection {
+                projection,
+                op,
+                target,
+            }),
+        });
+    }
+
     Ok(ExpressionDecl {
         name: first_arg_string(node, 0, context)?,
         parsed_formula: parse_value_formula(&formula)
             .map_err(|error| algebra_error(node, error.to_string(), context))?,
         formula,
+        abstraction: None,
     })
+}
+
+fn parse_reduce_projection_formula(formula: &str) -> Option<(String, String, String)> {
+    let trimmed = formula.trim();
+    if !trimmed.starts_with("reduce") {
+        return None;
+    }
+    let after_reduce = trimmed["reduce".len()..].trim_start();
+
+    let open_brace_rel = after_reduce.find('{')?;
+    let head = after_reduce[..open_brace_rel].trim();
+    let body_and_tail = &after_reduce[open_brace_rel + 1..];
+    let close_brace_rel = body_and_tail.find('}')?;
+    let body = body_and_tail[..close_brace_rel].trim();
+    let tail = body_and_tail[close_brace_rel + 1..].trim();
+    if !tail.is_empty() {
+        return None;
+    }
+
+    let projection = head.trim_matches('"').trim().to_string();
+    let mut body_parts = body.split_whitespace();
+    let op = body_parts.next()?.trim_matches('"').to_string();
+    let target = body_parts.next()?.trim_matches('"').to_string();
+
+    if projection.is_empty() || op.is_empty() || target.is_empty() || body_parts.next().is_some() {
+        return None;
+    }
+
+    Some((projection, op, target))
+}
+
+fn parse_projection(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<ProjectionDecl, SourceError> {
+    let mut from_domain = None;
+    let mut to_keys = Vec::new();
+
+    for child in node.iter_children() {
+        match child.name().value() {
+            "from" => {
+                from_domain = Some(parse_projection_from_domain(child, context)?);
+            }
+            "to" => {
+                to_keys = parse_projection_to_keys(child, context)?;
+            }
+            other => return Err(unsupported_declaration_error(child, other, context)),
+        }
+    }
+
+    if to_keys.is_empty() {
+        return Err(missing_node_error("to", node, context));
+    }
+
+    Ok(ProjectionDecl {
+        name: first_arg_string(node, 0, context)?,
+        from_domain: from_domain.ok_or_else(|| missing_node_error("from", node, context))?,
+        to_keys,
+    })
+}
+
+fn parse_projection_from_domain(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<String, SourceError> {
+    if let Some(value) = node.get(0) {
+        let Some(value_text) = value.as_string() else {
+            return Err(invalid_value_error(node, "argument 0".to_string(), context));
+        };
+        return Ok(value_text.to_string());
+    }
+
+    let mut nested = node.iter_children();
+    let Some(domain_node) = nested.next() else {
+        return Err(missing_node_error("from", node, context));
+    };
+
+    if nested.next().is_some()
+        || !domain_node.entries().is_empty()
+        || domain_node.children().is_some()
+    {
+        return Err(invalid_value_error(
+            node,
+            "from domain block must contain exactly one bare node".to_string(),
+            context,
+        ));
+    }
+
+    Ok(domain_node.name().value().to_string())
+}
+
+fn parse_projection_to_keys(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<Vec<String>, SourceError> {
+    let values = collect_string_args(node, context)?;
+    if !values.is_empty() {
+        return Ok(values);
+    }
+
+    let mut keys = Vec::new();
+    for key_node in node.iter_children() {
+        if !key_node.entries().is_empty() || key_node.children().is_some() {
+            return Err(invalid_value_error(
+                node,
+                "to key block must contain only bare key nodes".to_string(),
+                context,
+            ));
+        }
+        keys.push(key_node.name().value().to_string());
+    }
+
+    Ok(keys)
+}
+
+fn collect_string_args(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<Vec<String>, SourceError> {
+    let mut values = Vec::new();
+    let mut position = 0;
+
+    while let Some(value) = node.get(position) {
+        let Some(value_text) = value.as_string() else {
+            return Err(invalid_value_error(
+                node,
+                format!("argument {position}"),
+                context,
+            ));
+        };
+        values.push(value_text.to_string());
+        position += 1;
+    }
+
+    Ok(values)
 }
 
 fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<ScenarioDecl, SourceError> {

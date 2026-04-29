@@ -304,11 +304,24 @@ fn tuple_rows_for_rule_subset(
     path: &Path,
     rule_identifier: &str,
 ) -> Result<Vec<Vec<String>>, SemanticError> {
-    let parent_components = parent_set
-        .tuple_components
-        .as_ref()
-        .expect("checked by caller");
-    let parent_rows = parent_set.tuple_rows.as_ref().expect("checked by caller");
+    let parent_components =
+        parent_set
+            .tuple_components
+            .as_ref()
+            .ok_or_else(|| SemanticError::MissingDeclaration {
+                kind: "subset tuple signature",
+                name: set_decl.name.clone(),
+                path: path.to_path_buf(),
+            })?;
+    let parent_rows =
+        parent_set
+            .tuple_rows
+            .as_ref()
+            .ok_or_else(|| SemanticError::MissingDeclaration {
+                kind: "subset tuple rows",
+                name: set_decl.name.clone(),
+                path: path.to_path_buf(),
+            })?;
     let parent_domains = tuple_component_domains_for_resolved_set(parent_set, parent_components);
 
     let mut projection_positions = Vec::with_capacity(set_decl.tuple_indices.len());

@@ -8,6 +8,7 @@ pub struct SourceProgram {
     pub data: Vec<DataDecl>,
     pub models: Vec<ModelDecl>,
     pub sets: Vec<SetDecl>,
+    pub projections: Vec<ProjectionDecl>,
     pub scenarios: Vec<ScenarioDecl>,
 }
 
@@ -41,6 +42,13 @@ pub struct MapDecl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataIndexDecl {
     pub columns: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectionDecl {
+    pub name: String,
+    pub from_domain: String,
+    pub to_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -136,6 +144,16 @@ pub struct ExpressionDecl {
     pub name: String,
     pub formula: String,
     pub parsed_formula: Expr,
+    pub abstraction: Option<ExpressionAbstractionDecl>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExpressionAbstractionDecl {
+    ReduceProjection {
+        projection: String,
+        op: String,
+        target: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

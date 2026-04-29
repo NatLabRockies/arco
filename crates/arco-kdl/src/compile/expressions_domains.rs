@@ -371,6 +371,19 @@ fn linearize_indexed_expr(
         return Ok(AffineExpr::variable(candidate, 1.0));
     }
 
+    if let Some(expression) = named_expressions.get(target) {
+        return linearize_value_expr(
+            expression,
+            bindings,
+            program,
+            inputs,
+            named_expressions,
+            variable_signatures,
+            instantiated_names,
+            entrypoint,
+        );
+    }
+
     // The candidate was not found in the instantiated set. Before falling
     // through to parameter lookup, handle chronology boundary cases for
     // [String, Number] references where the time index is out of range.

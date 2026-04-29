@@ -1062,6 +1062,326 @@ scenario "S1" {
 }
 
 #[test]
+fn semantic_validation_rejects_projection_with_unknown_source_domain()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-projection-unknown-source-domain")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+projection "ai" {
+  from "missing_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("unknown projection source domain should fail semantic validation");
+
+    assert!(error.to_string().contains("missing_links"));
+    assert!(error.to_string().contains("projection source domain"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_projection_with_unknown_target_key()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-projection-unknown-target-key")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "a1" }
+set "tech" { "solar" }
+set "gen" { "g1" }
+set "bus" { "b1" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "gen" }
+  index "b" { in "bus" }
+}
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "z"
+}
+
+model "Dispatch" {
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("unknown projection target key should fail semantic validation");
+
+    assert!(error.to_string().contains("projection target key"));
+    assert!(error.to_string().contains('z'));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_projection_with_non_tuple_source_domain()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-projection-non-tuple-source-domain")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "a1" }
+
+projection "ai" {
+  from "area"
+  to "a"
+}
+
+model "Dispatch" {
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("non-tuple projection source domain should fail semantic validation");
+
+    assert!(
+        error
+            .to_string()
+            .contains("projection source tuple signature")
+    );
+    assert!(error.to_string().contains("area"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_projection_without_dimensional_reduction()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-projection-no-dim-reduction")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "a1" }
+set "tech" { "solar" }
+
+set "feasible_ai" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+projection "ai" {
+  from "feasible_ai"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("identity projection should fail semantic validation");
+
+    assert!(
+        error
+            .to_string()
+            .contains("projection dimensional reduction")
+    );
+    assert!(error.to_string().contains("ai"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_reduce_projection_with_incompatible_target_signature()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-reduce-projection-signature-mismatch")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "a1" }
+set "tech" { "solar" }
+set "gen" { "g1" }
+set "bus" { "b1" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "gen" }
+  index "b" { in "bus" }
+}
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  control "investment" {
+    index "a"
+    index "i"
+  }
+
+  expression "investment_by_area_tech[a,i]" {
+    reduce "ai" {
+      sum "investment"
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("reduce projection target signature mismatch should fail semantic validation");
+
+    assert!(
+        error
+            .to_string()
+            .contains("reduce projection target signature")
+    );
+    assert!(error.to_string().contains("investment"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_accepts_reduce_projection_with_matching_target_signature()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-reduce-projection-signature-match")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "a1" }
+set "tech" { "solar" }
+set "gen" { "g1" }
+set "bus" { "b1" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "gen" }
+  index "b" { in "bus" }
+}
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  control "investment" {
+    index "a"
+    index "i"
+    index "g"
+    index "b"
+  }
+
+  expression "investment_by_area_tech[a,i]" {
+    reduce "ai" {
+      sum "investment"
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    assert_eq!(semantic.active_scenario, "S1");
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn semantic_validation_rejects_reduce_projection_non_sum_operator()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root("semantic-reduce-projection-non-sum")?;
+    let path = root.join("input.kdl");
+    let text = r#"
+set "area" { "a1" }
+set "tech" { "solar" }
+set "gen" { "g1" }
+set "bus" { "b1" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "gen" }
+  index "b" { in "bus" }
+}
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  control "investment" {
+    index "a"
+    index "i"
+    index "g"
+    index "b"
+  }
+
+  expression "investment_by_area_tech[a,i]" {
+    reduce "ai" {
+      avg "investment"
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("non-sum reduce projection operator should fail semantic validation");
+    assert!(error.to_string().contains("reduce projection operation"));
+    assert!(error.to_string().contains("avg"));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
 fn semantic_validation_assigns_stable_scoped_inferred_constraint_ids()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_root("semantic-inferred-constraint-id")?;

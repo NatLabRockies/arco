@@ -1,4 +1,4 @@
-use crate::algebra::collect_named_expression_dependencies;
+use crate::algebra::{ConstraintBody, collect_named_expression_dependencies};
 use crate::semantic::error::SemanticError;
 use crate::semantic::types::{
     ResolvedConstraint, ResolvedDualReport, ResolvedExpression, ResolvedObjective, ResolvedReport,
@@ -91,6 +91,7 @@ pub(crate) fn resolve_active_model_expressions(
     model: &ModelDecl,
     objective: &ResolvedObjective,
     reports: &[ResolvedReport],
+    constraints: &[ResolvedConstraint],
     entrypoint: &Path,
 ) -> Result<Vec<ResolvedExpression>, SemanticError> {
     #[derive(Clone, Copy, PartialEq, Eq)]
@@ -175,6 +176,23 @@ pub(crate) fn resolve_active_model_expressions(
         }
     }
 
+    for constraint in constraints {
+        for dependency in
+            collect_named_expression_dependencies_from_constraint(&constraint.expression)
+        {
+            if expression_index.contains_key(dependency.as_str()) {
+                visit_expression_name(
+                    &dependency,
+                    &expression_index,
+                    &mut resolved,
+                    &mut states,
+                    &mut stack,
+                    entrypoint,
+                )?;
+            }
+        }
+    }
+
     for report in reports {
         if expression_index.contains_key(report.name.as_str()) {
             visit_expression_name(
@@ -214,4 +232,27 @@ pub(crate) fn resolve_active_model_expressions(
         .collect::<Vec<_>>();
     expressions.sort_by_key(|expression| expression.name.clone());
     Ok(expressions)
+}
+
+fn collect_named_expression_dependencies_from_constraint(
+    constraint: &ConstraintBody,
+) -> BTreeSet<String> {
+    match constraint {
+        ConstraintBody::Comparison { left, right, .. } => {
+            let mut names = collect_named_expression_dependencies(left);
+            names.extend(collect_named_expression_dependencies(right));
+            names
+        }
+        ConstraintBody::Range {
+            lower,
+            middle,
+            upper,
+            ..
+        } => {
+            let mut names = collect_named_expression_dependencies(lower);
+            names.extend(collect_named_expression_dependencies(middle));
+            names.extend(collect_named_expression_dependencies(upper));
+            names
+        }
+    }
 }

@@ -220,11 +220,11 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
     let variables = inspect_payload["variable"]
         .as_array()
         .expect("variable array");
-    let dispatch = variables
+    let investment = variables
         .iter()
-        .find(|record| record["name"] == "dispatch")
-        .expect("dispatch variable record");
-    let sets = dispatch["set"].as_array().expect("dispatch set array");
+        .find(|record| record["name"] == "investment")
+        .expect("investment variable record");
+    let sets = investment["set"].as_array().expect("investment set array");
     assert_eq!(
         sets.len(),
         4,
@@ -242,12 +242,12 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
     let constraints = inspect_payload["constraint"]
         .as_array()
         .expect("constraint array");
-    let dispatch_capacity = constraints
+    let investment_capacity = constraints
         .iter()
-        .find(|record| record["name"] == "dispatch_capacity")
-        .expect("dispatch_capacity constraint record");
+        .find(|record| record["name"] == "investment_capacity")
+        .expect("investment_capacity constraint record");
     assert_eq!(
-        dispatch_capacity["instances"],
+        investment_capacity["instances"],
         Value::from(4),
         "tuple-domain constraint instances should track tuple rows, not Cartesian powers"
     );
@@ -278,7 +278,7 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
 
     let counts = summary["counts"].as_object().expect("counts object");
     assert_eq!(counts.get("variables"), Some(&Value::from(1)));
-    assert_eq!(counts.get("constraints"), Some(&Value::from(2)));
+    assert_eq!(counts.get("constraints"), Some(&Value::from(3)));
 }
 
 #[test]

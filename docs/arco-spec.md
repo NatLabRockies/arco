@@ -17,6 +17,7 @@ This document defines the low-level Arco DSL profile authored in KDL 2.0.
 Scope of this specification:
 
 - [`set`](#4-set-declaration-top-level) declarations (explicit domains)
+- [`projection`](#45-projection-declaration-top-level) declarations (named tuple-domain projections)
 - [`data`](#5-data-declaration) declarations (CSV-backed namespaces)
 - [`param`](#31-inline-scalar-parameters) declarations (inline scalar constants)
 - [`param`](#54-param-inside-data) declarations (CSV-backed projection,
@@ -40,6 +41,7 @@ Scope of this specification:
 - [3. Top-level declarations](#3-top-level-declarations)
   - [3.1 Inline scalar parameters](#31-inline-scalar-parameters)
 - [4. `set` declaration (top-level)](#4-set-declaration-top-level)
+- [4.5 `projection` declaration (top-level)](#45-projection-declaration-top-level)
 - [5. `data` declaration](#5-data-declaration)
   - [5.1 `map`](#51-map)
   - [5.2 `set` (inside `data`)](#52-set-inside-data)
@@ -98,7 +100,7 @@ supported. Slashdash (`/-`) comments out an entire node, property, or argument,
 which is useful for toggling declarations during development.
 
 Unknown nodes: Implementations MUST reject unknown top-level node types
-(anything other than `set`, `data`, `param`, `model`, `scenario`). Inside
+(anything other than `set`, `projection`, `data`, `param`, `model`, `scenario`). Inside
 blocks, unknown child node types MUST also fail validation. This ensures forward
 compatibility is explicit: new node types require a spec version bump.
 
@@ -343,9 +345,8 @@ indexed or scalar via a single-row CSV). Inline scalars MUST NOT have `index`,
 
 ## 4. `set` declaration (top-level)
 
-A top-level `set` declares a named domain with explicit members listed inline.
-This is useful for sets that are not backed by a CSV file, for example index
-ranges, scenario labels, or piecewise segments.
+A top-level `set` declares a named domain. It supports either explicit inline
+members or subset/tuple-set forms built from existing sets.
 
 Explicit member list:
 
@@ -369,6 +370,22 @@ Alias:
 set time alias=t { 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12; 13; 14; 15; 16; 17; 18; 19; 20; 21; 22; 23; 24 }
 ```
 
+Subset/tuple-set form:
+
+```kdl
+set "priority_links" {
+  in "feasible_links"
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "generators" }
+  index "b" { in "buses" }
+  filter { area == "south" }
+}
+```
+
+In this form, `in` identifies the parent tuple set, `index` declares the tuple
+signature, and `filter` (optional) narrows rows.
+
 Top-level sets are globally visible, just like sets declared inside `data`
 blocks. They can be used in any model, constraint, or algebra expression.
 
@@ -376,6 +393,26 @@ Top-level sets and data-level sets share a single namespace. A top-level `set`
 MUST NOT have the same name as a set declared inside a `data` block.
 
 ---
+
+## 4.5 `projection` declaration (top-level)
+
+`projection` declares a named lower-dimensional tuple domain derived from a
+parent tuple set.
+
+```kdl
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+```
+
+Semantics:
+
+- `from` MUST reference an existing tuple-domain set.
+- `to` MUST list one or more tuple component names present on the parent tuple
+  signature, in parent declaration order.
+- Projected rows are deduplicated by value.
+- Projection names MUST be unique in the top-level namespace.
 
 ## 5. `data` declaration
 
@@ -417,6 +454,7 @@ Allowed children:
 ```
 map <logical_name>
 map <logical_name> from=<source_header>
+alias <logical_name> column=<source_header>
 ```
 
 Semantics:
@@ -425,6 +463,8 @@ Semantics:
   MUST exist in the CSV.
 - Mapping is optional. Unmapped columns remain available.
 - Duplicate logical targets MUST fail validation.
+- `alias <logical_name> column=<source_header>` is accepted as an equivalent
+  spelling of `map <logical_name> from=<source_header>`.
 
 ### 5.2 `set` (inside `data`)
 
@@ -438,6 +478,7 @@ constraint, or algebra expression in the document.
 ```
 set <name>
 set <name> alias=<short>
+set <name> as=<short>
 set <name> {
   in <parent_set>
 }
@@ -450,8 +491,8 @@ set <name> {
 Semantics:
 
 - `set class` extracts unique values from the `class` column.
-- `alias` provides a short set reference that MAY be used wherever a set
-  reference is expected (`index=` property, `index` children,
+- `alias` (or equivalent `as`) provides a short set reference that MAY be used
+  wherever a set reference is expected (`index=` property, `index` children,
   `index ... { in ... }`, and algebra iteration domains). Example:
   `set asset_id alias=a` allows `param capacity { index a }`,
   `index a_idx { in a }`, and `dispatch[a,t]`.
@@ -1123,6 +1164,27 @@ references but are not bound by a `for` clause in a reduction) are resolved at
 the point of use. When an expression is referenced inside a constraint with
 `index` clauses, the constraint's iteration variables are in scope for the
 expression body.
+
+Projection-reduce expression form:
+
+```kdl
+expression "investment_by_area_tech" {
+  reduce "ai" {
+    sum "investment"
+  }
+}
+```
+
+This form aggregates a higher-dimensional control onto a named projection
+domain.
+
+Rules:
+
+- the projection name (`"ai"` above) MUST resolve to a declared `projection`.
+- the body MUST contain exactly one reduction operation.
+- currently supported operation is `sum`.
+- the reduction target (`"investment"` above) MUST have a tuple signature
+  compatible with the projection source and target dimensions.
 
 ### 6.5 `constraint`
 

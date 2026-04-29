@@ -217,6 +217,137 @@ scenario Base {
 }
 
 #[test]
+fn parses_top_level_projection_declaration() -> Result<(), Box<dyn std::error::Error>> {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    assert_eq!(parsed.program.projections.len(), 1);
+
+    let projection = &parsed.program.projections[0];
+    assert_eq!(projection.name, "ai");
+    assert_eq!(projection.from_domain, "feasible_links");
+    assert_eq!(projection.to_keys, vec!["a", "i"]);
+
+    Ok(())
+}
+
+#[test]
+fn parses_top_level_projection_declaration_with_domain_and_key_blocks()
+-> Result<(), Box<dyn std::error::Error>> {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+projection "ai" {
+  from { "feasible_links" }
+  to { "a"; "i" }
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    assert_eq!(parsed.program.projections.len(), 1);
+
+    let projection = &parsed.program.projections[0];
+    assert_eq!(projection.name, "ai");
+    assert_eq!(projection.from_domain, "feasible_links");
+    assert_eq!(projection.to_keys, vec!["a", "i"]);
+
+    Ok(())
+}
+
+#[test]
+fn parses_expression_reduce_projection_block_form() -> Result<(), Box<dyn std::error::Error>> {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  expression "investment_by_area_tech[a,i]" {
+    reduce "ai" {
+      sum "investment"
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let parsed = parse_program_text(text, &path)?;
+    let model = parsed.program.model("Dispatch").ok_or("missing model")?;
+    let expression = model.expressions.first().ok_or("missing expression")?;
+
+    assert!(expression.abstraction.is_some());
+    assert!(expression.formula.contains("__reduce_projection__"));
+
+    Ok(())
+}
+
+#[test]
+fn rejects_expression_reduce_with_mixed_sibling_math() {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  expression "investment_by_area_tech[a,i]" {
+    reduce "ai" { sum "investment" } + 1
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let error = parse_program_text(text, &path)
+        .expect_err("mixed reduce and sibling math should fail parse");
+    assert!(error.to_string().contains("expression"));
+}
+
+#[test]
+fn rejects_expression_with_prefixed_math_before_reduce() {
+    let path = PathBuf::from("test.kdl");
+    let text = r#"
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  expression "investment_by_area_tech[a,i]" {
+    1 + reduce "ai" { sum "investment" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#;
+
+    let error =
+        parse_program_text(text, &path).expect_err("prefixed math before reduce should fail parse");
+    assert!(error.to_string().contains("expression"));
+}
+
+#[test]
 fn rejects_unsupported_top_level_declarations() {
     let path = PathBuf::from("test.kdl");
     let cases = [
