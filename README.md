@@ -262,6 +262,7 @@ arco <command> [options]
 | :-------------------------- | :--------------------------------------------------- |
 | `arco run <file>`           | Compile and solve a `.kdl` formulation               |
 | `arco validate <file>`      | Validate a `.kdl` file without solving               |
+| `arco --version`            | Print the installed Arco CLI version                 |
 | `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters) |
 | `arco print-model <file>`   | Print the algebraic model sent to the solver         |
 | `arco export <file>`        | Export as LP or MPS format                           |
@@ -275,7 +276,14 @@ Validate without solving:
 
 ```bash
 $ arco validate input.kdl
-Validated file://input.kdl in 4ms (arco 0.4.0)
+Validated file://input.kdl in 4ms (arco 0.5.0)
+```
+
+Print CLI version:
+
+```bash
+$ arco --version
+arco 0.5.0
 ```
 
 Inspect the semantic model:

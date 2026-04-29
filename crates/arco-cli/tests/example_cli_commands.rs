@@ -29,6 +29,22 @@ fn unique_temp_dir(prefix: &str) -> PathBuf {
 }
 
 #[test]
+fn version_flag_prints_arco_version() {
+    let output = run_cli(&["--version"]);
+    assert!(
+        output.status.success(),
+        "command failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("arco {}\n", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
 fn inspect_produces_valid_toml() {
     let model_path = example_path("examples/capacity-expansion/input.kdl");
     let model = model_path
