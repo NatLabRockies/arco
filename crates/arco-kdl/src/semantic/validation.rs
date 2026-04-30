@@ -523,9 +523,10 @@ fn expand_parameter_indices_with_tuple_shorthand(
         return indices.to_vec();
     }
 
-    tuple_components_for_symbol(&indices[0], set_registry, set_aliases)
-        .map(|(_, tuple_components)| tuple_components.to_vec())
-        .unwrap_or_else(|| indices.to_vec())
+    tuple_components_for_symbol(&indices[0], set_registry, set_aliases).map_or_else(
+        || indices.to_vec(),
+        |(_, tuple_components)| tuple_components.to_vec(),
+    )
 }
 
 fn expand_index_decls_with_tuple_shorthand(
