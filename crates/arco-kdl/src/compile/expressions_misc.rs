@@ -1,13 +1,3 @@
-fn coerce_numeric_filter_value(value: FilterValue) -> FilterValue {
-    match value {
-        FilterValue::String(text) => text
-            .parse::<f64>()
-            .map(FilterValue::Number)
-            .unwrap_or(FilterValue::String(text)),
-        other => other,
-    }
-}
-
 fn integer_time_index(value: &FilterValue, entrypoint: &Path) -> Result<i64, CompileError> {
     match value {
         FilterValue::Number(number) => {
@@ -44,7 +34,7 @@ fn resolve_index_expr(
     match expr {
         Expr::Identifier(name) => {
             if let Some(value) = bindings.values.get(name) {
-                return Ok(coerce_numeric_filter_value(value.clone()));
+                return Ok(value.clone());
             }
             // Fall back to named expressions (covers inline scalar params).
             if let Some(Expr::Number(value)) = named_expressions.get(name) {
