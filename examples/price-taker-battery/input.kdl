@@ -33,28 +33,6 @@ data price_curve source="data/prices.csv" {
 model price_taker_battery {
   set time alias="t"
 
-  param power_mw {
-    index asset_id
-  }
-  param energy_mwh {
-    index asset_id
-  }
-  param charge_efficiency {
-    index asset_id
-  }
-  param discharge_efficiency {
-    index asset_id
-  }
-  param initial_soc_mwh {
-    index asset_id
-  }
-  param terminal_soc_mwh {
-    index asset_id
-  }
-  param prices {
-    index time
-  }
-
   control charge {
     index asset_id
     index time

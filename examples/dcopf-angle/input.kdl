@@ -57,30 +57,6 @@ data incidence_data source="data/incidence.csv" {
 }
 
 model DCOPFAngle {
-  set bus alias="b"
-  set generators alias="g"
-  set lines alias="l"
-
-  param pd index="bus"
-  param is_slack index="bus"
-
-  param b index="generators"
-  param pmin index="generators"
-  param pmax index="generators"
-
-  param connected {
-    index bus
-    index generators
-  }
-
-  param bij index="lines"
-  param limit_mw index="lines"
-
-  param incidence {
-    index lines
-    index bus
-  }
-
   control pg lower=0 {
     index generators
   }

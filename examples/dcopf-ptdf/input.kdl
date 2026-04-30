@@ -57,29 +57,6 @@ data ptdf_data source="data/ptdf.csv" {
 }
 
 model DCOPFPTDF {
-  set bus alias="b"
-  set generators alias="g"
-  set lines alias="l"
-
-  param pd index="bus"
-  param is_slack index="bus"
-
-  param b index="generators"
-  param pmin index="generators"
-  param pmax index="generators"
-
-  param connected {
-    index bus
-    index generators
-  }
-
-  param limit_mw index="lines"
-
-  param ptdf {
-    index lines
-    index bus
-  }
-
   control pg lower=0 {
     index generators
   }

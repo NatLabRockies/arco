@@ -13,9 +13,6 @@ data demand_data source="data/demand.csv" {
 model generator_allocation {
   set time alias="t"
 
-  param variable_cost index="asset_id"
-  param demand index="time"
-
   control dispatch lower=0 {
     index asset_id
     index time

@@ -8,6 +8,10 @@ Most example folders follow the same layout:
 - `data/`, CSV fixtures loaded by the model
 - optional helper scripts such as `formulation.py` for cross-checks or benchmark generation
 
+Design note used across examples: top-level `data` params/sets are globally visible,
+so models do not re-declare them. Examples now prefer explicit subset declarations
+(`set ... { in ... }`) for scoped domains instead of duplicating declarations.
+
 ## Quick start
 
 From the repository root, validate, inspect, print, or solve an example with `arco-cli`:

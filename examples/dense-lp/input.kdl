@@ -14,10 +14,6 @@ data dense_lp_cols source="data/indices.csv" {
 }
 
 model dense_lp {
-  param row_value {
-    index rows
-  }
-
   control x lower=-1e20 upper=1e20 {
     index rows
     index cols
