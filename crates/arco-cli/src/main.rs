@@ -19,7 +19,8 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     name = "arco",
-    about = "Algebraic optimization DSL compiler and solver"
+    about = "Algebraic optimization DSL compiler and solver",
+    version = env!("CARGO_PKG_VERSION")
 )]
 struct Cli {
     #[command(subcommand)]
