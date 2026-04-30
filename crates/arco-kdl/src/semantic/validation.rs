@@ -60,15 +60,6 @@ pub fn validate_program(
     let mut series_parameters = BTreeSet::new();
     let mut indexed_parameters = BTreeSet::new();
     let mut asset_parameters = BTreeSet::new();
-    for parameter in &model.parameters {
-        classify_parameter_indices(
-            &parameter.name,
-            &parameter.indices,
-            &mut series_parameters,
-            &mut indexed_parameters,
-            &mut asset_parameters,
-        );
-    }
 
     let active_constraints = model
         .constraints
@@ -130,8 +121,31 @@ pub fn validate_program(
         extend_set_registry_from_low_level_declarations(program, entry_dir, &mut set_registry)?;
     }
 
+    let set_aliases = collect_set_aliases(program, Some(model));
+
+    for parameter in &model.parameters {
+        let normalized_indices = expand_parameter_indices_with_tuple_shorthand(
+            &parameter.indices,
+            &set_registry,
+            &set_aliases,
+        );
+        classify_parameter_indices(
+            &parameter.name,
+            &normalized_indices,
+            &mut series_parameters,
+            &mut indexed_parameters,
+            &mut asset_parameters,
+        );
+    }
+
     validate_projection_source_domains(program, &set_registry, entrypoint)?;
-    validate_reduce_projection_expressions(model, program, &set_registry, entrypoint)?;
+    validate_reduce_projection_expressions(
+        model,
+        program,
+        &set_registry,
+        &set_aliases,
+        entrypoint,
+    )?;
     lower_reduce_projection_expressions(
         &mut active_expressions,
         model,
@@ -139,6 +153,19 @@ pub fn validate_program(
         &set_registry,
         entrypoint,
     )?;
+
+    let variable_families = model
+        .controls
+        .iter()
+        .map(|control| {
+            let expanded_indices = expand_index_decls_with_tuple_shorthand(
+                &control.indices,
+                &set_registry,
+                &set_aliases,
+            );
+            FamilySignature::from_index_decls(&control.name, &expanded_indices)
+        })
+        .collect::<Vec<_>>();
 
     let time_steps = set_registry
         .get("time")
@@ -155,18 +182,14 @@ pub fn validate_program(
         active_scenario: scenario.name.clone(),
         sets: resolved_sets,
         set_registry,
-        set_aliases: collect_set_aliases(program, Some(model)),
+        set_aliases: set_aliases.clone(),
         set_params: BTreeMap::new(),
         parameters: ResolvedParameters {
             series: series_parameters.into_iter().collect(),
             indexed: indexed_parameters.into_iter().collect(),
             asset: asset_parameters.into_iter().collect(),
         },
-        variable_families: model
-            .controls
-            .iter()
-            .map(|control| FamilySignature::from_index_decls(&control.name, &control.indices))
-            .collect(),
+        variable_families,
         variable_overrides: collect_control_overrides(
             model
                 .controls
@@ -217,6 +240,7 @@ fn validate_reduce_projection_expressions(
     model: &ModelDecl,
     program: &SourceProgram,
     set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
+    set_aliases: &BTreeMap<String, String>,
     entrypoint: &Path,
 ) -> Result<(), SemanticError> {
     let projections = program
@@ -264,8 +288,12 @@ fn validate_reduce_projection_expressions(
                 path: entrypoint.to_path_buf(),
             })?;
 
-        let target_indices = target_family
-            .indices
+        let expanded_target_indices = expand_index_decls_with_tuple_shorthand(
+            &target_family.indices,
+            set_registry,
+            set_aliases,
+        );
+        let target_indices = expanded_target_indices
             .iter()
             .map(|index| index.name.as_str())
             .collect::<Vec<_>>();
@@ -484,6 +512,77 @@ fn validate_model_parameters_resolved(
     }
 
     Ok(())
+}
+
+fn expand_parameter_indices_with_tuple_shorthand(
+    indices: &[String],
+    set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
+    set_aliases: &BTreeMap<String, String>,
+) -> Vec<String> {
+    if indices.len() != 1 {
+        return indices.to_vec();
+    }
+
+    let symbol = &indices[0];
+    let Some(set_key) = resolve_set_registry_key(symbol, set_registry, set_aliases) else {
+        return indices.to_vec();
+    };
+    let Some(set) = set_registry.get(set_key) else {
+        return indices.to_vec();
+    };
+    let Some(tuple_components) = set.tuple_components.as_ref() else {
+        return indices.to_vec();
+    };
+
+    tuple_components.clone()
+}
+
+fn expand_index_decls_with_tuple_shorthand(
+    decls: &[crate::source::IndexDecl],
+    set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
+    set_aliases: &BTreeMap<String, String>,
+) -> Vec<crate::source::IndexDecl> {
+    let mut expanded = Vec::new();
+
+    for decl in decls {
+        let domain_name = decl.domain.as_deref().unwrap_or(decl.name.as_str());
+        let uses_shorthand = decl.name == domain_name;
+        if uses_shorthand {
+            if let Some(set_key) = resolve_set_registry_key(domain_name, set_registry, set_aliases)
+            {
+                if let Some(tuple_components) = set_registry
+                    .get(set_key)
+                    .and_then(|set| set.tuple_components.as_ref())
+                {
+                    expanded.extend(tuple_components.iter().map(|component| {
+                        crate::source::IndexDecl {
+                            name: component.clone(),
+                            domain: Some(set_key.to_string()),
+                        }
+                    }));
+                    continue;
+                }
+            }
+        }
+
+        expanded.push(decl.clone());
+    }
+
+    expanded
+}
+
+fn resolve_set_registry_key<'a>(
+    name: &str,
+    set_registry: &'a BTreeMap<String, crate::semantic::ResolvedSet>,
+    set_aliases: &BTreeMap<String, String>,
+) -> Option<&'a str> {
+    if let Some((key, _)) = set_registry.get_key_value(name) {
+        return Some(key.as_str());
+    }
+
+    let canonical = set_aliases.get(name)?;
+    let (key, _) = set_registry.get_key_value(canonical)?;
+    Some(key.as_str())
 }
 
 fn classify_parameter_indices(

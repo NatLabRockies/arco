@@ -362,8 +362,14 @@ fn resolve_param_key_columns(
     parameter: &ParamDecl,
 ) -> Vec<String> {
     if !parameter.indices.is_empty() {
-        return parameter
-            .indices
+        let indices = if parameter.indices.len() == 1 {
+            expand_tuple_param_index_shorthand(source_program, data_decl, &parameter.indices[0])
+                .unwrap_or_else(|| parameter.indices.clone())
+        } else {
+            parameter.indices.clone()
+        };
+
+        return indices
             .iter()
             .map(|index| canonical_data_set_name(source_program, data_decl, index))
             .map(|index| resolve_data_column(data_decl, index.as_str()))
@@ -385,6 +391,37 @@ fn resolve_param_key_columns(
     }
 
     Vec::new()
+}
+
+fn expand_tuple_param_index_shorthand(
+    source_program: &SourceProgram,
+    data_decl: &DataDecl,
+    symbol: &str,
+) -> Option<Vec<String>> {
+    let canonical = canonical_data_set_name(source_program, data_decl, symbol);
+
+    data_decl
+        .sets
+        .iter()
+        .chain(source_program.sets.iter())
+        .find(|set| set.name == canonical)
+        .and_then(|set| {
+            if set.tuple_indices.is_empty() {
+                None
+            } else {
+                Some(
+                    set.tuple_indices
+                        .iter()
+                        .map(|index| {
+                            index
+                                .domain
+                                .clone()
+                                .unwrap_or_else(|| index.name.clone())
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            }
+        })
 }
 
 fn canonical_data_set_name(

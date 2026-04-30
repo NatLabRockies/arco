@@ -65,7 +65,11 @@ fn expand_tuple_generation_bindings(
         .iter()
         .map(|binding| binding.variable.clone())
         .collect::<Vec<_>>();
-    if tuple_components != &received_components {
+    let uses_tuple_shorthand = bindings.len() == 1 && {
+        let binding = &bindings[0];
+        binding.variable == binding.domain
+    };
+    if !uses_tuple_shorthand && tuple_components != &received_components {
         return Err(CompileError::InvalidFormulation {
             message: tuple_domain_index_order_mismatch_message(
                 binding_context,
@@ -79,11 +83,11 @@ fn expand_tuple_generation_bindings(
 
     let mut scopes = Vec::with_capacity(tuple_rows.len());
     for row in tuple_rows {
-        if row.len() != bindings.len() {
+        if row.len() != tuple_components.len() {
             return Err(CompileError::InvalidFormulation {
                 message: format!(
                     "tuple row arity mismatch for `{binding_context}`: expected `{}`, received `{}`",
-                    bindings.len(),
+                    tuple_components.len(),
                     row.len()
                 ),
                 path: entrypoint.to_path_buf(),
@@ -91,10 +95,18 @@ fn expand_tuple_generation_bindings(
         }
 
         let mut scope = LinearizationBindings::default();
-        for (binding, value) in bindings.iter().zip(row.iter()) {
-            scope
-                .values
-                .insert(binding.variable.clone(), FilterValue::String(value.clone()));
+        if uses_tuple_shorthand {
+            for (component, value) in tuple_components.iter().zip(row.iter()) {
+                scope
+                    .values
+                    .insert(component.clone(), FilterValue::String(value.clone()));
+            }
+        } else {
+            for (binding, value) in bindings.iter().zip(row.iter()) {
+                scope
+                    .values
+                    .insert(binding.variable.clone(), FilterValue::String(value.clone()));
+            }
         }
         scopes.push(scope);
     }
@@ -358,10 +370,21 @@ fn linearize_indexed_expr(
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<AffineExpr, CompileError> {
-    let resolved = indices
-        .iter()
-        .map(|index| resolve_index_expr(index, bindings, named_expressions, entrypoint))
-        .collect::<Result<Vec<_>, _>>()?;
+    let resolved = if indices.len() == 1 {
+        if let Some(tuple_key_values) = resolve_tuple_key_index(indices, bindings, program) {
+            tuple_key_values
+        } else {
+            indices
+                .iter()
+                .map(|index| resolve_index_expr(index, bindings, named_expressions, entrypoint))
+                .collect::<Result<Vec<_>, _>>()?
+        }
+    } else {
+        indices
+            .iter()
+            .map(|index| resolve_index_expr(index, bindings, named_expressions, entrypoint))
+            .collect::<Result<Vec<_>, _>>()?
+    };
 
     // Compute the candidate instance name using the same conventions as
     // instantiate_variable_instances / resolve_custom_index_domains.
@@ -424,4 +447,28 @@ fn linearize_indexed_expr(
     }
 
     parameter_reference_expr(target, &resolved, inputs, entrypoint)
+}
+
+fn resolve_tuple_key_index(
+    indices: &[Expr],
+    bindings: &LinearizationBindings,
+    program: &SemanticProgram,
+) -> Option<Vec<FilterValue>> {
+    let index = indices.first()?;
+    let Expr::Identifier(tuple_domain) = index else {
+        return None;
+    };
+
+    let reverse_aliases = build_reverse_alias_lookup(program);
+    let key = resolve_set_registry_key(tuple_domain, program, &reverse_aliases)?;
+    let set = resolve_set_struct_by_name(key, program, &reverse_aliases)?;
+    let tuple_components = set.tuple_components.as_ref()?;
+
+    let mut resolved = Vec::with_capacity(tuple_components.len());
+    for component in tuple_components {
+        let value = bindings.values.get(component)?;
+        resolved.push(value.clone());
+    }
+
+    Some(resolved)
 }

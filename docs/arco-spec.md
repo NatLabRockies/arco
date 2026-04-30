@@ -524,6 +524,10 @@ Tuple-domain membership semantics (non-Cartesian):
   bindings like `index a { in tuple_set }`, `index b { in tuple_set }`, ... in
   the same generated family/constraint refer to membership in the same tuple
   rows.
+- `index tuple_set` is shorthand for tuple unpacking in generated
+  constraints/control/param declarations: tuple components are brought into
+  scope from the tuple-domain set declaration, and expansion still follows tuple
+  rows (not Cartesian products).
 - Implementations MUST NOT expand those bindings as a Cartesian product over
   tuple components.
 - Projection to lower-dimensional domains is explicit: define a named subset
@@ -2576,18 +2580,23 @@ constraint bodies. Prefer `<=` or `>=` in all constraint algebra.
 
 ### 12.4 Indexing
 
-| Form       | Description                |
-| ---------- | -------------------------- |
-| `x[a]`     | single-dimension index     |
-| `x[a,t]`   | multi-dimension index      |
-| `x[a,t-1]` | temporal offset (backward) |
-| `x[a,t+1]` | temporal offset (forward)  |
+| Form                | Description                                  |
+| ------------------- | -------------------------------------------- |
+| `x[a]`              | single-dimension index                       |
+| `x[a,t]`            | multi-dimension index                        |
+| `x[feasible_links]` | tuple-key index (set-name key for tuple row) |
+| `x[a,t-1]`          | temporal offset (backward)                   |
+| `x[a,t+1]`          | temporal offset (forward)                    |
 
 Temporal offsets (`t-1`, `t+1`) are valid on ordered sets (typically the `time`
 set). Offsets are restricted to literal integers (e.g., `t-1`, `t+2`); variable
 or parameter-dependent offsets (e.g., `t-lag[g]`) are not supported. Constraints
 using temporal offsets MUST include an `if` guard to exclude boundary steps
 where the offset would be out-of-range (see [§6.5](#65-constraint)).
+
+Tuple-key indexing uses set-name tokens (for example `x[feasible_links]` or
+`x[priority_links]`) and is equivalent to expanded component indexing when the
+referenced tuple set is compatible with the symbol's tuple signature.
 
 ### 12.5 Reductions
 
