@@ -358,7 +358,7 @@ fn build_variable_records(
                 kind,
                 lower,
                 upper,
-                set: build_family_set_bindings(family, set_sizes, &program.set_aliases),
+                set: build_family_set_bindings(family, program, set_sizes, &program.set_aliases),
             }
         })
         .collect()
@@ -428,6 +428,7 @@ fn render_bound(bound: &arco_kdl::source::BoundExpr) -> BoundValue {
 
 fn build_family_set_bindings(
     family: &FamilySignature,
+    program: &SemanticProgram,
     set_sizes: &BTreeMap<&str, usize>,
     set_aliases: &BTreeMap<String, String>,
 ) -> Vec<SetBinding> {
@@ -440,7 +441,9 @@ fn build_family_set_bindings(
                 .get(index)
                 .cloned()
                 .unwrap_or_else(|| index.clone());
-            let size = lookup_set_size(set_sizes, set_aliases, set_name.as_str());
+            let size =
+                tuple_component_domain_size(program, set_sizes, set_aliases, &set_name, index)
+                    .unwrap_or_else(|| lookup_set_size(set_sizes, set_aliases, set_name.as_str()));
             let alias = if index == &set_name {
                 None
             } else {
@@ -453,6 +456,27 @@ fn build_family_set_bindings(
             }
         })
         .collect()
+}
+
+fn tuple_component_domain_size(
+    program: &SemanticProgram,
+    set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
+    set_name: &str,
+    component: &str,
+) -> Option<usize> {
+    let canonical_set = canonical_set_name(set_name, set_aliases);
+    let tuple_set = program.set_registry.get(canonical_set)?;
+    let tuple_components = tuple_set.tuple_components.as_ref()?;
+    let component_position = tuple_components.iter().position(|name| name == component)?;
+
+    let domain_name = tuple_set
+        .tuple_component_domains
+        .as_ref()
+        .and_then(|domains| domains.get(component_position))
+        .map_or(component, String::as_str);
+
+    lookup_set_size_option(set_sizes, set_aliases, domain_name)
 }
 
 // ─── Parameter builder ───────────────────────────────────────────

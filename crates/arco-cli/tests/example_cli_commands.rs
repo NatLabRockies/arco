@@ -248,10 +248,19 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
     );
     for binding in sets {
         assert_eq!(binding["name"], "feasible_links");
+
+        let expected_size = match binding["as"].as_str().expect("tuple binding alias") {
+            "a" => 2,
+            "i" => 3,
+            "g" => 5,
+            "b" => 4,
+            other => panic!("unexpected tuple binding alias: {other}"),
+        };
+
         assert_eq!(
             binding["size"],
-            Value::from(4),
-            "tuple-domain binding should use tuple-row cardinality"
+            Value::from(expected_size),
+            "tuple-domain binding should use tuple-component domain size"
         );
     }
 
