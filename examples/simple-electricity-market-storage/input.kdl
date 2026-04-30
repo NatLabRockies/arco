@@ -25,14 +25,6 @@ data load_data source="data/load.csv" {
 model SouthAfricaSingleZoneDispatch {
   set time alias="t"
 
-  param capacity_mw index="asset_id"
-  param marginal_cost index="asset_id"
-  param availability {
-    index asset_id
-    index time
-  }
-  param load index="time"
-
   control dispatch {
     index asset_id
     index time

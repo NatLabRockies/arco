@@ -40,28 +40,6 @@ data voll_data source="data/voll.csv" {
 model capacity_expansion {
   set time alias="t"
 
-  param existing_capacity_mw {
-    index asset_id
-  }
-  param max_build_mw {
-    index asset_id
-  }
-  param build_cost {
-    index asset_id
-  }
-  param variable_cost {
-    index asset_id
-  }
-  param is_candidate {
-    index asset_id
-  }
-  param demand {
-    index time
-  }
-  param voll {
-    index time
-  }
-
   control dispatch {
     index asset_id
     index time

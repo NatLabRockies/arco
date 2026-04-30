@@ -42,31 +42,7 @@ data timeseries source="data/timeseries.csv" {
 }
 
 model DEDESSWindLinearized {
-  set generators alias="g"
-  set storage alias="s"
   set time alias="t"
-
-  param a index="generators"
-  param b index="generators"
-  param c index="generators"
-  param d index="generators"
-  param e index="generators"
-  param f index="generators"
-  param p_min index="generators"
-  param p_max index="generators"
-  param ru index="generators"
-  param rd index="generators"
-
-  param power_mw index="storage"
-  param energy_mwh index="storage"
-  param charge_efficiency index="storage"
-  param discharge_efficiency index="storage"
-  param initial_soc_mwh index="storage"
-  param terminal_soc_mwh index="storage"
-
-  param lambda index="time"
-  param load index="time"
-  param wind index="time"
 
   control p {
     index generators
