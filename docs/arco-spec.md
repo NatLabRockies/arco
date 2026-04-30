@@ -938,6 +938,19 @@ binding or a top-level `set` declaration.
 
 Model parameters are declared with index intent.
 
+> [!NOTE]
+>
+> - Single-source design: parameters declared in top-level `data` blocks are
+>   globally visible in model algebra.
+> - Therefore, model-level `param` declarations are OPTIONAL when they only
+>   duplicate top-level `data` params.
+> - Authors SHOULD avoid duplicate declarations and keep one source of truth in
+>   `data` unless they intentionally want explicit model-interface metadata.
+>
+> Example (no model redeclaration required): if
+> `data generators { param capacity_mw index=gen }` is declared, then
+> `capacity_mw[g]` can be referenced directly in constraints/objectives.
+
 Single-dimension:
 
 ```
@@ -1644,6 +1657,11 @@ Dual report output structure:
   in the document can use them directly in algebra without redeclaration.
 - Scenario-level `data` without children is a simple CSV-to-model-parameter
   binding scoped to that scenario only.
+
+Design intent: Arco uses a single-source declaration model. Declare a logical
+`set`/`param` once in top-level `data`, then reference it directly from models
+and algebra. Re-declaring the same parameter in a model is allowed for
+compatibility, but SHOULD be avoided in new formulations to prevent drift.
 
 The parser distinguishes these by context: top-level `data` has a `{ ... }`
 block, scenario-level `data` does not.
