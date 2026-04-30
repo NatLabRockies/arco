@@ -1052,6 +1052,116 @@ fn lowering_example_nodal_allocation_preserves_sparse_tuple_membership()
 }
 
 #[test]
+fn lowering_preserves_numeric_tuple_index_labels_in_expression_lookups()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("numeric-tuple-index-labels")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,bus,gen,mw_target\n1.0,solar,bus_101,solar_1,50\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "distance" source="data/links.csv" {
+  alias "buses" column="bus"
+  alias "generators" column="gen"
+
+  set "area" as="a"
+  set "tech" as="i"
+  set "buses" as="b"
+  set "generators" as="g"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "b" { in "buses" }
+    index "g" { in "generators" }
+  }
+
+  param "mw_target" {
+    index "a"
+    index "i"
+    reduce "max"
+  }
+}
+
+set "feasible_ai" {
+  in "feasible_links"
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+projection name="ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "NodalAllocation" {
+  param "mw_target" {
+    index "a"
+    index "i"
+  }
+
+  control "nodal_site_capacity_variable" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+  }
+
+  expression "allocated_capacity" {
+    reduce "ai" {
+      sum "nodal_site_capacity_variable"
+    }
+  }
+
+  constraint "capacity_target" {
+    index "a" { in "feasible_ai" }
+    index "i" { in "feasible_ai" }
+
+    expression {
+      allocated_capacity[a,i] >= mw_target[a,i]
+    }
+  }
+
+  minimize "TotalCost" { 0 }
+}
+
+scenario "NodalAllocationDay" {
+  use "NodalAllocation"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    assert!(
+        compiled
+            .algebra
+            .variable_instances
+            .iter()
+            .any(|instance| instance.name
+                == "nodal_site_capacity_variable[1.0,solar,bus_101,solar_1]")
+    );
+
+    let capacity_constraints = compiled
+        .algebra
+        .constraints
+        .iter()
+        .filter(|constraint| constraint.name.starts_with("capacity_target"))
+        .count();
+    assert_eq!(capacity_constraints, 1);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
 fn lowering_reports_scoped_inferred_constraint_ids_in_tuple_projection_errors()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_test_dir("tuple-projection-scoped-constraint-id")?;
