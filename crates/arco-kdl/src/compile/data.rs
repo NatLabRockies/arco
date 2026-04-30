@@ -405,22 +405,17 @@ fn expand_tuple_param_index_shorthand(
         .iter()
         .chain(source_program.sets.iter())
         .find(|set| set.name == canonical)
-        .and_then(|set| {
-            if set.tuple_indices.is_empty() {
-                None
-            } else {
-                Some(
-                    set.tuple_indices
-                        .iter()
-                        .map(|index| {
-                            index
-                                .domain
-                                .clone()
-                                .unwrap_or_else(|| index.name.clone())
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            }
+        .and_then(|set| (!set.tuple_indices.is_empty()).then_some(&set.tuple_indices))
+        .map(|tuple_indices| {
+            tuple_indices
+                .iter()
+                .map(|index| {
+                    index
+                        .domain
+                        .clone()
+                        .unwrap_or_else(|| index.name.clone())
+                })
+                .collect::<Vec<_>>()
         })
 }
 

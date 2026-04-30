@@ -523,18 +523,9 @@ fn expand_parameter_indices_with_tuple_shorthand(
         return indices.to_vec();
     }
 
-    let symbol = &indices[0];
-    let Some(set_key) = resolve_set_registry_key(symbol, set_registry, set_aliases) else {
-        return indices.to_vec();
-    };
-    let Some(set) = set_registry.get(set_key) else {
-        return indices.to_vec();
-    };
-    let Some(tuple_components) = set.tuple_components.as_ref() else {
-        return indices.to_vec();
-    };
-
-    tuple_components.clone()
+    tuple_components_for_symbol(&indices[0], set_registry, set_aliases)
+        .map(|(_, tuple_components)| tuple_components.to_vec())
+        .unwrap_or_else(|| indices.to_vec())
 }
 
 fn expand_index_decls_with_tuple_shorthand(
@@ -548,20 +539,16 @@ fn expand_index_decls_with_tuple_shorthand(
         let domain_name = decl.domain.as_deref().unwrap_or(decl.name.as_str());
         let uses_shorthand = decl.name == domain_name;
         if uses_shorthand {
-            if let Some(set_key) = resolve_set_registry_key(domain_name, set_registry, set_aliases)
+            if let Some((set_key, tuple_components)) =
+                tuple_components_for_symbol(domain_name, set_registry, set_aliases)
             {
-                if let Some(tuple_components) = set_registry
-                    .get(set_key)
-                    .and_then(|set| set.tuple_components.as_ref())
-                {
-                    expanded.extend(tuple_components.iter().map(|component| {
-                        crate::source::IndexDecl {
-                            name: component.clone(),
-                            domain: Some(set_key.to_string()),
-                        }
-                    }));
-                    continue;
-                }
+                expanded.extend(tuple_components.iter().map(|component| {
+                    crate::source::IndexDecl {
+                        name: component.clone(),
+                        domain: Some(set_key.to_string()),
+                    }
+                }));
+                continue;
             }
         }
 
@@ -569,6 +556,16 @@ fn expand_index_decls_with_tuple_shorthand(
     }
 
     expanded
+}
+
+fn tuple_components_for_symbol<'a>(
+    symbol: &str,
+    set_registry: &'a BTreeMap<String, crate::semantic::ResolvedSet>,
+    set_aliases: &BTreeMap<String, String>,
+) -> Option<(&'a str, &'a [String])> {
+    let set_key = resolve_set_registry_key(symbol, set_registry, set_aliases)?;
+    let tuple_components = set_registry.get(set_key)?.tuple_components.as_deref()?;
+    Some((set_key, tuple_components))
 }
 
 fn resolve_set_registry_key<'a>(

@@ -370,20 +370,9 @@ fn linearize_indexed_expr(
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<AffineExpr, CompileError> {
-    let resolved = if indices.len() == 1 {
-        if let Some(tuple_key_values) = resolve_tuple_key_index(indices, bindings, program) {
-            tuple_key_values
-        } else {
-            indices
-                .iter()
-                .map(|index| resolve_index_expr(index, bindings, named_expressions, entrypoint))
-                .collect::<Result<Vec<_>, _>>()?
-        }
-    } else {
-        indices
-            .iter()
-            .map(|index| resolve_index_expr(index, bindings, named_expressions, entrypoint))
-            .collect::<Result<Vec<_>, _>>()?
+    let resolved = match (indices.len(), resolve_tuple_key_index(indices, bindings, program)) {
+        (1, Some(tuple_key_values)) => tuple_key_values,
+        _ => resolve_index_values(indices, bindings, named_expressions, entrypoint)?,
     };
 
     // Compute the candidate instance name using the same conventions as
@@ -447,6 +436,18 @@ fn linearize_indexed_expr(
     }
 
     parameter_reference_expr(target, &resolved, inputs, entrypoint)
+}
+
+fn resolve_index_values(
+    indices: &[Expr],
+    bindings: &LinearizationBindings,
+    named_expressions: &BTreeMap<String, Expr>,
+    entrypoint: &Path,
+) -> Result<Vec<FilterValue>, CompileError> {
+    indices
+        .iter()
+        .map(|index| resolve_index_expr(index, bindings, named_expressions, entrypoint))
+        .collect::<Result<Vec<_>, _>>()
 }
 
 fn resolve_tuple_key_index(
