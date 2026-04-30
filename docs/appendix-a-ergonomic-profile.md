@@ -97,28 +97,24 @@ data branch_data source="data/branches.csv" {
 >
 > model nodal_allocation {
 >   control dispatch lower=0 {
->     index a { in feasible_links }
->     index i { in feasible_links }
->     index g { in feasible_links }
->     index b { in feasible_links }
+>     index feasible_links
 >   }
 >
 >   constraint priority_floor {
->     index a { in priority_links }
->     index i { in priority_links }
->     index g { in priority_links }
->     index b { in priority_links }
->     expression { dispatch[a,i,g,b] >= 0 }
+>     index priority_links
+>     expression { dispatch[priority_links] >= 0 }
 >   }
 > }
 > ```
 >
-> In V1, tuple-domain variables mean membership in `feasible_links`, not
-> Cartesian expansion over `area × tech × generators × buses`. Projection stays
-> explicit: define a named subset and iterate that subset directly. If the index
-> order is wrong, diagnostics report both the scoped source ID and the canonical
-> tuple domain. Empty-subset diagnostics list every offending key in
-> deterministic tuple order.
+> In V1, `index <tuple_set>` unpacks tuple components from that set and still
+> means membership in tuple rows (not Cartesian expansion over
+> `area × tech × generators × buses`). Projection stays explicit: define a named
+> subset and iterate that subset directly. Tuple-key indexing is allowed with set
+> names (for example `dispatch[priority_links]`), and diagnostics still report
+> scoped source IDs plus canonical tuple domains for index-order mismatches.
+> Empty-subset diagnostics list every offending key in deterministic tuple
+> order.
 
 ## A.4 Ergonomic grammar
 

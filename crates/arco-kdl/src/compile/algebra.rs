@@ -324,7 +324,7 @@ fn resolve_tuple_domain_rows<'a>(
     family: &str,
     entrypoint: &Path,
 ) -> Result<Option<&'a [Vec<String>]>, CompileError> {
-    if signature.indices.len() < 2 {
+    if signature.indices.is_empty() {
         return Ok(None);
     }
 
@@ -360,7 +360,12 @@ fn resolve_tuple_domain_rows<'a>(
         return Ok(None);
     };
 
-    if tuple_components != &signature.indices {
+    let uses_tuple_shorthand = signature.indices.len() == 1
+        && signature
+            .index_domains
+            .get(first_index)
+            .is_none_or(|domain| domain == first_index);
+    if !uses_tuple_shorthand && tuple_components != &signature.indices {
         return Err(CompileError::InvalidFormulation {
             message: tuple_domain_index_order_mismatch_message(
                 family,

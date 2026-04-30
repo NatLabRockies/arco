@@ -1228,3 +1228,324 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn lowering_unpacks_tuple_set_shorthand_for_control_and_constraint_bindings()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-shorthand-unpack")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n2,solar,g2,b3,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area"
+  set "tech"
+  set "generators"
+  set "buses"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    filter { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "feasible_links"
+  }
+
+  constraint "cap" {
+    index "feasible_links"
+    expression {
+      x[a,i,g,b] <= 1
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let variable_names = compiled
+        .algebra
+        .variable_instances
+        .iter()
+        .map(|instance| instance.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        variable_names,
+        vec![
+            "x[1,wind,g1,b1]".to_string(),
+            "x[2,solar,g2,b3]".to_string()
+        ]
+    );
+
+    let constraint_names = compiled
+        .algebra
+        .constraints
+        .iter()
+        .map(|constraint| constraint.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        constraint_names,
+        vec![
+            "cap[1,b1,g1,wind]".to_string(),
+            "cap[2,b3,g2,solar]".to_string()
+        ]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_allows_tuple_key_indexing_with_tuple_set_name() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = temp_test_dir("tuple-key-indexing")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n2,solar,g2,b3,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area"
+  set "tech"
+  set "generators"
+  set "buses"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    filter { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "feasible_links"
+  }
+
+  constraint "cap" {
+    index "feasible_links"
+    expression {
+      x[feasible_links] <= 1
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let constraint_names = compiled
+        .algebra
+        .constraints
+        .iter()
+        .map(|constraint| constraint.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        constraint_names,
+        vec![
+            "cap[1,b1,g1,wind]".to_string(),
+            "cap[2,b3,g2,solar]".to_string()
+        ]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_allows_parent_indexed_symbol_lookup_with_subset_tuple_key()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("tuple-key-subset")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,feasible\n1,wind,g1,b1,1\n1,solar,g2,b2,1\n2,solar,g3,b3,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area"
+  set "tech"
+  set "generators"
+  set "buses"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    filter { feasible > 0 }
+  }
+}
+
+set "priority_links" {
+  in "feasible_links"
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "generators" }
+  index "b" { in "buses" }
+  filter { area == "1" }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "feasible_links"
+  }
+
+  constraint "cap" {
+    index "priority_links"
+    expression {
+      x[priority_links] <= 1
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let constraint_names = compiled
+        .algebra
+        .constraints
+        .iter()
+        .map(|constraint| constraint.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        constraint_names,
+        vec![
+            "cap[1,b1,g1,wind]".to_string(),
+            "cap[1,b2,g2,solar]".to_string()
+        ]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_accepts_data_param_tuple_shorthand_indexing() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = temp_test_dir("tuple-param-shorthand")?;
+    fs::create_dir_all(root.join("data"))?;
+    fs::write(
+        root.join("data").join("links.csv"),
+        "area,tech,gen,bus,cap,feasible\n1,wind,g1,b1,10,1\n2,solar,g2,b3,20,1\n",
+    )?;
+
+    let path = root.join("input.kdl");
+    fs::write(
+        &path,
+        r#"
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area"
+  set "tech"
+  set "generators"
+  set "buses"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    filter { feasible > 0 }
+  }
+
+  param "capacity_mw" from="cap" {
+    index "feasible_links"
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "feasible_links"
+  }
+
+  constraint "cap" {
+    index "feasible_links"
+    expression {
+      x[feasible_links] <= capacity_mw[feasible_links]
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}
+"#,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let rhs_values = compiled
+        .algebra
+        .constraints
+        .iter()
+        .map(|constraint| constraint.rhs)
+        .collect::<Vec<_>>();
+    assert_eq!(rhs_values, vec![10.0, 20.0]);
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
