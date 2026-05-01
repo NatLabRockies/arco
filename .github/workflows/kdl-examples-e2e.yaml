@@ -1,4 +1,4 @@
-name: KDL Examples Acceptance E2E
+name: KDL examples
 
 on:
   pull_request:
@@ -37,8 +37,8 @@ env:
   RUST_TOOLCHAIN_VERSION: "1.85"
 
 jobs:
-  kdl-examples-e2e:
-    name: KDL acceptance examples e2e
+  run-kdl-examples:
+    name: Running KDL examples
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
