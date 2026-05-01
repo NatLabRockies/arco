@@ -1420,3 +1420,109 @@ scenario "S1" {
     fs::remove_dir_all(&root)?;
     Ok(())
 }
+
+#[test]
+fn semantic_validation_rejects_duplicate_expression_names_in_model()
+-> Result<(), Box<dyn std::error::Error>> {
+    assert_duplicate_model_declaration_fails(
+        "semantic-duplicate-expression-name",
+        r#"
+model "Dispatch" {
+  expression "cost" { 1 }
+  expression "cost" { 2 }
+  minimize "Obj" { cost }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#,
+        "expression",
+        "cost",
+    )
+}
+
+#[test]
+fn semantic_validation_rejects_duplicate_constraint_names_in_model()
+-> Result<(), Box<dyn std::error::Error>> {
+    assert_duplicate_model_declaration_fails(
+        "semantic-duplicate-constraint-name",
+        r#"
+set "a" { "n1" }
+
+model "Dispatch" {
+  control "x" {
+    index "i" { in "a" }
+  }
+
+  constraint "bal" {
+    index "i" { in "a" }
+    expression { x[i] <= 1 }
+  }
+
+  constraint "bal" {
+    index "i" { in "a" }
+    expression { x[i] >= 0 }
+  }
+
+  minimize "Obj" { sum(x[i] for i in a) }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#,
+        "constraint",
+        "bal",
+    )
+}
+
+#[test]
+fn semantic_validation_rejects_duplicate_control_names_in_model()
+-> Result<(), Box<dyn std::error::Error>> {
+    assert_duplicate_model_declaration_fails(
+        "semantic-duplicate-control-name",
+        r#"
+set "a" { "n1" }
+
+model "Dispatch" {
+  control "x" {
+    index "i" { in "a" }
+  }
+
+  control "x" {
+    index "i" { in "a" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
+"#,
+        "control",
+        "x",
+    )
+}
+
+fn assert_duplicate_model_declaration_fails(
+    test_name: &str,
+    text: &str,
+    kind: &str,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root(test_name)?;
+    let path = root.join("input.kdl");
+
+    let parsed = parse_program_text(text, &path)?;
+    let error = validate_program(&parsed.program, &path)
+        .expect_err("duplicate model declaration names should fail semantic validation");
+
+    assert!(error.to_string().contains("duplicate"));
+    assert!(error.to_string().contains(kind));
+    assert!(error.to_string().contains(name));
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
