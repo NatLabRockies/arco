@@ -1,7 +1,7 @@
 {
   "name": "arco-kdl-vscode",
-  "displayName": "Arco KDL",
-  "description": "VS Code support for Arco KDL validation and basic highlighting.",
+  "displayName": "arco KDL",
+  "description": "VS Code support for arco KDL validation and basic highlighting.",
   "version": "0.1.0",
   "private": true,
   "publisher": "natlabrockies",
@@ -38,7 +38,7 @@
       {
         "id": "arco-kdl",
         "aliases": [
-          "Arco KDL",
+          "arco KDL",
           "arco-kdl"
         ],
         "extensions": [
@@ -57,34 +57,34 @@
     "commands": [
       {
         "command": "arcoKdl.validateCurrentFile",
-        "title": "Arco KDL: Validate Current File"
+        "title": "arco KDL: Validate Current File"
       },
       {
         "command": "arcoKdl.selectCheckCommand",
-        "title": "Arco KDL: Select Arco CLI"
+        "title": "arco KDL: Select arco CLI"
       },
       {
         "command": "arcoKdl.showSetup",
-        "title": "Arco KDL: Show Setup Help"
+        "title": "arco KDL: Show Setup Help"
       }
     ],
     "configuration": {
-      "title": "Arco KDL",
+      "title": "arco KDL",
       "properties": {
         "arco.kdl.checkCommand": {
           "type": "string",
           "default": "",
-          "description": "Path to the Arco CLI. Leave empty to auto-detect from ARCO_CLI, workspace target binaries, or PATH."
+          "description": "Path to the arco CLI. Leave empty to auto-detect from ARCO_CLI, workspace target binaries, or PATH."
         },
         "arco.kdl.validateOnSave": {
           "type": "boolean",
           "default": true,
-          "description": "Validate Arco KDL files on save."
+          "description": "Validate arco KDL files on save."
         },
         "arco.kdl.validateOnChange": {
           "type": "boolean",
           "default": false,
-          "description": "Validate Arco KDL files after edits."
+          "description": "Validate arco KDL files after edits."
         }
       }
     }

@@ -72,7 +72,7 @@ function validateActiveDocument(diagnostics) {
     validateDocument(document, diagnostics);
     return;
   }
-  vscode.window.showInformationMessage("Open an Arco KDL file to validate it.");
+  vscode.window.showInformationMessage("Open an arco KDL file to validate it.");
 }
 
 function validateIfKdl(document, diagnostics) {
@@ -285,7 +285,7 @@ function fileDiagnostic(document, message) {
 function showMissingCommandWarning(command) {
   vscode.window
     .showWarningMessage(
-      `Arco KDL validator '${command}' was not found. Install the Arco CLI or select its path.`,
+      `arco KDL validator '${command}' was not found. Install the arco CLI or select its path.`,
       "Select CLI",
       "Setup Help",
     )
@@ -300,7 +300,7 @@ async function selectCheckCommand() {
     canSelectFiles: true,
     canSelectFolders: false,
     canSelectMany: false,
-    title: "Select the Arco CLI executable",
+    title: "Select the arco CLI executable",
   });
   const selected = selection?.[0]?.fsPath;
   if (!selected) return;
@@ -310,7 +310,7 @@ async function selectCheckCommand() {
     selected,
     vscode.ConfigurationTarget.Global,
   );
-  vscode.window.showInformationMessage(`Arco KDL validator set to ${selected}`);
+  vscode.window.showInformationMessage(`arco KDL validator set to ${selected}`);
 }
 
 async function showSetupDocument() {

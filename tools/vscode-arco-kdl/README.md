@@ -1,12 +1,12 @@
-# Arco KDL for VS Code
+# arco KDL for VS Code
 
-Minimal-setup VS Code support for Arco KDL files.
+Minimal-setup VS Code support for arco KDL files.
 
 ## Features
 
 - registers `.kdl` files as `arco-kdl`
 - provides basic syntax highlighting
-- validates open/saved KDL files with the canonical Arco CLI
+- validates open/saved KDL files with the canonical arco CLI
 - shows diagnostics from:
 
 ```sh
@@ -22,7 +22,7 @@ Prerequisites:
 
 - VS Code with the `code` command available on PATH
 - Node.js/npm
-- Arco CLI available by one of these methods:
+- arco CLI available by one of these methods:
   - installed on PATH as `arco`
   - `ARCO_CLI=/absolute/path/to/arco`
   - built in this workspace at `target/debug/arco` or `target/release/arco`
@@ -48,7 +48,7 @@ npm run package
 code --install-extension arco-kdl-vscode-0.1.0.vsix --force
 ```
 
-## Arco CLI discovery
+## arco CLI discovery
 
 No setting is required when `arco` is on PATH. The extension checks in this
 order:
@@ -82,12 +82,12 @@ Use an absolute path if auto-detection does not find the CLI:
 }
 ```
 
-You can also run **Arco KDL: Select Arco CLI** from the Command Palette.
+You can also run **arco KDL: Select arco CLI** from the Command Palette.
 
 ## Verify installation
 
 1. Open a `.kdl` file.
-2. Run **Arco KDL: Validate Current File** from the Command Palette.
+2. Run **arco KDL: Validate Current File** from the Command Palette.
 3. For an invalid file, VS Code should show diagnostics from the canonical CLI.
 
 Direct CLI sanity check:
