@@ -8,7 +8,7 @@ use crate::execution::{
 };
 use arco_kdl::ObjectiveSense;
 use arco_kdl::pipeline::{PipelineError, compile_file, validate_file};
-use miette::Diagnostic;
+use miette::{Diagnostic, SourceSpan};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -307,6 +307,33 @@ pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
     render_problem_model(&compiled.compiled_problem).map_err(DriverError::from)
 }
 
+#[derive(Debug, Serialize, PartialEq)]
+pub struct KdlCheckOutcome {
+    pub valid: bool,
+    pub json: String,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+struct KdlCheckReport {
+    valid: bool,
+    diagnostics: Vec<KdlDiagnostic>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+struct KdlDiagnostic {
+    file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column: Option<usize>,
+    severity: &'static str,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    help: Option<String>,
+}
+
 pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, DriverError> {
     let started = Instant::now();
     let validated = validate_file(path)?;
@@ -316,6 +343,96 @@ pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, 
         elapsed_ms,
         color_mode,
     ))
+}
+
+pub fn kdl_check_file_json(path: &Path) -> Result<KdlCheckOutcome, DriverError> {
+    let report = match validate_file(path) {
+        Ok(_) => KdlCheckReport {
+            valid: true,
+            diagnostics: Vec::new(),
+        },
+        Err(error) => KdlCheckReport {
+            valid: false,
+            diagnostics: vec![pipeline_error_diagnostic(path, &error)],
+        },
+    };
+
+    let valid = report.valid;
+    let json = serde_json::to_string(&report).map_err(|source| DriverError::Json {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    Ok(KdlCheckOutcome { valid, json })
+}
+
+fn pipeline_error_diagnostic(path: &Path, error: &PipelineError) -> KdlDiagnostic {
+    let (line, column) = pipeline_error_location(path, error);
+    let diagnostic = pipeline_error_inner_diagnostic(error);
+
+    KdlDiagnostic {
+        file: path.display().to_string(),
+        line,
+        column,
+        severity: "error",
+        message: error.to_string(),
+        code: diagnostic.code().map(|code| code.to_string()),
+        help: diagnostic.help().map(|help| help.to_string()),
+    }
+}
+
+fn pipeline_error_inner_diagnostic(error: &PipelineError) -> &dyn Diagnostic {
+    match error {
+        PipelineError::Source(error) => error,
+        PipelineError::Semantic(error) => error,
+        PipelineError::Compile(error) => error,
+    }
+}
+
+fn pipeline_error_location(path: &Path, error: &PipelineError) -> (Option<usize>, Option<usize>) {
+    let PipelineError::Source(error) = error else {
+        return (None, None);
+    };
+
+    let Some(span) = source_error_span(error) else {
+        return (None, None);
+    };
+
+    span_line_column(path, span)
+}
+
+fn source_error_span(error: &arco_kdl::source::SourceError) -> Option<SourceSpan> {
+    match error {
+        arco_kdl::source::SourceError::MissingNode { span, .. }
+        | arco_kdl::source::SourceError::MissingArgument { span, .. }
+        | arco_kdl::source::SourceError::MissingProperty { span, .. }
+        | arco_kdl::source::SourceError::InvalidValue { span, .. }
+        | arco_kdl::source::SourceError::UnsupportedDeclaration { span, .. }
+        | arco_kdl::source::SourceError::InvalidAlgebra { span, .. } => Some(*span),
+        arco_kdl::source::SourceError::Io { .. } | arco_kdl::source::SourceError::Kdl { .. } => {
+            None
+        }
+    }
+}
+
+fn span_line_column(path: &Path, span: SourceSpan) -> (Option<usize>, Option<usize>) {
+    let Ok(source) = std::fs::read(path) else {
+        return (None, None);
+    };
+    let offset = span.offset().min(source.len());
+
+    let mut line = 1usize;
+    let mut column = 1usize;
+    for byte in source.iter().take(offset) {
+        if *byte == b'\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+
+    (Some(line), Some(column))
 }
 
 fn format_validate_success(path: &Path, elapsed_ms: u128, color_mode: ColorMode) -> String {

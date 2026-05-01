@@ -16,10 +16,12 @@ fi
 
 failures=()
 file_count=0
+skipped_count=0
 while IFS= read -r file; do
   rel="${file#"$repo_root/"}"
   case "$rel" in
     .worktrees/*|*is_rejected*|crates/arco-kdl/tests/fixtures/rejects_*)
+      skipped_count=$((skipped_count + 1))
       continue
       ;;
   esac
@@ -37,9 +39,11 @@ if [ "$file_count" -eq 0 ]; then
 fi
 
 if [ "${#failures[@]}" -gt 0 ]; then
-  echo "KDL overlay parse failed for ${#failures[@]} file(s):" >&2
+  echo "KDL overlay parse failed." >&2
+  echo "checked=${file_count} skipped=${skipped_count} failures=${#failures[@]}" >&2
   printf '  - %s\n' "${failures[@]}" >&2
   exit 1
 fi
 
-echo "KDL overlay parse passed for ${file_count} file(s)."
+echo "KDL overlay parse passed."
+echo "checked=${file_count} skipped=${skipped_count} failures=0"

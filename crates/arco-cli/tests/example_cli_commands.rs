@@ -45,6 +45,68 @@ fn version_flag_prints_arco_version() {
 }
 
 #[test]
+fn kdl_check_json_succeeds_for_valid_model() {
+    let model_path = example_path("examples/capacity-expansion/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let output = run_cli(&["kdl", "check", model, "--format", "json"]);
+    assert!(
+        output.status.success(),
+        "command failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid check json");
+    assert_eq!(payload["valid"], Value::Bool(true));
+    assert_eq!(
+        payload["diagnostics"]
+            .as_array()
+            .expect("diagnostics array")
+            .len(),
+        0
+    );
+}
+
+#[test]
+fn kdl_check_json_reports_invalid_model() {
+    let root = unique_temp_dir("kdl-check-invalid");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let model_path = root.join("input.kdl");
+    fs::write(&model_path, "technology \"thermal\" {}\n").expect("write invalid model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["kdl", "check", model, "--format", "json"]);
+    assert!(
+        !output.status.success(),
+        "invalid model should exit non-zero\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid check json");
+    assert_eq!(payload["valid"], Value::Bool(false));
+    let diagnostics = payload["diagnostics"]
+        .as_array()
+        .expect("diagnostics array");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0]["severity"], "error");
+    assert_eq!(diagnostics[0]["line"], Value::from(1));
+    assert!(
+        diagnostics[0]["message"]
+            .as_str()
+            .expect("message string")
+            .contains("unsupported declaration `technology`")
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn inspect_produces_valid_toml() {
     let model_path = example_path("examples/capacity-expansion/input.kdl");
     let model = model_path
