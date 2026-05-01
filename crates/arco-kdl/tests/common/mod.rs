@@ -31,7 +31,6 @@ pub(crate) fn write_fixture_to_path(
     destination: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let source = fixture_path(relative);
-    let content = fs::read_to_string(source)?;
-    fs::write(destination, content)?;
+    let _ = fs::copy(source, destination)?;
     Ok(())
 }

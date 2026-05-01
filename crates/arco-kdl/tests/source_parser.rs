@@ -1,17 +1,27 @@
 mod common;
 
 use arco_kdl::ObjectiveSense;
-use arco_kdl::source::{BoundExpr, LiteralValue, ReportKind, SourceError, parse_program_text};
+use arco_kdl::source::{
+    BoundExpr, LiteralValue, ParsedSource, ReportKind, SourceError, parse_program_text,
+};
 use common::fixture_text;
 use std::path::PathBuf;
 
+fn parse_fixture(name: &str) -> Result<ParsedSource, Box<dyn std::error::Error>> {
+    let path = PathBuf::from("test.kdl");
+    let text = fixture_text(name)?;
+    Ok(parse_program_text(&text, &path)?)
+}
+
+fn parse_fixture_error(name: &str, context: &str) -> SourceError {
+    let path = PathBuf::from("test.kdl");
+    let text = fixture_text(name).expect("fixture should load");
+    parse_program_text(&text, &path).expect_err(context)
+}
+
 #[test]
 fn parses_top_level_low_level_declarations() -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("parses_top_level_low_level_declarations.kdl")?;
-
-    let parsed = parse_program_text(&text, &path)?;
-    let program = parsed.program;
+    let program = parse_fixture("parses_top_level_low_level_declarations.kdl")?.program;
 
     assert_eq!(program.params.len(), 1);
     assert_eq!(program.sets.len(), 1);
@@ -24,10 +34,7 @@ fn parses_top_level_low_level_declarations() -> Result<(), Box<dyn std::error::E
 
 #[test]
 fn parses_data_children_including_index_forms() -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("parses_data_children_including_index_forms.kdl")?;
-
-    let parsed = parse_program_text(&text, &path)?;
+    let parsed = parse_fixture("parses_data_children_including_index_forms.kdl")?;
     let data = &parsed.program.data[0];
 
     assert_eq!(data.maps[0].name, "asset_id");
@@ -49,10 +56,7 @@ fn parses_data_children_including_index_forms() -> Result<(), Box<dyn std::error
 
 #[test]
 fn parses_model_children_with_indexing_and_algebra() -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("parses_model_children_with_indexing_and_algebra.kdl")?;
-
-    let parsed = parse_program_text(&text, &path)?;
+    let parsed = parse_fixture("parses_model_children_with_indexing_and_algebra.kdl")?;
     let model = parsed.program.model("Dispatch").ok_or("missing model")?;
 
     assert_eq!(model.parameters[0].indices, vec!["time"]);
@@ -75,10 +79,7 @@ fn parses_model_children_with_indexing_and_algebra() -> Result<(), Box<dyn std::
 
 #[test]
 fn parses_scenario_reports_scalar_and_dual() -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("parses_scenario_reports_scalar_and_dual.kdl")?;
-
-    let parsed = parse_program_text(&text, &path)?;
+    let parsed = parse_fixture("parses_scenario_reports_scalar_and_dual.kdl")?;
     let scenario = parsed.program.scenario("Base").ok_or("missing scenario")?;
 
     assert_eq!(scenario.reports.len(), 2);
@@ -93,11 +94,8 @@ fn parses_scenario_reports_scalar_and_dual() -> Result<(), Box<dyn std::error::E
 #[test]
 fn parses_generated_constraint_with_index_if_and_expression_children()
 -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text =
-        fixture_text("parses_generated_constraint_with_index_if_and_expression_children.kdl")?;
-
-    let parsed = parse_program_text(&text, &path)?;
+    let parsed =
+        parse_fixture("parses_generated_constraint_with_index_if_and_expression_children.kdl")?;
     let model = parsed.program.model("Dispatch").ok_or("missing model")?;
     let constraint = model
         .constraints
@@ -117,10 +115,7 @@ fn parses_generated_constraint_with_index_if_and_expression_children()
 
 #[test]
 fn parses_top_level_projection_declaration() -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("parses_top_level_projection_declaration.kdl")?;
-
-    let parsed = parse_program_text(&text, &path)?;
+    let parsed = parse_fixture("parses_top_level_projection_declaration.kdl")?;
     assert_eq!(parsed.program.projections.len(), 1);
 
     let projection = &parsed.program.projections[0];
@@ -134,11 +129,8 @@ fn parses_top_level_projection_declaration() -> Result<(), Box<dyn std::error::E
 #[test]
 fn parses_top_level_projection_declaration_with_domain_and_key_blocks()
 -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text =
-        fixture_text("parses_top_level_projection_declaration_with_domain_and_key_blocks.kdl")?;
-
-    let parsed = parse_program_text(&text, &path)?;
+    let parsed =
+        parse_fixture("parses_top_level_projection_declaration_with_domain_and_key_blocks.kdl")?;
     assert_eq!(parsed.program.projections.len(), 1);
 
     let projection = &parsed.program.projections[0];
@@ -151,10 +143,7 @@ fn parses_top_level_projection_declaration_with_domain_and_key_blocks()
 
 #[test]
 fn parses_expression_reduce_projection_block_form() -> Result<(), Box<dyn std::error::Error>> {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("parses_expression_reduce_projection_block_form.kdl")?;
-
-    let parsed = parse_program_text(&text, &path)?;
+    let parsed = parse_fixture("parses_expression_reduce_projection_block_form.kdl")?;
     let model = parsed.program.model("Dispatch").ok_or("missing model")?;
     let expression = model.expressions.first().ok_or("missing expression")?;
 
@@ -166,29 +155,24 @@ fn parses_expression_reduce_projection_block_form() -> Result<(), Box<dyn std::e
 
 #[test]
 fn rejects_expression_reduce_with_mixed_sibling_math() {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("rejects_expression_reduce_with_mixed_sibling_math.kdl")
-        .expect("fixture should load");
-
-    let error = parse_program_text(&text, &path)
-        .expect_err("mixed reduce and sibling math should fail parse");
+    let error = parse_fixture_error(
+        "rejects_expression_reduce_with_mixed_sibling_math.kdl",
+        "mixed reduce and sibling math should fail parse",
+    );
     assert!(error.to_string().contains("expression"));
 }
 
 #[test]
 fn rejects_expression_with_prefixed_math_before_reduce() {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("rejects_expression_with_prefixed_math_before_reduce.kdl")
-        .expect("fixture should load");
-
-    let error = parse_program_text(&text, &path)
-        .expect_err("prefixed math before reduce should fail parse");
+    let error = parse_fixture_error(
+        "rejects_expression_with_prefixed_math_before_reduce.kdl",
+        "prefixed math before reduce should fail parse",
+    );
     assert!(error.to_string().contains("expression"));
 }
 
 #[test]
 fn rejects_unsupported_top_level_declarations() {
-    let path = PathBuf::from("test.kdl");
     let cases = [
         (
             "technology",
@@ -229,9 +213,10 @@ fn rejects_unsupported_top_level_declarations() {
     ];
 
     for (decl, fixture) in cases {
-        let text = fixture_text(fixture).expect("fixture should load");
-        let error = parse_program_text(&text, &path)
-            .expect_err("unsupported declaration should be rejected at parse time");
+        let error = parse_fixture_error(
+            fixture,
+            "unsupported declaration should be rejected at parse time",
+        );
         match error {
             SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, decl),
             other => panic!("expected UnsupportedDeclaration for {decl}, got {other:?}"),
@@ -241,22 +226,19 @@ fn rejects_unsupported_top_level_declarations() {
 
 #[test]
 fn rejects_legacy_index_by_property() {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("rejects_legacy_index_by_property.kdl").expect("fixture should load");
-
-    let error = parse_program_text(&text, &path)
-        .expect_err("legacy index_by should be rejected at parse time");
+    let error = parse_fixture_error(
+        "rejects_legacy_index_by_property.kdl",
+        "legacy index_by should be rejected at parse time",
+    );
     assert!(error.to_string().contains("index_by"));
 }
 
 #[test]
 fn rejects_unsupported_scenario_horizon_and_set_binding() {
-    let path = PathBuf::from("test.kdl");
-    let text = fixture_text("rejects_unsupported_scenario_horizon_and_set_binding.kdl")
-        .expect("fixture should load");
-
-    let error = parse_program_text(&text, &path)
-        .expect_err("scenario-level horizon should be rejected at parse time");
+    let error = parse_fixture_error(
+        "rejects_unsupported_scenario_horizon_and_set_binding.kdl",
+        "scenario-level horizon should be rejected at parse time",
+    );
 
     match error {
         SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, "horizon"),
