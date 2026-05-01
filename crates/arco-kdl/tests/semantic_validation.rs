@@ -1424,9 +1424,9 @@ scenario "S1" {
 #[test]
 fn semantic_validation_rejects_duplicate_expression_names_in_model()
 -> Result<(), Box<dyn std::error::Error>> {
-    let root = temp_root("semantic-duplicate-expression-name")?;
-    let path = root.join("input.kdl");
-    let text = r#"
+    assert_duplicate_model_declaration_fails(
+        "semantic-duplicate-expression-name",
+        r#"
 model "Dispatch" {
   expression "cost" { 1 }
   expression "cost" { 2 }
@@ -1436,26 +1436,18 @@ model "Dispatch" {
 scenario "S1" {
   use "Dispatch"
 }
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
-    let error = validate_program(&parsed.program, &path)
-        .expect_err("duplicate model expression names should fail semantic validation");
-
-    assert!(error.to_string().contains("duplicate"));
-    assert!(error.to_string().contains("expression"));
-    assert!(error.to_string().contains("cost"));
-
-    fs::remove_dir_all(&root)?;
-    Ok(())
+"#,
+        "expression",
+        "cost",
+    )
 }
 
 #[test]
 fn semantic_validation_rejects_duplicate_constraint_names_in_model()
 -> Result<(), Box<dyn std::error::Error>> {
-    let root = temp_root("semantic-duplicate-constraint-name")?;
-    let path = root.join("input.kdl");
-    let text = r#"
+    assert_duplicate_model_declaration_fails(
+        "semantic-duplicate-constraint-name",
+        r#"
 set "a" { "n1" }
 
 model "Dispatch" {
@@ -1479,26 +1471,18 @@ model "Dispatch" {
 scenario "S1" {
   use "Dispatch"
 }
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
-    let error = validate_program(&parsed.program, &path)
-        .expect_err("duplicate model constraint names should fail semantic validation");
-
-    assert!(error.to_string().contains("duplicate"));
-    assert!(error.to_string().contains("constraint"));
-    assert!(error.to_string().contains("bal"));
-
-    fs::remove_dir_all(&root)?;
-    Ok(())
+"#,
+        "constraint",
+        "bal",
+    )
 }
 
 #[test]
 fn semantic_validation_rejects_duplicate_control_names_in_model()
 -> Result<(), Box<dyn std::error::Error>> {
-    let root = temp_root("semantic-duplicate-control-name")?;
-    let path = root.join("input.kdl");
-    let text = r#"
+    assert_duplicate_model_declaration_fails(
+        "semantic-duplicate-control-name",
+        r#"
 set "a" { "n1" }
 
 model "Dispatch" {
@@ -1516,15 +1500,28 @@ model "Dispatch" {
 scenario "S1" {
   use "Dispatch"
 }
-"#;
+"#,
+        "control",
+        "x",
+    )
+}
+
+fn assert_duplicate_model_declaration_fails(
+    test_name: &str,
+    text: &str,
+    kind: &str,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_root(test_name)?;
+    let path = root.join("input.kdl");
 
     let parsed = parse_program_text(text, &path)?;
     let error = validate_program(&parsed.program, &path)
-        .expect_err("duplicate model control names should fail semantic validation");
+        .expect_err("duplicate model declaration names should fail semantic validation");
 
     assert!(error.to_string().contains("duplicate"));
-    assert!(error.to_string().contains("control"));
-    assert!(error.to_string().contains('x'));
+    assert!(error.to_string().contains(kind));
+    assert!(error.to_string().contains(name));
 
     fs::remove_dir_all(&root)?;
     Ok(())

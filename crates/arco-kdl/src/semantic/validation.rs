@@ -46,9 +46,7 @@ pub fn validate_program(
 
     validate_scenario_data_bindings_match_known_params(scenario, model, program, entrypoint)?;
     validate_model_parameters_resolved(scenario, model, program, entrypoint)?;
-    validate_unique_model_expression_names(model, entrypoint)?;
-    validate_unique_model_constraint_names(model, entrypoint)?;
-    validate_unique_model_control_names(model, entrypoint)?;
+    validate_unique_model_declarations(model, entrypoint)?;
 
     let mut seen_data_bindings = BTreeSet::new();
     for binding in &scenario.data {
@@ -517,7 +515,7 @@ fn validate_model_parameters_resolved(
     Ok(())
 }
 
-fn validate_unique_model_expression_names(
+fn validate_unique_model_declarations(
     model: &ModelDecl,
     entrypoint: &Path,
 ) -> Result<(), SemanticError> {
@@ -529,13 +527,7 @@ fn validate_unique_model_expression_names(
             .iter()
             .map(|expression| expression.name.as_str()),
         entrypoint,
-    )
-}
-
-fn validate_unique_model_constraint_names(
-    model: &ModelDecl,
-    entrypoint: &Path,
-) -> Result<(), SemanticError> {
+    )?;
     validate_unique_model_names(
         model,
         "constraint",
@@ -544,19 +536,14 @@ fn validate_unique_model_constraint_names(
             .iter()
             .map(|constraint| constraint.name.as_str()),
         entrypoint,
-    )
-}
-
-fn validate_unique_model_control_names(
-    model: &ModelDecl,
-    entrypoint: &Path,
-) -> Result<(), SemanticError> {
+    )?;
     validate_unique_model_names(
         model,
         "control",
         model.controls.iter().map(|control| control.name.as_str()),
         entrypoint,
-    )
+    )?;
+    Ok(())
 }
 
 fn validate_unique_model_names<'a>(
