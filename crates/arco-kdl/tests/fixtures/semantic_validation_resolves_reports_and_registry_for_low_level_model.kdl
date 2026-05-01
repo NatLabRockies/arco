@@ -1,0 +1,32 @@
+
+set "time" { "1"; "2" }
+
+data "generator_data" source="data/assets.csv" {
+  set "asset_id"
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a"
+    index "t"
+  }
+
+  expression "FuelCost" {
+    sum(x[a,t] for a in asset_id for t in time)
+  }
+
+  constraint "balance[a,t]" {
+    x[a,t] = 0
+  }
+
+  minimize "TotalCost" {
+    FuelCost
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+  report FuelCost
+  report TotalCost
+  report dual "balance[a,t]"
+}

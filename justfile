@@ -179,7 +179,6 @@ tdd-refactor package:
 [group: 'rust']
 test:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
-    just test-example-formulations
 
 [group: 'rust']
 test-example-formulations args="":
@@ -188,7 +187,6 @@ test-example-formulations args="":
 [group: 'ci']
 test-core:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
-    just test-example-formulations
 
 [group: 'ci']
 test-solver package:

@@ -32,6 +32,18 @@ _Avoid_: mixing alias and set-name access styles within the same declaration wit
 A symbol indexed by a parent tuple-domain set may be accessed with a child tuple-domain subset key when the subset is declared `in <parent>` and has the same component signature/order.
 _Avoid_: requiring parent-key-only access for subset-filtered constraints
 
+**Acceptance example**:
+A file-backed `.kdl` model in `examples/` intended to run through CLI end-to-end flows and demonstrate supported authoring patterns.
+_Avoid_: treating narrow test fixtures as user-facing examples
+
+**Spec-negative example**:
+A file-backed `.kdl` case intentionally designed to fail parser/semantic/compile validation with asserted diagnostics.
+_Avoid_: encoding invalid cases as inline string literals inside Rust tests
+
+**Test fixture**:
+A test-scoped file-backed artifact used by Rust tests to exercise one precise behavior contract.
+_Avoid_: labeling fixture-only models as living examples
+
 ## Relationships
 
 - A **Set unpacking index** references one declared set.
@@ -40,6 +52,9 @@ _Avoid_: requiring parent-key-only access for subset-filtered constraints
 - **Canonical component names** are sourced from the referenced **Tuple-domain set** declaration.
 - **Tuple-key indexing** and expanded indexing are equivalent access forms over the same tuple-domain row.
 - A **Subset-compatible tuple key** is valid only when subset-parent tuple signatures are structurally compatible.
+- An **Acceptance example** should be runnable in CLI smoke/e2e flows.
+- A **Spec-negative example** is consumed by Rust tests that assert typed failure diagnostics.
+- A **Test fixture** is consumed by Rust tests for contract coverage and is distinct from acceptance examples.
 
 ## Example dialogue
 
@@ -58,3 +73,9 @@ _Avoid_: requiring parent-key-only access for subset-filtered constraints
 - Subset access resolved: symbols indexed by parent tuple-domain sets accept child subset tuple keys (Option A).
 - Rollout strategy resolved: unpacking semantics are always-on (no compatibility gate); rationale captured in `docs/adr/0001-set-unpacking-always-on.md`.
 - Migration diagnostics resolved: do not emit special legacy scalar-intent warnings for tuple-set shorthand.
+- `example` naming ambiguity resolved: use **Acceptance example** for public runnable models and **Test fixture** for test-scoped artifacts.
+- Validation boundary resolved: fixture correctness is asserted by Rust fixture tests, while acceptance examples are asserted by separate CLI e2e flows.
+- CI scope resolved: acceptance e2e runs only when related Rust crates or `.kdl` files change.
+- Migration approach resolved: inline-KDL removal will be executed as a sweeping migration, not incremental slices.
+- Living-example scope resolved: only `examples/` models are treated as living examples; fixture-only `.kdl` files are contract fixtures.
+- Enforcement policy resolved: inline-KDL violations are rejected in review, with behavior guidance codified in `AGENTS.md` rather than a dedicated CI guard.

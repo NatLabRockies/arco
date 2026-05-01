@@ -1,0 +1,27 @@
+
+data "tech_data" source="data/tech.csv" {
+  map "tech" from="technology"
+
+  set "tech"
+  set "wind_tech" {
+    in "tech"
+    // Spec: §9 — map applies to lhs, RHS bare token remains literal.
+    filter { tech == wind }
+  }
+}
+
+model "Dispatch" {
+  set "tech"
+
+  control "x" {
+    index "tech"
+  }
+
+  minimize "Obj" {
+    sum(x[tech] for tech in tech)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

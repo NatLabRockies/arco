@@ -48,7 +48,10 @@ Additional expectations:
 
 - Test a lot. If behavior changes, tests must prove it.
 - Prefer rigorous unit tests and end-to-end tests.
-- Avoid mock-heavy tests that diverge from production behavior.
+- Do not mock internal/domain code. Use boundary doubles only (external solver/process/fs/network/time) when required for determinism.
+- Prefer file-backed fixtures/examples over large inline test literals.
+- For KDL coverage, do not embed KDL programs inline in Rust tests; store them as `.kdl` files and load them from fixtures/examples.
+- Keep Rust unit/contract tests separate from acceptance example e2e flows.
 - Add regression coverage for every bug fix.
 - Unless the user asks otherwise, run only tests you added or modified.
 - Run broader suites when risk is high or before major integration points.
