@@ -8,28 +8,27 @@ const vscode = require("vscode");
 const LANGUAGE_ID = "arco-kdl";
 const DIAGNOSTIC_SOURCE = "arco-kdl";
 const CONFIGURATION_SECTION = "arco.kdl";
+const CHECK_ARGS = ["kdl", "check"];
+const JSON_FORMAT_ARGS = ["--format", "json"];
 const COMMANDS = {
   validateCurrentFile: "arcoKdl.validateCurrentFile",
   selectCheckCommand: "arcoKdl.selectCheckCommand",
   showSetup: "arcoKdl.showSetup",
 };
-const CHECK_ARGS = ["kdl", "check"];
-const CHECK_FORMAT_ARGS = ["--format", "json"];
 
-let missingCommandWarningShown = false;
 let extensionContext;
+let missingCommandWarningShown = false;
 
 function activate(context) {
   extensionContext = context;
   const diagnostics =
     vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
-  context.subscriptions.push(diagnostics);
-
   const validateOpenDocument = (document) =>
-    validateArcoKdlDocument(document, diagnostics);
-  validateOpenDocuments(diagnostics);
+    validateIfKdl(document, diagnostics);
 
+  validateOpenDocuments(diagnostics);
   context.subscriptions.push(
+    diagnostics,
     vscode.commands.registerCommand(COMMANDS.validateCurrentFile, () =>
       validateActiveDocument(diagnostics),
     ),
@@ -40,19 +39,16 @@ function activate(context) {
     vscode.commands.registerCommand(COMMANDS.showSetup, showSetupDocument),
     vscode.workspace.onDidOpenTextDocument(validateOpenDocument),
     vscode.workspace.onDidSaveTextDocument((document) => {
-      if (configuration().get("validateOnSave", true)) {
+      if (configuration().get("validateOnSave", true))
         validateOpenDocument(document);
-      }
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
-      if (configuration().get("validateOnChange", false)) {
+      if (configuration().get("validateOnChange", false))
         validateOpenDocument(event.document);
-      }
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration(CONFIGURATION_SECTION)) {
+      if (event.affectsConfiguration(CONFIGURATION_SECTION))
         validateOpenDocuments(diagnostics);
-      }
     }),
   );
 }
@@ -64,9 +60,9 @@ function configuration() {
 }
 
 function validateOpenDocuments(diagnostics) {
-  for (const document of vscode.workspace.textDocuments) {
-    validateArcoKdlDocument(document, diagnostics);
-  }
+  vscode.workspace.textDocuments.forEach((document) =>
+    validateIfKdl(document, diagnostics),
+  );
 }
 
 function validateActiveDocument(diagnostics) {
@@ -75,14 +71,11 @@ function validateActiveDocument(diagnostics) {
     validateDocument(document, diagnostics);
     return;
   }
-
   vscode.window.showInformationMessage("Open an Arco KDL file to validate it.");
 }
 
-function validateArcoKdlDocument(document, diagnostics) {
-  if (isArcoKdlDocument(document)) {
-    validateDocument(document, diagnostics);
-  }
+function validateIfKdl(document, diagnostics) {
+  if (isArcoKdlDocument(document)) validateDocument(document, diagnostics);
 }
 
 function isArcoKdlDocument(document) {
@@ -100,7 +93,7 @@ function validateDocument(document, diagnostics) {
   const command = resolveCheckCommand(document);
   const child = spawn(
     command,
-    [...CHECK_ARGS, document.fileName, ...CHECK_FORMAT_ARGS],
+    [...CHECK_ARGS, document.fileName, ...JSON_FORMAT_ARGS],
     {
       cwd: workspaceDirectory(document),
       shell: false,
@@ -110,6 +103,7 @@ function validateDocument(document, diagnostics) {
   let stdout = "";
   let stderr = "";
   let spawnFailed = false;
+
   child.stdout.on("data", (chunk) => {
     stdout += chunk.toString();
   });
@@ -127,9 +121,7 @@ function validateDocument(document, diagnostics) {
     }
   });
   child.on("close", () => {
-    if (spawnFailed) {
-      return;
-    }
+    if (spawnFailed) return;
 
     const report = parseReport(stdout);
     if (!report) {
@@ -138,45 +130,30 @@ function validateDocument(document, diagnostics) {
       ]);
       return;
     }
-
     diagnostics.set(
       document.uri,
-      report.diagnostics.map((diagnostic) =>
-        toVsCodeDiagnostic(document, diagnostic),
-      ),
+      report.diagnostics.map((item) => toVsCodeDiagnostic(document, item)),
     );
   });
 }
 
 function resolveCheckCommand(document) {
-  const configured = configuration().get("checkCommand", "").trim();
-  if (configured) {
-    return configured;
-  }
-
-  const envCommand = process.env.ARCO_CLI?.trim();
-  if (envCommand) {
-    return envCommand;
-  }
-
   const workspaceRoot = workspaceDirectory(document);
-  const workspaceCommand = workspaceRoot
-    ? findWorkspaceArco(workspaceRoot)
-    : undefined;
-  if (workspaceCommand) {
-    return workspaceCommand;
-  }
-
-  return findOnPath("arco") || "arco";
+  return (
+    configuration().get("checkCommand", "").trim() ||
+    process.env.ARCO_CLI?.trim() ||
+    (workspaceRoot && findWorkspaceArco(workspaceRoot)) ||
+    findOnPath("arco") ||
+    "arco"
+  );
 }
 
 function findWorkspaceArco(workspaceRoot) {
   const binaryName = process.platform === "win32" ? "arco.exe" : "arco";
-  const candidates = [
+  return [
     path.join(workspaceRoot, "target", "debug", binaryName),
     path.join(workspaceRoot, "target", "release", binaryName),
-  ];
-  return candidates.find(isExecutableFile);
+  ].find(isExecutableFile);
 }
 
 function findOnPath(command) {
@@ -187,25 +164,19 @@ function findOnPath(command) {
       : [""];
 
   for (const directory of paths) {
-    for (const extension of extensions) {
-      const candidate = path.join(
-        directory,
-        `${command}${extension.toLowerCase()}`,
-      );
-      if (isExecutableFile(candidate)) {
-        return candidate;
-      }
-      const upperCandidate = path.join(
-        directory,
-        `${command}${extension.toUpperCase()}`,
-      );
-      if (isExecutableFile(upperCandidate)) {
-        return upperCandidate;
-      }
+    for (const candidateName of candidateExecutableNames(command, extensions)) {
+      const candidate = path.join(directory, candidateName);
+      if (isExecutableFile(candidate)) return candidate;
     }
   }
-
   return undefined;
+}
+
+function candidateExecutableNames(command, extensions) {
+  return extensions.flatMap((extension) => [
+    `${command}${extension.toLowerCase()}`,
+    `${command}${extension.toUpperCase()}`,
+  ]);
 }
 
 function isExecutableFile(candidate) {
@@ -218,8 +189,7 @@ function isExecutableFile(candidate) {
 }
 
 function workspaceDirectory(document) {
-  const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-  return folder ? folder.uri.fsPath : undefined;
+  return vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
 }
 
 function parseReport(stdout) {
@@ -231,23 +201,24 @@ function parseReport(stdout) {
 }
 
 function toVsCodeDiagnostic(document, diagnostic) {
-  const line = Math.max((diagnostic.line || 1) - 1, 0);
-  const column = Math.max((diagnostic.column || 1) - 1, 0);
-  const range = document.lineAt(Math.min(line, document.lineCount - 1)).range;
-  const start = range.start.translate(0, Math.min(column, range.end.character));
-  const end = start.translate(0, 1);
-  const severity =
+  const item = new vscode.Diagnostic(
+    diagnosticRange(document, diagnostic),
+    diagnostic.message,
     diagnostic.severity === "warning"
       ? vscode.DiagnosticSeverity.Warning
-      : vscode.DiagnosticSeverity.Error;
-  const item = new vscode.Diagnostic(
-    new vscode.Range(start, end),
-    diagnostic.message,
-    severity,
+      : vscode.DiagnosticSeverity.Error,
   );
   item.source = DIAGNOSTIC_SOURCE;
   item.code = diagnostic.code;
   return item;
+}
+
+function diagnosticRange(document, diagnostic) {
+  const line = Math.max((diagnostic.line || 1) - 1, 0);
+  const column = Math.max((diagnostic.column || 1) - 1, 0);
+  const range = document.lineAt(Math.min(line, document.lineCount - 1)).range;
+  const start = range.start.translate(0, Math.min(column, range.end.character));
+  return new vscode.Range(start, start.translate(0, 1));
 }
 
 function commandFailureDiagnostic(document, command, message) {
@@ -263,9 +234,8 @@ function invalidOutputDiagnostic(document, command, stderr) {
 }
 
 function fileDiagnostic(document, message) {
-  const range = document.lineAt(0).range;
   const diagnostic = new vscode.Diagnostic(
-    range,
+    document.lineAt(0).range,
     message,
     vscode.DiagnosticSeverity.Error,
   );
@@ -281,11 +251,8 @@ function showMissingCommandWarning(command) {
       "Setup Help",
     )
     .then((choice) => {
-      if (choice === "Select CLI") {
-        selectCheckCommand();
-      } else if (choice === "Setup Help") {
-        showSetupDocument();
-      }
+      if (choice === "Select CLI") selectCheckCommand();
+      else if (choice === "Setup Help") showSetupDocument();
     });
 }
 
@@ -297,9 +264,7 @@ async function selectCheckCommand() {
     title: "Select the Arco CLI executable",
   });
   const selected = selection?.[0]?.fsPath;
-  if (!selected) {
-    return;
-  }
+  if (!selected) return;
 
   await configuration().update(
     "checkCommand",
@@ -310,9 +275,7 @@ async function selectCheckCommand() {
 }
 
 async function showSetupDocument() {
-  if (!extensionContext) {
-    return;
-  }
+  if (!extensionContext) return;
 
   const readme = vscode.Uri.joinPath(
     extensionContext.extensionUri,
@@ -322,7 +285,4 @@ async function showSetupDocument() {
   await vscode.window.showTextDocument(document);
 }
 
-module.exports = {
-  activate,
-  deactivate,
-};
+module.exports = { activate, deactivate };
