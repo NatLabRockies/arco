@@ -1,0 +1,4 @@
+
+data "D" source="file.csv" {
+  map "X" from="name"
+}

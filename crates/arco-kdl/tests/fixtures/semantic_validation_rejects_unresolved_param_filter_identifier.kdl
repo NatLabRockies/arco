@@ -1,0 +1,35 @@
+
+set "time" { "1"; "2" }
+
+data "inputs" source="data/load.csv" {
+  map "time" from="period"
+
+  param "demand" from="demand" reduce="sum" {
+    index "time"
+    filter { unknown_col == wind }
+  }
+}
+
+model "Dispatch" {
+  set "time" alias="t"
+
+  param "demand" {
+    index "t"
+  }
+
+  control "x" {
+    index "t"
+  }
+
+  constraint "balance[t]" {
+    x[t] = demand[t]
+  }
+
+  minimize "Obj" {
+    sum(x[t] for t in time)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

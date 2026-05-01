@@ -1,8 +1,11 @@
 #![allow(clippy::float_cmp)]
 
+mod common;
+
 use arco_kdl::compile::{CompileError, compile_program};
 use arco_kdl::semantic::validate_program;
 use arco_kdl::source::parse_program_file;
+use common::write_fixture_to_path;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,50 +36,7 @@ fn lowering_loads_top_level_data_block_params() -> Result<(), Box<dyn std::error
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
-        &path,
-        r#"
-set "time" { "1"; "2" }
-
-data "inputs" source="data/inputs.csv" {
-  map "time" from="time"
-
-  param "capacity" index="time" from="cap" reduce="sum"
-  param "demand" index="time" from="demand"
-}
-
-model "Dispatch" {
-  set time alias="t"
-
-  param "capacity" {
-    index "t"
-  }
-  param "demand" {
-    index "t"
-  }
-
-  control "x" {
-    index "t"
-  }
-
-  constraint "cap_limit[t]" {
-    x[t] <= capacity[t]
-  }
-
-  constraint "balance[t]" {
-    x[t] = demand[t]
-  }
-
-  minimize "Obj" {
-    sum(x[t] for t in time)
-  }
-}
-
-scenario "S1" {
-  use "Dispatch"
-}
-"#,
-    )?;
+    write_fixture_to_path("lowering_loads_top_level_data_block_params.kdl", &path)?;
 
     let parsed = parse_program_file(&path)?;
     let semantic = validate_program(&parsed.program, &path)?;
@@ -111,41 +71,9 @@ fn lowering_prefers_scenario_data_bindings_over_top_level_data_params()
     fs::write(root.join("data").join("override.csv"), "t,capacity\n1,55\n")?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_prefers_scenario_data_bindings_over_top_level_data_params.kdl",
         &path,
-        r#"
-set "time" { "1" }
-
-data "defaults" source="data/top.csv" {
-  map "time" from="time"
-  param "capacity" index="time" from="cap"
-}
-
-model "Dispatch" {
-  set time alias="t"
-
-  param "capacity" {
-    index "t"
-  }
-
-  control "x" {
-    index "t"
-  }
-
-  constraint "cap_limit[t]" {
-    x[t] <= capacity[t]
-  }
-
-  minimize "Obj" {
-    sum(x[t] for t in time)
-  }
-}
-
-scenario "S1" {
-  use "Dispatch"
-  data "capacity" source="data/override.csv"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -175,43 +103,9 @@ fn lowering_reports_missing_data_point_for_sparse_generic_data_table()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_reports_missing_data_point_for_sparse_generic_data_table.kdl",
         &path,
-        r#"
-set "time" { "1" }
-
-data "distance" source="data/dist.csv" {
-  set "g"
-  set "b"
-  param "distance_km" {
-    index "g"
-    index "b"
-  }
-}
-
-model "SparseDistance" {
-  set "g"
-  set "b"
-
-  param "distance_km" {
-    index "g"
-    index "b"
-  }
-
-  control "flow" lower=0 {
-    index "g"
-    index "b"
-  }
-
-  minimize "TotalCost" {
-    sum(distance_km[g,b] * flow[g,b] for g in g for b in b)
-  }
-}
-
-scenario "SparseDistanceCase" {
-  use "SparseDistance"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -241,45 +135,7 @@ fn lowering_applies_data_param_filters() -> Result<(), Box<dyn std::error::Error
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
-        &path,
-        r#"
-set "time" { "1"; "2" }
-
-data "inputs" source="data/load.csv" {
-  map "time" from="period"
-
-  param "demand" from="demand" reduce="sum" {
-    index "time"
-    filter { is_candidate > 0 }
-  }
-}
-
-model "Dispatch" {
-  set "time" alias="t"
-
-  param "demand" {
-    index "t"
-  }
-
-  control "x" {
-    index "t"
-  }
-
-  constraint "balance[t]" {
-    x[t] = demand[t]
-  }
-
-  minimize "Obj" {
-    sum(x[t] for t in time)
-  }
-}
-
-scenario "S1" {
-  use "Dispatch"
-}
-"#,
-    )?;
+    write_fixture_to_path("lowering_applies_data_param_filters.kdl", &path)?;
 
     let parsed = parse_program_file(&path)?;
     let semantic = validate_program(&parsed.program, &path)?;
@@ -316,44 +172,9 @@ fn lowering_applies_data_param_filters_with_bare_identifier_rhs()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_applies_data_param_filters_with_bare_identifier_rhs.kdl",
         &path,
-        r#"
-set "time" { "1"; "2" }
-
-data "inputs" source="data/load.csv" {
-  map "time" from="period"
-
-  param "demand" from="demand" reduce="sum" {
-    index "time"
-    filter { tech == wind }
-  }
-}
-
-model "Dispatch" {
-  set "time" alias="t"
-
-  param "demand" {
-    index "t"
-  }
-
-  control "x" {
-    index "t"
-  }
-
-  constraint "balance[t]" {
-    x[t] = demand[t]
-  }
-
-  minimize "Obj" {
-    sum(x[t] for t in time)
-  }
-}
-
-scenario "S1" {
-  use "Dispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -391,46 +212,9 @@ fn lowering_applies_data_param_filters_with_mapped_identifier_rhs()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_applies_data_param_filters_with_mapped_identifier_rhs.kdl",
         &path,
-        r#"
-set "time" { "1"; "2" }
-
-data "inputs" source="data/load.csv" {
-  map "time" from="period"
-  map "tech" from="technology"
-
-  param "demand" from="demand" reduce="sum" {
-    index "time"
-    // Spec: §9 — map applies to lhs lookup; bare RHS remains literal.
-    filter { tech == wind }
-  }
-}
-
-model "Dispatch" {
-  set "time" alias="t"
-
-  param "demand" {
-    index "t"
-  }
-
-  control "x" {
-    index "t"
-  }
-
-  constraint "balance[t]" {
-    x[t] = demand[t]
-  }
-
-  minimize "Obj" {
-    sum(x[t] for t in time)
-  }
-}
-
-scenario "S1" {
-  use "Dispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -468,37 +252,9 @@ fn lowering_instantiates_tuple_domain_variables_from_data_rows()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_instantiates_tuple_domain_variables_from_data_rows.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "a" { in "feasible_links" }
-    index "i" { in "feasible_links" }
-    index "g" { in "feasible_links" }
-    index "b" { in "feasible_links" }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -536,37 +292,9 @@ fn lowering_tuple_domain_instantiation_handles_alias_and_canonical_set_names()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_tuple_domain_instantiation_handles_alias_and_canonical_set_names.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "feasible_links" as="fl" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "a" { in "fl" }
-    index "i" { in "feasible_links" }
-    index "g" { in "fl" }
-    index "b" { in "feasible_links" }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -604,50 +332,9 @@ fn lowering_intersects_data_and_rule_tuple_sources_for_domain()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_intersects_data_and_rule_tuple_sources_for_domain.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "area"
-  set "tech"
-  set "generators"
-  set "buses"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-set "feasible_links" {
-  index "a" { in "area" }
-  index "i" { in "tech" }
-  index "g" { in "generators" }
-  index "b" { in "buses" }
-  filter { a == "1" }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "a" { in "feasible_links" }
-    index "i" { in "feasible_links" }
-    index "g" { in "feasible_links" }
-    index "b" { in "feasible_links" }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -681,57 +368,9 @@ fn lowering_instantiates_constraint_bindings_from_tuple_subset_rows()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_instantiates_constraint_bindings_from_tuple_subset_rows.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "area" as="a"
-  set "tech" as="i"
-  set "generators" as="g"
-  set "buses" as="b"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-set "target_pairs" {
-  in "feasible_links"
-  index "a" { in "area" }
-  index "i" { in "tech" }
-  filter { generators == "g1" }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "a" { in "feasible_links" }
-    index "i" { in "feasible_links" }
-    index "g" { in "feasible_links" }
-    index "b" { in "feasible_links" }
-  }
-
-  constraint "capacity_target" {
-    index "a" { in "target_pairs" }
-    index "i" { in "target_pairs" }
-    expression {
-      0 == 0
-    }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -765,47 +404,9 @@ fn lowering_rejects_constraint_auto_projection_from_high_dim_tuple_domain()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_rejects_constraint_auto_projection_from_high_dim_tuple_domain.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "area" as="a"
-  set "tech" as="i"
-  set "generators" as="g"
-  set "buses" as="b"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "a" { in "feasible_links" }
-    index "i" { in "feasible_links" }
-    index "g" { in "feasible_links" }
-    index "b" { in "feasible_links" }
-  }
-
-  constraint "bad_projection" {
-    index "a" { in "feasible_links" }
-    expression { 0 == 0 }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -838,37 +439,9 @@ fn lowering_reports_tuple_domain_provenance_for_variable_index_order_mismatches(
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_reports_tuple_domain_provenance_for_variable_index_order_mismatches.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "a" { in "feasible_links" }
-    index "g" { in "feasible_links" }
-    index "i" { in "feasible_links" }
-    index "b" { in "feasible_links" }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -901,48 +474,9 @@ fn lowering_reports_all_empty_constraint_relevant_tuple_subset_keys()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_reports_all_empty_constraint_relevant_tuple_subset_keys.kdl",
         &path,
-        r#"
-set "area" { "2"; "1" }
-set "tech" { "wind"; "solar" }
-
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "a" { in "feasible_links" }
-    index "i" { in "feasible_links" }
-    index "g" { in "feasible_links" }
-    index "b" { in "feasible_links" }
-  }
-
-  constraint "capacity_target" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    expression {
-      sum(1 for g in feasible_links for b in feasible_links) == 1
-    }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -969,22 +503,7 @@ scenario "S1" {
 fn lowering_exports_scoped_inferred_constraint_ids() -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_test_dir("scoped-inferred-constraint-ids")?;
     let path = root.join("input.kdl");
-    fs::write(
-        &path,
-        r#"
-model "Dispatch" {
-  constraint {
-    expression { 0 == 0 }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "Dispatch"
-}
-"#,
-    )?;
+    write_fixture_to_path("lowering_exports_scoped_inferred_constraint_ids.kdl", &path)?;
 
     let parsed = parse_program_file(&path)?;
     let semantic = validate_program(&parsed.program, &path)?;
@@ -1062,78 +581,9 @@ fn lowering_preserves_numeric_tuple_index_labels_in_expression_lookups()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_preserves_numeric_tuple_index_labels_in_expression_lookups.kdl",
         &path,
-        r#"
-data "distance" source="data/links.csv" {
-  alias "buses" column="bus"
-  alias "generators" column="gen"
-
-  set "area" as="a"
-  set "tech" as="i"
-  set "buses" as="b"
-  set "generators" as="g"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "b" { in "buses" }
-    index "g" { in "generators" }
-  }
-
-  param "mw_target" {
-    index "a"
-    index "i"
-    reduce "max"
-  }
-}
-
-set "feasible_ai" {
-  in "feasible_links"
-  index "a" { in "area" }
-  index "i" { in "tech" }
-}
-
-projection name="ai" {
-  from "feasible_links"
-  to "a" "i"
-}
-
-model "NodalAllocation" {
-  param "mw_target" {
-    index "a"
-    index "i"
-  }
-
-  control "nodal_site_capacity_variable" lower=0 {
-    index "a" { in "feasible_links" }
-    index "i" { in "feasible_links" }
-    index "b" { in "feasible_links" }
-    index "g" { in "feasible_links" }
-  }
-
-  expression "allocated_capacity" {
-    reduce "ai" {
-      sum "nodal_site_capacity_variable"
-    }
-  }
-
-  constraint "capacity_target" {
-    index "a" { in "feasible_ai" }
-    index "i" { in "feasible_ai" }
-
-    expression {
-      allocated_capacity[a,i] >= mw_target[a,i]
-    }
-  }
-
-  minimize "TotalCost" { 0 }
-}
-
-scenario "NodalAllocationDay" {
-  use "NodalAllocation"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -1172,42 +622,9 @@ fn lowering_reports_scoped_inferred_constraint_ids_in_tuple_projection_errors()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_reports_scoped_inferred_constraint_ids_in_tuple_projection_errors.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "a" { in "feasible_links" }
-    index "i" { in "feasible_links" }
-    index "g" { in "feasible_links" }
-    index "b" { in "feasible_links" }
-  }
-
-  constraint {
-    index "a" { in "feasible_links" }
-    expression { 0 == 0 }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -1240,46 +657,9 @@ fn lowering_unpacks_tuple_set_shorthand_for_control_and_constraint_bindings()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_unpacks_tuple_set_shorthand_for_control_and_constraint_bindings.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "area"
-  set "tech"
-  set "generators"
-  set "buses"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "feasible_links"
-  }
-
-  constraint "cap" {
-    index "feasible_links"
-    expression {
-      x[a,i,g,b] <= 1
-    }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -1329,46 +709,9 @@ fn lowering_allows_tuple_key_indexing_with_tuple_set_name() -> Result<(), Box<dy
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_allows_tuple_key_indexing_with_tuple_set_name.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "area"
-  set "tech"
-  set "generators"
-  set "buses"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "feasible_links"
-  }
-
-  constraint "cap" {
-    index "feasible_links"
-    expression {
-      x[feasible_links] <= 1
-    }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -1404,55 +747,9 @@ fn lowering_allows_parent_indexed_symbol_lookup_with_subset_tuple_key()
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_allows_parent_indexed_symbol_lookup_with_subset_tuple_key.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "area"
-  set "tech"
-  set "generators"
-  set "buses"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-}
-
-set "priority_links" {
-  in "feasible_links"
-  index "a" { in "area" }
-  index "i" { in "tech" }
-  index "g" { in "generators" }
-  index "b" { in "buses" }
-  filter { area == "1" }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "feasible_links"
-  }
-
-  constraint "cap" {
-    index "priority_links"
-    expression {
-      x[priority_links] <= 1
-    }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;
@@ -1488,50 +785,9 @@ fn lowering_accepts_data_param_tuple_shorthand_indexing() -> Result<(), Box<dyn 
     )?;
 
     let path = root.join("input.kdl");
-    fs::write(
+    write_fixture_to_path(
+        "lowering_accepts_data_param_tuple_shorthand_indexing.kdl",
         &path,
-        r#"
-data "links" source="data/links.csv" {
-  alias "generators" column="gen"
-  alias "buses" column="bus"
-
-  set "area"
-  set "tech"
-  set "generators"
-  set "buses"
-
-  set "feasible_links" {
-    index "a" { in "area" }
-    index "i" { in "tech" }
-    index "g" { in "generators" }
-    index "b" { in "buses" }
-    filter { feasible > 0 }
-  }
-
-  param "capacity_mw" from="cap" {
-    index "feasible_links"
-  }
-}
-
-model "TupleDispatch" {
-  control "x" lower=0 {
-    index "feasible_links"
-  }
-
-  constraint "cap" {
-    index "feasible_links"
-    expression {
-      x[feasible_links] <= capacity_mw[feasible_links]
-    }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "TupleDispatch"
-}
-"#,
     )?;
 
     let parsed = parse_program_file(&path)?;

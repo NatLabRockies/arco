@@ -1,0 +1,19 @@
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  expression "investment_by_area_tech[a,i]" {
+    reduce "ai" {
+      sum "investment"
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

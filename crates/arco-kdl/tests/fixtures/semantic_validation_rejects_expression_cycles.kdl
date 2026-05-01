@@ -1,0 +1,23 @@
+
+model "Dispatch" {
+  control "x" {
+    index "a"
+    index "t"
+  }
+
+  expression "E1" {
+    E2 + x[a,t]
+  }
+
+  expression "E2" {
+    E1
+  }
+
+  minimize "TotalCost" {
+    E1
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

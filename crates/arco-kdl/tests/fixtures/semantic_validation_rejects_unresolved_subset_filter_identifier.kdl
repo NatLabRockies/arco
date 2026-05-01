@@ -1,0 +1,24 @@
+
+data "tech_data" source="data/tech.csv" {
+  set "tech"
+  set "wind_tech" {
+    in "tech"
+    filter { unknown_col == wind }
+  }
+}
+
+model "Dispatch" {
+  set "tech"
+
+  control "x" {
+    index "tech"
+  }
+
+  minimize "Obj" {
+    sum(x[tech] for tech in tech)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

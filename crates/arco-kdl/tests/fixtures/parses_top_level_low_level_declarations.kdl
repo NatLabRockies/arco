@@ -1,0 +1,22 @@
+
+param "voll" 9000 units="$/MWh"
+
+set "time" { "1"; "2"; "3" }
+
+data "generator_data" source="data/generator.csv" {
+  map "asset_id" from="asset"
+}
+
+model "Dispatch" {
+  control "dispatch" index="asset_id" lower=0
+  constraint "limit" {
+    dispatch[a] <= 100
+  }
+  minimize "SystemCost" {
+    dispatch[a]
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

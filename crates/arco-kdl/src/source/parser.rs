@@ -608,31 +608,23 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
 #[cfg(test)]
 mod tests {
     use super::parse_program_text;
+    use std::fs;
     use std::path::PathBuf;
+
+    fn fixture_text(name: &str) -> String {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join(name);
+        fs::read_to_string(path).expect("fixture should load")
+    }
 
     #[test]
     fn parses_low_level_model_and_scenario() {
         let path = PathBuf::from("test.kdl");
-        let text = r#"
-model "Dispatch" {
-  control "x" {
-    index "a"
-    index "t"
-  }
-  constraint "balance" {
-    x[a,t] <= 1
-  }
-  minimize "Obj" {
-    x[a,t]
-  }
-}
+        let text = fixture_text("parser_unit_parses_low_level_model_and_scenario_text.kdl");
 
-scenario "Base" {
-  use "Dispatch"
-}
-"#;
-
-        let parsed = parse_program_text(text, &path).expect("program parses");
+        let parsed = parse_program_text(&text, &path).expect("program parses");
         assert_eq!(parsed.program.models.len(), 1);
         assert_eq!(parsed.program.scenarios.len(), 1);
     }
@@ -641,29 +633,14 @@ scenario "Base" {
     fn var_keyword_parses_same_as_control() {
         let path = PathBuf::from("test.kdl");
 
-        let with_var = r#"
-model "M" {
-  var "x" lower=0 {
-    index "a"
-  }
-  minimize "Obj" { x[a] }
-}
-scenario "S" { use "M" }
-"#;
+        let with_var = fixture_text("parser_unit_var_keyword_parses_same_as_control_with_var.kdl");
 
-        let with_control = r#"
-model "M" {
-  control "x" lower=0 {
-    index "a"
-  }
-  minimize "Obj" { x[a] }
-}
-scenario "S" { use "M" }
-"#;
+        let with_control =
+            fixture_text("parser_unit_var_keyword_parses_same_as_control_with_control.kdl");
 
-        let var_parsed = parse_program_text(with_var, &path).expect("var syntax parses");
+        let var_parsed = parse_program_text(&with_var, &path).expect("var syntax parses");
         let control_parsed =
-            parse_program_text(with_control, &path).expect("control syntax parses");
+            parse_program_text(&with_control, &path).expect("control syntax parses");
 
         // Both should produce identical control declarations
         assert_eq!(var_parsed.program.models.len(), 1);
@@ -684,20 +661,13 @@ scenario "S" { use "M" }
     fn alias_keyword_parses_same_as_map() {
         let path = PathBuf::from("test.kdl");
 
-        let with_alias = r#"
-data "D" source="file.csv" {
-  alias "X" column="name"
-}
-"#;
+        let with_alias =
+            fixture_text("parser_unit_alias_keyword_parses_same_as_map_with_alias.kdl");
 
-        let with_map = r#"
-data "D" source="file.csv" {
-  map "X" from="name"
-}
-"#;
+        let with_map = fixture_text("parser_unit_alias_keyword_parses_same_as_map_with_map.kdl");
 
-        let alias_parsed = parse_program_text(with_alias, &path).expect("alias syntax parses");
-        let map_parsed = parse_program_text(with_map, &path).expect("map syntax parses");
+        let alias_parsed = parse_program_text(&with_alias, &path).expect("alias syntax parses");
+        let map_parsed = parse_program_text(&with_map, &path).expect("map syntax parses");
 
         assert_eq!(alias_parsed.program.data.len(), 1);
         assert_eq!(map_parsed.program.data.len(), 1);
@@ -714,13 +684,9 @@ data "D" source="file.csv" {
     fn data_from_property_is_rejected() {
         let path = PathBuf::from("test.kdl");
 
-        let with_from = r#"
-data "D" from="file.csv" {
-  map "X" from="name"
-}
-"#;
+        let with_from = fixture_text("parser_unit_data_from_property_is_rejected_with_from.kdl");
 
-        let error = parse_program_text(with_from, &path).expect_err("from= should be rejected");
+        let error = parse_program_text(&with_from, &path).expect_err("from= should be rejected");
         assert!(error.to_string().contains("source"));
     }
 
@@ -728,11 +694,12 @@ data "D" from="file.csv" {
     fn set_as_property_parses_same_as_alias() {
         let path = PathBuf::from("test.kdl");
 
-        let with_as = r#"set "X" as="g""#;
-        let with_alias = r#"set "X" alias="g""#;
+        let with_as = fixture_text("parser_unit_set_as_property_parses_same_as_alias_with_as.kdl");
+        let with_alias =
+            fixture_text("parser_unit_set_as_property_parses_same_as_alias_with_alias.kdl");
 
-        let as_parsed = parse_program_text(with_as, &path).expect("as= syntax parses");
-        let alias_parsed = parse_program_text(with_alias, &path).expect("alias= syntax parses");
+        let as_parsed = parse_program_text(&with_as, &path).expect("as= syntax parses");
+        let alias_parsed = parse_program_text(&with_alias, &path).expect("alias= syntax parses");
 
         assert_eq!(as_parsed.program.sets.len(), 1);
         assert_eq!(alias_parsed.program.sets.len(), 1);
@@ -748,9 +715,9 @@ data "D" from="file.csv" {
     fn where_keyword_is_rejected() {
         let path = PathBuf::from("test.kdl");
 
-        let with_where = r#"set "thermal" { in "gen"; where { type == "thermal" } }"#;
+        let with_where = fixture_text("parser_unit_where_keyword_is_rejected_with_where.kdl");
 
-        parse_program_text(with_where, &path).expect_err("where syntax should fail");
+        parse_program_text(&with_where, &path).expect_err("where syntax should fail");
     }
 
     #[test]
@@ -758,25 +725,9 @@ data "D" from="file.csv" {
         let path = PathBuf::from("test.kdl");
 
         // Mix of legacy-compatible and canonical forms we still support.
-        let mixed = r#"
-data "D" source="file.csv" {
-  map "old_col" from="x"
-  alias "new_col" column="y"
-}
+        let mixed = fixture_text("parser_unit_mixed_old_and_new_syntax_parses_mixed.kdl");
 
-set "old_set" alias="o"
-set "new_set" as="n"
-
-model "M" {
-  control "old_var" { index "a" }
-  var "new_var" { index "b" }
-  minimize "Obj" { old_var[a] + new_var[b] }
-}
-
-scenario "S" { use "M" }
-"#;
-
-        let parsed = parse_program_text(mixed, &path).expect("mixed syntax parses");
+        let parsed = parse_program_text(&mixed, &path).expect("mixed syntax parses");
 
         assert_eq!(parsed.program.data.len(), 1);
         assert_eq!(parsed.program.data[0].maps.len(), 2);

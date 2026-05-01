@@ -1,0 +1,17 @@
+
+model "Dispatch" {
+  control "x" {
+    index "a"
+    index "t"
+  }
+  constraint "balance" {
+    x[a,t] <= 1
+  }
+  minimize "Obj" {
+    x[a,t]
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

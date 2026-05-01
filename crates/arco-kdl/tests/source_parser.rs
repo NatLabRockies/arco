@@ -1,35 +1,16 @@
+mod common;
+
 use arco_kdl::ObjectiveSense;
 use arco_kdl::source::{BoundExpr, LiteralValue, ReportKind, SourceError, parse_program_text};
+use common::fixture_text;
 use std::path::PathBuf;
 
 #[test]
 fn parses_top_level_low_level_declarations() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-param "voll" 9000 units="$/MWh"
+    let text = fixture_text("parses_top_level_low_level_declarations.kdl")?;
 
-set "time" { "1"; "2"; "3" }
-
-data "generator_data" source="data/generator.csv" {
-  map "asset_id" from="asset"
-}
-
-model "Dispatch" {
-  control "dispatch" index="asset_id" lower=0
-  constraint "limit" {
-    dispatch[a] <= 100
-  }
-  minimize "SystemCost" {
-    dispatch[a]
-  }
-}
-
-scenario "Base" {
-  use "Dispatch"
-}
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
+    let parsed = parse_program_text(&text, &path)?;
     let program = parsed.program;
 
     assert_eq!(program.params.len(), 1);
@@ -44,22 +25,9 @@ scenario "Base" {
 #[test]
 fn parses_data_children_including_index_forms() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-data "generator_data" source="data/generator.csv" {
-  map "asset_id" from="asset"
-  set "asset_id"
-  index "asset_id" "zone_id"
+    let text = fixture_text("parses_data_children_including_index_forms.kdl")?;
 
-  param "capacity_mw" index="asset_id" from="capacity_col" units="MW"
-  param "availability" {
-    index "asset_id"
-    index "time"
-    reduce "sum"
-  }
-}
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
+    let parsed = parse_program_text(&text, &path)?;
     let data = &parsed.program.data[0];
 
     assert_eq!(data.maps[0].name, "asset_id");
@@ -82,37 +50,9 @@ data "generator_data" source="data/generator.csv" {
 #[test]
 fn parses_model_children_with_indexing_and_algebra() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-model "Dispatch" {
-  set "assets" alias="a"
-  set "time" alias="t"
+    let text = fixture_text("parses_model_children_with_indexing_and_algebra.kdl")?;
 
-  param "demand" {
-    index "time"
-  }
-  param "capacity_mw" index="assets"
-
-  control "dispatch" index="assets" lower=0
-  control "on" {
-    index "assets"
-    index "time"
-  }
-
-  expression "FuelCost" {
-    sum(dispatch[a] for a in assets)
-  }
-
-  constraint "balance" {
-    sum(dispatch[a] for a in assets) = demand[t]
-  }
-
-  maximize "Revenue" {
-    FuelCost
-  }
-}
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
+    let parsed = parse_program_text(&text, &path)?;
     let model = parsed.program.model("Dispatch").ok_or("missing model")?;
 
     assert_eq!(model.parameters[0].indices, vec!["time"]);
@@ -136,27 +76,9 @@ model "Dispatch" {
 #[test]
 fn parses_scenario_reports_scalar_and_dual() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-model "Dispatch" {
-  set "assets"
-  control "dispatch" index="assets"
-  constraint "balance" {
-    dispatch[a] <= 100
-  }
-  minimize "Cost" {
-    dispatch[a]
-  }
-}
+    let text = fixture_text("parses_scenario_reports_scalar_and_dual.kdl")?;
 
-scenario "Base" {
-  use "Dispatch"
-  data "demand" source="data/demand.csv"
-  report FuelCost
-  report dual balance
-}
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
+    let parsed = parse_program_text(&text, &path)?;
     let scenario = parsed.program.scenario("Base").ok_or("missing scenario")?;
 
     assert_eq!(scenario.reports.len(), 2);
@@ -172,33 +94,10 @@ scenario "Base" {
 fn parses_generated_constraint_with_index_if_and_expression_children()
 -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
-    let text = r"
-model Dispatch {
-  control p {
-    index g
-    index t
-  }
+    let text =
+        fixture_text("parses_generated_constraint_with_index_if_and_expression_children.kdl")?;
 
-  constraint ramp {
-    index g
-    index tt { in t }
-    if { tt > 1 }
-    expression {
-      p[g,tt] - p[g,tt-1] <= 10
-    }
-  }
-
-  minimize Obj {
-    sum(p[g,t] for g in g for t in t)
-  }
-}
-
-scenario Base {
-  use Dispatch
-}
-";
-
-    let parsed = parse_program_text(text, &path)?;
+    let parsed = parse_program_text(&text, &path)?;
     let model = parsed.program.model("Dispatch").ok_or("missing model")?;
     let constraint = model
         .constraints
@@ -219,14 +118,9 @@ scenario Base {
 #[test]
 fn parses_top_level_projection_declaration() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-projection "ai" {
-  from "feasible_links"
-  to "a" "i"
-}
-"#;
+    let text = fixture_text("parses_top_level_projection_declaration.kdl")?;
 
-    let parsed = parse_program_text(text, &path)?;
+    let parsed = parse_program_text(&text, &path)?;
     assert_eq!(parsed.program.projections.len(), 1);
 
     let projection = &parsed.program.projections[0];
@@ -241,14 +135,10 @@ projection "ai" {
 fn parses_top_level_projection_declaration_with_domain_and_key_blocks()
 -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-projection "ai" {
-  from { "feasible_links" }
-  to { "a"; "i" }
-}
-"#;
+    let text =
+        fixture_text("parses_top_level_projection_declaration_with_domain_and_key_blocks.kdl")?;
 
-    let parsed = parse_program_text(text, &path)?;
+    let parsed = parse_program_text(&text, &path)?;
     assert_eq!(parsed.program.projections.len(), 1);
 
     let projection = &parsed.program.projections[0];
@@ -262,28 +152,9 @@ projection "ai" {
 #[test]
 fn parses_expression_reduce_projection_block_form() -> Result<(), Box<dyn std::error::Error>> {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-projection "ai" {
-  from "feasible_links"
-  to "a" "i"
-}
+    let text = fixture_text("parses_expression_reduce_projection_block_form.kdl")?;
 
-model "Dispatch" {
-  expression "investment_by_area_tech[a,i]" {
-    reduce "ai" {
-      sum "investment"
-    }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "Dispatch"
-}
-"#;
-
-    let parsed = parse_program_text(text, &path)?;
+    let parsed = parse_program_text(&text, &path)?;
     let model = parsed.program.model("Dispatch").ok_or("missing model")?;
     let expression = model.expressions.first().ok_or("missing expression")?;
 
@@ -296,26 +167,10 @@ scenario "S1" {
 #[test]
 fn rejects_expression_reduce_with_mixed_sibling_math() {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-projection "ai" {
-  from "feasible_links"
-  to "a" "i"
-}
+    let text = fixture_text("rejects_expression_reduce_with_mixed_sibling_math.kdl")
+        .expect("fixture should load");
 
-model "Dispatch" {
-  expression "investment_by_area_tech[a,i]" {
-    reduce "ai" { sum "investment" } + 1
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "Dispatch"
-}
-"#;
-
-    let error = parse_program_text(text, &path)
+    let error = parse_program_text(&text, &path)
         .expect_err("mixed reduce and sibling math should fail parse");
     assert!(error.to_string().contains("expression"));
 }
@@ -323,27 +178,11 @@ scenario "S1" {
 #[test]
 fn rejects_expression_with_prefixed_math_before_reduce() {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-projection "ai" {
-  from "feasible_links"
-  to "a" "i"
-}
+    let text = fixture_text("rejects_expression_with_prefixed_math_before_reduce.kdl")
+        .expect("fixture should load");
 
-model "Dispatch" {
-  expression "investment_by_area_tech[a,i]" {
-    1 + reduce "ai" { sum "investment" }
-  }
-
-  minimize "Obj" { 0 }
-}
-
-scenario "S1" {
-  use "Dispatch"
-}
-"#;
-
-    let error =
-        parse_program_text(text, &path).expect_err("prefixed math before reduce should fail parse");
+    let error = parse_program_text(&text, &path)
+        .expect_err("prefixed math before reduce should fail parse");
     assert!(error.to_string().contains("expression"));
 }
 
@@ -351,19 +190,47 @@ scenario "S1" {
 fn rejects_unsupported_top_level_declarations() {
     let path = PathBuf::from("test.kdl");
     let cases = [
-        ("technology", "technology Battery { control dispatch }"),
-        ("operation", "operation Dispatch { }"),
-        ("asset", "asset Gen { }"),
-        ("instances", "instances Fleet source=\"data.csv\" { }"),
-        ("rule", "rule Balance { }"),
-        ("expression", "expression Cost { 1 }"),
-        ("minimize", "minimize Obj { 1 }"),
-        ("maximize", "maximize Obj { 1 }"),
-        ("subset", "subset legacy source=\"x\""),
+        (
+            "technology",
+            "rejects_unsupported_top_level_declarations_technology.kdl",
+        ),
+        (
+            "operation",
+            "rejects_unsupported_top_level_declarations_operation.kdl",
+        ),
+        (
+            "asset",
+            "rejects_unsupported_top_level_declarations_asset.kdl",
+        ),
+        (
+            "instances",
+            "rejects_unsupported_top_level_declarations_instances.kdl",
+        ),
+        (
+            "rule",
+            "rejects_unsupported_top_level_declarations_rule.kdl",
+        ),
+        (
+            "expression",
+            "rejects_unsupported_top_level_declarations_expression.kdl",
+        ),
+        (
+            "minimize",
+            "rejects_unsupported_top_level_declarations_minimize.kdl",
+        ),
+        (
+            "maximize",
+            "rejects_unsupported_top_level_declarations_maximize.kdl",
+        ),
+        (
+            "subset",
+            "rejects_unsupported_top_level_declarations_subset.kdl",
+        ),
     ];
 
-    for (decl, text) in cases {
-        let error = parse_program_text(text, &path)
+    for (decl, fixture) in cases {
+        let text = fixture_text(fixture).expect("fixture should load");
+        let error = parse_program_text(&text, &path)
             .expect_err("unsupported declaration should be rejected at parse time");
         match error {
             SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, decl),
@@ -375,16 +242,9 @@ fn rejects_unsupported_top_level_declarations() {
 #[test]
 fn rejects_legacy_index_by_property() {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-model "Dispatch" {
-  param "demand" index_by="t"
-  control "x" index="t"
-  minimize "Obj" { x[t] }
-}
-scenario "Base" { use "Dispatch" }
-"#;
+    let text = fixture_text("rejects_legacy_index_by_property.kdl").expect("fixture should load");
 
-    let error = parse_program_text(text, &path)
+    let error = parse_program_text(&text, &path)
         .expect_err("legacy index_by should be rejected at parse time");
     assert!(error.to_string().contains("index_by"));
 }
@@ -392,19 +252,10 @@ scenario "Base" { use "Dispatch" }
 #[test]
 fn rejects_unsupported_scenario_horizon_and_set_binding() {
     let path = PathBuf::from("test.kdl");
-    let text = r#"
-model "Dispatch" {
-  control "p" index="g"
-  maximize "Obj" { p[g] }
-}
+    let text = fixture_text("rejects_unsupported_scenario_horizon_and_set_binding.kdl")
+        .expect("fixture should load");
 
-scenario "Base" {
-  use "Dispatch"
-  horizon steps=24 resolution="PT1H"
-}
-"#;
-
-    let error = parse_program_text(text, &path)
+    let error = parse_program_text(&text, &path)
         .expect_err("scenario-level horizon should be rejected at parse time");
 
     match error {

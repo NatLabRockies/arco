@@ -1,0 +1,21 @@
+
+set "area" { "1"; "1" }
+set "tech" { "wind" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+}
+
+model "Dispatch" {
+  control "x" {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

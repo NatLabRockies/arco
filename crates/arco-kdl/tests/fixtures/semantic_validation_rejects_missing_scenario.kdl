@@ -1,0 +1,10 @@
+
+model "Dispatch" {
+  control "x" {
+    index "a"
+    index "t"
+  }
+  minimize "Obj" {
+    sum(x[a,t] for a in assets for t in time)
+  }
+}

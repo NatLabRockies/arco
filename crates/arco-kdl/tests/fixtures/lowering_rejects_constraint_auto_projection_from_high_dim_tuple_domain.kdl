@@ -1,0 +1,38 @@
+
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area" as="a"
+  set "tech" as="i"
+  set "generators" as="g"
+  set "buses" as="b"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    filter { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  constraint "bad_projection" {
+    index "a" { in "feasible_links" }
+    expression { 0 == 0 }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}

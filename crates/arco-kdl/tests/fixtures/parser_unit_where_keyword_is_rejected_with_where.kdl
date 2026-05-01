@@ -1,0 +1,1 @@
+set "thermal" { in "gen"; where { type == "thermal" } }

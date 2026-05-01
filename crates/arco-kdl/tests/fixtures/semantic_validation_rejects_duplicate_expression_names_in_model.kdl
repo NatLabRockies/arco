@@ -1,0 +1,10 @@
+
+model "Dispatch" {
+  expression "cost" { 1 }
+  expression "cost" { 2 }
+  minimize "Obj" { cost }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
