@@ -44,7 +44,7 @@ const mathChildren = ($, mathRule) =>
 module.exports = grammar(kdl, {
   name: "arco_kdl",
 
-  externals: ($, previous) => [...previous, $._implicit_terminator],
+  externals: ($, previous) => [...previous, $._implicit_terminator, $.arco_math_text],
 
   rules: {
     // Allow nodes to be implicitly terminated before `}`.
@@ -119,10 +119,6 @@ module.exports = grammar(kdl, {
     // as KDL instead of being swallowed as free-form math text.
     arco_constraint_math_children: ($) =>
       mathChildren($, $.arco_constraint_math_text),
-
-    // Single opaque token for free-form algebra text in expression/minimize/
-    // maximize/filter/if/lower/upper nodes.
-    arco_math_text: (_) => token(prec(10, /[^{}]+/)),
 
     // Constraint math must include an operator or bracket so bare KDL child
     // nodes like `if { ... }` still parse through node_children.

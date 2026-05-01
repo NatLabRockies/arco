@@ -17,10 +17,17 @@ fi
 failures=()
 file_count=0
 while IFS= read -r file; do
+  rel="${file#"$repo_root/"}"
+  case "$rel" in
+    .worktrees/*|*is_rejected*|crates/arco-kdl/tests/fixtures/rejects_*)
+      continue
+      ;;
+  esac
+
   file_count=$((file_count + 1))
   parsed="$(tree-sitter parse -p "$grammar_path" "$file" 2>/dev/null || true)"
   if printf '%s' "$parsed" | rg -q '\(ERROR|\(MISSING'; then
-    failures+=("${file#"$repo_root/"}")
+    failures+=("$rel")
   fi
 done < <(find "$repo_root" -type f -name '*.kdl' -not -path '*/target/*' -not -path '*/.git/*' | sort)
 
