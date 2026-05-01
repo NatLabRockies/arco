@@ -173,10 +173,14 @@ function findOnPath(command) {
 }
 
 function candidateExecutableNames(command, extensions) {
-  return extensions.flatMap((extension) => [
-    `${command}${extension.toLowerCase()}`,
-    `${command}${extension.toUpperCase()}`,
-  ]);
+  return [
+    ...new Set(
+      extensions.flatMap((extension) => [
+        `${command}${extension.toLowerCase()}`,
+        `${command}${extension.toUpperCase()}`,
+      ]),
+    ),
+  ];
 }
 
 function isExecutableFile(candidate) {
