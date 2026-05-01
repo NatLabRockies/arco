@@ -258,17 +258,18 @@ The `arco` CLI compiles and solves KDL optimization models.
 arco <command> [options]
 ```
 
-| Command                     | Description                                          |
-| :-------------------------- | :--------------------------------------------------- |
-| `arco run <file>`           | Compile and solve a `.kdl` formulation               |
-| `arco validate <file>`      | Validate a `.kdl` file without solving               |
-| `arco --version`            | Print the installed Arco CLI version                 |
-| `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters) |
-| `arco print-model <file>`   | Print the algebraic model sent to the solver         |
-| `arco export <file>`        | Export as LP or MPS format                           |
-| `arco debug <file>`         | Open an interactive IPython debug shell              |
-| `arco solver show`          | Show the active solver backend                       |
-| `arco solver set <backend>` | Set the solver backend (`highs` or `xpress`)         |
+| Command                     | Description                                           |
+| :-------------------------- | :---------------------------------------------------- |
+| `arco run <file>`           | Compile and solve a `.kdl` formulation                |
+| `arco validate <file>`      | Validate a `.kdl` file without solving                |
+| `arco kdl check <file>`     | Validate a `.kdl` file with optional JSON diagnostics |
+| `arco --version`            | Print the installed Arco CLI version                  |
+| `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters)  |
+| `arco print-model <file>`   | Print the algebraic model sent to the solver          |
+| `arco export <file>`        | Export as LP or MPS format                            |
+| `arco debug <file>`         | Open an interactive IPython debug shell               |
+| `arco solver show`          | Show the active solver backend                        |
+| `arco solver set <backend>` | Set the solver backend (`highs` or `xpress`)          |
 
 ### Examples
 
@@ -277,6 +278,20 @@ Validate without solving:
 ```bash
 $ arco validate input.kdl
 Validated file://input.kdl in 4ms (arco 0.5.0)
+```
+
+Emit machine-readable diagnostics for editors:
+
+```bash
+$ arco kdl check input.kdl --format json
+{"valid":true,"diagnostics":[]}
+```
+
+Install the local VS Code helper extension:
+
+```bash
+cd tools/vscode-arco-kdl
+npm run install:local
 ```
 
 Print CLI version:

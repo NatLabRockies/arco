@@ -138,6 +138,27 @@ minimize total_cost {
         (arco_math_text)))))
 
 ==================
+Expression with reduce projection block
+==================
+
+expression investment_by_area_tech {
+  reduce "ai" {
+    sum "investment"
+  }
+}
+
+---
+
+(document
+  (node
+    (arco_pure_math_node
+      (node_field
+        (value
+          (bare_identifier)))
+      (arco_pure_math_children
+        (arco_math_text)))))
+
+==================
 Maximize with identifier body
 ==================
 

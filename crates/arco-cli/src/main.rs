@@ -5,8 +5,8 @@ use arco_cli::cli_io::{
 use arco_cli::config::{SolverBackend, SolverConfig, load_solver_config, save_solver_config};
 use arco_cli::debug::launch_ipython;
 use arco_cli::driver::{
-    RunOptions, inspect_file_report, print_file_model, run_file_json_with_options_and_backend,
-    validate_file_only,
+    RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
+    run_file_json_with_options_and_backend, validate_file_only,
 };
 use arco_cli::export::{write_lp, write_mps};
 use arco_kdl::pipeline::compile_file;
@@ -50,6 +50,11 @@ enum Command {
     PrintModel { path: PathBuf },
     /// Validate a .kdl file without solving
     Validate { path: PathBuf },
+    /// KDL tooling helpers
+    Kdl {
+        #[command(subcommand)]
+        action: KdlAction,
+    },
     /// Inspect semantic model information from a validated .kdl file
     Inspect {
         path: PathBuf,
@@ -80,6 +85,22 @@ enum ExportFormat {
     Mps,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CheckFormat {
+    Text,
+    Json,
+}
+
+#[derive(Subcommand)]
+enum KdlAction {
+    /// Validate a .kdl file with canonical parser diagnostics
+    Check {
+        path: PathBuf,
+        #[arg(long, default_value = "text")]
+        format: CheckFormat,
+    },
+}
+
 #[derive(Subcommand)]
 enum SolverAction {
     /// Show the active solver backend
@@ -93,7 +114,16 @@ fn main() -> miette::Result<()> {
     let _ = miette::set_hook(Box::new(|_| {
         Box::new(miette::MietteHandlerOpts::new().build())
     }));
-    let validate_command = matches!(&cli.command, Command::Validate { .. });
+    let validate_command = matches!(
+        &cli.command,
+        Command::Validate { .. }
+            | Command::Kdl {
+                action: KdlAction::Check {
+                    format: CheckFormat::Text,
+                    ..
+                },
+            }
+    );
     init_tracing(cli.verbose, validate_command);
 
     match cli.command {
@@ -132,6 +162,7 @@ fn main() -> miette::Result<()> {
         Command::Inspect { path, json } => {
             write_stdout_line(&inspect_file_report(&path, json)?).into_diagnostic()?;
         }
+        Command::Kdl { action } => handle_kdl_action(action)?,
         Command::Debug { path } => {
             launch_ipython(&path)?;
         }
@@ -141,6 +172,29 @@ fn main() -> miette::Result<()> {
             output,
         } => export_model(path, format, output)?,
         Command::Solver { action } => handle_solver_action(action)?,
+    }
+
+    Ok(())
+}
+
+fn handle_kdl_action(action: KdlAction) -> miette::Result<()> {
+    match action {
+        KdlAction::Check { path, format } => match format {
+            CheckFormat::Text => {
+                write_stdout_line(&validate_file_only(
+                    &path,
+                    ColorMode::from(should_colorize_stdout(std::io::stdout().is_terminal())),
+                )?)
+                .into_diagnostic()?;
+            }
+            CheckFormat::Json => {
+                let outcome = kdl_check_file_json(&path)?;
+                write_stdout_line(&outcome.json).into_diagnostic()?;
+                if !outcome.valid {
+                    std::process::exit(1);
+                }
+            }
+        },
     }
 
     Ok(())

@@ -1837,17 +1837,6 @@
         ]
       }
     },
-    "arco_math_text": {
-      "type": "TOKEN",
-      "content": {
-        "type": "PREC",
-        "value": 10,
-        "content": {
-          "type": "PATTERN",
-          "value": "[^{}]+"
-        }
-      }
-    },
     "arco_constraint_math_text": {
       "type": "TOKEN",
       "content": {
@@ -1890,6 +1879,10 @@
     {
       "type": "SYMBOL",
       "name": "_implicit_terminator"
+    },
+    {
+      "type": "SYMBOL",
+      "name": "arco_math_text"
     }
   ],
   "inline": [],

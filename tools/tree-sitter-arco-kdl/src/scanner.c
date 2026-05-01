@@ -89,11 +89,12 @@ static bool kdl_scanner_scan(void *payload, TSLexer *lexer, const bool *valid_sy
 // === Begin arco_kdl-specific extensions ===
 
 // The external token indices must match the order in grammar.js externals.
-// externals: [_eof, multi_line_comment, _implicit_terminator]
+// externals: [_eof, multi_line_comment, _implicit_terminator, arco_math_text]
 enum {
   KDL_EOF = 0,
   KDL_MULTI_LINE_COMMENT = 1,
   IMPLICIT_TERMINATOR = 2,
+  ARCO_MATH_TEXT = 3,
 };
 
 static bool scan_implicit_terminator(TSLexer *lexer) {
@@ -107,6 +108,75 @@ static bool scan_implicit_terminator(TSLexer *lexer) {
 
   lexer->result_symbol = IMPLICIT_TERMINATOR;
   return true;
+}
+
+static bool scan_math_text(TSLexer *lexer) {
+  if (lexer->lookahead == '}' || lexer->lookahead == '\0') {
+    return false;
+  }
+
+  bool consumed_any = false;
+  unsigned brace_depth = 0;
+  bool in_string = false;
+  int string_delim = 0;
+
+  for (;;) {
+    switch (lexer->lookahead) {
+      case '\0':
+        if (!consumed_any) {
+          return false;
+        }
+        lexer->result_symbol = ARCO_MATH_TEXT;
+        return true;
+      case '\\':
+        consumed_any = true;
+        kdl_advance(lexer);
+        if (lexer->lookahead != '\0') {
+          kdl_advance(lexer);
+        }
+        break;
+      case '"':
+      case '\'':
+        consumed_any = true;
+        if (in_string && lexer->lookahead == string_delim) {
+          in_string = false;
+          string_delim = 0;
+        } else if (!in_string) {
+          in_string = true;
+          string_delim = lexer->lookahead;
+        }
+        kdl_advance(lexer);
+        break;
+      case '{':
+        consumed_any = true;
+        if (!in_string) {
+          brace_depth++;
+        }
+        kdl_advance(lexer);
+        break;
+      case '}':
+        if (in_string) {
+          consumed_any = true;
+          kdl_advance(lexer);
+          break;
+        }
+        if (brace_depth == 0) {
+          if (!consumed_any) {
+            return false;
+          }
+          lexer->result_symbol = ARCO_MATH_TEXT;
+          return true;
+        }
+        consumed_any = true;
+        brace_depth--;
+        kdl_advance(lexer);
+        break;
+      default:
+        consumed_any = true;
+        kdl_advance(lexer);
+        break;
+    }
+  }
 }
 
 void *tree_sitter_arco_kdl_external_scanner_create(void) {
@@ -131,6 +201,10 @@ bool tree_sitter_arco_kdl_external_scanner_scan(
   const bool *valid_symbols
 ) {
   if (valid_symbols[IMPLICIT_TERMINATOR] && scan_implicit_terminator(lexer)) {
+    return true;
+  }
+
+  if (valid_symbols[ARCO_MATH_TEXT] && scan_math_text(lexer)) {
     return true;
   }
 

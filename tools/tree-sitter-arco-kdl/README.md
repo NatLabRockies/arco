@@ -26,7 +26,8 @@ correct contexts, giving editors clean parses with no red squiggles.
 - Keeps normal KDL parsing from `tree-sitter-kdl` for structural nodes (`data`,
   `model`, `scenario`, `control`, `set`, `param`, etc.).
 - **Pure math nodes** (`expression`, `minimize`, `maximize`, `filter`, `if`,
-  `lower`, `upper`) always parse their `{ }` body as algebra text.
+  `lower`, `upper`) always parse their `{ }` body as algebra text, including
+  nested projection-reduce blocks (`reduce ... { ... }`).
 - **Mixed math nodes** (`constraint`) try KDL children first (generated form
   with `index`, `if`, `expression` children), falling back to algebra text
   (simple form).

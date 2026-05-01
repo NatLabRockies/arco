@@ -8,6 +8,7 @@ on:
       - ".pre-commit-config.yaml"
       - "scripts/check-kdl-overlay.sh"
       - "tools/tree-sitter-arco-kdl/**"
+      - "tools/vscode-arco-kdl/**"
       - ".github/workflows/kdl-overlay.yaml"
 
 concurrency:
@@ -63,3 +64,7 @@ jobs:
       - name: Run filtered prek hook
         run: uvx --from prek==0.3.6 prek run --all-files --hook-stage manual
           --show-diff-on-failure --color always kdl-overlay-check
+
+      - name: Run VS Code extension smoke check
+        working-directory: tools/vscode-arco-kdl
+        run: npm run check
