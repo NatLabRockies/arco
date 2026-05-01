@@ -46,6 +46,9 @@ pub fn validate_program(
 
     validate_scenario_data_bindings_match_known_params(scenario, model, program, entrypoint)?;
     validate_model_parameters_resolved(scenario, model, program, entrypoint)?;
+    validate_unique_model_expression_names(model, entrypoint)?;
+    validate_unique_model_constraint_names(model, entrypoint)?;
+    validate_unique_model_control_names(model, entrypoint)?;
 
     let mut seen_data_bindings = BTreeSet::new();
     for binding in &scenario.data {
@@ -506,6 +509,70 @@ fn validate_model_parameters_resolved(
             return Err(SemanticError::MissingDeclaration {
                 kind: "param",
                 name: parameter.name.clone(),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_unique_model_expression_names(
+    model: &ModelDecl,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    validate_unique_model_names(
+        model,
+        "expression",
+        model
+            .expressions
+            .iter()
+            .map(|expression| expression.name.as_str()),
+        entrypoint,
+    )
+}
+
+fn validate_unique_model_constraint_names(
+    model: &ModelDecl,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    validate_unique_model_names(
+        model,
+        "constraint",
+        model
+            .constraints
+            .iter()
+            .map(|constraint| constraint.name.as_str()),
+        entrypoint,
+    )
+}
+
+fn validate_unique_model_control_names(
+    model: &ModelDecl,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    validate_unique_model_names(
+        model,
+        "control",
+        model.controls.iter().map(|control| control.name.as_str()),
+        entrypoint,
+    )
+}
+
+fn validate_unique_model_names<'a>(
+    model: &ModelDecl,
+    kind: &'static str,
+    names: impl Iterator<Item = &'a str>,
+    entrypoint: &Path,
+) -> Result<(), SemanticError> {
+    let mut seen = BTreeSet::new();
+
+    for name in names {
+        if !seen.insert(name) {
+            return Err(SemanticError::DuplicateModelDeclaration {
+                kind,
+                name: name.to_string(),
+                model: model.name.clone(),
                 path: entrypoint.to_path_buf(),
             });
         }

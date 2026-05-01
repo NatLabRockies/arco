@@ -122,6 +122,18 @@ pub enum SemanticError {
         path: PathBuf,
     },
 
+    #[error("duplicate {kind} declaration `{name}` in model `{model}` in {path}")]
+    #[diagnostic(
+        code(arco::semantic::duplicate_model_declaration),
+        help("rename or remove one of the duplicate declarations")
+    )]
+    DuplicateModelDeclaration {
+        kind: &'static str,
+        name: String,
+        model: String,
+        path: PathBuf,
+    },
+
     #[error(
         "unresolved filter identifier `{identifier}` in {declaration_kind} `{declaration}` from data `{data}` in {path}"
     )]
