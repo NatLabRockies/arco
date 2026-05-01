@@ -433,8 +433,7 @@ fn span_line_column(path: &Path, span: SourceSpan) -> (Option<usize>, Option<usi
     let column = prefix
         .rsplit('\n')
         .next()
-        .map(|line_prefix| line_prefix.chars().count() + 1)
-        .unwrap_or(1);
+        .map_or(1, |line_prefix| line_prefix.chars().count() + 1);
 
     (Some(line), Some(column))
 }
