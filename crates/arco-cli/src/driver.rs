@@ -416,21 +416,25 @@ fn source_error_span(error: &arco_kdl::source::SourceError) -> Option<SourceSpan
 }
 
 fn span_line_column(path: &Path, span: SourceSpan) -> (Option<usize>, Option<usize>) {
-    let Ok(source) = std::fs::read(path) else {
+    let Ok(source) = std::fs::read_to_string(path) else {
         return (None, None);
     };
-    let offset = span.offset().min(source.len());
-
-    let mut line = 1usize;
-    let mut column = 1usize;
-    for byte in source.iter().take(offset) {
-        if *byte == b'\n' {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
-        }
+    let mut offset = span.offset().min(source.len());
+    while offset > 0 && !source.is_char_boundary(offset) {
+        offset -= 1;
     }
+
+    let prefix = &source[..offset];
+    let line = prefix
+        .chars()
+        .filter(|character| *character == '\n')
+        .count()
+        + 1;
+    let column = prefix
+        .rsplit('\n')
+        .next()
+        .map(|line_prefix| line_prefix.chars().count() + 1)
+        .unwrap_or(1);
 
     (Some(line), Some(column))
 }
@@ -591,8 +595,27 @@ fn peak_rss_bytes() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::format_validate_success;
+    use super::{format_validate_success, span_line_column};
+    use miette::SourceSpan;
+    use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn span_line_column_counts_unicode_char_columns() {
+        let path = std::env::temp_dir().join(format!(
+            "arco-cli-unicode-span-{}-{}.kdl",
+            std::process::id(),
+            env!("CARGO_PKG_VERSION")
+        ));
+        let source = "set café technology\n";
+        fs::write(&path, source).expect("write unicode fixture");
+
+        let offset = source.find("technology").expect("target token");
+        let location = span_line_column(&path, SourceSpan::from((offset, 1)));
+
+        assert_eq!(location, (Some(1), Some(10)));
+        fs::remove_file(path).expect("remove unicode fixture");
+    }
 
     #[test]
     fn format_validate_success_plain_output_has_no_ansi() {

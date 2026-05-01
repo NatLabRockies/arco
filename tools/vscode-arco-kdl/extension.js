@@ -18,6 +18,7 @@ const COMMANDS = {
 
 let extensionContext;
 let missingCommandWarningShown = false;
+const activeValidations = new Map();
 
 function activate(context) {
   extensionContext = context;
@@ -90,7 +91,11 @@ function validateDocument(document, diagnostics) {
     return;
   }
 
+  const uri = document.uri.toString();
+  activeValidations.get(uri)?.child.kill();
+
   const command = resolveCheckCommand(document);
+  const version = document.version;
   const child = spawn(
     command,
     [...CHECK_ARGS, document.fileName, ...JSON_FORMAT_ARGS],
@@ -99,6 +104,7 @@ function validateDocument(document, diagnostics) {
       shell: false,
     },
   );
+  activeValidations.set(uri, { child, version });
 
   let stdout = "";
   let stderr = "";
@@ -111,7 +117,9 @@ function validateDocument(document, diagnostics) {
     stderr += chunk.toString();
   });
   child.on("error", (error) => {
+    if (activeValidations.get(uri)?.child !== child) return;
     spawnFailed = true;
+    activeValidations.delete(uri);
     diagnostics.set(document.uri, [
       commandFailureDiagnostic(document, command, error.message),
     ]);
@@ -121,10 +129,12 @@ function validateDocument(document, diagnostics) {
     }
   });
   child.on("close", () => {
-    if (spawnFailed) return;
+    if (activeValidations.get(uri)?.child !== child) return;
+    activeValidations.delete(uri);
+    if (spawnFailed || document.version !== version) return;
 
     const report = parseReport(stdout);
-    if (!report) {
+    if (!isKdlCheckReport(report)) {
       diagnostics.set(document.uri, [
         invalidOutputDiagnostic(document, command, stderr),
       ]);
@@ -204,6 +214,24 @@ function parseReport(stdout) {
   }
 }
 
+function isKdlCheckReport(report) {
+  return (
+    report &&
+    typeof report === "object" &&
+    typeof report.valid === "boolean" &&
+    Array.isArray(report.diagnostics) &&
+    report.diagnostics.every(isKdlDiagnostic)
+  );
+}
+
+function isKdlDiagnostic(diagnostic) {
+  return (
+    diagnostic &&
+    typeof diagnostic === "object" &&
+    typeof diagnostic.message === "string"
+  );
+}
+
 function toVsCodeDiagnostic(document, diagnostic) {
   const item = new vscode.Diagnostic(
     diagnosticRange(document, diagnostic),
@@ -218,8 +246,15 @@ function toVsCodeDiagnostic(document, diagnostic) {
 }
 
 function diagnosticRange(document, diagnostic) {
-  const line = Math.max((diagnostic.line || 1) - 1, 0);
-  const column = Math.max((diagnostic.column || 1) - 1, 0);
+  if (
+    !Number.isInteger(diagnostic.line) ||
+    !Number.isInteger(diagnostic.column)
+  ) {
+    return document.lineAt(0).range;
+  }
+
+  const line = Math.max(diagnostic.line - 1, 0);
+  const column = Math.max(diagnostic.column - 1, 0);
   const range = document.lineAt(Math.min(line, document.lineCount - 1)).range;
   const start = range.start.translate(0, Math.min(column, range.end.character));
   return new vscode.Range(start, start.translate(0, 1));
