@@ -2,45 +2,16 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
+use arco_scip as scip;
 use arco_solver::{
     ResolvedSelection, SelectionError, SolverConfigDocument, SolverProfile, SolverRegistry,
-    merged_profiles, resolve_selection,
+    SolverTransport, merged_profiles, resolve_selection,
 };
 use miette::Diagnostic;
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SolverBackend {
-    Highs,
-    Xpress,
-}
-
-impl SolverBackend {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Highs => "highs",
-            Self::Xpress => "xpress",
-        }
-    }
-
-    fn from_resolved_family(family: &str) -> Result<Self, ConfigError> {
-        match family {
-            "highs" => Ok(Self::Highs),
-            "xpress" => Ok(Self::Xpress),
-            "ipopt" => Err(ConfigError::UnsupportedBackend {
-                family: family.to_string(),
-                reason: "Ipopt is not exposed by the arco CLI backend adapter".to_string(),
-            }),
-            _ => Err(ConfigError::UnsupportedBackend {
-                family: family.to_string(),
-                reason: "no CLI execution adapter is registered for this family".to_string(),
-            }),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct SolverConfigState {
@@ -55,10 +26,6 @@ pub struct SolverConfigState {
 }
 
 impl SolverConfigState {
-    pub fn backend(&self) -> Result<SolverBackend, ConfigError> {
-        SolverBackend::from_resolved_family(&self.resolved.family)
-    }
-
     pub fn live_status_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         lines.push(format!("selection: {}", self.selection));
@@ -74,7 +41,7 @@ impl SolverConfigState {
         if let Some(family) = family {
             lines.push("availability.registered: true".to_string());
             lines.push("availability.compiled: true".to_string());
-            let usable = self.backend().is_ok();
+            let usable = selection_is_supported_in_cli(&self.resolved);
             lines.push(format!("availability.usable: {}", usable));
             lines.push(format!("family.display_name: {}", family.display_name));
         } else {
@@ -159,12 +126,6 @@ pub enum ConfigError {
         #[source]
         source: SelectionError,
     },
-    #[error("solver family '{family}' cannot be used by this CLI build: {reason}")]
-    #[diagnostic(
-        code(arco::config::unsupported_backend),
-        help("choose highs/xpress for CLI solve flows or use a compatible runtime")
-    )]
-    UnsupportedBackend { family: String, reason: String },
     #[error("solver profile '{profile}' contains non-reference secret value for env var '{key}'")]
     #[diagnostic(
         code(arco::config::secret_reference_required),
@@ -191,7 +152,8 @@ pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {
         .or_else(|| project.default_selection.clone())
         .unwrap_or_else(|| "highs".to_string());
 
-    let registry = SolverRegistry::with_builtin_families();
+    let mut registry = SolverRegistry::with_builtin_families();
+    scip::register_solver_family(&mut registry);
     let resolved = resolve_selection(&registry, &merged_profiles, &selection)
         .map_err(|source| ConfigError::InvalidSelection { source })?;
 
@@ -205,6 +167,15 @@ pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {
         user_path,
         project_path,
     })
+}
+
+fn selection_is_supported_in_cli(resolved: &ResolvedSelection) -> bool {
+    match resolved.transport {
+        SolverTransport::Embedded => {
+            resolved.family == "highs" || (resolved.family == "xpress" && cfg!(feature = "xpress"))
+        }
+        SolverTransport::ExternalProcess => true,
+    }
 }
 
 pub fn save_solver_selection(selection: &str) -> Result<PathBuf, ConfigError> {
@@ -414,6 +385,18 @@ mod tests {
         assert_eq!(profile.arguments, vec!["--nolog".to_string()]);
         assert_eq!(profile.executable.as_deref(), Some("/home/user/xprs"));
         assert_eq!(profile.options.threads, Some(8));
+    }
+
+    #[test]
+    fn selection_support_check_accepts_external_process_selection() {
+        let resolved = ResolvedSelection {
+            token: scip::FAMILY_NAME.to_string(),
+            family: scip::FAMILY_NAME.to_string(),
+            profile: None,
+            transport: arco_solver::SolverTransport::ExternalProcess,
+        };
+
+        assert!(super::selection_is_supported_in_cli(&resolved));
     }
 
     #[test]

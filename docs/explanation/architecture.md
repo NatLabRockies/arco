@@ -4,9 +4,9 @@ Arco is structured as a Rust workspace with multiple crates and Python bindings 
 
 Crate overview
 
-The workspace contains eleven crates organized into three layers. At the bottom are the foundational crates that define the data structures and algebraic building blocks. arco-core provides the basic abstractions: variables, constraints, expressions, and the solver-agnostic model representation. arco-algebra defines the arithmetic traits that allow composing expressions without dynamic dispatch. arco-index handles the index set machinery that powers multi-dimensional variable arrays.
+The workspace contains thirteen crates organized into three layers. At the bottom are the foundational crates that define the data structures and algebraic building blocks. arco-core provides the basic abstractions: variables, constraints, expressions, and the solver-agnostic model representation. arco-algebra defines the arithmetic traits that allow composing expressions without dynamic dispatch. arco-index handles the index set machinery that powers multi-dimensional variable arrays.
 
-The middle layer connects these abstractions to actual solvers. arco-solver defines the interface that any backend must implement. Currently there are two production backends: arco-highs, which wraps the embedded HiGHS solver, and arco-ipopt, which provides nonlinear programming capabilities. There is also arco-xpress for users with access to the FICO Xpress SDK, though this requires a commercial license and separate installation.
+The middle layer connects these abstractions to actual solvers. arco-solver defines the interface that any backend must implement. Currently there are two production backends: arco-highs, which wraps the embedded HiGHS solver, and arco-ipopt, which provides nonlinear programming capabilities. There is also arco-xpress for users with access to the FICO Xpress SDK, though this requires a commercial license and separate installation. LP/MPS export helpers live in arco-export, and the external-process SCIP integration is isolated in arco-scip so the CLI can stay thin.
 
 The top layer provides specialized functionality. arco-blocks defines the composition system for multi-stage optimization workflows. arco-reporters handles solution output and diagnostic formatting. arco-python contains the PyO3-based bindings that expose everything to Python.
 

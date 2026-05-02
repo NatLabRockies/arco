@@ -13,7 +13,9 @@ The CLI now persists solver configuration in a versioned TOML document:
 - project config: `./.arco/solver.toml` (or `ARCO_PROJECT_CONFIG_DIR/solver.toml`)
 
 Selection is stored exactly as typed and can name either a solver family or a
-profile:
+profile. Built-in CLI families currently include `highs`, `xpress` (when built
+with the feature), and `scip` (external process via the dedicated `arco-scip`
+integration crate):
 
 ```bash
 arco solver set highs

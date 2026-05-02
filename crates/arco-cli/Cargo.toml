@@ -34,6 +34,8 @@ arco-kdl = { workspace = true }
 arco-core = { workspace = true }
 arco-highs = { workspace = true }
 arco-xpress = { workspace = true, optional = true }
+arco-scip = { workspace = true }
+arco-export = { workspace = true }
 arco-solver = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 miette = { version = "7", features = ["fancy"] }

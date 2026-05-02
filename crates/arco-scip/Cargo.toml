@@ -1,0 +1,22 @@
+[package]
+name = "arco-scip"
+version = { workspace = true }
+description = "SCIP external-process solver integration for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-export = { workspace = true }
+arco-kdl = { workspace = true }
+arco-solver = { workspace = true }
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2.0"
+tracing = { workspace = true }

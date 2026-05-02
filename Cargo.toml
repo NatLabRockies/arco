@@ -4,10 +4,12 @@ exclude = ["scripts"]
 default-members = [
     "crates/arco-blocks",
     "crates/arco-cli",
+    "crates/arco-export",
     "crates/arco-core",
     "crates/arco-expr",
     "crates/arco-highs",
     "crates/arco-kdl",
+    "crates/arco-scip",
     "crates/arco-solver",
     "crates/arco-solver-types",
     "crates/arco-tools",
@@ -33,6 +35,8 @@ arco-tools = { path = "crates/arco-tools" }
 arco-blocks = { path = "crates/arco-blocks" }
 arco-kdl = { path = "crates/arco-kdl" }
 arco-cli = { path = "crates/arco-cli" }
+arco-export = { path = "crates/arco-export" }
+arco-scip = { path = "crates/arco-scip" }
 arco-solver-types = { path = "crates/arco-solver-types" }
 
 [workspace.package]

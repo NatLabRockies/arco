@@ -90,6 +90,22 @@ impl SolverFamily {
             capabilities,
         }
     }
+
+    /// Build an external-process family descriptor.
+    pub fn external_process(
+        name: impl Into<String>,
+        display_name: impl Into<String>,
+        capabilities: SolverCapabilityModel,
+    ) -> Self {
+        let mut transports = BTreeSet::new();
+        transports.insert(SolverTransport::ExternalProcess);
+        Self {
+            name: name.into(),
+            display_name: display_name.into(),
+            transports,
+            capabilities,
+        }
+    }
 }
 
 /// Profile-scoped transport launch config.
@@ -342,9 +358,10 @@ pub fn merged_profiles(
 fn has_integer_variables(model: &Model) -> bool {
     for idx in 0..model.num_variables() {
         let variable_id = arco_expr::VariableId::new(idx as u32);
-        if let Ok(variable) = model.get_variable(variable_id)
-            && variable.is_active
-            && variable.is_integer
+        if model
+            .get_variable(variable_id)
+            .map(|variable| variable.is_active && variable.is_integer)
+            .unwrap_or(false)
         {
             return true;
         }
@@ -410,12 +427,23 @@ pub fn resolve_selection(
             });
         }
 
-        // Synthesized built-in profile path: no explicit profile, derive embedded transport.
+        // Synthesized built-in profile path: no explicit profile, derive family-default transport.
+        let transport = registry
+            .family(selection_token)
+            .and_then(|family| {
+                if family.transports.contains(&SolverTransport::Embedded) {
+                    Some(SolverTransport::Embedded)
+                } else {
+                    family.transports.iter().next().copied()
+                }
+            })
+            .unwrap_or(SolverTransport::Embedded);
+
         return Ok(ResolvedSelection {
             token: selection_token.to_string(),
             family: selection_token.to_string(),
             profile: None,
-            transport: SolverTransport::Embedded,
+            transport,
         });
     }
 
@@ -431,13 +459,13 @@ pub fn preflight_selection(
     model: &Model,
     requirements: &SolverRequirements,
 ) -> Result<(), PreflightError> {
-    if let Some(required_transport) = requirements.transport
-        && required_transport != resolved.transport
-    {
-        return Err(PreflightError::TransportMismatch {
-            required: required_transport,
-            actual: resolved.transport,
-        });
+    if let Some(required_transport) = requirements.transport {
+        if required_transport != resolved.transport {
+            return Err(PreflightError::TransportMismatch {
+                required: required_transport,
+                actual: resolved.transport,
+            });
+        }
     }
 
     let capabilities = registry
@@ -538,6 +566,23 @@ mod tests {
             result,
             Err(SelectionError::AmbiguousFamilySelection { .. })
         ));
+    }
+
+    #[test]
+    fn resolve_external_process_family_defaults_transport() {
+        let mut registry = SolverRegistry::new();
+        registry.add_family(SolverFamily::external_process(
+            "example",
+            "Example",
+            SolverCapabilityModel::lp_mip_default(),
+        ));
+        let profiles = BTreeMap::new();
+
+        let resolved = resolve_selection(&registry, &profiles, "example")
+            .unwrap_or_else(|err| panic!("unexpected resolve error: {err}"));
+        assert_eq!(resolved.family, "example");
+        assert_eq!(resolved.transport, SolverTransport::ExternalProcess);
+        assert!(resolved.profile.is_none());
     }
 
     #[test]

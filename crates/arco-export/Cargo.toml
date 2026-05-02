@@ -1,0 +1,19 @@
+[package]
+name = "arco-export"
+version = { workspace = true }
+description = "LP and MPS export helpers for Arco optimization models"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-kdl = { workspace = true }
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2.0"

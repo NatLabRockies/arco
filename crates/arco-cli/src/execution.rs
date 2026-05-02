@@ -6,6 +6,7 @@ use arco_highs::Solver as HighsSolver;
 use arco_kdl::compile::{
     CompiledProblem, ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind,
 };
+use arco_scip as scip;
 #[cfg(feature = "xpress")]
 use arco_xpress::Solver as XpressSolver;
 use std::collections::BTreeMap;
@@ -118,6 +119,11 @@ pub struct RustArcoAdapter {
     log_to_console: bool,
 }
 
+#[derive(Debug, Default)]
+pub struct ScipArcoAdapter {
+    log_to_console: bool,
+}
+
 #[cfg(feature = "xpress")]
 #[derive(Debug, Default)]
 pub struct XpressArcoAdapter {
@@ -213,6 +219,16 @@ pub enum ExecutionError {
         backend: String,
         compiled_name: String,
     },
+    #[error("adapter backend `{backend}` failed during external solver I/O: {source}")]
+    ExternalSolverIo {
+        backend: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("adapter backend `{backend}` external solver invocation failed: {message}")]
+    ExternalSolverProcess { backend: String, message: String },
+    #[error("adapter backend `{backend}` produced an invalid solution file: {message}")]
+    ExternalSolverParse { backend: String, message: String },
 }
 
 impl MockArcoAdapter {
@@ -222,6 +238,18 @@ impl MockArcoAdapter {
 }
 
 impl RustArcoAdapter {
+    pub fn new() -> Self {
+        Self {
+            log_to_console: false,
+        }
+    }
+
+    pub fn with_console_log(log_to_console: bool) -> Self {
+        Self { log_to_console }
+    }
+}
+
+impl ScipArcoAdapter {
     pub fn new() -> Self {
         Self {
             log_to_console: false,
@@ -420,6 +448,79 @@ impl OptimizationAdapter for RustArcoAdapter {
             report_values,
             variable_values,
             dual_report_values,
+        })
+    }
+}
+
+impl OptimizationAdapter for ScipArcoAdapter {
+    fn backend_name(&self) -> &'static str {
+        scip::BACKEND_NAME
+    }
+
+    fn solve(
+        &self,
+        problem: &CompiledProblem,
+        include_variable_values: bool,
+    ) -> Result<AdapterSolveOutput, ExecutionError> {
+        let backend = scip::BACKEND_NAME.to_string();
+        let solution =
+            scip::solve_compiled_problem(problem, include_variable_values, self.log_to_console)
+                .map_err(|source| match source {
+                    scip::Error::Io { source } => ExecutionError::ExternalSolverIo {
+                        backend: backend.clone(),
+                        source,
+                    },
+                    scip::Error::Process { message } => ExecutionError::ExternalSolverProcess {
+                        backend: backend.clone(),
+                        message,
+                    },
+                    scip::Error::Parse { message } => ExecutionError::ExternalSolverParse {
+                        backend: backend.clone(),
+                        message,
+                    },
+                    scip::Error::NoFeasibleSolution { status } => {
+                        ExecutionError::NoFeasibleSolution {
+                            backend: backend.clone(),
+                            status,
+                        }
+                    }
+                })?;
+
+        Ok(AdapterSolveOutput {
+            status: match solution.status {
+                scip::SolveStatus::Optimal => SolveStatus::Optimal,
+                scip::SolveStatus::Infeasible => SolveStatus::Infeasible,
+                scip::SolveStatus::Failed => SolveStatus::Failed,
+            },
+            objective_value: ScalarArtifactValue {
+                compiled_name: problem.objective.name.clone(),
+                value: solution.objective_value,
+            },
+            report_values: solution
+                .report_values
+                .into_iter()
+                .map(|report| ScalarArtifactValue {
+                    compiled_name: report.compiled_name,
+                    value: report.value,
+                })
+                .collect(),
+            variable_values: solution
+                .variable_values
+                .into_iter()
+                .map(|variable| VariableArtifactValue {
+                    compiled_name: variable.compiled_name,
+                    representative_value: variable.representative_value,
+                    values: variable
+                        .values
+                        .into_iter()
+                        .map(|value| VariableInstanceArtifactValue {
+                            compiled_name: value.compiled_name,
+                            value: value.value,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            dual_report_values: Vec::new(),
         })
     }
 }
