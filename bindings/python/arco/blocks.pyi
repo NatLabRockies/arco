@@ -3,7 +3,14 @@ from __future__ import annotations
 from enum import Enum
 from typing import Callable, TypeAlias, TypeVar
 
-from .arco import Model, ModelSnapshot, SolveResult, Solver
+from .arco import (
+    Model,
+    ModelSnapshot,
+    SolveResult,
+    Solver,
+    SolverProfile,
+    SolverSelection,
+)
 
 _BlockFnT = TypeVar("_BlockFnT", bound=Callable[..., object])
 SchemaType: TypeAlias = type[object]
@@ -165,7 +172,7 @@ class BlockModel:
     def solve(
         self,
         *,
-        solver: Solver | None = None,
+        solver: Solver | SolverSelection | SolverProfile | None = None,
         log_to_console: bool | None = None,
         time_limit: float | None = None,
         mip_gap: float | None = None,

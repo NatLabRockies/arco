@@ -2,7 +2,7 @@ use arco_cli::cli_io::{
     ColorMode, should_colorize_stdout, should_log_solver_to_console, write_stdout,
     write_stdout_line,
 };
-use arco_cli::config::{SolverBackend, SolverConfig, load_solver_config, save_solver_config};
+use arco_cli::config::{load_solver_config, save_solver_selection};
 use arco_cli::debug::launch_ipython;
 use arco_cli::driver::{
     RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
@@ -103,10 +103,10 @@ enum KdlAction {
 
 #[derive(Subcommand)]
 enum SolverAction {
-    /// Show the active solver backend
+    /// Show the active solver selection and availability
     Show,
-    /// Set the solver backend
-    Set { backend: SolverBackend },
+    /// Set the default solver selection token (family or profile)
+    Set { selection: String },
 }
 
 fn main() -> miette::Result<()> {
@@ -145,7 +145,7 @@ fn main() -> miette::Result<()> {
                         std::io::stdout().is_terminal(),
                     ),
                 },
-                solver_config.backend,
+                solver_config.backend()?,
             )?;
             write_stdout(output.as_bytes()).into_diagnostic()?;
         }
@@ -225,14 +225,13 @@ fn handle_solver_action(action: SolverAction) -> miette::Result<()> {
     match action {
         SolverAction::Show => {
             let config = load_solver_config()?;
-            write_stdout_line(&format!("backend: {}", config.backend.as_str()))
-                .into_diagnostic()?;
+            for line in config.live_status_lines() {
+                write_stdout_line(&line).into_diagnostic()?;
+            }
         }
-        SolverAction::Set { backend } => {
-            let config = SolverConfig { backend };
-            let path = save_solver_config(&config)?;
-            write_stdout_line(&format!("backend: {}", config.backend.as_str()))
-                .into_diagnostic()?;
+        SolverAction::Set { selection } => {
+            let path = save_solver_selection(&selection)?;
+            write_stdout_line(&format!("selection: {}", selection)).into_diagnostic()?;
             write_stdout_line(&format!("path: {}", path.display())).into_diagnostic()?;
         }
     }

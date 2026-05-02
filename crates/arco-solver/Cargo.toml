@@ -17,3 +17,4 @@ workspace = true
 arco-core = { workspace = true }
 arco-expr = { workspace = true }
 arco-solver-types = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }

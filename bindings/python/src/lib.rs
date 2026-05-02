@@ -60,7 +60,9 @@ pub use snapshot::{PyModelSnapshot, PySnapshotMetadata};
 pub use solution::{PySolutionStatus, PySolveResult};
 #[cfg(feature = "ipopt")]
 pub use solver::PyIpopt;
-pub use solver::{PyHiGHS, PySolver, PyXpress, SolveOverrides, SolverSettings};
+pub use solver::{
+    PyHiGHS, PySolver, PySolverProfile, PySolverSelection, PyXpress, SolveOverrides, SolverSettings,
+};
 pub use variable::PyVariable;
 pub use views::{
     PyCoefficientView, PyConstraintView, PyObjectiveView, PySlackView, PyVariableView,
@@ -1040,6 +1042,18 @@ impl PyModel {
         let backend = resolve_backend(solver, &self.default_backend)?;
         let config = effective_settings.to_solver_config();
 
+        let registry = arco_solver::SolverRegistry::with_builtin_families();
+        let profiles = std::collections::BTreeMap::new();
+        let resolved = arco_solver::resolve_selection(&registry, &profiles, &self.default_backend)
+            .map_err(|error| errors::SolverInternalError::new_err(error.to_string()))?;
+        let requirements = arco_solver::SolverRequirements {
+            transport: None,
+            require_warm_start: hints.is_some(),
+            require_iis: false,
+        };
+        arco_solver::preflight_selection(&registry, &resolved, &self.inner, &requirements)
+            .map_err(|error| errors::SolverInternalError::new_err(error.to_string()))?;
+
         let result = match backend.solve(&self.inner, &config, hints.as_deref()) {
             Ok(solution) => Ok(PySolveResult::new(solution)),
             Err(arco_solver::SolverError::SolveFailure { status }) => {
@@ -1496,6 +1510,16 @@ fn detect_default_backend(solver: Option<&Bound<'_, PyAny>>) -> String {
     let Some(solver) = solver else {
         return "highs".to_string();
     };
+    if let Ok(selection) = solver.cast::<PySolverSelection>() {
+        let selection = selection.borrow();
+        if let Some(family_hint) = &selection.family_hint {
+            return family_hint.to_lowercase();
+        }
+        return selection.token.to_lowercase();
+    }
+    if let Ok(profile) = solver.cast::<PySolverProfile>() {
+        return profile.borrow().family.to_lowercase();
+    }
     #[cfg(feature = "ipopt")]
     if solver.cast::<PyIpopt>().is_ok() {
         return "ipopt".to_string();
@@ -1511,6 +1535,9 @@ fn extract_solver_settings(solver: Option<&Bound<'_, PyAny>>) -> PyResult<Solver
     let Some(solver) = solver else {
         return Ok(SolverSettings::default());
     };
+    if solver.cast::<PySolverSelection>().is_ok() || solver.cast::<PySolverProfile>().is_ok() {
+        return Ok(SolverSettings::default());
+    }
     if let Ok(highs) = solver.cast::<PyHiGHS>() {
         return Ok(highs.borrow().into_super().settings.clone());
     }
@@ -1525,7 +1552,7 @@ fn extract_solver_settings(solver: Option<&Bound<'_, PyAny>>) -> PyResult<Solver
         return Ok(base.borrow().settings.clone());
     }
     Err(errors::SolverTypeError::new_err(
-        "solver must be a Solver, HiGHS, Ipopt, or Xpress instance",
+        "solver must be a SolverSelection, SolverProfile, Solver, HiGHS, Ipopt, or Xpress instance",
     ))
 }
 

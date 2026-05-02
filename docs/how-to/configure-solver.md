@@ -5,6 +5,25 @@ model once and solve it with different solver settings by swapping the solver
 object passed to `model.solve()`. This guide shows how to create, customize,
 and reuse solver configurations.
 
+## CLI solver selection and profile config
+
+The CLI now persists solver configuration in a versioned TOML document:
+
+- user config: `~/.config/arco/solver.toml` (or `ARCO_CONFIG_DIR/solver.toml`)
+- project config: `./.arco/solver.toml` (or `ARCO_PROJECT_CONFIG_DIR/solver.toml`)
+
+Selection is stored exactly as typed and can name either a solver family or a
+profile:
+
+```bash
+arco solver set highs
+arco solver show
+```
+
+`arco solver show` reports resolved family/profile/transport and best-effort
+availability state. Legacy `solver.json` is no longer migrated automatically;
+create `solver.toml` explicitly.
+
 ## Create a solver object
 
 Use `arco.HiGHS(...)` to create a solver configuration with explicit settings.

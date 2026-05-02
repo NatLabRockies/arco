@@ -155,6 +155,29 @@ class Solver:
         self, *, update: Mapping[str, bool | int | float | None] | None = None
     ) -> Solver: ...
 
+class SolverSelection:
+    def __init__(self, token: str) -> None: ...
+    @staticmethod
+    def family(name: str) -> SolverSelection: ...
+    @staticmethod
+    def profile(name: str, *, family: str | None = None) -> SolverSelection: ...
+    @property
+    def token(self) -> str: ...
+
+class SolverProfile:
+    def __init__(
+        self,
+        name: str,
+        family: str,
+        transport: str | None = None,
+    ) -> None: ...
+    @property
+    def name(self) -> str: ...
+    @property
+    def family(self) -> str: ...
+    @property
+    def transport(self) -> str: ...
+
 class HiGHS(Solver): ...
 class Xpress(Solver): ...
 
@@ -491,7 +514,7 @@ class Model:
         self,
         *,
         simplify_level: SimplifyLevel | None = None,
-        solver: Solver | None = None,
+        solver: Solver | SolverSelection | SolverProfile | None = None,
     ) -> None: ...
     @classmethod
     def from_csc(
@@ -589,7 +612,7 @@ class Model:
     def solve(
         self,
         *,
-        solver: Solver | None = None,
+        solver: Solver | SolverSelection | SolverProfile | None = None,
         log_to_console: bool | None = None,
         primal_start: Sequence[tuple[int, float]] | None = None,
         time_limit: float | None = None,

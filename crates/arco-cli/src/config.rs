@@ -2,17 +2,18 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
-use clap::ValueEnum;
+use arco_solver::{
+    ResolvedSelection, SelectionError, SolverConfigDocument, SolverProfile, SolverRegistry,
+    merged_profiles, resolve_selection,
+};
 use miette::Diagnostic;
-use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SolverBackend {
-    #[default]
     Highs,
     Xpress,
 }
@@ -24,11 +25,67 @@ impl SolverBackend {
             Self::Xpress => "xpress",
         }
     }
+
+    fn from_resolved_family(family: &str) -> Result<Self, ConfigError> {
+        match family {
+            "highs" => Ok(Self::Highs),
+            "xpress" => Ok(Self::Xpress),
+            "ipopt" => Err(ConfigError::UnsupportedBackend {
+                family: family.to_string(),
+                reason: "Ipopt is not exposed by the arco CLI backend adapter".to_string(),
+            }),
+            _ => Err(ConfigError::UnsupportedBackend {
+                family: family.to_string(),
+                reason: "no CLI execution adapter is registered for this family".to_string(),
+            }),
+        }
+    }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SolverConfig {
-    pub backend: SolverBackend,
+#[derive(Debug, Clone)]
+pub struct SolverConfigState {
+    pub registry: SolverRegistry,
+    pub project: SolverConfigDocument,
+    pub user: SolverConfigDocument,
+    pub merged_profiles: BTreeMap<String, SolverProfile>,
+    pub selection: String,
+    pub resolved: ResolvedSelection,
+    pub user_path: PathBuf,
+    pub project_path: PathBuf,
+}
+
+impl SolverConfigState {
+    pub fn backend(&self) -> Result<SolverBackend, ConfigError> {
+        SolverBackend::from_resolved_family(&self.resolved.family)
+    }
+
+    pub fn live_status_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        lines.push(format!("selection: {}", self.selection));
+        lines.push(format!("resolved.family: {}", self.resolved.family));
+        if let Some(profile) = &self.resolved.profile {
+            lines.push(format!("resolved.profile: {}", profile));
+        } else {
+            lines.push("resolved.profile: <synthesized built-in>".to_string());
+        }
+        lines.push(format!("resolved.transport: {:?}", self.resolved.transport));
+
+        let family = self.registry.family(&self.resolved.family);
+        if let Some(family) = family {
+            lines.push("availability.registered: true".to_string());
+            lines.push("availability.compiled: true".to_string());
+            let usable = self.backend().is_ok();
+            lines.push(format!("availability.usable: {}", usable));
+            lines.push(format!("family.display_name: {}", family.display_name));
+        } else {
+            lines.push("availability.registered: false".to_string());
+            lines.push("availability.compiled: false".to_string());
+            lines.push("availability.usable: false".to_string());
+        }
+        lines.push(format!("path.user: {}", self.user_path.display()));
+        lines.push(format!("path.project: {}", self.project_path.display()));
+        lines
+    }
 }
 
 #[derive(Debug, Error, Diagnostic)]
@@ -39,6 +96,20 @@ pub enum ConfigError {
         help("set ARCO_CONFIG_DIR, XDG_CONFIG_HOME, HOME, or APPDATA before running the command")
     )]
     MissingConfigDirectory,
+    #[error("could not determine current project directory")]
+    #[diagnostic(
+        code(arco::config::missing_project_directory),
+        help("run from a project directory or set ARCO_PROJECT_CONFIG_DIR")
+    )]
+    MissingProjectDirectory,
+    #[error(
+        "legacy solver config found at {path}; migration is disabled, create {new_path} manually"
+    )]
+    #[diagnostic(
+        code(arco::config::legacy_config),
+        help("create solver.toml with versioned schema; legacy solver.json is not auto-migrated")
+    )]
+    LegacyConfigDetected { path: PathBuf, new_path: PathBuf },
     #[error("failed to read solver config {path}: {source}")]
     #[diagnostic(
         code(arco::config::io),
@@ -61,39 +132,89 @@ pub enum ConfigError {
     },
     #[error("failed to parse solver config {path}: {source}")]
     #[diagnostic(
-        code(arco::config::json),
-        help("delete or repair the solver config file and retry")
+        code(arco::config::toml),
+        help("delete or repair the solver TOML config file and retry")
     )]
     Parse {
         path: PathBuf,
         #[source]
-        source: serde_json::Error,
+        source: toml::de::Error,
     },
     #[error("failed to serialize solver config for {path}: {source}")]
     #[diagnostic(
-        code(arco::config::json),
+        code(arco::config::toml),
         help("inspect the solver configuration payload for unsupported values")
     )]
     Serialize {
         path: PathBuf,
         #[source]
-        source: serde_json::Error,
+        source: toml::ser::Error,
     },
+    #[error("invalid solver selection: {source}")]
+    #[diagnostic(
+        code(arco::config::selection),
+        help("choose a known family/profile name or update solver profiles in solver.toml")
+    )]
+    InvalidSelection {
+        #[source]
+        source: SelectionError,
+    },
+    #[error("solver family '{family}' cannot be used by this CLI build: {reason}")]
+    #[diagnostic(
+        code(arco::config::unsupported_backend),
+        help("choose highs/xpress for CLI solve flows or use a compatible runtime")
+    )]
+    UnsupportedBackend { family: String, reason: String },
+    #[error("solver profile '{profile}' contains non-reference secret value for env var '{key}'")]
+    #[diagnostic(
+        code(arco::config::secret_reference_required),
+        help(
+            "store only references (for example ${{ENV_VAR}} or file:/path/to/secret) in solver profile environment values"
+        )
+    )]
+    RawSecretValue { profile: String, key: String },
 }
 
-pub fn load_solver_config() -> Result<SolverConfig, ConfigError> {
-    let path = solver_config_path()?;
-    match std::fs::read_to_string(&path) {
-        Ok(text) => {
-            serde_json::from_str(&text).map_err(|source| ConfigError::Parse { path, source })
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(SolverConfig::default()),
-        Err(source) => Err(ConfigError::Read { path, source }),
-    }
+pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {
+    let user_path = solver_config_path()?;
+    ensure_no_legacy_json(&user_path)?;
+    let project_path = project_solver_config_path()?;
+
+    let project = read_config_document(&project_path)?;
+    let user = read_config_document(&user_path)?;
+
+    let merged_profiles = merged_profiles(&project, &user);
+    validate_secret_references(&merged_profiles)?;
+    let selection = user
+        .default_selection
+        .clone()
+        .or_else(|| project.default_selection.clone())
+        .unwrap_or_else(|| "highs".to_string());
+
+    let registry = SolverRegistry::with_builtin_families();
+    let resolved = resolve_selection(&registry, &merged_profiles, &selection)
+        .map_err(|source| ConfigError::InvalidSelection { source })?;
+
+    Ok(SolverConfigState {
+        registry,
+        project,
+        user,
+        merged_profiles,
+        selection,
+        resolved,
+        user_path,
+        project_path,
+    })
 }
 
-pub fn save_solver_config(config: &SolverConfig) -> Result<PathBuf, ConfigError> {
+pub fn save_solver_selection(selection: &str) -> Result<PathBuf, ConfigError> {
     let path = solver_config_path()?;
+    ensure_no_legacy_json(&path)?;
+
+    let mut document = read_config_document(&path)?;
+    document.version = 1;
+    document.default_selection = Some(selection.to_string());
+
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|source| ConfigError::Write {
             path: parent.to_path_buf(),
@@ -101,10 +222,11 @@ pub fn save_solver_config(config: &SolverConfig) -> Result<PathBuf, ConfigError>
         })?;
     }
 
-    let text = serde_json::to_string_pretty(config).map_err(|source| ConfigError::Serialize {
+    let text = toml::to_string_pretty(&document).map_err(|source| ConfigError::Serialize {
         path: path.clone(),
         source,
     })?;
+
     std::fs::write(&path, text).map_err(|source| ConfigError::Write {
         path: path.clone(),
         source,
@@ -114,7 +236,77 @@ pub fn save_solver_config(config: &SolverConfig) -> Result<PathBuf, ConfigError>
 }
 
 pub fn solver_config_path() -> Result<PathBuf, ConfigError> {
-    Ok(config_dir()?.join("solver.json"))
+    Ok(config_dir()?.join("solver.toml"))
+}
+
+pub fn project_solver_config_path() -> Result<PathBuf, ConfigError> {
+    if let Some(path) = env::var_os("ARCO_PROJECT_CONFIG_DIR") {
+        return Ok(PathBuf::from(path).join("solver.toml"));
+    }
+    let cwd = env::current_dir().map_err(|_| ConfigError::MissingProjectDirectory)?;
+    Ok(cwd.join(".arco").join("solver.toml"))
+}
+
+fn legacy_solver_config_path(user_toml_path: &Path) -> PathBuf {
+    let mut path = user_toml_path.to_path_buf();
+    path.set_file_name("solver.json");
+    path
+}
+
+fn ensure_no_legacy_json(user_toml_path: &Path) -> Result<(), ConfigError> {
+    let legacy_path = legacy_solver_config_path(user_toml_path);
+    let legacy_exists = legacy_path.exists();
+    let new_exists = user_toml_path.exists();
+    if legacy_exists && !new_exists {
+        return Err(ConfigError::LegacyConfigDetected {
+            path: legacy_path,
+            new_path: user_toml_path.to_path_buf(),
+        });
+    }
+    Ok(())
+}
+
+fn value_looks_like_reference(value: &str) -> bool {
+    value.starts_with("${") || value.starts_with("env:") || value.starts_with("file:")
+}
+
+fn validate_secret_references(
+    profiles: &BTreeMap<String, SolverProfile>,
+) -> Result<(), ConfigError> {
+    for (name, profile) in profiles {
+        for (key, value) in &profile.environment {
+            if !value_looks_like_reference(value) {
+                return Err(ConfigError::RawSecretValue {
+                    profile: name.clone(),
+                    key: key.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_config_document(path: &Path) -> Result<SolverConfigDocument, ConfigError> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => {
+            let mut document: SolverConfigDocument =
+                toml::from_str(&text).map_err(|source| ConfigError::Parse {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
+            if document.version == 0 {
+                document.version = 1;
+            }
+            Ok(document)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(SolverConfigDocument::default())
+        }
+        Err(source) => Err(ConfigError::Read {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
 }
 
 fn config_dir() -> Result<PathBuf, ConfigError> {
@@ -135,4 +327,114 @@ fn config_dir() -> Result<PathBuf, ConfigError> {
         .map(PathBuf::from)
         .map(|path| path.join(".config").join("arco"))
         .ok_or(ConfigError::MissingConfigDirectory)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "arco-cli-config-test-{}-{}",
+            name,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path)
+            .unwrap_or_else(|err| panic!("failed to create temp dir {}: {err}", path.display()));
+        path
+    }
+
+    #[test]
+    fn read_config_document_defaults_when_missing() {
+        let dir = temp_dir("missing");
+        let path = dir.join("solver.toml");
+        let document = read_config_document(&path)
+            .unwrap_or_else(|err| panic!("read should succeed for missing file: {err}"));
+        assert_eq!(document.version, 1);
+        assert!(document.default_selection.is_none());
+        assert!(document.profiles.is_empty());
+    }
+
+    #[test]
+    fn ensure_no_legacy_json_errors() {
+        let dir = temp_dir("legacy");
+        let toml_path = dir.join("solver.toml");
+        let legacy = dir.join("solver.json");
+        std::fs::write(&legacy, "{\"backend\":\"highs\"}")
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", legacy.display()));
+
+        let result = ensure_no_legacy_json(&toml_path);
+        assert!(matches!(
+            result,
+            Err(ConfigError::LegacyConfigDetected { .. })
+        ));
+    }
+
+    #[test]
+    fn merged_profile_keeps_project_and_user_values() {
+        let project = SolverConfigDocument {
+            version: 1,
+            default_selection: None,
+            profiles: BTreeMap::from([(
+                "xpress".to_string(),
+                SolverProfile {
+                    name: "xpress".to_string(),
+                    family: "xpress".to_string(),
+                    transport: arco_solver::SolverTransport::ExternalProcess,
+                    executable: Some("/opt/xpress/bin/xprs".to_string()),
+                    arguments: vec!["--quiet".to_string()],
+                    environment: BTreeMap::new(),
+                    options: arco_solver::SolverConfig::new().with_threads(4),
+                },
+            )]),
+        };
+
+        let user = SolverConfigDocument {
+            version: 1,
+            default_selection: Some("xpress".to_string()),
+            profiles: BTreeMap::from([(
+                "xpress".to_string(),
+                SolverProfile {
+                    name: "xpress".to_string(),
+                    family: "xpress".to_string(),
+                    transport: arco_solver::SolverTransport::ExternalProcess,
+                    executable: Some("/home/user/xprs".to_string()),
+                    arguments: vec!["--nolog".to_string()],
+                    environment: BTreeMap::new(),
+                    options: arco_solver::SolverConfig::new().with_threads(8),
+                },
+            )]),
+        };
+
+        let merged = merged_profiles(&project, &user);
+        let profile = merged
+            .get("xpress")
+            .unwrap_or_else(|| panic!("missing xpress merged profile"));
+        assert_eq!(profile.arguments, vec!["--nolog".to_string()]);
+        assert_eq!(profile.executable.as_deref(), Some("/home/user/xprs"));
+        assert_eq!(profile.options.threads, Some(8));
+    }
+
+    #[test]
+    fn validate_secret_references_rejects_raw_values() {
+        let profiles = BTreeMap::from([(
+            "xpress".to_string(),
+            SolverProfile {
+                name: "xpress".to_string(),
+                family: "xpress".to_string(),
+                transport: arco_solver::SolverTransport::ExternalProcess,
+                executable: None,
+                arguments: Vec::new(),
+                environment: BTreeMap::from([(
+                    "XPRESS_TOKEN".to_string(),
+                    "plaintext-secret".to_string(),
+                )]),
+                options: arco_solver::SolverConfig::default(),
+            },
+        )]);
+
+        let result = validate_secret_references(&profiles);
+        assert!(matches!(result, Err(ConfigError::RawSecretValue { .. })));
+    }
 }

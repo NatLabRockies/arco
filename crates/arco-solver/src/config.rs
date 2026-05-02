@@ -1,7 +1,9 @@
 //! Solver configuration types.
 
+use std::collections::BTreeMap;
+
 /// Configuration options for solver behavior.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct SolverConfig {
     /// Time limit in seconds. `None` means no limit.
     pub time_limit: Option<f64>,
@@ -17,6 +19,9 @@ pub struct SolverConfig {
     pub tolerance: Option<f64>,
     /// Log solver output to console. `None` uses solver default.
     pub log_to_console: Option<bool>,
+    /// Family-specific passthrough parameters.
+    #[serde(default)]
+    pub parameters: BTreeMap<String, String>,
 }
 
 impl SolverConfig {
@@ -67,6 +72,42 @@ impl SolverConfig {
         self
     }
 
+    /// Set a family-specific passthrough parameter.
+    pub fn with_parameter(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.parameters.insert(key.into(), value.into());
+        self
+    }
+
+    /// Merge another config onto this one.
+    pub fn merged_with(&self, overlay: &Self) -> Self {
+        let mut merged = self.clone();
+        if overlay.time_limit.is_some() {
+            merged.time_limit = overlay.time_limit;
+        }
+        if overlay.mip_gap.is_some() {
+            merged.mip_gap = overlay.mip_gap;
+        }
+        if overlay.verbosity.is_some() {
+            merged.verbosity = overlay.verbosity;
+        }
+        if overlay.presolve.is_some() {
+            merged.presolve = overlay.presolve;
+        }
+        if overlay.threads.is_some() {
+            merged.threads = overlay.threads;
+        }
+        if overlay.tolerance.is_some() {
+            merged.tolerance = overlay.tolerance;
+        }
+        if overlay.log_to_console.is_some() {
+            merged.log_to_console = overlay.log_to_console;
+        }
+        for (key, value) in &overlay.parameters {
+            merged.parameters.insert(key.clone(), value.clone());
+        }
+        merged
+    }
+
     /// Check if this configuration is completely empty (all defaults).
     pub fn is_empty(&self) -> bool {
         self.time_limit.is_none()
@@ -76,6 +117,7 @@ impl SolverConfig {
             && self.threads.is_none()
             && self.tolerance.is_none()
             && self.log_to_console.is_none()
+            && self.parameters.is_empty()
     }
 }
 
@@ -98,7 +140,8 @@ mod tests {
             .with_presolve(true)
             .with_threads(4)
             .with_tolerance(1e-6)
-            .with_log_to_console(false);
+            .with_log_to_console(false)
+            .with_parameter("solver.option", "enabled");
 
         assert!(!config.is_empty());
         assert_eq!(config.time_limit, Some(60.0));
@@ -108,14 +151,23 @@ mod tests {
         assert_eq!(config.threads, Some(4));
         assert_eq!(config.tolerance, Some(1e-6));
         assert_eq!(config.log_to_console, Some(false));
+        assert_eq!(
+            config.parameters.get("solver.option").map(String::as_str),
+            Some("enabled")
+        );
     }
 
     #[test]
-    fn test_config_partial_is_not_empty() {
-        let config = SolverConfig::new().with_time_limit(30.0);
-        assert!(!config.is_empty());
-        assert_eq!(config.time_limit, Some(30.0));
-        assert_eq!(config.mip_gap, None);
+    fn test_config_merge() {
+        let base = SolverConfig::new().with_threads(4).with_time_limit(10.0);
+        let overlay = SolverConfig::new()
+            .with_time_limit(20.0)
+            .with_parameter("k", "v");
+
+        let merged = base.merged_with(&overlay);
+        assert_eq!(merged.threads, Some(4));
+        assert_eq!(merged.time_limit, Some(20.0));
+        assert_eq!(merged.parameters.get("k").map(String::as_str), Some("v"));
     }
 
     #[test]
@@ -128,7 +180,7 @@ mod tests {
     #[test]
     fn test_config_debug() {
         let config = SolverConfig::new().with_time_limit(10.0);
-        let debug_str = format!("{:?}", config);
+        let debug_str = format!("{config:?}");
         assert!(debug_str.contains("time_limit"));
         assert!(debug_str.contains("10.0"));
     }

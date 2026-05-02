@@ -21,10 +21,16 @@
 
 mod backend;
 mod config;
+mod registry;
 mod traits;
 
 pub use backend::SolverBackend;
 pub use config::SolverConfig;
+pub use registry::{
+    PreflightError, ResolvedSelection, SelectionError, SolverCapabilityModel, SolverConfigDocument,
+    SolverFamily, SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
+    SolverTransport, merged_profiles, preflight_selection, resolve_selection,
+};
 pub use traits::{SolutionView, Solve};
 
 // Re-export solver types from arco-solver-types for convenience

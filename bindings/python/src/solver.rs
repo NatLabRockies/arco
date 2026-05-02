@@ -197,6 +197,95 @@ pub struct PySolver {
     pub settings: SolverSettings,
 }
 
+#[pyclass(from_py_object, name = "SolverSelection")]
+#[derive(Debug, Clone)]
+pub struct PySolverSelection {
+    pub token: String,
+    pub family_hint: Option<String>,
+}
+
+#[pymethods]
+impl PySolverSelection {
+    #[new]
+    fn new(token: String) -> Self {
+        Self {
+            token,
+            family_hint: None,
+        }
+    }
+
+    #[staticmethod]
+    fn family(name: String) -> Self {
+        Self {
+            token: name,
+            family_hint: None,
+        }
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (name, *, family=None))]
+    fn profile(name: String, family: Option<String>) -> Self {
+        Self {
+            token: name,
+            family_hint: family,
+        }
+    }
+
+    #[getter]
+    fn token(&self) -> String {
+        self.token.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SolverSelection(token={:?}, family_hint={:?})",
+            self.token, self.family_hint
+        )
+    }
+}
+
+#[pyclass(from_py_object, name = "SolverProfile")]
+#[derive(Debug, Clone)]
+pub struct PySolverProfile {
+    pub name: String,
+    pub family: String,
+    pub transport: String,
+}
+
+#[pymethods]
+impl PySolverProfile {
+    #[new]
+    fn new(name: String, family: String, transport: Option<String>) -> Self {
+        Self {
+            name,
+            family,
+            transport: transport.unwrap_or_else(|| "embedded".to_string()),
+        }
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    #[getter]
+    fn family(&self) -> String {
+        self.family.clone()
+    }
+
+    #[getter]
+    fn transport(&self) -> String {
+        self.transport.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SolverProfile(name={:?}, family={:?}, transport={:?})",
+            self.name, self.family, self.transport
+        )
+    }
+}
+
 #[pymethods]
 impl PySolver {
     #[new]
@@ -419,6 +508,8 @@ impl PyIpopt {
 /// Register solver classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySolver>()?;
+    m.add_class::<PySolverSelection>()?;
+    m.add_class::<PySolverProfile>()?;
     m.add_class::<PyHiGHS>()?;
     m.add_class::<PyXpress>()?;
     #[cfg(feature = "ipopt")]
