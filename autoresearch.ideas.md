@@ -1,0 +1,6 @@
+- Split `bindings/python/src/lib.rs` solve orchestration into a smaller planner/executor pair so backend resolution, preflight, and result wrapping stop living in one hotspot.
+- Consider extracting the block-orchestration path from `PyModel::solve` separately from the plain-model path; the backend-helper move alone did not move the sentrux quality needle.
+- Explore a cohesive extraction for model construction / initialization helpers in `bindings/python/src/lib.rs`; the plain-solve split helped, but isolated helper relocation only produced a marginal gain.
+- The inspection/export helper split proved that helper-only extractions can work, but the next boundary should be more cohesive than tiny wrapper clusters; look for a chunk that materially changes module dependencies.
+- Avoid further naming/metadata wrapper splits: they now look consistently below the noise floor unless paired with a behavior/body move.
+- If trying solve-related work again, move a larger contiguous solve/compose boundary rather than just handing off the current orchestration body to another module.

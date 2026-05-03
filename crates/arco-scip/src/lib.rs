@@ -444,10 +444,9 @@ mod tests {
             }],
         };
 
-        assert_eq!(
-            problem.algebra.objective.constant + output.objective_value,
-            0.0
+        assert!(
+            (problem.algebra.objective.constant + output.objective_value).abs() <= f64::EPSILON
         );
-        assert_eq!(output.variable_values[0].values[0].value, 0.0);
+        assert!(output.variable_values[0].values[0].value.abs() <= f64::EPSILON);
     }
 }

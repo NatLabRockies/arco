@@ -516,3 +516,104 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyIpopt>()?;
     Ok(())
 }
+
+/// Create a Solution for a solve failure (infeasible, unbounded, etc.).
+pub(crate) fn solve_failure_solution(
+    status: arco_core::solver::SolverStatus,
+) -> arco_core::solver::Solution {
+    arco_core::solver::Solution {
+        primal_values: Vec::new(),
+        variable_duals: Vec::new(),
+        constraint_duals: Vec::new(),
+        row_values: Vec::new(),
+        objective_value: f64::NAN,
+        status,
+        solve_time_seconds: 0.0,
+        metadata: std::collections::BTreeMap::new(),
+    }
+}
+
+fn detect_default_backend_from_selection(selection: &PySolverSelection) -> String {
+    selection.family_hint.as_ref().map_or_else(
+        || selection.token.to_lowercase(),
+        |family| family.to_lowercase(),
+    )
+}
+
+/// Detect which backend name a solver object represents.
+pub(crate) fn detect_default_backend(solver: Option<&Bound<'_, PyAny>>) -> String {
+    let Some(solver) = solver else {
+        return "highs".to_string();
+    };
+    if let Ok(selection) = solver.cast::<PySolverSelection>() {
+        return detect_default_backend_from_selection(&selection.borrow());
+    }
+    if let Ok(profile) = solver.cast::<PySolverProfile>() {
+        return profile.borrow().family.to_lowercase();
+    }
+    #[cfg(feature = "ipopt")]
+    if solver.cast::<PyIpopt>().is_ok() {
+        return "ipopt".to_string();
+    }
+    if solver.cast::<PyXpress>().is_ok() {
+        return "xpress".to_string();
+    }
+    "highs".to_string()
+}
+
+/// Extract `SolverSettings` from an optional Python solver object (`HiGHS`, `Ipopt`, `Xpress`, or `Solver`).
+pub(crate) fn extract_solver_settings(
+    solver: Option<&Bound<'_, PyAny>>,
+) -> PyResult<SolverSettings> {
+    let Some(solver) = solver else {
+        return Ok(SolverSettings::default());
+    };
+    if solver.cast::<PySolverSelection>().is_ok() || solver.cast::<PySolverProfile>().is_ok() {
+        return Ok(SolverSettings::default());
+    }
+    if let Ok(highs) = solver.cast::<PyHiGHS>() {
+        return Ok(highs.borrow().into_super().settings.clone());
+    }
+    #[cfg(feature = "ipopt")]
+    if let Ok(ipopt) = solver.cast::<PyIpopt>() {
+        return Ok(ipopt.borrow().into_super().settings.clone());
+    }
+    if let Ok(xpress) = solver.cast::<PyXpress>() {
+        return Ok(xpress.borrow().into_super().settings.clone());
+    }
+    if let Ok(base) = solver.cast::<PySolver>() {
+        return Ok(base.borrow().settings.clone());
+    }
+    Err(crate::errors::SolverTypeError::new_err(
+        "solver must be a SolverSelection, SolverProfile, Solver, HiGHS, Ipopt, or Xpress instance",
+    ))
+}
+
+/// Resolve which `SolverBackend` implementation to use.
+pub(crate) fn resolve_backend(
+    solver: Option<&Bound<'_, PyAny>>,
+    default_backend: &str,
+) -> PyResult<Box<dyn arco_solver::SolverBackend>> {
+    #[cfg(feature = "ipopt")]
+    if solver.is_some_and(|s| s.cast::<PyIpopt>().is_ok()) || default_backend == "ipopt" {
+        return Ok(Box::new(arco_ipopt::IpoptBackend));
+    }
+    #[cfg(not(feature = "ipopt"))]
+    if default_backend == "ipopt" {
+        return Err(crate::errors::SolverInternalError::new_err(
+            "Ipopt backend is not enabled in this build",
+        ));
+    }
+    #[cfg(feature = "xpress")]
+    if solver.is_some_and(|s| s.cast::<PyXpress>().is_ok()) || default_backend == "xpress" {
+        return Ok(Box::new(arco_xpress::XpressBackend));
+    }
+    #[cfg(not(feature = "xpress"))]
+    if solver.is_some_and(|s| s.cast::<PyXpress>().is_ok()) || default_backend == "xpress" {
+        return Err(crate::errors::SolverInternalError::new_err(
+            "Xpress backend is not enabled in this build",
+        ));
+    }
+    // Default: HiGHS
+    Ok(Box::new(arco_highs::HiGHSBackend))
+}

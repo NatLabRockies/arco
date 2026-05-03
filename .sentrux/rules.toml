@@ -1,0 +1,54 @@
+# Starter architectural rules for Arco.
+# Keep these enforceable with the current codebase, then tighten later as the
+# remaining large modules are split further.
+
+[constraints]
+max_cycles = 1
+max_coupling = "D"
+max_cc = 75
+
+[[layers]]
+name = "interfaces"
+paths = [
+  "crates/arco-cli/src/main.rs",
+  "crates/arco-cli/src/lib.rs",
+  "crates/arco-cli/src/cli_io.rs",
+  "crates/arco-cli/src/config.rs",
+  "crates/arco-cli/src/driver.rs",
+  "crates/arco-cli/src/execution.rs",
+  "crates/arco-cli/src/export.rs",
+  "crates/arco-cli/src/benchmark.rs",
+  "crates/arco-cli/src/inspect.rs",
+  "bindings/python/src/**",
+]
+order = 0
+
+[[layers]]
+name = "solver_backends"
+paths = [
+  "crates/arco-highs/src/**",
+  "crates/arco-ipopt/src/**",
+  "crates/arco-xpress/src/**",
+  "crates/arco-scip/src/**",
+]
+order = 1
+
+[[layers]]
+name = "domain"
+paths = [
+  "crates/arco-kdl/src/**",
+  "crates/arco-blocks/src/**",
+  "crates/arco-solver/src/**",
+  "crates/arco-export/src/**",
+]
+order = 2
+
+[[layers]]
+name = "foundation"
+paths = [
+  "crates/arco-core/src/**",
+  "crates/arco-expr/src/**",
+  "crates/arco-solver-types/src/**",
+  "crates/arco-tools/src/**",
+]
+order = 3

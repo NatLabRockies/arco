@@ -356,7 +356,7 @@ impl PyModel {
 
             if solution_opt.is_none() {
                 // Block was dropped — create a minimal error result
-                let result = PySolveResult::new(crate::solve_failure_solution(
+                let result = PySolveResult::new(crate::solver::solve_failure_solution(
                     arco_core::solver::SolverStatus::Unknown,
                 ));
                 let py_result = Py::new(py, result)?;
@@ -389,7 +389,7 @@ impl PyModel {
                 .iter()
                 .map(|(_, result)| result.borrow(py).inner().status)
                 .collect::<Vec<_>>();
-            crate::solve_failure_solution(aggregate_block_status(&statuses))
+            crate::solver::solve_failure_solution(aggregate_block_status(&statuses))
         };
 
         let result = PySolveResult::with_blocks(primary_inner, block_results_obj);
