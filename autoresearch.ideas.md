@@ -4,3 +4,5 @@
 - The inspection/export helper split proved that helper-only extractions can work, but the next boundary should be more cohesive than tiny wrapper clusters; look for a chunk that materially changes module dependencies.
 - Avoid further naming/metadata wrapper splits: they now look consistently below the noise floor unless paired with a behavior/body move.
 - If trying solve-related work again, move a larger contiguous solve/compose boundary rather than just handing off the current orchestration body to another module.
+- Now that `build_model` is isolated in `crates/arco-cli/src/execution_model.rs`, consider splitting the remaining result-mapping helpers (`evaluate_linear_report`, `extract_dual_report_values`, and the variable/dual-report projection code) into a separate mapping module so `execution.rs` can focus on orchestration and adapter execution.
+- A result-mapping-only extraction in `crates/arco-cli/src/execution.rs` (leaving `build_model` in place) still did not beat the current best, so further execution.rs slicing may be below the noise floor unless it removes a bigger cohesive body than just linear-report helpers.

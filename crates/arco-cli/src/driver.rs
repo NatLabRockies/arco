@@ -1,17 +1,20 @@
 use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim};
 use crate::config::{ConfigError, load_solver_config};
+pub use crate::driver_kdl::{KdlCheckOutcome, kdl_check_file_json};
+pub use crate::driver_summary::{
+    DualReportSummary, DualReportValueSummary, ObjectiveSummary, ProblemCounts, ReportSummary,
+    RunSummary, TimingSummary, VariableSummary, VariableValueSummary,
+};
+use crate::driver_summary::{summarize_variables, trim_family_prefix};
 #[cfg(feature = "xpress")]
 use crate::execution::XpressArcoAdapter;
 use crate::execution::{
     ExecutionError, OptimizationAdapter, RustArcoAdapter, ScipArcoAdapter, SolveStatus,
     execute_problem_with_options, render_problem_model,
 };
-use arco_kdl::ObjectiveSense;
 use arco_kdl::pipeline::{PipelineError, compile_file, validate_file};
 use arco_solver::{ResolvedSelection, SolverTransport};
-use miette::{Diagnostic, SourceSpan};
-use serde::Serialize;
-use std::collections::BTreeMap;
+use miette::Diagnostic;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -26,80 +29,6 @@ pub struct RunOptions {
     pub filter_variable: Option<String>,
     pub filter_asset: Option<String>,
     pub solver_log: bool,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct RunSummary {
-    pub entrypoint: String,
-    pub backend: &'static str,
-    pub solve_status: &'static str,
-    pub active_scenario: String,
-    pub objective: ObjectiveSummary,
-    pub reports: Vec<ReportSummary>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub dual_reports: Vec<DualReportSummary>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub variables: Vec<VariableSummary>,
-    pub counts: ProblemCounts,
-    pub timing: TimingSummary,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct ObjectiveSummary {
-    pub name: String,
-    pub sense: ObjectiveSense,
-    pub value: f64,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct ReportSummary {
-    pub name: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub index: Vec<String>,
-    pub values: Vec<BTreeMap<String, serde_json::Value>>,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct VariableSummary {
-    pub name: String,
-    pub representative_value: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub values: Option<Vec<VariableValueSummary>>,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct VariableValueSummary {
-    pub name: String,
-    pub value: f64,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct DualReportSummary {
-    pub name: String,
-    pub values: Vec<DualReportValueSummary>,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct DualReportValueSummary {
-    pub instance: String,
-    pub value: f64,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct ProblemCounts {
-    pub parameters: usize,
-    pub variables: usize,
-    pub constraints: usize,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-pub struct TimingSummary {
-    pub parse_ms: f64,
-    pub validate_ms: f64,
-    pub compile_ms: f64,
-    pub solve_ms: f64,
-    pub total_ms: f64,
-    pub peak_memory_bytes: Option<u64>,
 }
 
 #[derive(Debug, Error)]
@@ -337,33 +266,6 @@ pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
     render_problem_model(&compiled.compiled_problem).map_err(DriverError::from)
 }
 
-#[derive(Debug, Serialize, PartialEq)]
-pub struct KdlCheckOutcome {
-    pub valid: bool,
-    pub json: String,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-struct KdlCheckReport {
-    valid: bool,
-    diagnostics: Vec<KdlDiagnostic>,
-}
-
-#[derive(Debug, Serialize, PartialEq)]
-struct KdlDiagnostic {
-    file: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    line: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    column: Option<usize>,
-    severity: &'static str,
-    message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    help: Option<String>,
-}
-
 pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, DriverError> {
     let started = Instant::now();
     let validated = validate_file(path)?;
@@ -373,99 +275,6 @@ pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, 
         elapsed_ms,
         color_mode,
     ))
-}
-
-pub fn kdl_check_file_json(path: &Path) -> Result<KdlCheckOutcome, DriverError> {
-    let report = match validate_file(path) {
-        Ok(_) => KdlCheckReport {
-            valid: true,
-            diagnostics: Vec::new(),
-        },
-        Err(error) => KdlCheckReport {
-            valid: false,
-            diagnostics: vec![pipeline_error_diagnostic(path, &error)],
-        },
-    };
-
-    let valid = report.valid;
-    let json = serde_json::to_string(&report).map_err(|source| DriverError::Json {
-        path: path.to_path_buf(),
-        source,
-    })?;
-
-    Ok(KdlCheckOutcome { valid, json })
-}
-
-fn pipeline_error_diagnostic(path: &Path, error: &PipelineError) -> KdlDiagnostic {
-    let (line, column) = pipeline_error_location(path, error);
-    let diagnostic = pipeline_error_inner_diagnostic(error);
-
-    KdlDiagnostic {
-        file: path.display().to_string(),
-        line,
-        column,
-        severity: "error",
-        message: error.to_string(),
-        code: diagnostic.code().map(|code| code.to_string()),
-        help: diagnostic.help().map(|help| help.to_string()),
-    }
-}
-
-fn pipeline_error_inner_diagnostic(error: &PipelineError) -> &dyn Diagnostic {
-    match error {
-        PipelineError::Source(error) => error,
-        PipelineError::Semantic(error) => error,
-        PipelineError::Compile(error) => error,
-    }
-}
-
-fn pipeline_error_location(path: &Path, error: &PipelineError) -> (Option<usize>, Option<usize>) {
-    let PipelineError::Source(error) = error else {
-        return (None, None);
-    };
-
-    let Some(span) = source_error_span(error) else {
-        return (None, None);
-    };
-
-    span_line_column(path, span)
-}
-
-fn source_error_span(error: &arco_kdl::source::SourceError) -> Option<SourceSpan> {
-    match error {
-        arco_kdl::source::SourceError::MissingNode { span, .. }
-        | arco_kdl::source::SourceError::MissingArgument { span, .. }
-        | arco_kdl::source::SourceError::MissingProperty { span, .. }
-        | arco_kdl::source::SourceError::InvalidValue { span, .. }
-        | arco_kdl::source::SourceError::UnsupportedDeclaration { span, .. }
-        | arco_kdl::source::SourceError::InvalidAlgebra { span, .. } => Some(*span),
-        arco_kdl::source::SourceError::Io { .. } | arco_kdl::source::SourceError::Kdl { .. } => {
-            None
-        }
-    }
-}
-
-fn span_line_column(path: &Path, span: SourceSpan) -> (Option<usize>, Option<usize>) {
-    let Ok(source) = std::fs::read_to_string(path) else {
-        return (None, None);
-    };
-    let mut offset = span.offset().min(source.len());
-    while offset > 0 && !source.is_char_boundary(offset) {
-        offset -= 1;
-    }
-
-    let prefix = &source[..offset];
-    let line = prefix
-        .chars()
-        .filter(|character| *character == '\n')
-        .count()
-        + 1;
-    let column = prefix
-        .rsplit('\n')
-        .next()
-        .map_or(1, |line_prefix| line_prefix.chars().count() + 1);
-
-    (Some(line), Some(column))
 }
 
 fn format_validate_success(path: &Path, elapsed_ms: u128, color_mode: ColorMode) -> String {
@@ -491,121 +300,6 @@ pub fn inspect_file_report(path: &Path, json_output: bool) -> Result<String, Dri
     })
 }
 
-fn summarize_variables(
-    variables: &[crate::execution::MappedVariableResult],
-    options: &RunOptions,
-) -> Vec<VariableSummary> {
-    if options.filter_variable.is_none() {
-        return Vec::new();
-    }
-    variables
-        .iter()
-        .filter(|variable| {
-            options
-                .filter_variable
-                .as_deref()
-                .is_none_or(|pattern| wildcard_match(pattern, &variable.dsl_name))
-        })
-        .filter_map(|variable| {
-            let filtered_values = variable
-                .values
-                .iter()
-                .filter(|value| {
-                    options.filter_asset.as_deref().is_none_or(|pattern| {
-                        extract_asset_name(&value.compiled_name)
-                            .is_some_and(|asset| wildcard_match(pattern, asset))
-                    })
-                })
-                .map(|value| VariableValueSummary {
-                    name: trim_family_prefix(&variable.dsl_name, &value.compiled_name),
-                    value: value.value,
-                })
-                .collect::<Vec<_>>();
-
-            if options.filter_asset.is_some() && filtered_values.is_empty() {
-                return None;
-            }
-
-            let representative_value = filtered_values
-                .first()
-                .map_or(variable.representative_value, |value| value.value);
-            let values = if options.compact || values_are_redundant(&filtered_values) {
-                None
-            } else {
-                Some(filtered_values)
-            };
-
-            Some(VariableSummary {
-                name: variable.dsl_name.clone(),
-                representative_value,
-                values,
-            })
-        })
-        .collect()
-}
-
-fn values_are_redundant(values: &[VariableValueSummary]) -> bool {
-    match values.first() {
-        Some(first) => values
-            .iter()
-            .all(|value| (value.value - first.value).abs() < f64::EPSILON),
-        None => true,
-    }
-}
-
-fn trim_family_prefix(family_name: &str, value_name: &str) -> String {
-    let prefix = family_name.split('[').next().unwrap_or(family_name);
-    value_name
-        .strip_prefix(prefix)
-        .map_or_else(|| value_name.to_string(), ToString::to_string)
-}
-
-fn extract_asset_name(value_name: &str) -> Option<&str> {
-    let start = value_name.find('[')? + 1;
-    let remainder = &value_name[start..];
-    let end = remainder.find([',', ']'])?;
-    let asset = &remainder[..end];
-    if asset.is_empty() || asset.chars().all(|character| character.is_ascii_digit()) {
-        None
-    } else {
-        Some(asset)
-    }
-}
-
-fn wildcard_match(pattern: &str, value: &str) -> bool {
-    let pattern = pattern.as_bytes();
-    let value = value.as_bytes();
-    let mut pattern_index = 0usize;
-    let mut value_index = 0usize;
-    let mut star_index = None;
-    let mut match_index = 0usize;
-
-    while value_index < value.len() {
-        if pattern_index < pattern.len()
-            && (pattern[pattern_index] == b'?' || pattern[pattern_index] == value[value_index])
-        {
-            pattern_index += 1;
-            value_index += 1;
-        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
-            star_index = Some(pattern_index);
-            match_index = value_index;
-            pattern_index += 1;
-        } else if let Some(star) = star_index {
-            pattern_index = star + 1;
-            match_index += 1;
-            value_index = match_index;
-        } else {
-            return false;
-        }
-    }
-
-    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
-        pattern_index += 1;
-    }
-
-    pattern_index == pattern.len()
-}
-
 fn solve_status_name(status: SolveStatus) -> &'static str {
     match status {
         SolveStatus::Optimal => "optimal",
@@ -624,7 +318,8 @@ fn peak_rss_bytes() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_validate_success, select_adapter, span_line_column};
+    use super::{format_validate_success, select_adapter};
+    use crate::driver_kdl::span_line_column;
     use arco_solver::{ResolvedSelection, SolverTransport};
     use miette::SourceSpan;
     use std::fs;
