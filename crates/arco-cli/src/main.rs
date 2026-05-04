@@ -3,7 +3,7 @@ use arco_cli::cli_io::{
     write_stdout_line,
 };
 use arco_cli::config::{load_solver_config, save_solver_selection};
-use arco_cli::debug::launch_ipython;
+use arco_cli::debug_shell::launch_ipython;
 use arco_cli::driver::{
     RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
     run_file_json_with_options_and_selection, validate_file_only,

@@ -313,7 +313,7 @@ impl Drop for DebugBootstrapScript {
 
 #[cfg(test)]
 mod tests {
-    use crate::debug::{PythonModelData, build_ipython_script, build_python_model_data};
+    use crate::debug_shell::{PythonModelData, build_ipython_script, build_python_model_data};
     use arco_kdl::compile::{
         AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearTerm,
         ObjectiveSense, VariableInstance, VariableKind,
