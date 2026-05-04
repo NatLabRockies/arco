@@ -180,24 +180,15 @@ fn parse_inline_selector_domain(
         return Ok(None);
     };
     let Some(end) = domain.rfind(']') else {
-        return Err(CompileError::InvalidFormulation {
-            message: format!("invalid inline selector domain `{domain}`"),
-            path: entrypoint.to_path_buf(),
-        });
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
     };
     if end <= start || !domain[end + 1..].trim().is_empty() {
-        return Err(CompileError::InvalidFormulation {
-            message: format!("invalid inline selector domain `{domain}`"),
-            path: entrypoint.to_path_buf(),
-        });
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
     }
 
     let base = domain[..start].trim().to_string();
     if base.is_empty() {
-        return Err(CompileError::InvalidFormulation {
-            message: format!("invalid inline selector domain `{domain}`"),
-            path: entrypoint.to_path_buf(),
-        });
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
     }
 
     let body = &domain[start + 1..end];
@@ -206,109 +197,151 @@ fn parse_inline_selector_domain(
     let mut selectors = Vec::new();
 
     while index < bytes.len() {
-        while index < bytes.len() && matches!(bytes[index] as char, ' ' | '\t' | ',') {
-            index += 1;
-        }
+        skip_selector_delimiters(bytes, &mut index);
         if index >= bytes.len() {
             break;
         }
 
-        let key_start = index;
-        while index < bytes.len() {
-            let character = bytes[index] as char;
-            if character == '=' || character == ' ' || character == '\t' || character == ',' {
-                break;
-            }
-            index += 1;
-        }
-        let key = body[key_start..index].trim();
-        if key.is_empty() {
-            return Err(CompileError::InvalidFormulation {
-                message: format!("invalid inline selector domain `{domain}`"),
-                path: entrypoint.to_path_buf(),
-            });
-        }
+        let key = read_selector_key(body, bytes, &mut index, domain, entrypoint)?;
+        expect_selector_equals(bytes, &mut index, domain, entrypoint)?;
+        let value = read_selector_value(body, bytes, &mut index, domain, entrypoint)?;
 
-        while index < bytes.len() && matches!(bytes[index] as char, ' ' | '\t') {
-            index += 1;
-        }
-        if index >= bytes.len() || bytes[index] as char != '=' {
-            return Err(CompileError::InvalidFormulation {
-                message: format!("invalid inline selector domain `{domain}`"),
-                path: entrypoint.to_path_buf(),
-            });
-        }
-        index += 1;
-        while index < bytes.len() && matches!(bytes[index] as char, ' ' | '\t') {
-            index += 1;
-        }
-
-        if index >= bytes.len() {
-            return Err(CompileError::InvalidFormulation {
-                message: format!("invalid inline selector domain `{domain}`"),
-                path: entrypoint.to_path_buf(),
-            });
-        }
-
-        let value = if bytes[index] as char == '"' {
-            index += 1;
-            let mut escaped = false;
-            let mut terminated = false;
-            let mut literal = String::new();
-            while index < bytes.len() {
-                let character = bytes[index] as char;
-                index += 1;
-                if escaped {
-                    literal.push(character);
-                    escaped = false;
-                    continue;
-                }
-                match character {
-                    '\\' => escaped = true,
-                    '"' => {
-                        terminated = true;
-                        break;
-                    }
-                    _ => literal.push(character),
-                }
-            }
-            if escaped || !terminated {
-                return Err(CompileError::InvalidFormulation {
-                    message: format!("invalid inline selector domain `{domain}`"),
-                    path: entrypoint.to_path_buf(),
-                });
-            }
-            literal
-        } else {
-            let value_start = index;
-            while index < bytes.len() {
-                let character = bytes[index] as char;
-                if matches!(character, ' ' | '\t' | ',') {
-                    break;
-                }
-                index += 1;
-            }
-            body[value_start..index].trim().to_string()
-        };
-
-        if value.is_empty() {
-            return Err(CompileError::InvalidFormulation {
-                message: format!("invalid inline selector domain `{domain}`"),
-                path: entrypoint.to_path_buf(),
-            });
-        }
-
-        selectors.push((key.to_string(), value));
+        selectors.push((key, value));
     }
 
     if selectors.is_empty() {
-        return Err(CompileError::InvalidFormulation {
-            message: format!("invalid inline selector domain `{domain}`"),
-            path: entrypoint.to_path_buf(),
-        });
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
     }
 
     Ok(Some((base, selectors)))
+}
+
+fn skip_selector_delimiters(bytes: &[u8], index: &mut usize) {
+    while *index < bytes.len() && matches!(bytes[*index] as char, ' ' | '\t' | ',') {
+        *index += 1;
+    }
+}
+
+fn skip_selector_whitespace(bytes: &[u8], index: &mut usize) {
+    while *index < bytes.len() && matches!(bytes[*index] as char, ' ' | '\t') {
+        *index += 1;
+    }
+}
+
+fn invalid_inline_selector_domain(domain: &str, entrypoint: &Path) -> CompileError {
+    CompileError::InvalidFormulation {
+        message: format!("invalid inline selector domain `{domain}`"),
+        path: entrypoint.to_path_buf(),
+    }
+}
+
+fn read_selector_key(
+    body: &str,
+    bytes: &[u8],
+    index: &mut usize,
+    domain: &str,
+    entrypoint: &Path,
+) -> Result<String, CompileError> {
+    let key_start = *index;
+    while *index < bytes.len() {
+        let character = bytes[*index] as char;
+        if character == '=' || character == ' ' || character == '\t' || character == ',' {
+            break;
+        }
+        *index += 1;
+    }
+    let key = body[key_start..*index].trim();
+    if key.is_empty() {
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
+    }
+    Ok(key.to_string())
+}
+
+fn expect_selector_equals(
+    bytes: &[u8],
+    index: &mut usize,
+    domain: &str,
+    entrypoint: &Path,
+) -> Result<(), CompileError> {
+    skip_selector_whitespace(bytes, index);
+    if *index >= bytes.len() || bytes[*index] as char != '=' {
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
+    }
+    *index += 1;
+    skip_selector_whitespace(bytes, index);
+    if *index >= bytes.len() {
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
+    }
+    Ok(())
+}
+
+fn read_selector_value(
+    body: &str,
+    bytes: &[u8],
+    index: &mut usize,
+    domain: &str,
+    entrypoint: &Path,
+) -> Result<String, CompileError> {
+    let value = if bytes[*index] as char == '"' {
+        read_quoted_selector_value(bytes, index, domain, entrypoint)?
+    } else {
+        read_unquoted_selector_value(body, bytes, index)
+    };
+
+    if value.is_empty() {
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
+    }
+    Ok(value)
+}
+
+fn read_quoted_selector_value(
+    bytes: &[u8],
+    index: &mut usize,
+    domain: &str,
+    entrypoint: &Path,
+) -> Result<String, CompileError> {
+    *index += 1;
+    let mut escaped = false;
+    let mut terminated = false;
+    let mut literal = String::new();
+
+    while *index < bytes.len() {
+        let character = bytes[*index] as char;
+        *index += 1;
+
+        if escaped {
+            literal.push(character);
+            escaped = false;
+            continue;
+        }
+
+        match character {
+            '\\' => escaped = true,
+            '"' => {
+                terminated = true;
+                break;
+            }
+            _ => literal.push(character),
+        }
+    }
+
+    if escaped || !terminated {
+        return Err(invalid_inline_selector_domain(domain, entrypoint));
+    }
+
+    Ok(literal)
+}
+
+fn read_unquoted_selector_value(body: &str, bytes: &[u8], index: &mut usize) -> String {
+    let value_start = *index;
+    while *index < bytes.len() {
+        let character = bytes[*index] as char;
+        if matches!(character, ' ' | '\t' | ',') {
+            break;
+        }
+        *index += 1;
+    }
+    body[value_start..*index].trim().to_string()
 }
 
 fn domain_value_matches_selectors(
