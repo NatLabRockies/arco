@@ -1,4 +1,4 @@
-use arco_kdl::artifacts::{AlgebraicProblem, ConstraintSense, ObjectiveSense, VariableKind};
+use arco_kdl::compile::{AlgebraicProblem, ConstraintSense, ObjectiveSense, VariableKind};
 use arco_kdl::pipeline::compile_file;
 use miette::{IntoDiagnostic, Result, miette};
 use std::collections::BTreeMap;
@@ -314,7 +314,7 @@ impl Drop for DebugBootstrapScript {
 #[cfg(test)]
 mod tests {
     use crate::debug_shell::{PythonModelData, build_ipython_script, build_python_model_data};
-    use arco_kdl::artifacts::{
+    use arco_kdl::compile::{
         AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearTerm,
         ObjectiveSense, VariableInstance, VariableKind,
     };
