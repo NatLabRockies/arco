@@ -1,7 +1,6 @@
 //! Solver traits for abstraction over different solver backends.
 
-use crate::SolverConfig;
-use arco_solver_types::{SolverError, SolverStatus};
+use crate::{SolverConfig, SolverError, SolverStatus};
 
 /// Trait for accessing solution data from a solver.
 ///
