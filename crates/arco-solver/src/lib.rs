@@ -7,9 +7,10 @@ mod backend;
 mod preflight;
 
 pub use arco_contracts::{
-    ResolvedSelection, SelectionError, Solution, SolutionView, Solve, SolverCapabilityModel,
-    SolverConfig, SolverConfigDocument, SolverError, SolverFamily, SolverProfile, SolverRegistry,
-    SolverSelection, SolverStatus, SolverTransport, merged_profiles, resolve_selection,
+    ResolvedSelection, SelectionError, Solution, SolutionView, Solve, SolveRequest,
+    SolverCapabilityModel, SolverConfig, SolverConfigDocument, SolverError, SolverFamily,
+    SolverProfile, SolverRegistry, SolverSelection, SolverStatus, SolverTransport, merged_profiles,
+    resolve_selection,
 };
 pub use backend::SolverBackend;
 pub use preflight::{PreflightError, SolverRequirements, preflight_selection};
