@@ -35,11 +35,26 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
         return None;
     }
 
+    let opening_brace = find_opening_brace(text, start + keyword.len())?;
+
+    if keyword == "constraint" && body_starts_with_generation_keyword(text, opening_brace) {
+        return None;
+    }
+
+    let closing_index = find_matching_brace(text.as_bytes(), opening_brace)?;
+
+    let header = text[start..opening_brace].trim_end();
+    let body = normalize_math_body(&text[opening_brace + 1..closing_index]);
+    let encoded_body = encode_kdl_string(&body);
+    let replacement = rewrite_math_replacement(keyword, header, &encoded_body)?;
+
+    Some((replacement, closing_index + 1))
+}
+
+fn find_opening_brace(text: &str, mut index: usize) -> Option<usize> {
     let bytes = text.as_bytes();
-    let mut index = start + keyword.len();
     let mut in_string = false;
     let mut escaped = false;
-    let mut opening_brace = None;
 
     while index < bytes.len() {
         let byte = bytes[index];
@@ -57,29 +72,24 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
 
         match byte {
             b'"' => in_string = true,
-            b'{' => {
-                opening_brace = Some(index);
-                break;
-            }
+            b'{' => return Some(index),
             b'\n' => return None,
             _ => {}
         }
         index += 1;
     }
 
-    let opening_brace = opening_brace?;
+    None
+}
 
-    if keyword == "constraint" && body_starts_with_generation_keyword(text, opening_brace) {
-        return None;
-    }
-
-    let mut closing_index = opening_brace + 1;
+fn find_matching_brace(bytes: &[u8], opening_brace: usize) -> Option<usize> {
+    let mut index = opening_brace + 1;
     let mut brace_depth = 1usize;
-    in_string = false;
-    escaped = false;
+    let mut in_string = false;
+    let mut escaped = false;
 
-    while closing_index < bytes.len() {
-        let byte = bytes[closing_index];
+    while index < bytes.len() {
+        let byte = bytes[index];
         if in_string {
             if escaped {
                 escaped = false;
@@ -88,7 +98,7 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
             } else if byte == b'"' {
                 in_string = false;
             }
-            closing_index += 1;
+            index += 1;
             continue;
         }
 
@@ -98,33 +108,26 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
             b'}' => {
                 brace_depth -= 1;
                 if brace_depth == 0 {
-                    break;
+                    return Some(index);
                 }
             }
             _ => {}
         }
-        closing_index += 1;
+        index += 1;
     }
 
-    if brace_depth != 0 {
-        return None;
-    }
+    None
+}
 
-    let header = text[start..opening_brace].trim_end();
-    let body = normalize_math_body(&text[opening_brace + 1..closing_index]);
-    let encoded_body = encode_kdl_string(&body);
-
-    let replacement = match keyword {
-        "constraint" => format!("{header} expression={encoded_body}"),
-        "expression" => format!("{header} {{ formula {encoded_body} }}"),
-        "minimize" | "maximize" => format!("{header} expression={encoded_body}"),
-        "lower" | "upper" | "if" | "filter" => {
-            format!("{header} expression={encoded_body}")
+fn rewrite_math_replacement(keyword: &str, header: &str, encoded_body: &str) -> Option<String> {
+    match keyword {
+        "constraint" => Some(format!("{header} expression={encoded_body}")),
+        "expression" => Some(format!("{header} {{ formula {encoded_body} }}")),
+        "minimize" | "maximize" | "lower" | "upper" | "if" | "filter" => {
+            Some(format!("{header} expression={encoded_body}"))
         }
-        _ => return None,
-    };
-
-    Some((replacement, closing_index + 1))
+        _ => None,
+    }
 }
 
 fn body_starts_with_generation_keyword(text: &str, opening_brace: usize) -> bool {
