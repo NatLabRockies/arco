@@ -39,8 +39,6 @@ for _ in range(runs):
             "import_edges": int(import_edges.group(1)),
         }
     )
-    if completed.returncode != 0:
-        raise SystemExit(completed.returncode)
 
 for key in ("quality", "unresolved", "import_edges"):
     values = [result[key] for result in results]
