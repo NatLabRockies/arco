@@ -7,7 +7,7 @@
 use crate::ffi;
 use crate::solution::Solution;
 use crate::status;
-use arco_contracts::SolverError as CoreSolverError;
+use arco_contracts::{SolverError as CoreSolverError, SolverStatus as CoreSolverStatus};
 use arco_core::{Model, Sense};
 use arco_expr::{ConstraintId, VariableId};
 use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
@@ -338,38 +338,46 @@ fn apply_solver_config(prob: ffi::XPRSprob, config: &SolverConfig) -> Result<(),
     Ok(())
 }
 
-/// Solve a model with the given configuration.
-#[allow(unsafe_code)]
-fn solve_model(
+struct ColumnData {
+    obj_coeffs: Vec<f64>,
+    lower_bounds: Vec<f64>,
+    upper_bounds: Vec<f64>,
+    col_types: Vec<u8>,
+    int_col_indices: Vec<c_int>,
+    int_col_limits: Vec<f64>,
+    has_integer: bool,
+}
+
+struct RowData {
+    row_types: Vec<u8>,
+    rhs: Vec<f64>,
+    rng: Vec<f64>,
+}
+
+struct MatrixData {
+    mstart: Vec<c_int>,
+    mrwind: Vec<c_int>,
+    dmatval: Vec<f64>,
+}
+
+struct SolveStatus {
+    core_status: CoreSolverStatus,
+    has_solution: bool,
+    status_label: &'static str,
+}
+
+fn build_column_data(
     model: &Model,
-    config: &SolverConfig,
-    primal_start: Option<&[(VariableId, f64)]>,
-) -> Result<Solution, SolverError> {
-    validate_model(model)?;
-
-    let solve_started = Instant::now();
-
-    let ncols = model.num_variables();
-    let nrows = model.num_constraints();
-
-    debug!(
-        component = "solver",
-        operation = "solve",
-        solver = "xpress",
-        variables = ncols as u64,
-        constraints = nrows as u64,
-        "Starting Xpress solve"
-    );
-
-    let (sense, objective_coeffs) = collect_objective_coefficients(model)?;
-
+    ncols: usize,
+    objective_coeffs: &BTreeMap<VariableId, f64>,
+) -> Result<ColumnData, SolverError> {
     let mut obj_coeffs = Vec::with_capacity(ncols);
     let mut lower_bounds = Vec::with_capacity(ncols);
     let mut upper_bounds = Vec::with_capacity(ncols);
-    let mut col_types: Vec<u8> = Vec::new();
+    let mut col_types = Vec::new();
     let mut has_integer = false;
-    let mut int_col_indices: Vec<c_int> = Vec::new();
-    let mut int_col_limits: Vec<f64> = Vec::new();
+    let mut int_col_indices = Vec::new();
+    let mut int_col_limits = Vec::new();
 
     for index in 0..ncols {
         let var_id = VariableId::new(index as u32);
@@ -404,9 +412,21 @@ fn solve_model(
         }
     }
 
-    let mut row_types: Vec<u8> = Vec::with_capacity(nrows);
-    let mut rhs: Vec<f64> = Vec::with_capacity(nrows);
-    let mut rng: Vec<f64> = Vec::with_capacity(nrows);
+    Ok(ColumnData {
+        obj_coeffs,
+        lower_bounds,
+        upper_bounds,
+        col_types,
+        int_col_indices,
+        int_col_limits,
+        has_integer,
+    })
+}
+
+fn build_row_data(model: &Model, nrows: usize) -> Result<RowData, SolverError> {
+    let mut row_types = Vec::with_capacity(nrows);
+    let mut rhs = Vec::with_capacity(nrows);
+    let mut rng = Vec::with_capacity(nrows);
 
     for index in 0..nrows {
         let cid = ConstraintId::new(index as u32);
@@ -420,9 +440,17 @@ fn solve_model(
         rng.push(rng_val);
     }
 
-    let mut mstart: Vec<c_int> = Vec::with_capacity(ncols + 1);
-    let mut mrwind: Vec<c_int> = Vec::new();
-    let mut dmatval: Vec<f64> = Vec::new();
+    Ok(RowData {
+        row_types,
+        rhs,
+        rng,
+    })
+}
+
+fn build_matrix_data(model: &Model, ncols: usize, nrows: usize) -> MatrixData {
+    let mut mstart = Vec::with_capacity(ncols + 1);
+    let mut mrwind = Vec::new();
+    let mut dmatval = Vec::new();
 
     for (var_id, column) in model.columns() {
         mstart.push(mrwind.len() as c_int);
@@ -441,174 +469,169 @@ fn solve_model(
             }
         }
     }
-    // Final sentinel entry
     mstart.push(mrwind.len() as c_int);
 
-    let _env_guard = xprs_init()?;
-    let prob_guard = xprs_create_prob()?;
-    let prob = prob_guard.0;
+    MatrixData {
+        mstart,
+        mrwind,
+        dmatval,
+    }
+}
 
-    apply_solver_config(prob, config)?;
-
-    let ncols_i = ncols as c_int;
-    let nrows_i = nrows as c_int;
-
-    if has_integer {
-        let ngents = int_col_indices.len() as c_int;
-        // SAFETY: prob is valid; all arrays have correct lengths per Xpress API.
+#[allow(unsafe_code)]
+fn load_problem(
+    prob: ffi::XPRSprob,
+    ncols_i: c_int,
+    nrows_i: c_int,
+    columns: &ColumnData,
+    rows: &RowData,
+    matrix: &MatrixData,
+) -> Result<(), SolverError> {
+    if columns.has_integer {
+        let ngents = columns.int_col_indices.len() as c_int;
         ffi::check_xprs(unsafe {
             ffi::XPRSloadmip(
                 prob,
-                std::ptr::null(),                // probname
-                ncols_i,                         // ncols
-                nrows_i,                         // nrows
-                row_types.as_ptr().cast::<i8>(), // rowtype
-                rhs.as_ptr(),                    // rhs
-                rng.as_ptr(),                    // rng
-                obj_coeffs.as_ptr(),             // objcoef
-                mstart.as_ptr(),                 // mstart
-                std::ptr::null(),                // mnel (NULL = use mstart diffs)
-                mrwind.as_ptr(),                 // mrwind
-                dmatval.as_ptr(),                // dmatval
-                lower_bounds.as_ptr(),           // dlb
-                upper_bounds.as_ptr(),           // dub
-                ngents,                          // ngents
-                0,                               // nsets
-                col_types.as_ptr().cast::<i8>(), // coltype
-                int_col_indices.as_ptr(),        // mgcols
-                int_col_limits.as_ptr(),         // dlim
-                std::ptr::null(),                // stype
-                std::ptr::null(),                // msstart
-                std::ptr::null(),                // mscols
-                std::ptr::null(),                // dref
+                std::ptr::null(),
+                ncols_i,
+                nrows_i,
+                rows.row_types.as_ptr().cast::<i8>(),
+                rows.rhs.as_ptr(),
+                rows.rng.as_ptr(),
+                columns.obj_coeffs.as_ptr(),
+                matrix.mstart.as_ptr(),
+                std::ptr::null(),
+                matrix.mrwind.as_ptr(),
+                matrix.dmatval.as_ptr(),
+                columns.lower_bounds.as_ptr(),
+                columns.upper_bounds.as_ptr(),
+                ngents,
+                0,
+                columns.col_types.as_ptr().cast::<i8>(),
+                columns.int_col_indices.as_ptr(),
+                columns.int_col_limits.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
             )
         })
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadmip failed: {rc}")))?;
     } else {
-        // SAFETY: prob is valid; all arrays have correct lengths per Xpress API.
         ffi::check_xprs(unsafe {
             ffi::XPRSloadlp(
                 prob,
-                std::ptr::null(),                // probname
-                ncols_i,                         // ncols
-                nrows_i,                         // nrows
-                row_types.as_ptr().cast::<i8>(), // rowtype
-                rhs.as_ptr(),                    // rhs
-                rng.as_ptr(),                    // rng
-                obj_coeffs.as_ptr(),             // objcoef
-                mstart.as_ptr(),                 // mstart
-                std::ptr::null(),                // mnel
-                mrwind.as_ptr(),                 // mrwind
-                dmatval.as_ptr(),                // dmatval
-                lower_bounds.as_ptr(),           // dlb
-                upper_bounds.as_ptr(),           // dub
+                std::ptr::null(),
+                ncols_i,
+                nrows_i,
+                rows.row_types.as_ptr().cast::<i8>(),
+                rows.rhs.as_ptr(),
+                rows.rng.as_ptr(),
+                columns.obj_coeffs.as_ptr(),
+                matrix.mstart.as_ptr(),
+                std::ptr::null(),
+                matrix.mrwind.as_ptr(),
+                matrix.dmatval.as_ptr(),
+                columns.lower_bounds.as_ptr(),
+                columns.upper_bounds.as_ptr(),
             )
         })
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadlp failed: {rc}")))?;
     }
 
-    let xprs_sense = match sense {
-        Sense::Minimize => ffi::XPRS_OBJ_MINIMIZE,
-        Sense::Maximize => ffi::XPRS_OBJ_MAXIMIZE,
-    };
-    // SAFETY: prob is a valid handle.
-    ffi::check_xprs(unsafe { ffi::XPRSchgobjsense(prob, xprs_sense) })
-        .map_err(|rc| SolverError::SolverSpecific(format!("XPRSchgobjsense failed: {rc}")))?;
+    Ok(())
+}
 
-    if has_integer {
-        if let Some(hints) = primal_start {
-            let mut sol_cols: Vec<c_int> = Vec::with_capacity(hints.len());
-            let mut sol_vals: Vec<f64> = Vec::with_capacity(hints.len());
-            for (var_id, value) in hints {
-                sol_cols.push(var_id.inner() as c_int);
-                sol_vals.push(*value);
-            }
-            let n = sol_cols.len() as c_int;
-            // SAFETY: prob is valid; arrays have length n.
-            ffi::check_xprs(unsafe {
-                ffi::XPRSaddmipsol(
-                    prob,
-                    n,
-                    sol_vals.as_ptr(),
-                    sol_cols.as_ptr(),
-                    std::ptr::null(),
-                )
-            })
-            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSaddmipsol failed: {rc}")))?;
-            debug!(
-                component = "solver",
-                operation = "warm_start",
-                solver = "xpress",
-                num_hints = hints.len(),
-                "Applied MIP warm-start"
-            );
-        }
-    }
-
-    // SAFETY: prob is a valid handle; null flags means default behavior.
+#[allow(unsafe_code)]
+fn optimize_problem(prob: ffi::XPRSprob, has_integer: bool) -> Result<(), SolverError> {
     if has_integer {
         ffi::check_xprs(unsafe { ffi::XPRSmipoptimize(prob, std::ptr::null()) })
-            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSmipoptimize failed: {rc}")))?;
+            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSmipoptimize failed: {rc}")))
     } else {
         ffi::check_xprs(unsafe { ffi::XPRSlpoptimize(prob, std::ptr::null()) })
-            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSlpoptimize failed: {rc}")))?;
+            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSlpoptimize failed: {rc}")))
+    }
+}
+
+fn apply_mip_warm_start(
+    prob: ffi::XPRSprob,
+    has_integer: bool,
+    primal_start: Option<&[(VariableId, f64)]>,
+) -> Result<(), SolverError> {
+    if !has_integer {
+        return Ok(());
     }
 
-    let solve_time = solve_started.elapsed().as_secs_f64();
-
-    let (core_status, has_sol, status_str) = if has_integer {
-        let raw = get_int_attrib(prob, ffi::XPRS_MIPSTATUS)?;
-        (
-            status::mip_status_to_core(raw),
-            status::mip_has_solution(raw),
-            status::mip_status_string(raw),
-        )
-    } else {
-        let raw = get_int_attrib(prob, ffi::XPRS_LPSTATUS)?;
-        (
-            status::lp_status_to_core(raw),
-            status::lp_has_solution(raw),
-            status::lp_status_string(raw),
-        )
+    let Some(hints) = primal_start else {
+        return Ok(());
     };
 
+    let mut sol_cols: Vec<c_int> = Vec::with_capacity(hints.len());
+    let mut sol_vals: Vec<f64> = Vec::with_capacity(hints.len());
+    for (var_id, value) in hints {
+        sol_cols.push(var_id.inner() as c_int);
+        sol_vals.push(*value);
+    }
+    let n = sol_cols.len() as c_int;
+    ffi::check_xprs(unsafe {
+        ffi::XPRSaddmipsol(
+            prob,
+            n,
+            sol_vals.as_ptr(),
+            sol_cols.as_ptr(),
+            std::ptr::null(),
+        )
+    })
+    .map_err(|rc| SolverError::SolverSpecific(format!("XPRSaddmipsol failed: {rc}")))?;
     debug!(
         component = "solver",
-        operation = "solve",
+        operation = "warm_start",
         solver = "xpress",
-        solver_status = status_str,
-        is_mip = has_integer,
-        duration_ms = solve_time * 1000.0,
-        "Xpress solve completed"
+        num_hints = hints.len(),
+        "Applied MIP warm-start"
     );
 
-    if !has_sol {
-        warn!(
-            component = "solver",
-            operation = "solve",
-            status = "warn",
-            solver = "xpress",
-            solver_status = status_str,
-            duration_ms = solve_time * 1000.0,
-            "Solver did not find a feasible solution"
-        );
-        return Err(SolverError::SolveFailure {
-            status: core_status,
-        });
-    }
+    Ok(())
+}
 
-    let objective_value = if has_integer {
-        get_dbl_attrib(prob, ffi::XPRS_MIPOBJVAL)?
+fn read_solve_status(prob: ffi::XPRSprob, has_integer: bool) -> Result<SolveStatus, SolverError> {
+    if has_integer {
+        let raw = get_int_attrib(prob, ffi::XPRS_MIPSTATUS)?;
+        Ok(SolveStatus {
+            core_status: status::mip_status_to_core(raw),
+            has_solution: status::mip_has_solution(raw),
+            status_label: status::mip_status_string(raw),
+        })
     } else {
-        get_dbl_attrib(prob, ffi::XPRS_LPOBJVAL)?
-    };
+        let raw = get_int_attrib(prob, ffi::XPRS_LPSTATUS)?;
+        Ok(SolveStatus {
+            core_status: status::lp_status_to_core(raw),
+            has_solution: status::lp_has_solution(raw),
+            status_label: status::lp_status_string(raw),
+        })
+    }
+}
 
+fn read_objective_value(prob: ffi::XPRSprob, has_integer: bool) -> Result<f64, SolverError> {
+    if has_integer {
+        get_dbl_attrib(prob, ffi::XPRS_MIPOBJVAL)
+    } else {
+        get_dbl_attrib(prob, ffi::XPRS_LPOBJVAL)
+    }
+}
+
+#[allow(unsafe_code)]
+fn read_solution_vectors(
+    prob: ffi::XPRSprob,
+    has_integer: bool,
+    ncols: usize,
+    nrows: usize,
+) -> Result<(Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>), SolverError> {
     let mut primal_values = vec![0.0_f64; ncols];
     let mut variable_duals = vec![0.0_f64; ncols];
     let mut constraint_duals = vec![0.0_f64; nrows];
     let mut row_values = vec![0.0_f64; nrows];
 
-    // SAFETY: prob is valid; all output arrays have the correct lengths.
     if has_integer {
         ffi::check_xprs(unsafe {
             ffi::XPRSgetmipsol(prob, primal_values.as_mut_ptr(), row_values.as_mut_ptr())
@@ -627,13 +650,96 @@ fn solve_model(
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSgetlpsol failed: {rc}")))?;
     }
 
+    Ok((primal_values, variable_duals, constraint_duals, row_values))
+}
+
+/// Solve a model with the given configuration.
+#[allow(unsafe_code)]
+fn solve_model(
+    model: &Model,
+    config: &SolverConfig,
+    primal_start: Option<&[(VariableId, f64)]>,
+) -> Result<Solution, SolverError> {
+    validate_model(model)?;
+
+    let solve_started = Instant::now();
+
+    let ncols = model.num_variables();
+    let nrows = model.num_constraints();
+
+    debug!(
+        component = "solver",
+        operation = "solve",
+        solver = "xpress",
+        variables = ncols as u64,
+        constraints = nrows as u64,
+        "Starting Xpress solve"
+    );
+
+    let (sense, objective_coeffs) = collect_objective_coefficients(model)?;
+    let columns = build_column_data(model, ncols, &objective_coeffs)?;
+    let rows = build_row_data(model, nrows)?;
+    let matrix = build_matrix_data(model, ncols, nrows);
+
+    let _env_guard = xprs_init()?;
+    let prob_guard = xprs_create_prob()?;
+    let prob = prob_guard.0;
+
+    apply_solver_config(prob, config)?;
+
+    let ncols_i = ncols as c_int;
+    let nrows_i = nrows as c_int;
+    load_problem(prob, ncols_i, nrows_i, &columns, &rows, &matrix)?;
+
+    let xprs_sense = match sense {
+        Sense::Minimize => ffi::XPRS_OBJ_MINIMIZE,
+        Sense::Maximize => ffi::XPRS_OBJ_MAXIMIZE,
+    };
+    ffi::check_xprs(unsafe { ffi::XPRSchgobjsense(prob, xprs_sense) })
+        .map_err(|rc| SolverError::SolverSpecific(format!("XPRSchgobjsense failed: {rc}")))?;
+
+    apply_mip_warm_start(prob, columns.has_integer, primal_start)?;
+    optimize_problem(prob, columns.has_integer)?;
+
+    let solve_time = solve_started.elapsed().as_secs_f64();
+    let status_info = read_solve_status(prob, columns.has_integer)?;
+
+    debug!(
+        component = "solver",
+        operation = "solve",
+        solver = "xpress",
+        solver_status = status_info.status_label,
+        is_mip = columns.has_integer,
+        duration_ms = solve_time * 1000.0,
+        "Xpress solve completed"
+    );
+
+    if !status_info.has_solution {
+        warn!(
+            component = "solver",
+            operation = "solve",
+            status = "warn",
+            solver = "xpress",
+            solver_status = status_info.status_label,
+            duration_ms = solve_time * 1000.0,
+            "Solver did not find a feasible solution"
+        );
+        return Err(SolverError::SolveFailure {
+            status: status_info.core_status,
+        });
+    }
+
+    let objective_value = read_objective_value(prob, columns.has_integer)?;
+    let (primal_values, variable_duals, constraint_duals, row_values) =
+        read_solution_vectors(prob, columns.has_integer, ncols, nrows)?;
+
     debug!(
         component = "solver",
         operation = "extract_solution",
         solver = "xpress",
         objective_value,
         num_primal_values = primal_values.len(),
-        is_mip = has_integer,
+        is_mip = columns.has_integer,
         duration_ms = solve_time * 1000.0,
         "Solution extracted"
     );
@@ -644,8 +750,8 @@ fn solve_model(
         constraint_duals,
         row_values,
         objective_value,
-        core_status,
-        is_mip: has_integer,
+        core_status: status_info.core_status,
+        is_mip: columns.has_integer,
         solve_time_seconds: solve_time,
     })
 }
