@@ -1,0 +1,19 @@
+[package]
+name = "arco-ops"
+version = { workspace = true }
+description = "Operations facade seam for Arco interaction surfaces"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+authors = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-contracts = { workspace = true }
+arco-targets = { workspace = true }
+arco-validate = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "arco-contracts"
+version = { workspace = true }
+description = "Shared solver-facing contracts for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+authors = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

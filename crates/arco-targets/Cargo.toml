@@ -1,0 +1,16 @@
+[package]
+name = "arco-targets"
+version = { workspace = true }
+description = "Solver-facing compile target seam for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+authors = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
