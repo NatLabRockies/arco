@@ -1,8 +1,8 @@
 //! Shared status conversions for HiGHS integration.
 
 use crate::ffi::HighsStatus;
+use arco_contracts::SolverStatus as CoreSolverStatus;
 use arco_solver::SolverStatus;
-use arco_solver_types::SolverStatus as CoreSolverStatus;
 
 pub(crate) fn highs_to_core_status(status: HighsStatus) -> CoreSolverStatus {
     match status {

@@ -7,16 +7,16 @@
 use crate::ffi;
 use crate::solution::Solution;
 use crate::status;
+use arco_contracts::SolverError as CoreSolverError;
 use arco_core::{Model, Sense};
 use arco_expr::{ConstraintId, VariableId};
 use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
-use arco_solver_types::SolverError as CoreSolverError;
 use std::collections::BTreeMap;
 use std::ffi::c_int;
 use std::time::Instant;
 use tracing::{debug, warn};
 
-/// Re-export of [`arco_solver_types::SolverError`] for backward compatibility.
+/// Re-export of contract solver error for backward compatibility.
 pub type SolverError = CoreSolverError;
 
 /// RAII guard that calls [`ffi::XPRSfree`] on drop to release the Xpress

@@ -17,7 +17,7 @@ workspace = true
 arco-core = { workspace = true }
 arco-expr = { workspace = true }
 arco-solver = { workspace = true }
-arco-solver-types = { workspace = true }
+arco-contracts = { workspace = true }
 arco-tools = { workspace = true }
 highs = "1.8"
 highs-sys = "1.12.1"

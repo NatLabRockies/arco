@@ -1,10 +1,8 @@
 //! Solver backend trait for dispatching solves through a unified interface.
 
+use crate::{Solution, SolverConfig, SolverError};
 use arco_core::Model;
 use arco_expr::VariableId;
-use arco_solver_types::Solution as CoreSolution;
-
-use crate::{SolverConfig, SolverError};
 
 /// A solver backend that can solve a model with a given configuration.
 ///
@@ -18,7 +16,7 @@ pub trait SolverBackend {
         model: &Model,
         config: &SolverConfig,
         primal_start: Option<&[(VariableId, f64)]>,
-    ) -> Result<CoreSolution, SolverError>;
+    ) -> Result<Solution, SolverError>;
 
     /// Human-readable solver name (e.g., `"HiGHS"`, `"IPOPT"`).
     fn name(&self) -> &'static str;

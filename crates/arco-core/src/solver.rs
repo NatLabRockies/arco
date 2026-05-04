@@ -1,23 +1,10 @@
-//! Solver trait and common types for solver backends.
+//! Solver trait for `arco-core` model backends.
 //!
-//! This module defines the abstract interface that all solver backends
-//! (HiGHS, Xpress, etc.) must implement. The actual types (SolverStatus,
-//! SolverError, Solution) are re-exported from `arco-solver-types` to break
-//! the diamond dependency pattern.
-//!
-//! # Architecture Note
-//!
-//! Previously, these types were defined here, which created a diamond
-//! dependency: solver backends needed both `arco-core` (for Model) and
-//! `arco-solver` (for traits), but `arco-solver` also depended on `arco-core`.
-//!
-//! Now, `arco-solver-types` provides the base types, which both `arco-core`
-//! and `arco-solver` depend on, breaking the cycle.
+//! Shared solver contracts are re-exported from `arco-contracts`.
 
 use crate::Model;
 
-// Re-export all solver types from arco-solver-types
-pub use arco_solver_types::{Solution, SolverConfig, SolverError, SolverStatus};
+pub use arco_contracts::{Solution, SolverConfig, SolverError, SolverStatus};
 
 /// Trait that all solver backends must implement.
 pub trait Solver {

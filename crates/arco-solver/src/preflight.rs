@@ -1,7 +1,6 @@
 use arco_core::Model;
 
-use crate::registry::{SolverRegistry, SolverTransport};
-use crate::selection::ResolvedSelection;
+use arco_contracts::{ResolvedSelection, SolverRegistry, SolverTransport};
 
 /// Preflight requirement constraints.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

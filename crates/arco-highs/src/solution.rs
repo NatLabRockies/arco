@@ -4,8 +4,8 @@ use crate::ffi::HighsStatus;
 use crate::status::{
     highs_has_solution, highs_status_string, highs_to_core_status, highs_to_generic_status,
 };
+use arco_contracts::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use arco_solver::SolutionView;
-use arco_solver_types::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use std::collections::BTreeMap;
 
 // Re-export SolverStatus from arco-solver for the trait implementation

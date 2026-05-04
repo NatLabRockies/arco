@@ -22,7 +22,7 @@ check-dev:
     cargo check --all-features --tests --benches --examples
 
 [group: 'ci']
-ci: fmt-check clippy-all test-core docs-test
+ci: fmt-check clippy-all test-core docs-test sentrux-check
 
 [group: 'rust']
 clippy:
@@ -46,6 +46,10 @@ default: check
 [group: 'ci']
 doc:
     cargo doc --workspace --no-deps
+
+[group: 'ci']
+sentrux-check:
+    sentrux check .
 
 [group: 'ci']
 docs-test: py-dev

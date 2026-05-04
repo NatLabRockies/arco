@@ -4,17 +4,17 @@ use crate::async_matrix::{AsyncCrsBuilder, ConstraintEntries};
 use crate::ffi::{HighsModel, HighsModelError, HighsOption, HighsStatus, ObjectiveSense};
 use crate::solution::Solution;
 use crate::status::{highs_has_solution, highs_to_core_status};
+use arco_contracts::SolverError as GenericSolverError;
 use arco_core::{Model, Sense};
 use arco_expr::{ConstraintId, VariableId};
 use arco_solver::{Solve, SolverBackend, SolverConfig};
-use arco_solver_types::SolverError as GenericSolverError;
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
 use std::time::Instant;
 use tracing::{debug, trace, warn};
 
-/// Re-export of arco_solver_types::SolverError for backward compatibility.
-pub type SolverError = arco_solver_types::SolverError;
+/// Re-export of contract solver error for backward compatibility.
+pub type SolverError = arco_contracts::SolverError;
 
 /// Convert a HighsModelError into a SolverError.
 fn highs_model_error_to_solver_error(err: HighsModelError) -> SolverError {
@@ -177,7 +177,7 @@ impl arco_core::solver::Solver for Solver {
     fn solve(
         &mut self,
         model: &Model,
-    ) -> Result<arco_solver_types::Solution, arco_solver_types::SolverError> {
+    ) -> Result<arco_contracts::Solution, arco_contracts::SolverError> {
         let highs_solution = solve_model(
             model,
             &self.config,
@@ -206,7 +206,7 @@ impl SolverBackend for HiGHSBackend {
         model: &Model,
         config: &SolverConfig,
         primal_start: Option<&[(VariableId, f64)]>,
-    ) -> Result<arco_solver_types::Solution, GenericSolverError> {
+    ) -> Result<arco_contracts::Solution, GenericSolverError> {
         solve_model(model, config, primal_start, false).map(|s| s.into_core_solution())
     }
 
@@ -753,9 +753,9 @@ fn default_primal_value(lower: f64, upper: f64) -> f64 {
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
+    use arco_contracts::SolverStatus as CoreSolverStatus;
     use arco_core::types::Bounds;
     use arco_core::{Objective, Variable};
-    use arco_solver_types::SolverStatus as CoreSolverStatus;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]

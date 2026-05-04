@@ -14,10 +14,4 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-expr = { workspace = true }
-serde = { version = "1.0", features = ["derive"], optional = true }
-tracing = { workspace = true }
-
-[features]
-default = ["serde"]
-serde = ["dep:serde"]
+arco-contracts = { workspace = true }
