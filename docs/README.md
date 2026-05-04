@@ -58,6 +58,7 @@ the way it does.
 
 - [Why Arco](explanation/why-arco.md) -- motivation and design philosophy behind the library.
 - [Architecture](explanation/architecture.md) -- how the Rust crates and Python bindings fit together.
+- [Refactor Plan](../ARCHITECTURE_REFACTOR_PLAN.md) -- target-state crate architecture, seams, and growth rules.
 - [Core Concepts](explanation/core-concepts.md) -- variables, constraints, expressions, and the model lifecycle.
 
 ## [Reference](reference/)

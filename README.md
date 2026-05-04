@@ -464,6 +464,9 @@ Curious about what we're working on? Check out the roadmap:
 Arco is organized as a Rust workspace. The KDL DSL and CLI are the primary
 interface. Language bindings provide programmatic access to the same core.
 
+For the proposed target-state crate layout and refactor direction, see
+[`ARCHITECTURE_REFACTOR_PLAN.md`](./ARCHITECTURE_REFACTOR_PLAN.md).
+
 ```mermaid
 graph TB
     subgraph DSL["KDL DSL + CLI"]

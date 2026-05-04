@@ -1,5 +1,10 @@
 Architecture
 
+> [!NOTE]
+> This page describes the current workspace shape. For the proposed target-state
+> crate layout and migration direction, see
+> [`../../ARCHITECTURE_REFACTOR_PLAN.md`](../../ARCHITECTURE_REFACTOR_PLAN.md).
+
 Arco is structured as a Rust workspace with multiple crates and Python bindings on top. This split is not arbitrary. It reflects a separation between the stable, performance-critical core and the user-facing API that prioritizes ergonomics over raw speed.
 
 Crate overview
