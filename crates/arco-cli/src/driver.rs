@@ -12,7 +12,8 @@ use crate::execution::{
     ExecutionError, OptimizationAdapter, RustArcoAdapter, ScipArcoAdapter, SolveStatus,
     execute_problem_with_options, render_problem_model,
 };
-use arco_kdl::pipeline::{PipelineError, compile_file, validate_file};
+use arco_kdl::pipeline::{PipelineError, compile_file};
+use arco_ops::ArcoOps;
 use arco_solver::{ResolvedSelection, SolverTransport};
 use miette::Diagnostic;
 use std::fmt::Display;
@@ -268,7 +269,7 @@ pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
 
 pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, DriverError> {
     let started = Instant::now();
-    let validated = validate_file(path)?;
+    let validated = ArcoOps::check_file(path)?;
     let elapsed_ms = started.elapsed().as_millis();
     Ok(format_validate_success(
         &validated.entrypoint,
@@ -284,7 +285,7 @@ fn format_validate_success(path: &Path, elapsed_ms: u128, color_mode: ColorMode)
 }
 
 pub fn inspect_file_report(path: &Path, json_output: bool) -> Result<String, DriverError> {
-    let validated = validate_file(path)?;
+    let validated = ArcoOps::check_file(path)?;
     let program = &validated.semantic_program;
     let payload = crate::inspect::build_inspect_payload(&validated.entrypoint, program);
 

@@ -36,6 +36,7 @@ arco-highs = { workspace = true }
 arco-xpress = { workspace = true, optional = true }
 arco-scip = { workspace = true }
 arco-export = { workspace = true }
+arco-ops = { workspace = true }
 arco-solver = { workspace = true }
 arco-targets = { workspace = true }
 clap = { version = "4", features = ["derive"] }
