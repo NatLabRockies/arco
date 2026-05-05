@@ -367,7 +367,7 @@ fn lower_reduce_projection_expressions(
             &projections,
             set_registry,
             entrypoint,
-            false,
+            ReduceProjectionLoweringScope::Expression,
         )? {
             resolved.formula_text = formula_text;
             resolved.formula = formula;
@@ -381,7 +381,7 @@ fn lower_reduce_projection_expressions(
             &projections,
             set_registry,
             entrypoint,
-            true,
+            ReduceProjectionLoweringScope::ScalarReport,
         )? {
             report.formula_text = formula_text;
             report.formula = formula;
@@ -391,13 +391,19 @@ fn lower_reduce_projection_expressions(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum ReduceProjectionLoweringScope {
+    Expression,
+    ScalarReport,
+}
+
 fn lower_reduce_projection_expression_by_name(
     name: &str,
     expression_abstractions: &BTreeMap<&str, &crate::source::ExpressionAbstractionDecl>,
     projections: &BTreeMap<&str, &crate::source::ProjectionDecl>,
     set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
     entrypoint: &Path,
-    bind_retained_keys: bool,
+    scope: ReduceProjectionLoweringScope,
 ) -> Result<Option<(String, crate::algebra::Expr)>, SemanticError> {
     let Some(abstraction) = expression_abstractions.get(name) else {
         return Ok(None);
@@ -421,7 +427,10 @@ fn lower_reduce_projection_expression_by_name(
 
     let bound_keys = source_keys
         .iter()
-        .filter(|key| bind_retained_keys || !projection_decl.to_keys.contains(*key))
+        .filter(|key| match scope {
+            ReduceProjectionLoweringScope::Expression => !projection_decl.to_keys.contains(*key),
+            ReduceProjectionLoweringScope::ScalarReport => true,
+        })
         .cloned()
         .collect::<Vec<_>>();
     let bound_lookup = bound_keys.iter().cloned().collect::<BTreeSet<_>>();
