@@ -8,8 +8,8 @@ use crate::semantic::sets::{
 };
 use crate::semantic::types::{
     FamilySignature, ResolvedChronology, ResolvedConstraint, ResolvedExpression, ResolvedObjective,
-    ResolvedParameters, ResolvedSets, ResolvedTimeSet, SemanticProgram, TimeResolution,
-    VariableDeclOverrides,
+    ResolvedParameters, ResolvedReport, ResolvedSets, ResolvedTimeSet, SemanticProgram,
+    TimeResolution, VariableDeclOverrides,
 };
 use crate::source::{BoundExpr, ModelDecl, ScenarioDecl, SourceProgram, VariableKindDecl};
 use std::collections::{BTreeMap, BTreeSet};
@@ -85,7 +85,7 @@ pub fn validate_program(
         expression: model.optimize.parsed_expression.clone(),
     };
 
-    let (active_reports, active_dual_reports, active_variable_reports) =
+    let (mut active_reports, active_dual_reports, active_variable_reports) =
         resolve_model_scenario_reports(model, scenario, &active_constraints, entrypoint)?;
     let mut active_expressions = resolve_active_model_expressions(
         model,
@@ -149,6 +149,7 @@ pub fn validate_program(
     )?;
     lower_reduce_projection_expressions(
         &mut active_expressions,
+        &mut active_reports,
         model,
         program,
         &set_registry,
@@ -337,6 +338,7 @@ fn projection_source_keys<'a>(
 
 fn lower_reduce_projection_expressions(
     active_expressions: &mut [ResolvedExpression],
+    active_reports: &mut [ResolvedReport],
     model: &ModelDecl,
     program: &SourceProgram,
     set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
@@ -359,65 +361,100 @@ fn lower_reduce_projection_expressions(
         .collect::<BTreeMap<_, _>>();
 
     for resolved in active_expressions.iter_mut() {
-        let Some(abstraction) = expression_abstractions.get(resolved.name.as_str()) else {
-            continue;
-        };
-
-        let crate::source::ExpressionAbstractionDecl::ReduceProjection {
-            projection,
-            op,
-            target,
-        } = abstraction;
-
-        let projection_decl = projections.get(projection.as_str()).ok_or_else(|| {
-            SemanticError::MissingDeclaration {
-                kind: "projection",
-                name: projection.clone(),
-                path: entrypoint.to_path_buf(),
-            }
-        })?;
-        let source_keys = projection_source_keys(projection_decl, set_registry, entrypoint)?;
-
-        let dropped = source_keys
-            .iter()
-            .filter(|key| !projection_decl.to_keys.contains(*key))
-            .cloned()
-            .collect::<Vec<_>>();
-        let dropped_lookup = dropped.iter().cloned().collect::<BTreeSet<_>>();
-
-        let body_indices = source_keys
-            .iter()
-            .map(|key| {
-                if dropped_lookup.contains(key) {
-                    format!("{key}_r")
-                } else {
-                    key.clone()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let mut bindings = String::new();
-        for key in &dropped {
-            bindings.push_str(" for ");
-            bindings.push_str(key);
-            bindings.push_str("_r in ");
-            bindings.push_str(&projection_decl.from_domain);
+        if let Some((formula_text, formula)) = lower_reduce_projection_expression_by_name(
+            &resolved.name,
+            &expression_abstractions,
+            &projections,
+            set_registry,
+            entrypoint,
+            false,
+        )? {
+            resolved.formula_text = formula_text;
+            resolved.formula = formula;
         }
-        let lowered_formula = format!("{op}({target}[{body_indices}]{bindings})");
-        let parsed = parse_value_formula(&lowered_formula).map_err(|error| {
-            SemanticError::MissingDeclaration {
-                kind: "reduce projection lowered formula",
-                name: error.to_string(),
-                path: entrypoint.to_path_buf(),
-            }
-        })?;
+    }
 
-        resolved.formula_text = lowered_formula;
-        resolved.formula = parsed;
+    for report in active_reports.iter_mut() {
+        if let Some((formula_text, formula)) = lower_reduce_projection_expression_by_name(
+            &report.name,
+            &expression_abstractions,
+            &projections,
+            set_registry,
+            entrypoint,
+            true,
+        )? {
+            report.formula_text = formula_text;
+            report.formula = formula;
+        }
     }
 
     Ok(())
+}
+
+fn lower_reduce_projection_expression_by_name(
+    name: &str,
+    expression_abstractions: &BTreeMap<&str, &crate::source::ExpressionAbstractionDecl>,
+    projections: &BTreeMap<&str, &crate::source::ProjectionDecl>,
+    set_registry: &BTreeMap<String, crate::semantic::ResolvedSet>,
+    entrypoint: &Path,
+    bind_retained_keys: bool,
+) -> Result<Option<(String, crate::algebra::Expr)>, SemanticError> {
+    let Some(abstraction) = expression_abstractions.get(name) else {
+        return Ok(None);
+    };
+
+    let crate::source::ExpressionAbstractionDecl::ReduceProjection {
+        projection,
+        op,
+        target,
+    } = abstraction;
+
+    let projection_decl =
+        projections
+            .get(projection.as_str())
+            .ok_or_else(|| SemanticError::MissingDeclaration {
+                kind: "projection",
+                name: projection.clone(),
+                path: entrypoint.to_path_buf(),
+            })?;
+    let source_keys = projection_source_keys(projection_decl, set_registry, entrypoint)?;
+
+    let bound_keys = source_keys
+        .iter()
+        .filter(|key| bind_retained_keys || !projection_decl.to_keys.contains(*key))
+        .cloned()
+        .collect::<Vec<_>>();
+    let bound_lookup = bound_keys.iter().cloned().collect::<BTreeSet<_>>();
+
+    let body_indices = source_keys
+        .iter()
+        .map(|key| {
+            if bound_lookup.contains(key) {
+                format!("{key}_r")
+            } else {
+                key.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+
+    let mut bindings = String::new();
+    for key in &bound_keys {
+        bindings.push_str(" for ");
+        bindings.push_str(key);
+        bindings.push_str("_r in ");
+        bindings.push_str(&projection_decl.from_domain);
+    }
+    let lowered_formula = format!("{op}({target}[{body_indices}]{bindings})");
+    let parsed = parse_value_formula(&lowered_formula).map_err(|error| {
+        SemanticError::MissingDeclaration {
+            kind: "reduce projection lowered formula",
+            name: error.to_string(),
+            path: entrypoint.to_path_buf(),
+        }
+    })?;
+
+    Ok(Some((lowered_formula, parsed)))
 }
 
 fn resolve_scenario<'a>(
