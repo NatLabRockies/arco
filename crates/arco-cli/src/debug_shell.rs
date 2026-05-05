@@ -1,4 +1,4 @@
-use arco_kdl::pipeline::compile_file;
+use arco_ops::ArcoOps;
 use arco_targets::{AlgebraicProblem, ConstraintSense, ObjectiveSense, VariableKind};
 use miette::{IntoDiagnostic, Result, miette};
 use std::collections::BTreeMap;
@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const ARCO_PYTHON_BINDINGS_SPEC: &str = "arco";
 
 pub fn launch_ipython(path: &Path) -> Result<()> {
-    let compiled = compile_file(path)?;
+    let compiled = ArcoOps::compile_file(path)?;
     let model_data = build_python_model_data(&compiled.compiled_problem.algebra)?;
     let script = build_ipython_script(path, &model_data);
     let bootstrap = DebugBootstrapScript::create(&script)?;

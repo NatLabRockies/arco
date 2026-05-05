@@ -12,7 +12,7 @@ use crate::execution::{
     ExecutionError, OptimizationAdapter, RustArcoAdapter, ScipArcoAdapter, SolveStatus,
     execute_problem_with_options, render_problem_model,
 };
-use arco_kdl::pipeline::{PipelineError, compile_file};
+use arco_kdl::pipeline::PipelineError;
 use arco_ops::ArcoOps;
 use arco_solver::{ResolvedSelection, SolverTransport};
 use miette::Diagnostic;
@@ -144,7 +144,7 @@ pub fn run_file_with_options_and_selection(
     selection: &ResolvedSelection,
 ) -> Result<RunSummary, DriverError> {
     let total_start = Instant::now();
-    let compiled = compile_file(path)?;
+    let compiled = ArcoOps::compile_file(path)?;
     debug!(
         "compile timings: parse={:.2} ms validate={:.2} ms lower={:.2} ms",
         compiled.timing.parse.as_secs_f64() * 1000.0,
@@ -263,7 +263,7 @@ pub fn run_file_json_with_options_and_selection(
 }
 
 pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
-    let compiled = compile_file(path)?;
+    let compiled = ArcoOps::compile_file(path)?;
     render_problem_model(&compiled.compiled_problem).map_err(DriverError::from)
 }
 

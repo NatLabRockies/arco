@@ -1,5 +1,6 @@
 use crate::driver::DriverError;
-use arco_kdl::pipeline::{PipelineError, validate_file};
+use arco_kdl::pipeline::PipelineError;
+use arco_ops::ArcoOps;
 use miette::{Diagnostic, SourceSpan};
 use serde::Serialize;
 use std::path::Path;
@@ -32,7 +33,7 @@ struct KdlDiagnostic {
 }
 
 pub fn kdl_check_file_json(path: &Path) -> Result<KdlCheckOutcome, DriverError> {
-    let report = match validate_file(path) {
+    let report = match ArcoOps::check_file(path) {
         Ok(_) => KdlCheckReport {
             valid: true,
             diagnostics: Vec::new(),

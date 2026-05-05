@@ -1,6 +1,7 @@
 //! Operations facade seam for Arco interaction surfaces.
 
-use arco_export::{ExportError, write_lp, write_mps};
+pub use arco_export::ExportError;
+use arco_export::{write_lp, write_mps};
 use arco_kdl::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
 };
