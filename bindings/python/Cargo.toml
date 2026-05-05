@@ -7,7 +7,7 @@ rust-version = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
-license-file = "licenses/BSD-3-Clause.txt"
+license-file = { workspace = true }
 publish = false
 
 [lib]
@@ -20,6 +20,7 @@ pyo3 = { workspace = true, features = ["extension-module"] }
 arco-core = { workspace = true }
 arco-expr = { workspace = true }
 arco-highs = { workspace = true }
+arco-ops = { workspace = true }
 arco-solver = { workspace = true }
 arco-contracts = { workspace = true }
 arco-blocks = { workspace = true }

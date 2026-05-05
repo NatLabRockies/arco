@@ -17,7 +17,9 @@ The top layer provides specialized functionality. arco-blocks defines the compos
 
 Python binding layer
 
-The Python API lives in bindings/python and is built with PyO3 and maturin. The binding layer is intentionally thin. It does not reimplement logic in Python; it wraps the Rust types directly and handles the translation between Python objects and Rust data structures.
+The Python API lives in `bindings/python` and is built with PyO3 and maturin. The path remains unchanged for compatibility with existing build, release, and editable-install workflows, while the Rust crate is named `arco-python` to reflect its interaction-surface role. Public Python imports remain under `arco`.
+
+The binding layer is intentionally thin. It does not reimplement logic in Python; it wraps the Rust types directly and handles the translation between Python objects and Rust data structures. Python-facing solve orchestration calls the shared `arco-ops` facade for selection resolution, preflight checks, and backend solve dispatch where those steps overlap with other interaction surfaces.
 
 This thinness has consequences. Error messages come from Rust and retain their precision. Type stubs are provided so static analysis tools can catch mistakes before runtime. The performance characteristics are essentially those of the underlying Rust code, minus some unavoidable overhead from crossing the language boundary.
 

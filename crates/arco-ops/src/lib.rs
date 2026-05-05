@@ -6,9 +6,13 @@ use arco_kdl::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
 };
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
-use arco_solver::{SolutionView, Solve, SolveRequest, SolverConfig, SolverError, SolverSelection};
+use arco_solver::{
+    PreflightError, ResolvedSelection, SelectionError, Solution, SolutionView, Solve, SolveRequest,
+    SolverConfig, SolverError, SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
+};
 use arco_targets::{AlgebraicProblem, SolveTarget};
 use arco_validate::{ValidationIssue, ValidationReport, ValidationSeverity, validate_solve_target};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Validation severity for the operations facade.
@@ -76,6 +80,35 @@ impl ArcoOps {
         solver.solve(config)
     }
 
+    /// Resolve a solver selection against the available registry and profiles.
+    pub fn resolve_solver_selection(
+        registry: &SolverRegistry,
+        profiles: &BTreeMap<String, SolverProfile>,
+        selection: &str,
+    ) -> Result<ResolvedSelection, SelectionError> {
+        arco_solver::resolve_selection(registry, profiles, selection)
+    }
+
+    /// Check that a resolved solver can satisfy a model before solving.
+    pub fn preflight_solver_selection(
+        registry: &SolverRegistry,
+        selection: &ResolvedSelection,
+        model: &arco_core::Model,
+        requirements: &SolverRequirements,
+    ) -> Result<(), PreflightError> {
+        arco_solver::preflight_selection(registry, selection, model, requirements)
+    }
+
+    /// Solve an in-memory model through a platform backend.
+    pub fn solve_model_backend(
+        backend: &dyn arco_solver::SolverBackend,
+        model: &arco_core::Model,
+        config: &SolverConfig,
+        primal_start: Option<&[(arco_expr::VariableId, f64)]>,
+    ) -> Result<Solution, SolverError> {
+        backend.solve(model, config, primal_start)
+    }
+
     /// Build a minimal solve request from an optional solver selection.
     pub fn build_solve_request(selection: Option<SolverSelection>) -> SolveRequest {
         selection.map_or_else(SolveRequest::new, |value| {
@@ -93,7 +126,8 @@ impl ArcoOps {
 mod tests {
     use super::{ArcoOps, OpsExportFormat};
     use arco_solver::{
-        SolutionView, Solve, SolverConfig, SolverError, SolverSelection, SolverStatus,
+        SolutionView, Solve, SolverConfig, SolverError, SolverRegistry, SolverRequirements,
+        SolverSelection, SolverStatus, SolverTransport,
     };
     use arco_targets::SolveTarget;
     use std::path::PathBuf;
@@ -213,6 +247,34 @@ mod tests {
             request.selection,
             Some(SolverSelection::profile("local-highs"))
         );
+    }
+
+    #[test]
+    fn resolve_solver_selection_uses_registry_profiles() {
+        let registry = SolverRegistry::with_builtin_families();
+        let profiles = std::collections::BTreeMap::new();
+        let resolved = ArcoOps::resolve_solver_selection(&registry, &profiles, "highs")
+            .expect("selection should resolve");
+
+        assert_eq!(resolved.family, "highs");
+        assert_eq!(resolved.transport, SolverTransport::Embedded);
+    }
+
+    #[test]
+    fn preflight_solver_selection_delegates_contract_checks() {
+        let registry = SolverRegistry::with_builtin_families();
+        let profiles = std::collections::BTreeMap::new();
+        let resolved = ArcoOps::resolve_solver_selection(&registry, &profiles, "highs")
+            .expect("selection should resolve");
+        let requirements = SolverRequirements::default();
+
+        ArcoOps::preflight_solver_selection(
+            &registry,
+            &resolved,
+            &arco_core::Model::new(),
+            &requirements,
+        )
+        .expect("preflight should pass");
     }
 
     #[test]
