@@ -2,9 +2,9 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
+use arco_contracts::{SolverCapabilityModel, SolverFamily, SolverRegistry};
 use arco_export::write_mps;
 use arco_kdl::artifacts::CompiledProblem;
-use arco_solver::{SolverCapabilityModel, SolverFamily, SolverRegistry};
 use arco_targets::LinearReport;
 use miette::Diagnostic;
 use std::collections::BTreeMap;
@@ -317,8 +317,8 @@ fn evaluate_scip_linear_report(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arco_contracts::{SolverRegistry, SolverTransport};
     use arco_kdl::artifacts::{CompiledObjective, CompiledProblem, CompiledVariable};
-    use arco_solver::{SolverRegistry, SolverTransport};
     use arco_targets::{
         AlgebraicProblem, LinearObjective, LinearReport, LinearTerm, ObjectiveSense,
         VariableInstance, VariableKind,

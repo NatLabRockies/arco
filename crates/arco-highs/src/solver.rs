@@ -5,9 +5,9 @@ use crate::ffi::{HighsModel, HighsModelError, HighsOption, HighsStatus, Objectiv
 use crate::solution::Solution;
 use crate::status::{highs_has_solution, highs_to_core_status};
 use arco_contracts::SolverError as GenericSolverError;
+use arco_contracts::{Solve, SolverBackend, SolverConfig};
 use arco_core::{Model, Sense};
 use arco_expr::{ConstraintId, VariableId};
-use arco_solver::{Solve, SolverBackend, SolverConfig};
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -200,7 +200,7 @@ impl Solve for Solver {
 /// Zero-sized backend for trait-based dispatch from the Python bindings.
 pub struct HiGHSBackend;
 
-impl SolverBackend for HiGHSBackend {
+impl SolverBackend<Model, VariableId> for HiGHSBackend {
     fn solve(
         &self,
         model: &Model,

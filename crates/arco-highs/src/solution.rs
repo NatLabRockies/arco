@@ -4,12 +4,12 @@ use crate::ffi::HighsStatus;
 use crate::status::{
     highs_has_solution, highs_status_string, highs_to_core_status, highs_to_generic_status,
 };
+use arco_contracts::SolutionView;
 use arco_contracts::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
-use arco_solver::SolutionView;
 use std::collections::BTreeMap;
 
 // Re-export SolverStatus from arco-solver for the trait implementation
-use arco_solver::SolverStatus;
+use arco_contracts::SolverStatus;
 
 /// Solution from HiGHS solver
 #[derive(Debug, Clone)]
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn test_solution_view_trait() {
-        use arco_solver::SolutionView;
+        use arco_contracts::SolutionView;
 
         let solution = Solution {
             primal_values: vec![1.0, 2.0],

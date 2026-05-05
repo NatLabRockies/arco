@@ -2,15 +2,15 @@
 //!
 //! This module provides the main [`Solver`] struct for direct use and the
 //! [`XpressBackend`] zero-sized struct for trait-based dispatch via
-//! [`arco_solver::SolverBackend`].
+//! [`arco_contracts::SolverBackend`].
 
 use crate::ffi;
 use crate::solution::Solution;
 use crate::status;
+use arco_contracts::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
 use arco_contracts::{SolverError as CoreSolverError, SolverStatus as CoreSolverStatus};
 use arco_core::{Model, Sense};
 use arco_expr::{ConstraintId, VariableId};
-use arco_solver::{Solve, SolverBackend, SolverConfig, SolverError as GenericSolverError};
 use std::collections::BTreeMap;
 use std::ffi::c_int;
 use std::time::Instant;
@@ -896,7 +896,7 @@ impl Solve for Solver {
 /// Zero-sized backend for trait-based dispatch from the Python bindings.
 pub struct XpressBackend;
 
-impl SolverBackend for XpressBackend {
+impl SolverBackend<Model, VariableId> for XpressBackend {
     fn solve(
         &self,
         model: &Model,
