@@ -1,5 +1,9 @@
 //! Solver-facing compile target seam for Arco.
 
+use serde::{Deserialize, Serialize};
+
+pub use arco_core::Sense as ObjectiveSense;
+
 /// Minimal lowered target summary passed to solver-side orchestration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SolveTarget {
@@ -25,6 +29,66 @@ impl SolveTarget {
     pub fn has_variables(&self) -> bool {
         self.variable_count > 0
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlgebraicProblem {
+    pub variable_instances: Vec<VariableInstance>,
+    pub constraints: Vec<LinearConstraint>,
+    pub objective: LinearObjective,
+    pub reports: Vec<LinearReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VariableInstance {
+    pub name: String,
+    pub family: String,
+    pub lower: f64,
+    pub upper: Option<f64>,
+    pub kind: VariableKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VariableKind {
+    Continuous,
+    Integer,
+    Binary,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LinearConstraint {
+    pub name: String,
+    pub sense: ConstraintSense,
+    pub rhs: f64,
+    pub terms: Vec<LinearTerm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConstraintSense {
+    GreaterEqual,
+    LessEqual,
+    Equal,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LinearObjective {
+    pub name: String,
+    pub sense: ObjectiveSense,
+    pub constant: f64,
+    pub terms: Vec<LinearTerm>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LinearReport {
+    pub name: String,
+    pub constant: f64,
+    pub terms: Vec<LinearTerm>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LinearTerm {
+    pub variable_name: String,
+    pub coefficient: f64,
 }
 
 #[cfg(test)]

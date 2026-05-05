@@ -3,8 +3,9 @@
 #![allow(unused_assignments)]
 
 use arco_export::write_mps;
-use arco_kdl::artifacts::{CompiledProblem, LinearReport};
+use arco_kdl::artifacts::CompiledProblem;
 use arco_solver::{SolverCapabilityModel, SolverFamily, SolverRegistry};
+use arco_targets::LinearReport;
 use miette::Diagnostic;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -316,11 +317,12 @@ fn evaluate_scip_linear_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arco_kdl::artifacts::{
-        AlgebraicProblem, CompiledObjective, CompiledProblem, CompiledVariable, LinearObjective,
-        LinearReport, LinearTerm, ObjectiveSense, VariableInstance, VariableKind,
-    };
+    use arco_kdl::artifacts::{CompiledObjective, CompiledProblem, CompiledVariable};
     use arco_solver::{SolverRegistry, SolverTransport};
+    use arco_targets::{
+        AlgebraicProblem, LinearObjective, LinearReport, LinearTerm, ObjectiveSense,
+        VariableInstance, VariableKind,
+    };
     use std::collections::BTreeMap;
 
     #[test]
