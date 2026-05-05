@@ -67,3 +67,58 @@ pub fn merged_profiles(
     }
     merged
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SolverTransport;
+
+    #[test]
+    fn merged_profiles_overlays_values() {
+        let mut project = SolverConfigDocument::default();
+        project.profiles.insert(
+            "xpress".to_string(),
+            SolverProfile {
+                name: "xpress".to_string(),
+                family: "xpress".to_string(),
+                transport: SolverTransport::ExternalProcess,
+                executable: Some("/opt/xpress/bin/xprs".to_string()),
+                arguments: vec!["--quiet".to_string()],
+                environment: BTreeMap::from([(
+                    "XPAUTH_PATH".to_string(),
+                    "${XPAUTH_PATH}".to_string(),
+                )]),
+                options: SolverConfig::new().with_threads(4),
+            },
+        );
+
+        let mut user = SolverConfigDocument::default();
+        user.profiles.insert(
+            "xpress".to_string(),
+            SolverProfile {
+                name: "xpress".to_string(),
+                family: "xpress".to_string(),
+                transport: SolverTransport::ExternalProcess,
+                executable: Some("/home/user/xprs".to_string()),
+                arguments: vec!["--nolog".to_string()],
+                environment: BTreeMap::from([(
+                    "XPAUTH_PATH".to_string(),
+                    "${HOME}/.xpauth".to_string(),
+                )]),
+                options: SolverConfig::new().with_threads(8),
+            },
+        );
+
+        let merged = merged_profiles(&project, &user);
+        let merged_profile = merged
+            .get("xpress")
+            .unwrap_or_else(|| panic!("missing merged profile"));
+
+        assert_eq!(
+            merged_profile.executable.as_deref(),
+            Some("/home/user/xprs")
+        );
+        assert_eq!(merged_profile.arguments, vec!["--nolog".to_string()]);
+        assert_eq!(merged_profile.options.threads, Some(8));
+    }
+}

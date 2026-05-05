@@ -107,3 +107,26 @@ impl SolverConfig {
             && self.parameters.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_builder_and_merge_preserve_overlay_precedence() {
+        let base = SolverConfig::new().with_threads(4).with_time_limit(10.0);
+        let overlay = SolverConfig::new()
+            .with_time_limit(20.0)
+            .with_parameter("solver.option", "enabled");
+
+        let merged = base.merged_with(&overlay);
+
+        assert_eq!(merged.threads, Some(4));
+        assert_eq!(merged.time_limit, Some(20.0));
+        assert_eq!(
+            merged.parameters.get("solver.option").map(String::as_str),
+            Some("enabled")
+        );
+        assert!(!merged.is_empty());
+    }
+}

@@ -2,4 +2,4 @@
 //!
 //! New code should import these contracts from `arco-contracts` directly.
 
-pub use arco_contracts::{Solution, SolverConfig, SolverError, SolverStatus};
+pub use arco_contracts::*;
