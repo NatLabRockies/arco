@@ -411,11 +411,7 @@ fn validate_duplicate_tuple_rows(
     tuple_occurrences: &BTreeMap<Vec<String>, Vec<String>>,
     path: &Path,
 ) -> Result<(), SemanticError> {
-    let duplicates = tuple_occurrences
-        .iter()
-        .filter(|(_, provenance)| provenance.len() > 1)
-        .map(|(tuple, provenance)| format!("`{}` -> {}", tuple.join(","), provenance.join("; ")))
-        .collect::<Vec<_>>();
+    let duplicates = arco_validate::duplicate_tuple_row_messages(tuple_occurrences);
     if duplicates.is_empty() {
         return Ok(());
     }

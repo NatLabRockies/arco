@@ -2,53 +2,16 @@
 
 use arco_solver::{SolveRequest, SolverSelection};
 use arco_targets::SolveTarget;
+use arco_validate::{ValidationIssue, ValidationReport, ValidationSeverity, validate_solve_target};
 
-/// Local validation severity for the operations facade.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpsValidationSeverity {
-    Error,
-}
+/// Validation severity for the operations facade.
+pub type OpsValidationSeverity = ValidationSeverity;
 
-/// Local validation issue for the operations facade.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpsValidationIssue {
-    pub code: String,
-    pub message: String,
-    pub severity: OpsValidationSeverity,
-}
+/// Validation issue for the operations facade.
+pub type OpsValidationIssue = ValidationIssue;
 
-impl OpsValidationIssue {
-    fn error(code: &str, message: &str) -> Self {
-        Self {
-            code: code.to_string(),
-            message: message.to_string(),
-            severity: OpsValidationSeverity::Error,
-        }
-    }
-}
-
-/// Local validation report for the operations facade.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct OpsValidationReport {
-    pub issues: Vec<OpsValidationIssue>,
-}
-
-impl OpsValidationReport {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn push(&mut self, issue: OpsValidationIssue) {
-        self.issues.push(issue);
-    }
-
-    pub fn is_valid(&self) -> bool {
-        !self
-            .issues
-            .iter()
-            .any(|issue| matches!(issue.severity, OpsValidationSeverity::Error))
-    }
-}
+/// Validation report for the operations facade.
+pub type OpsValidationReport = ValidationReport;
 
 /// Thin operations facade used by interaction surfaces.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -67,17 +30,9 @@ impl ArcoOps {
         })
     }
 
-    /// Run basic seam-level validation on a lowered solve target.
+    /// Run canonical validation on a lowered solve target.
     pub fn validate_target(target: &SolveTarget) -> OpsValidationReport {
-        let mut report = OpsValidationReport::new();
-        if !target.has_variables() {
-            report.push(OpsValidationIssue::error(
-                "TARGET_EMPTY_VARIABLE_SET",
-                "target has no decision variables",
-            ));
-        }
-
-        report
+        validate_solve_target(target)
     }
 }
 

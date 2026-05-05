@@ -16,3 +16,4 @@ workspace = true
 [dependencies]
 arco-solver = { workspace = true }
 arco-targets = { workspace = true }
+arco-validate = { workspace = true }

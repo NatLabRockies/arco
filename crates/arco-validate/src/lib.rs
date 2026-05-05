@@ -1,5 +1,8 @@
 //! Canonical model validation seam for Arco.
 
+use arco_targets::SolveTarget;
+use std::collections::BTreeMap;
+
 /// Severity level for a validation issue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValidationSeverity {
@@ -66,9 +69,48 @@ impl ValidationReport {
     }
 }
 
+/// Run canonical validation on a lowered solve target.
+pub fn validate_solve_target(target: &SolveTarget) -> ValidationReport {
+    let mut report = ValidationReport::new();
+    if !target.has_variables() {
+        report.push(ValidationIssue::error(
+            "TARGET_EMPTY_VARIABLE_SET",
+            "target has no decision variables",
+        ));
+    }
+
+    report
+}
+
+/// Render duplicate tuple rows and their provenance in deterministic diagnostic form.
+pub fn duplicate_tuple_row_messages<T>(
+    tuple_occurrences: &BTreeMap<Vec<String>, Vec<T>>,
+) -> Vec<String>
+where
+    T: AsRef<str>,
+{
+    tuple_occurrences
+        .iter()
+        .filter(|(_, provenance)| provenance.len() > 1)
+        .map(|(tuple, provenance)| {
+            let provenance = provenance
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!("`{}` -> {provenance}", tuple.join(","))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ValidationIssue, ValidationReport, ValidationSeverity};
+    use super::{
+        ValidationIssue, ValidationReport, ValidationSeverity, duplicate_tuple_row_messages,
+        validate_solve_target,
+    };
+    use arco_targets::SolveTarget;
+    use std::collections::BTreeMap;
 
     #[test]
     fn issue_constructors_set_expected_severity() {
@@ -96,5 +138,38 @@ mod tests {
         report.push(ValidationIssue::error("E001", "error"));
 
         assert!(!report.is_valid());
+    }
+
+    #[test]
+    fn validate_solve_target_rejects_targets_without_variables() {
+        let report = validate_solve_target(&SolveTarget::new("empty", 0, 0));
+
+        assert!(!report.is_valid());
+        assert_eq!(report.issues.len(), 1);
+        assert_eq!(report.issues[0].code, "TARGET_EMPTY_VARIABLE_SET");
+        assert_eq!(report.issues[0].message, "target has no decision variables");
+    }
+
+    #[test]
+    fn validate_solve_target_accepts_targets_with_variables() {
+        let report = validate_solve_target(&SolveTarget::new("ok", 2, 1));
+
+        assert!(report.is_valid());
+        assert!(report.issues.is_empty());
+    }
+
+    #[test]
+    fn duplicate_tuple_row_messages_preserve_provenance() {
+        let mut occurrences = BTreeMap::new();
+        occurrences.insert(
+            vec!["north".to_string(), "solar".to_string()],
+            vec!["data `assets.csv` row 1", "data `assets.csv` row 3"],
+        );
+        occurrences.insert(vec!["south".to_string(), "wind".to_string()], vec!["row 2"]);
+
+        assert_eq!(
+            duplicate_tuple_row_messages(&occurrences),
+            vec!["`north,solar` -> data `assets.csv` row 1; data `assets.csv` row 3"]
+        );
     }
 }
