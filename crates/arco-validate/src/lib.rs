@@ -1,6 +1,5 @@
 //! Canonical model validation seam for Arco.
 
-use arco_targets::SolveTarget;
 use std::collections::BTreeMap;
 
 /// Severity level for a validation issue.
@@ -69,8 +68,14 @@ impl ValidationReport {
     }
 }
 
+/// Solver-target view required by canonical validation.
+pub trait SolveTargetValidationInput {
+    /// Whether the target contains any decision variables.
+    fn has_variables(&self) -> bool;
+}
+
 /// Run canonical validation on a lowered solve target.
-pub fn validate_solve_target(target: &SolveTarget) -> ValidationReport {
+pub fn validate_solve_target(target: &impl SolveTargetValidationInput) -> ValidationReport {
     let mut report = ValidationReport::new();
     if !target.has_variables() {
         report.push(ValidationIssue::error(
@@ -80,6 +85,21 @@ pub fn validate_solve_target(target: &SolveTarget) -> ValidationReport {
     }
 
     report
+}
+
+/// Returns true when a lower/upper pair can be used as canonical model bounds.
+pub fn bounds_are_valid(lower: f64, upper: f64) -> bool {
+    !lower.is_nan() && !upper.is_nan() && lower <= upper
+}
+
+/// Returns true when a linear matrix or objective coefficient is finite.
+pub fn coefficient_is_valid(coefficient: f64) -> bool {
+    coefficient.is_finite()
+}
+
+/// Returns true when a slack penalty is finite and non-negative.
+pub fn slack_penalty_is_valid(penalty: f64) -> bool {
+    penalty.is_finite() && penalty >= 0.0
 }
 
 /// Render duplicate tuple rows and their provenance in deterministic diagnostic form.
@@ -106,11 +126,21 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        ValidationIssue, ValidationReport, ValidationSeverity, duplicate_tuple_row_messages,
-        validate_solve_target,
+        SolveTargetValidationInput, ValidationIssue, ValidationReport, ValidationSeverity,
+        bounds_are_valid, coefficient_is_valid, duplicate_tuple_row_messages,
+        slack_penalty_is_valid, validate_solve_target,
     };
-    use arco_targets::SolveTarget;
     use std::collections::BTreeMap;
+
+    struct TargetFixture {
+        has_variables: bool,
+    }
+
+    impl SolveTargetValidationInput for TargetFixture {
+        fn has_variables(&self) -> bool {
+            self.has_variables
+        }
+    }
 
     #[test]
     fn issue_constructors_set_expected_severity() {
@@ -142,7 +172,9 @@ mod tests {
 
     #[test]
     fn validate_solve_target_rejects_targets_without_variables() {
-        let report = validate_solve_target(&SolveTarget::new("empty", 0, 0));
+        let report = validate_solve_target(&TargetFixture {
+            has_variables: false,
+        });
 
         assert!(!report.is_valid());
         assert_eq!(report.issues.len(), 1);
@@ -152,10 +184,24 @@ mod tests {
 
     #[test]
     fn validate_solve_target_accepts_targets_with_variables() {
-        let report = validate_solve_target(&SolveTarget::new("ok", 2, 1));
+        let report = validate_solve_target(&TargetFixture {
+            has_variables: true,
+        });
 
         assert!(report.is_valid());
         assert!(report.issues.is_empty());
+    }
+
+    #[test]
+    fn canonical_model_scalar_helpers_classify_valid_inputs() {
+        assert!(bounds_are_valid(f64::NEG_INFINITY, f64::INFINITY));
+        assert!(!bounds_are_valid(5.0, 1.0));
+        assert!(!bounds_are_valid(f64::NAN, 1.0));
+        assert!(coefficient_is_valid(-3.5));
+        assert!(!coefficient_is_valid(f64::INFINITY));
+        assert!(slack_penalty_is_valid(0.0));
+        assert!(!slack_penalty_is_valid(-1.0));
+        assert!(!slack_penalty_is_valid(f64::NAN));
     }
 
     #[test]

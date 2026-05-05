@@ -14,4 +14,3 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-targets = { workspace = true }

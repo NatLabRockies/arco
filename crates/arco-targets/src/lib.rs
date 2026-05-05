@@ -1,5 +1,6 @@
 //! Solver-facing compile target seam for Arco.
 
+use arco_validate::SolveTargetValidationInput;
 use serde::{Deserialize, Serialize};
 
 pub use arco_core::Sense as ObjectiveSense;
@@ -15,6 +16,12 @@ pub struct SolveTarget {
     pub constraint_count: usize,
 }
 
+impl SolveTargetValidationInput for SolveTarget {
+    fn has_variables(&self) -> bool {
+        self.variable_count > 0
+    }
+}
+
 impl SolveTarget {
     /// Build a new target summary.
     pub fn new(name: impl Into<String>, variable_count: usize, constraint_count: usize) -> Self {
@@ -27,7 +34,7 @@ impl SolveTarget {
 
     /// Whether the target has any decision variables.
     pub fn has_variables(&self) -> bool {
-        self.variable_count > 0
+        SolveTargetValidationInput::has_variables(self)
     }
 }
 
