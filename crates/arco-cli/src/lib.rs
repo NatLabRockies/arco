@@ -7,5 +7,4 @@ mod driver_kdl;
 mod driver_summary;
 pub mod execution;
 mod execution_backends;
-pub mod export;
 pub mod inspect;

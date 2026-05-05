@@ -13,7 +13,6 @@ default-members = [
     "crates/arco-ops",
     "crates/arco-scip",
     "crates/arco-solver",
-    "crates/arco-solver-types",
     "crates/arco-targets",
     "crates/arco-tools",
     "crates/arco-validate",
@@ -44,7 +43,6 @@ arco-contracts = { path = "crates/arco-contracts" }
 arco-export = { path = "crates/arco-export" }
 arco-ops = { path = "crates/arco-ops" }
 arco-scip = { path = "crates/arco-scip" }
-arco-solver-types = { path = "crates/arco-solver-types" }
 arco-targets = { path = "crates/arco-targets" }
 arco-validate = { path = "crates/arco-validate" }
 
