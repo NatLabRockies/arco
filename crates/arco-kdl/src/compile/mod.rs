@@ -74,6 +74,7 @@ pub struct CompiledReport {
 pub struct CompiledVariableReport {
     pub control_name: String,
     pub indices: Vec<String>,
+    pub compiled_family: String,
     pub filter: Option<crate::algebra::Expr>,
 }
 
@@ -190,6 +191,7 @@ pub fn compile_program(
         .map(|vr| CompiledVariableReport {
             control_name: vr.control_name.clone(),
             indices: vr.indices.clone(),
+            compiled_family: vr.compiled_family.clone(),
             filter: vr.filter.clone(),
         })
         .collect::<Vec<_>>();

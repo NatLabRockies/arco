@@ -51,9 +51,15 @@ pub(crate) fn resolve_model_scenario_reports(
 
                 if let Some(control) = model.controls.iter().find(|c| c.name == report_decl.target)
                 {
+                    let compiled_family = crate::semantic::FamilySignature::from_index_decls(
+                        &control.name,
+                        &control.indices,
+                    )
+                    .render();
                     variable_reports.push(ResolvedVariableReport {
                         control_name: control.name.clone(),
                         indices: control.indices.iter().map(|i| i.name.clone()).collect(),
+                        compiled_family,
                         filter: report_decl.parsed_filter_expression.clone(),
                     });
                     continue;

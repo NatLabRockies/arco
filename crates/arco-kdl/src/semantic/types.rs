@@ -231,6 +231,7 @@ pub struct ResolvedReport {
 pub struct ResolvedVariableReport {
     pub control_name: String,
     pub indices: Vec<String>,
+    pub compiled_family: String,
     pub filter: Option<Expr>,
 }
 

@@ -85,7 +85,7 @@ pub fn validate_program(
         expression: model.optimize.parsed_expression.clone(),
     };
 
-    let (mut active_reports, active_dual_reports, active_variable_reports) =
+    let (mut active_reports, active_dual_reports, mut active_variable_reports) =
         resolve_model_scenario_reports(model, scenario, &active_constraints, entrypoint)?;
     let mut active_expressions = resolve_active_model_expressions(
         model,
@@ -168,6 +168,16 @@ pub fn validate_program(
             FamilySignature::from_index_decls(&control.name, &expanded_indices)
         })
         .collect::<Vec<_>>();
+    let variable_family_by_control = variable_families
+        .iter()
+        .map(|family| (family.target.as_str(), family))
+        .collect::<BTreeMap<_, _>>();
+    for report in &mut active_variable_reports {
+        if let Some(signature) = variable_family_by_control.get(report.control_name.as_str()) {
+            report.indices = signature.indices.clone();
+            report.compiled_family = signature.render();
+        }
+    }
 
     let time_steps = set_registry
         .get("time")

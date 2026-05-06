@@ -501,6 +501,55 @@ scenario S1 {
 }
 
 #[test]
+fn run_reports_parameter_variable_and_expression() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("report-kinds")
+        .join("input.kdl");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["run", model]);
+
+    assert!(
+        output.status.success(),
+        "run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid run json");
+    let reports = payload["reports"].as_array().expect("reports array");
+
+    let variable_report = reports
+        .iter()
+        .find(|report| report["name"] == "x")
+        .expect("variable report x");
+    assert_eq!(variable_report["index"], Value::from(vec!["t"]));
+    assert_eq!(
+        variable_report["values"]
+            .as_array()
+            .expect("x values")
+            .len(),
+        2
+    );
+
+    let expression_report = reports
+        .iter()
+        .find(|report| report["name"] == "total_x")
+        .expect("expression report total_x");
+    assert_eq!(expression_report["values"][0]["value"], Value::from(5.0));
+
+    let parameter_report = reports
+        .iter()
+        .find(|report| report["name"] == "total_cap")
+        .expect("parameter-derived report total_cap");
+    assert_eq!(parameter_report["values"][0]["value"], Value::from(5.0));
+}
+
+#[test]
 fn validate_surfaces_empty_filtered_subset_warning() {
     let root = unique_temp_dir("validate-empty-filtered-subset");
     let data_dir = root.join("data");

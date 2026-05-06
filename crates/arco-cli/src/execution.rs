@@ -389,8 +389,7 @@ pub fn execute_problem_with_options(
     }
 
     for vr in &problem.variable_reports {
-        let family_key = format!("{}[{}]", vr.control_name, vr.indices.join(","));
-        if let Some(family) = variable_values.get(&family_key) {
+        if let Some(family) = variable_values.get(&vr.compiled_family) {
             let values = family
                 .values
                 .iter()

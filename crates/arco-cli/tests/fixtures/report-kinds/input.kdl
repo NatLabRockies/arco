@@ -1,0 +1,39 @@
+data cap_data source="data/rows.csv" {
+  set t
+
+  param cap {
+    index t
+  }
+}
+
+model ReportKinds {
+  control x lower=0 {
+    index t
+  }
+
+  expression total_x {
+    sum(x[t] for t in t)
+  }
+
+  expression total_cap {
+    sum(cap[t] for t in t)
+  }
+
+  constraint match_cap {
+    index t
+    expression {
+      x[t] == cap[t]
+    }
+  }
+
+  minimize Obj {
+    0
+  }
+}
+
+scenario S1 {
+  use ReportKinds
+  report x
+  report total_x
+  report total_cap
+}
