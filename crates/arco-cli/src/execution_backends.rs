@@ -163,8 +163,17 @@ impl OptimizationAdapter for ScipArcoAdapter {
             arguments: self.arguments.clone(),
             environment: self.environment.clone(),
         };
-        let solution = scip::solve_compiled_problem_with_options(
-            problem,
+        let variable_families = problem
+            .variables
+            .iter()
+            .map(|variable| variable.family.clone())
+            .collect::<Vec<_>>();
+        let scip_problem = scip::ScipProblem {
+            algebra: &problem.algebra,
+            variable_families: &variable_families,
+        };
+        let solution = scip::solve_problem_with_options(
+            scip_problem,
             include_variable_values,
             self.log_to_console,
             &options,

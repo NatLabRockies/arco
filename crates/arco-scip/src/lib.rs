@@ -4,9 +4,8 @@
 
 use arco_contracts::{SolverCapabilityModel, SolverFamily, SolverRegistry};
 use arco_export::write_mps;
-use arco_kdl::artifacts::CompiledProblem;
 use arco_runtime::RuntimeWorkspace;
-use arco_targets::LinearReport;
+use arco_targets::{AlgebraicProblem, LinearReport};
 use miette::Diagnostic;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -98,12 +97,18 @@ pub struct ExternalProcessOptions {
     pub environment: BTreeMap<String, String>,
 }
 
-pub fn solve_compiled_problem(
-    problem: &CompiledProblem,
+#[derive(Debug, Clone, Copy)]
+pub struct ScipProblem<'a> {
+    pub algebra: &'a AlgebraicProblem,
+    pub variable_families: &'a [String],
+}
+
+pub fn solve_problem(
+    problem: ScipProblem<'_>,
     include_variable_values: bool,
     log_to_console: bool,
 ) -> Result<SolveOutput, Error> {
-    solve_compiled_problem_with_options(
+    solve_problem_with_options(
         problem,
         include_variable_values,
         log_to_console,
@@ -111,8 +116,8 @@ pub fn solve_compiled_problem(
     )
 }
 
-pub fn solve_compiled_problem_with_options(
-    problem: &CompiledProblem,
+pub fn solve_problem_with_options(
+    problem: ScipProblem<'_>,
     include_variable_values: bool,
     log_to_console: bool,
     options: &ExternalProcessOptions,
@@ -125,7 +130,7 @@ pub fn solve_compiled_problem_with_options(
     {
         let mut mps_file =
             std::fs::File::create(&mps_path).map_err(|source| Error::Io { source })?;
-        write_mps(&problem.algebra, &mut mps_file).map_err(|source| Error::Process {
+        write_mps(problem.algebra, &mut mps_file).map_err(|source| Error::Process {
             message: source.to_string(),
         })?;
     }
@@ -239,7 +244,7 @@ fn parse_scip_solution_file(path: &Path, backend: &str) -> Result<ScipSolution, 
 }
 
 fn build_scip_solve_output(
-    problem: &CompiledProblem,
+    problem: ScipProblem<'_>,
     include_variable_values: bool,
     backend: &str,
     sol_path: &Path,
@@ -263,14 +268,14 @@ fn build_scip_solve_output(
         .collect::<Vec<_>>();
 
     let variable_values = problem
-        .variables
+        .variable_families
         .iter()
-        .map(|variable| {
+        .map(|family| {
             let representative_value = problem
                 .algebra
                 .variable_instances
                 .iter()
-                .find(|instance| instance.family == variable.family)
+                .find(|instance| instance.family == *family)
                 .and_then(|instance| solution.variable_values.get(&instance.name).copied())
                 .unwrap_or(0.0);
 
@@ -279,7 +284,7 @@ fn build_scip_solve_output(
                     .algebra
                     .variable_instances
                     .iter()
-                    .filter(|instance| instance.family == variable.family)
+                    .filter(|instance| instance.family == *family)
                     .map(|instance| VariableInstanceValue {
                         compiled_name: instance.name.clone(),
                         value: *solution.variable_values.get(&instance.name).unwrap_or(&0.0),
@@ -290,7 +295,7 @@ fn build_scip_solve_output(
             };
 
             VariableValue {
-                compiled_name: variable.family.clone(),
+                compiled_name: family.clone(),
                 representative_value,
                 values,
             }
@@ -327,7 +332,6 @@ fn evaluate_scip_linear_report(
 mod tests {
     use super::*;
     use arco_contracts::{SolverRegistry, SolverTransport};
-    use arco_kdl::artifacts::{CompiledObjective, CompiledProblem, CompiledVariable};
     use arco_targets::{
         AlgebraicProblem, LinearObjective, LinearReport, LinearTerm, ObjectiveSense,
         VariableInstance, VariableKind,
@@ -407,38 +411,22 @@ mod tests {
 
     #[test]
     fn solve_output_defaults_missing_variable_values_to_zero() {
-        let problem = CompiledProblem {
-            parameters: Vec::new(),
-            variables: vec![CompiledVariable {
+        let problem = AlgebraicProblem {
+            variable_instances: vec![VariableInstance {
+                name: "x[A,1]".to_string(),
                 family: "x[a,t]".to_string(),
+                lower: 0.0,
+                upper: None,
+                kind: VariableKind::Continuous,
             }],
             constraints: Vec::new(),
-            objective: CompiledObjective {
+            objective: LinearObjective {
                 name: "obj".to_string(),
                 sense: ObjectiveSense::Maximize,
-                expression: "0".to_string(),
+                constant: 0.0,
+                terms: Vec::new(),
             },
             reports: Vec::new(),
-            variable_reports: Vec::new(),
-            dual_reports: Vec::new(),
-            traceability: Vec::new(),
-            algebra: AlgebraicProblem {
-                variable_instances: vec![VariableInstance {
-                    name: "x[A,1]".to_string(),
-                    family: "x[a,t]".to_string(),
-                    lower: 0.0,
-                    upper: None,
-                    kind: VariableKind::Continuous,
-                }],
-                constraints: Vec::new(),
-                objective: LinearObjective {
-                    name: "obj".to_string(),
-                    sense: ObjectiveSense::Maximize,
-                    constant: 0.0,
-                    terms: Vec::new(),
-                },
-                reports: Vec::new(),
-            },
         };
 
         let output = SolveOutput {
@@ -455,9 +443,7 @@ mod tests {
             }],
         };
 
-        assert!(
-            (problem.algebra.objective.constant + output.objective_value).abs() <= f64::EPSILON
-        );
+        assert!((problem.objective.constant + output.objective_value).abs() <= f64::EPSILON);
         assert!(output.variable_values[0].values[0].value.abs() <= f64::EPSILON);
     }
 }
