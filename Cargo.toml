@@ -7,6 +7,7 @@ default-members = [
     "crates/arco-cli",
     "crates/arco-contracts",
     "crates/arco-core",
+    "crates/arco-exchange",
     "crates/arco-export",
     "crates/arco-expr",
     "crates/arco-highs",
@@ -45,6 +46,7 @@ arco-kdl = { path = "crates/arco-kdl" }
 arco-cli = { path = "crates/arco-cli" }
 arco-model = { path = "crates/arco-model" }
 arco-contracts = { path = "crates/arco-contracts" }
+arco-exchange = { path = "crates/arco-exchange" }
 arco-export = { path = "crates/arco-export" }
 arco-ops = { path = "crates/arco-ops" }
 arco-runtime = { path = "crates/arco-runtime" }
