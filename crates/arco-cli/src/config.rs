@@ -130,7 +130,6 @@ pub enum ConfigError {
 
 pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {
     let user_path = solver_config_path()?;
-    ensure_no_legacy_json(&user_path);
     let project_path = project_solver_config_path()?;
 
     let project = read_config_document(&project_path)?;
@@ -172,7 +171,6 @@ fn selection_is_supported_in_cli(resolved: &ResolvedSelection) -> bool {
 
 pub fn save_solver_selection(selection: &str) -> Result<PathBuf, ConfigError> {
     let path = solver_config_path()?;
-    ensure_no_legacy_json(&path);
 
     let mut document = read_config_document(&path)?;
     document.version = 1;
@@ -210,16 +208,6 @@ pub fn project_solver_config_path() -> Result<PathBuf, ConfigError> {
     Ok(cwd.join(".arco").join("solver.toml"))
 }
 
-fn legacy_solver_config_path(user_toml_path: &Path) -> PathBuf {
-    let mut path = user_toml_path.to_path_buf();
-    path.set_file_name("solver.json");
-    path
-}
-
-fn ensure_no_legacy_json(user_toml_path: &Path) {
-    let _ = legacy_solver_config_path(user_toml_path);
-}
-
 fn value_looks_like_reference(value: &str) -> bool {
     value.starts_with("${") || value.starts_with("env:") || value.starts_with("file:")
 }
@@ -243,14 +231,11 @@ fn validate_secret_references(
 fn read_config_document(path: &Path) -> Result<SolverConfigDocument, ConfigError> {
     match std::fs::read_to_string(path) {
         Ok(text) => {
-            let mut document: SolverConfigDocument =
+            let document: SolverConfigDocument =
                 toml::from_str(&text).map_err(|source| ConfigError::Parse {
                     path: path.to_path_buf(),
                     source,
                 })?;
-            if document.version == 0 {
-                document.version = 1;
-            }
             Ok(document)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -311,14 +296,16 @@ mod tests {
     }
 
     #[test]
-    fn ensure_no_legacy_json_allows_legacy_file() {
+    fn read_config_document_ignores_legacy_json_sidecar() {
         let dir = temp_dir("legacy");
         let toml_path = dir.join("solver.toml");
         let legacy = dir.join("solver.json");
         std::fs::write(&legacy, "{\"backend\":\"highs\"}")
             .unwrap_or_else(|err| panic!("failed to write {}: {err}", legacy.display()));
 
-        ensure_no_legacy_json(&toml_path);
+        let document = read_config_document(&toml_path)
+            .unwrap_or_else(|err| panic!("read should ignore legacy json sidecar: {err}"));
+        assert_eq!(document, SolverConfigDocument::default());
     }
 
     #[test]

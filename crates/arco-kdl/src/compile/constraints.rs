@@ -8,24 +8,48 @@ fn compile_constraint_instances(
 ) -> Result<Vec<LinearConstraint>, CompileError> {
     let mut constraints = Vec::new();
     for constraint in &program.active_constraints {
-        let binding_order = constraint
-            .generation_bindings
-            .iter()
-            .map(|binding| binding.variable.clone())
-            .collect::<Vec<_>>();
+        let (binding_order, implicit_scopes, explicit_scopes) =
+            if constraint.generation_bindings.is_empty() {
+                let (binding_order, scopes) = infer_constraint_generation_bindings(
+                    constraint,
+                    program,
+                    inputs,
+                    variable_signatures,
+                    entrypoint,
+                )?;
+                (binding_order, Some(scopes), None)
+            } else {
+                (
+                    constraint
+                        .generation_bindings
+                        .iter()
+                        .map(|binding| binding.variable.clone())
+                        .collect::<Vec<_>>(),
+                    None,
+                    Some(expand_generation_bindings(
+                        &constraint.generation_bindings,
+                        inputs,
+                        program,
+                        entrypoint,
+                        &constraint.diagnostic_id,
+                    )?),
+                )
+            };
         let mut empty_subset_keys = BTreeSet::new();
 
-        if constraint.generation_bindings.is_empty() {
-            for bindings in
-                constraint_instance_bindings(constraint, inputs, program.sets.time.steps)
-            {
+        if let Some(bindings) = implicit_scopes {
+            for bindings in bindings {
                 let asset = bindings_asset(&bindings, inputs);
                 let time = bindings_time(&bindings, entrypoint)?;
                 if let Some(filter) = &constraint.generation_filter {
                     if !evaluate_constraint_filter(
                         filter,
                         constraint,
-                        FilterScope { asset, time },
+                        FilterScope {
+                            bindings: &bindings,
+                            asset,
+                            time,
+                        },
                         inputs,
                         entrypoint,
                     )? {
@@ -36,6 +60,7 @@ fn compile_constraint_instances(
                 match linearize_constraint_body(
                     constraint,
                     &bindings,
+                    &binding_order,
                     program,
                     inputs,
                     named_expressions,
@@ -51,14 +76,7 @@ fn compile_constraint_instances(
                 }
             }
         } else {
-            let generation_scopes = expand_generation_bindings(
-                &constraint.generation_bindings,
-                inputs,
-                program,
-                entrypoint,
-                &constraint.diagnostic_id,
-            )?;
-            for scope in generation_scopes {
+            for scope in explicit_scopes.expect("explicit scopes must exist") {
                 if let Some(filter) = &constraint.generation_filter {
                     match evaluate_reduction_filter(
                         filter,
@@ -83,6 +101,7 @@ fn compile_constraint_instances(
                 match linearize_constraint_body(
                     constraint,
                     &scope,
+                    &binding_order,
                     program,
                     inputs,
                     named_expressions,
@@ -152,6 +171,7 @@ fn render_filter_value(value: &FilterValue) -> String {
 fn linearize_constraint_body(
     constraint: &ResolvedConstraint,
     bindings: &LinearizationBindings,
+    binding_order: &[String],
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
@@ -159,7 +179,7 @@ fn linearize_constraint_body(
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<Vec<LinearConstraint>, CompileError> {
-    let suffix = constraint_binding_suffix(bindings, entrypoint)?;
+    let suffix = constraint_binding_suffix(bindings, binding_order);
     match &constraint.expression {
         ConstraintBody::Comparison { op, left, right } => Ok(vec![linearize_comparison(
             format!("{}{}", constraint.name, suffix),

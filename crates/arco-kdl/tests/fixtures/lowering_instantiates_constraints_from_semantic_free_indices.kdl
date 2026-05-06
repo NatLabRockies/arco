@@ -1,0 +1,21 @@
+set "assets" { "A"; "B" }
+set "periods" { "1"; "2" }
+
+model "Dispatch" {
+  control "x" {
+    index "asset" { in "assets" }
+    index "period" { in "periods" }
+  }
+
+  constraint "cap" {
+    x[asset,period] <= 1
+  }
+
+  minimize "Obj" {
+    0
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

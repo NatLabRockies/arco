@@ -74,15 +74,11 @@ fn evaluate_identifier(
     scope: FilterScope<'_>,
     path: &Path,
 ) -> Result<FilterValue, CompileError> {
+    if let Some(value) = scope.bindings.values.get(name) {
+        return Ok(value.clone());
+    }
+
     match name {
-        "a" => scope
-            .asset
-            .map(|asset| FilterValue::String(asset.name.clone()))
-            .ok_or_else(|| invalid_constraint_filter(constraint, path, "`a` is not in scope")),
-        "t" => scope
-            .time
-            .map(|time| FilterValue::Number(time as f64))
-            .ok_or_else(|| invalid_constraint_filter(constraint, path, "`t` is not in scope")),
         "candidate" => scope
             .asset
             .map(|asset| FilterValue::Boolean(asset.candidate))
@@ -93,6 +89,12 @@ fn evaluate_identifier(
             .asset
             .and_then(|asset| asset.parameters.get(other).copied())
             .map(FilterValue::Number)
+            .or_else(|| {
+                scope
+                    .time
+                    .filter(|_| other == "t")
+                    .map(|time| FilterValue::Number(time as f64))
+            })
             .ok_or_else(|| {
                 invalid_constraint_filter(
                     constraint,

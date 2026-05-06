@@ -157,6 +157,16 @@ struct AffineExpr {
 #[derive(Debug, Clone, Default)]
 struct LinearizationBindings {
     values: BTreeMap<String, FilterValue>,
+    order: Vec<String>,
+}
+
+impl LinearizationBindings {
+    fn insert(&mut self, name: String, value: FilterValue) {
+        if !self.values.contains_key(&name) {
+            self.order.push(name.clone());
+        }
+        self.values.insert(name, value);
+    }
 }
 
 fn read_csv_rows(path: &Path) -> Result<Vec<HashMap<String, String>>, CompileError> {
@@ -237,12 +247,11 @@ fn parse_data_value(
             column: name.to_string(),
             path: path.to_path_buf(),
         })?;
-    raw.parse::<f64>()
-        .map_err(|_| CompileError::InvalidNumber {
-            value: raw,
-            field: name.to_string(),
-            path: path.to_path_buf(),
-        })
+    raw.parse::<f64>().map_err(|_| CompileError::InvalidNumber {
+        value: raw,
+        field: name.to_string(),
+        path: path.to_path_buf(),
+    })
 }
 
 fn load_data_decl_params(
@@ -409,12 +418,7 @@ fn expand_tuple_param_index_shorthand(
         .map(|tuple_indices| {
             tuple_indices
                 .iter()
-                .map(|index| {
-                    index
-                        .domain
-                        .clone()
-                        .unwrap_or_else(|| index.name.clone())
-                })
+                .map(|index| index.domain.clone().unwrap_or_else(|| index.name.clone()))
                 .collect::<Vec<_>>()
         })
 }

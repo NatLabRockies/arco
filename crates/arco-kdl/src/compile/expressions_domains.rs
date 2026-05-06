@@ -17,7 +17,7 @@ fn expand_generation_bindings(
         for scope in &scopes {
             for value in &values {
                 let mut scope = scope.clone();
-                scope.values.insert(binding.variable.clone(), value.clone());
+                scope.insert(binding.variable.clone(), value.clone());
                 next.push(scope);
             }
         }
@@ -43,7 +43,8 @@ fn expand_tuple_generation_bindings(
     };
 
     for binding in bindings.iter().skip(1) {
-        let Some(key) = resolve_set_registry_key(binding.domain.as_str(), program, &reverse_aliases)
+        let Some(key) =
+            resolve_set_registry_key(binding.domain.as_str(), program, &reverse_aliases)
         else {
             return Ok(None);
         };
@@ -97,15 +98,11 @@ fn expand_tuple_generation_bindings(
         let mut scope = LinearizationBindings::default();
         if uses_tuple_shorthand {
             for (component, value) in tuple_components.iter().zip(row.iter()) {
-                scope
-                    .values
-                    .insert(component.clone(), FilterValue::String(value.clone()));
+                scope.insert(component.clone(), FilterValue::String(value.clone()));
             }
         } else {
             for (binding, value) in bindings.iter().zip(row.iter()) {
-                scope
-                    .values
-                    .insert(binding.variable.clone(), FilterValue::String(value.clone()));
+                scope.insert(binding.variable.clone(), FilterValue::String(value.clone()));
             }
         }
         scopes.push(scope);
@@ -403,7 +400,10 @@ fn linearize_indexed_expr(
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<AffineExpr, CompileError> {
-    let resolved = match (indices.len(), resolve_tuple_key_index(indices, bindings, program)) {
+    let resolved = match (
+        indices.len(),
+        resolve_tuple_key_index(indices, bindings, program),
+    ) {
         (1, Some(tuple_key_values)) => tuple_key_values,
         _ => resolve_index_values(indices, bindings, named_expressions, entrypoint)?,
     };

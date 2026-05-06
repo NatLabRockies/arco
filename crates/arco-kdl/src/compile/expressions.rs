@@ -321,7 +321,9 @@ fn expand_reduction_bindings(
     let reverse_aliases = build_reverse_alias_lookup(program);
 
     if let Some(first) = bindings.first() {
-        let same_domain = bindings.iter().all(|binding| binding.domain == first.domain);
+        let same_domain = bindings
+            .iter()
+            .all(|binding| binding.domain == first.domain);
         let name_bindings = bindings
             .iter()
             .map(|binding| match &binding.pattern {
@@ -339,10 +341,8 @@ fn expand_reduction_bindings(
                 {
                     let mut component_to_binding = BTreeMap::new();
                     for name in &names {
-                        let component = name
-                            .strip_suffix("_r")
-                            .unwrap_or(name.as_str())
-                            .to_string();
+                        let component =
+                            name.strip_suffix("_r").unwrap_or(name.as_str()).to_string();
                         component_to_binding.insert(component, name.clone());
                     }
 
@@ -364,7 +364,7 @@ fn expand_reduction_bindings(
                         let mut matches_anchor = true;
                         for (component, value) in tuple_components.iter().zip(row.iter()) {
                             if let Some(binding_name) = component_to_binding.get(component) {
-                                scope.values.insert(
+                                scope.insert(
                                     binding_name.clone(),
                                     FilterValue::String(value.clone()),
                                 );
@@ -411,7 +411,7 @@ fn expand_reduction_bindings(
                     )?;
                     for value in &values {
                         let mut scoped = scope.clone();
-                        scoped.values.insert(name.clone(), value.clone());
+                        scoped.insert(name.clone(), value.clone());
                         next.push(scoped);
                     }
                 }

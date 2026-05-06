@@ -121,6 +121,7 @@ struct GenericDataTable {
 
 #[derive(Debug, Clone, Copy)]
 struct FilterScope<'a> {
+    bindings: &'a LinearizationBindings,
     asset: Option<&'a AssetInputs>,
     time: Option<usize>,
 }

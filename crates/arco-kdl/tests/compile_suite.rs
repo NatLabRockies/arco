@@ -580,19 +580,20 @@ fn lowering_example_nodal_allocation_preserves_sparse_tuple_membership()
     let semantic = validate_program(&parsed.program, &path)?;
     let compiled = compile_program(&semantic, &parsed.program, &path)?;
 
-    let investment_instances = compiled
+    let capacity_instances = compiled
         .algebra
         .variable_instances
         .iter()
+        .filter(|instance| instance.family == "capacity_nodal_site[a,i,g,b]")
         .map(|instance| instance.name.clone())
         .collect::<Vec<_>>();
     assert_eq!(
-        investment_instances,
+        capacity_instances,
         vec![
-            "investment[north,wind,g1,b1]".to_string(),
-            "investment[north,wind,g2,b2]".to_string(),
-            "investment[south,gas,g4,b3]".to_string(),
-            "investment[south,solar,g3,b3]".to_string(),
+            "capacity_nodal_site[north,wind,g1,b1]".to_string(),
+            "capacity_nodal_site[north,wind,g2,b2]".to_string(),
+            "capacity_nodal_site[south,gas,g4,b3]".to_string(),
+            "capacity_nodal_site[south,solar,g3,b3]".to_string(),
         ]
     );
 
@@ -606,8 +607,8 @@ fn lowering_example_nodal_allocation_preserves_sparse_tuple_membership()
     assert_eq!(
         priority_constraints,
         vec![
-            "priority_floor[south,b3,g3,solar]".to_string(),
-            "priority_floor[south,b3,g4,gas]".to_string(),
+            "priority_floor[south,gas,g4,b3]".to_string(),
+            "priority_floor[south,solar,g3,b3]".to_string(),
         ]
     );
 
@@ -733,8 +734,43 @@ fn lowering_unpacks_tuple_set_shorthand_for_control_and_constraint_bindings()
     assert_eq!(
         constraint_names,
         vec![
-            "cap[1,b1,g1,wind]".to_string(),
-            "cap[2,b3,g2,solar]".to_string()
+            "cap[1,wind,g1,b1]".to_string(),
+            "cap[2,solar,g2,b3]".to_string()
+        ]
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
+fn lowering_instantiates_constraints_from_semantic_free_indices()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("semantic-free-indices")?;
+
+    let path = root.join("input.kdl");
+    write_fixture_to_path(
+        "lowering_instantiates_constraints_from_semantic_free_indices.kdl",
+        &path,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    let constraint_names = compiled
+        .algebra
+        .constraints
+        .iter()
+        .map(|constraint| constraint.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        constraint_names,
+        vec![
+            "cap[A,1]".to_string(),
+            "cap[A,2]".to_string(),
+            "cap[B,1]".to_string(),
+            "cap[B,2]".to_string(),
         ]
     );
 
@@ -771,8 +807,8 @@ fn lowering_allows_tuple_key_indexing_with_tuple_set_name() -> Result<(), Box<dy
     assert_eq!(
         constraint_names,
         vec![
-            "cap[1,b1,g1,wind]".to_string(),
-            "cap[2,b3,g2,solar]".to_string()
+            "cap[1,wind,g1,b1]".to_string(),
+            "cap[2,solar,g2,b3]".to_string()
         ]
     );
 
@@ -809,8 +845,8 @@ fn lowering_allows_parent_indexed_symbol_lookup_with_subset_tuple_key()
     assert_eq!(
         constraint_names,
         vec![
-            "cap[1,b1,g1,wind]".to_string(),
-            "cap[1,b2,g2,solar]".to_string()
+            "cap[1,solar,g2,b2]".to_string(),
+            "cap[1,wind,g1,b1]".to_string()
         ]
     );
 
