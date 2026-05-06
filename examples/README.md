@@ -67,6 +67,9 @@ This leaves `model`, `solve()`, `solution`, and `payload` available in the promp
 If you are new to the repo, this order ramps up nicely:
 
 1. `nodal-allocation`, to see tuple-domain feasible-set semantics and explicit subsets in a small end-to-end flow
+   - lower/inspect: `cargo run -p arco-cli -- print-model examples/nodal-allocation/input.kdl`
+   - export lowered algebra: `cargo run -p arco-cli -- export examples/nodal-allocation/input.kdl --format lp`
+   - run with reported variable outputs (`capacity_nodal_site`, `allocated_capacity`): `cargo run -p arco-cli -- run examples/nodal-allocation/input.kdl`
 2. `generator-allocation`, to compare against a simple Cartesian indexed formulation
 3. `price-taker-battery`, to see time coupling and storage dynamics
 4. `capacity-expansion`, to see investment-style modeling
