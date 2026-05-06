@@ -69,14 +69,6 @@ pub enum ConfigError {
         help("run from a project directory or set ARCO_PROJECT_CONFIG_DIR")
     )]
     MissingProjectDirectory,
-    #[error(
-        "legacy solver config found at {path}; migration is disabled, create {new_path} manually"
-    )]
-    #[diagnostic(
-        code(arco::config::legacy_config),
-        help("create solver.toml with versioned schema; legacy solver.json is not auto-migrated")
-    )]
-    LegacyConfigDetected { path: PathBuf, new_path: PathBuf },
     #[error("failed to read solver config {path}: {source}")]
     #[diagnostic(
         code(arco::config::io),
@@ -138,7 +130,7 @@ pub enum ConfigError {
 
 pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {
     let user_path = solver_config_path()?;
-    ensure_no_legacy_json(&user_path)?;
+    ensure_no_legacy_json(&user_path);
     let project_path = project_solver_config_path()?;
 
     let project = read_config_document(&project_path)?;
@@ -180,7 +172,7 @@ fn selection_is_supported_in_cli(resolved: &ResolvedSelection) -> bool {
 
 pub fn save_solver_selection(selection: &str) -> Result<PathBuf, ConfigError> {
     let path = solver_config_path()?;
-    ensure_no_legacy_json(&path)?;
+    ensure_no_legacy_json(&path);
 
     let mut document = read_config_document(&path)?;
     document.version = 1;
@@ -224,17 +216,8 @@ fn legacy_solver_config_path(user_toml_path: &Path) -> PathBuf {
     path
 }
 
-fn ensure_no_legacy_json(user_toml_path: &Path) -> Result<(), ConfigError> {
-    let legacy_path = legacy_solver_config_path(user_toml_path);
-    let legacy_exists = legacy_path.exists();
-    let new_exists = user_toml_path.exists();
-    if legacy_exists && !new_exists {
-        return Err(ConfigError::LegacyConfigDetected {
-            path: legacy_path,
-            new_path: user_toml_path.to_path_buf(),
-        });
-    }
-    Ok(())
+fn ensure_no_legacy_json(user_toml_path: &Path) {
+    let _ = legacy_solver_config_path(user_toml_path);
 }
 
 fn value_looks_like_reference(value: &str) -> bool {
@@ -328,18 +311,14 @@ mod tests {
     }
 
     #[test]
-    fn ensure_no_legacy_json_errors() {
+    fn ensure_no_legacy_json_allows_legacy_file() {
         let dir = temp_dir("legacy");
         let toml_path = dir.join("solver.toml");
         let legacy = dir.join("solver.json");
         std::fs::write(&legacy, "{\"backend\":\"highs\"}")
             .unwrap_or_else(|err| panic!("failed to write {}: {err}", legacy.display()));
 
-        let result = ensure_no_legacy_json(&toml_path);
-        assert!(matches!(
-            result,
-            Err(ConfigError::LegacyConfigDetected { .. })
-        ));
+        ensure_no_legacy_json(&toml_path);
     }
 
     #[test]
