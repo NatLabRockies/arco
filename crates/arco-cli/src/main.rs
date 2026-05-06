@@ -6,7 +6,7 @@ use arco_cli::config::{load_solver_config, save_solver_selection};
 use arco_cli::debug_shell::launch_ipython;
 use arco_cli::driver::{
     RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
-    run_file_json_with_options_and_selection, validate_file_only,
+    run_file_json_with_options_and_config, validate_file_only,
 };
 use arco_ops::{ArcoOps, OpsExportFormat};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
@@ -133,7 +133,7 @@ fn main() -> miette::Result<()> {
             compact,
         } => {
             let solver_config = load_solver_config()?;
-            let output = run_file_json_with_options_and_selection(
+            let output = run_file_json_with_options_and_config(
                 &path,
                 &RunOptions {
                     compact,
@@ -144,7 +144,7 @@ fn main() -> miette::Result<()> {
                         std::io::stdout().is_terminal(),
                     ),
                 },
-                &solver_config.resolved,
+                &solver_config,
             )?;
             write_stdout(output.as_bytes()).into_diagnostic()?;
         }

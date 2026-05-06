@@ -158,28 +158,35 @@ impl OptimizationAdapter for ScipArcoAdapter {
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = scip::BACKEND_NAME.to_string();
-        let solution =
-            scip::solve_compiled_problem(problem, include_variable_values, self.log_to_console)
-                .map_err(|source| match source {
-                    scip::Error::Io { source } => ExecutionError::ExternalSolverIo {
-                        backend: backend.clone(),
-                        source,
-                    },
-                    scip::Error::Process { message } => ExecutionError::ExternalSolverProcess {
-                        backend: backend.clone(),
-                        message,
-                    },
-                    scip::Error::Parse { message } => ExecutionError::ExternalSolverParse {
-                        backend: backend.clone(),
-                        message,
-                    },
-                    scip::Error::NoFeasibleSolution { status } => {
-                        ExecutionError::NoFeasibleSolution {
-                            backend: backend.clone(),
-                            status,
-                        }
-                    }
-                })?;
+        let options = scip::ExternalProcessOptions {
+            executable: self.executable.clone(),
+            arguments: self.arguments.clone(),
+            environment: self.environment.clone(),
+        };
+        let solution = scip::solve_compiled_problem_with_options(
+            problem,
+            include_variable_values,
+            self.log_to_console,
+            &options,
+        )
+        .map_err(|source| match source {
+            scip::Error::Io { source } => ExecutionError::ExternalSolverIo {
+                backend: backend.clone(),
+                source,
+            },
+            scip::Error::Process { message } => ExecutionError::ExternalSolverProcess {
+                backend: backend.clone(),
+                message,
+            },
+            scip::Error::Parse { message } => ExecutionError::ExternalSolverParse {
+                backend: backend.clone(),
+                message,
+            },
+            scip::Error::NoFeasibleSolution { status } => ExecutionError::NoFeasibleSolution {
+                backend: backend.clone(),
+                status,
+            },
+        })?;
 
         Ok(AdapterSolveOutput {
             status: match solution.status {

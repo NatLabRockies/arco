@@ -91,10 +91,31 @@ pub enum Error {
     NoFeasibleSolution { status: String },
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExternalProcessOptions {
+    pub executable: Option<String>,
+    pub arguments: Vec<String>,
+    pub environment: BTreeMap<String, String>,
+}
+
 pub fn solve_compiled_problem(
     problem: &CompiledProblem,
     include_variable_values: bool,
     log_to_console: bool,
+) -> Result<SolveOutput, Error> {
+    solve_compiled_problem_with_options(
+        problem,
+        include_variable_values,
+        log_to_console,
+        &ExternalProcessOptions::default(),
+    )
+}
+
+pub fn solve_compiled_problem_with_options(
+    problem: &CompiledProblem,
+    include_variable_values: bool,
+    log_to_console: bool,
+    options: &ExternalProcessOptions,
 ) -> Result<SolveOutput, Error> {
     let backend = BACKEND_NAME.to_string();
     let workspace = RuntimeWorkspace::create("scip").map_err(|source| Error::Io { source })?;
@@ -109,8 +130,12 @@ pub fn solve_compiled_problem(
         })?;
     }
 
-    let executable = std::env::var("ARCO_SCIP_EXECUTABLE").unwrap_or_else(|_| "scip".to_string());
+    let executable = options.executable.clone().unwrap_or_else(|| {
+        std::env::var("ARCO_SCIP_EXECUTABLE").unwrap_or_else(|_| "scip".to_string())
+    });
     let mut command = Command::new(&executable);
+    command.args(&options.arguments);
+    command.envs(&options.environment);
     command
         .arg("-c")
         .arg(format!("read {}", mps_path.display()))

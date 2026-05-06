@@ -1,5 +1,5 @@
 use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim};
-use crate::config::{ConfigError, load_solver_config};
+use crate::config::{ConfigError, SolverConfigState, load_solver_config};
 pub use crate::driver_kdl::{KdlCheckOutcome, kdl_check_file_json};
 pub use crate::driver_summary::{
     DualReportSummary, DualReportValueSummary, ObjectiveSummary, ProblemCounts, ReportSummary,
@@ -14,7 +14,7 @@ use crate::execution::{
 };
 use arco_kdl::pipeline::PipelineError;
 use arco_ops::ArcoOps;
-use arco_solver::{ResolvedSelection, SolverTransport};
+use arco_solver::{ResolvedSelection, SolverProfile, SolverTransport};
 use miette::Diagnostic;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -103,9 +103,20 @@ fn load_resolved_selection() -> Result<ResolvedSelection, DriverError> {
     Ok(load_solver_config()?.resolved)
 }
 
+fn selected_profile<'a>(
+    state: &'a SolverConfigState,
+    selection: &ResolvedSelection,
+) -> Option<&'a SolverProfile> {
+    selection
+        .profile
+        .as_ref()
+        .and_then(|name| state.merged_profiles.get(name))
+}
+
 fn select_adapter(
     selection: &ResolvedSelection,
     log_to_console: bool,
+    profile: Option<&SolverProfile>,
 ) -> Result<Box<dyn OptimizationAdapter>, DriverError> {
     match selection.transport {
         SolverTransport::Embedded => match selection.family.as_str() {
@@ -124,9 +135,19 @@ fn select_adapter(
                 ),
             }),
         },
-        SolverTransport::ExternalProcess => {
-            Ok(Box::new(ScipArcoAdapter::with_console_log(log_to_console)))
-        }
+        SolverTransport::ExternalProcess => match selection.family.as_str() {
+            "scip" => Ok(Box::new(ScipArcoAdapter::with_external_process_profile(
+                log_to_console,
+                profile.and_then(|value| value.executable.clone()),
+                profile.map_or_else(Vec::new, |value| value.arguments.clone()),
+                profile.map_or_else(Default::default, |value| value.environment.clone()),
+            ))),
+            family => Err(DriverError::BackendNotAvailable {
+                message: format!(
+                    "external-process solver family '{family}' is not available in this build"
+                ),
+            }),
+        },
     }
 }
 
@@ -142,6 +163,60 @@ pub fn run_file_with_options_and_selection(
     path: &Path,
     options: &RunOptions,
     selection: &ResolvedSelection,
+) -> Result<RunSummary, DriverError> {
+    run_file_with_options_and_profile(path, options, selection, None)
+}
+
+pub fn run_file_json(path: &Path) -> Result<String, DriverError> {
+    run_file_json_with_options_and_selection(
+        path,
+        &RunOptions::default(),
+        &load_resolved_selection()?,
+    )
+}
+
+pub fn run_file_json_with_options(
+    path: &Path,
+    options: &RunOptions,
+) -> Result<String, DriverError> {
+    run_file_json_with_options_and_selection(path, options, &load_resolved_selection()?)
+}
+
+pub fn run_file_json_with_options_and_selection(
+    path: &Path,
+    options: &RunOptions,
+    selection: &ResolvedSelection,
+) -> Result<String, DriverError> {
+    run_file_json_with_options_and_profile(path, options, selection, None)
+}
+
+pub fn run_file_json_with_options_and_config(
+    path: &Path,
+    options: &RunOptions,
+    state: &SolverConfigState,
+) -> Result<String, DriverError> {
+    let profile = selected_profile(state, &state.resolved);
+    run_file_json_with_options_and_profile(path, options, &state.resolved, profile)
+}
+
+fn run_file_json_with_options_and_profile(
+    path: &Path,
+    options: &RunOptions,
+    selection: &ResolvedSelection,
+    profile: Option<&SolverProfile>,
+) -> Result<String, DriverError> {
+    let summary = run_file_with_options_and_profile(path, options, selection, profile)?;
+    serde_json::to_string(&summary).map_err(|source| DriverError::Json {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+fn run_file_with_options_and_profile(
+    path: &Path,
+    options: &RunOptions,
+    selection: &ResolvedSelection,
+    profile: Option<&SolverProfile>,
 ) -> Result<RunSummary, DriverError> {
     let total_start = Instant::now();
     let compiled = ArcoOps::compile_file(path)?;
@@ -159,7 +234,7 @@ pub fn run_file_with_options_and_selection(
 
     let solve_start = Instant::now();
     let include_variable_values = !(options.compact && options.filter_asset.is_none());
-    let adapter = select_adapter(selection, options.solver_log)?;
+    let adapter = select_adapter(selection, options.solver_log, profile)?;
     debug!(
         "starting backend solve phase (family={}, transport={:?}, backend={}, include_variable_values={})",
         selection.family.as_str(),
@@ -235,33 +310,6 @@ pub fn run_file_with_options_and_selection(
     })
 }
 
-pub fn run_file_json(path: &Path) -> Result<String, DriverError> {
-    run_file_json_with_options_and_selection(
-        path,
-        &RunOptions::default(),
-        &load_resolved_selection()?,
-    )
-}
-
-pub fn run_file_json_with_options(
-    path: &Path,
-    options: &RunOptions,
-) -> Result<String, DriverError> {
-    run_file_json_with_options_and_selection(path, options, &load_resolved_selection()?)
-}
-
-pub fn run_file_json_with_options_and_selection(
-    path: &Path,
-    options: &RunOptions,
-    selection: &ResolvedSelection,
-) -> Result<String, DriverError> {
-    let summary = run_file_with_options_and_selection(path, options, selection)?;
-    serde_json::to_string(&summary).map_err(|source| DriverError::Json {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
 pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
     let compiled = ArcoOps::compile_file(path)?;
     render_problem_model(&compiled.compiled_problem).map_err(DriverError::from)
@@ -319,7 +367,7 @@ fn peak_rss_bytes() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_validate_success, select_adapter};
+    use super::{DriverError, format_validate_success, select_adapter};
     use crate::driver_kdl::span_line_column;
     use arco_solver::{ResolvedSelection, SolverTransport};
     use miette::SourceSpan;
@@ -369,8 +417,24 @@ mod tests {
             transport: SolverTransport::ExternalProcess,
         };
 
-        let adapter = select_adapter(&selection, false).expect("selection should resolve");
+        let adapter = select_adapter(&selection, false, None).expect("selection should resolve");
         assert_eq!(adapter.backend_name(), "arco-external-scip");
+    }
+
+    #[test]
+    fn select_adapter_rejects_unknown_external_process_family() {
+        let selection = ResolvedSelection {
+            token: "profile-name".to_string(),
+            family: "custom".to_string(),
+            profile: Some("profile-name".to_string()),
+            transport: SolverTransport::ExternalProcess,
+        };
+
+        match select_adapter(&selection, false, None) {
+            Err(DriverError::BackendNotAvailable { .. }) => {}
+            Ok(adapter) => panic!("unexpected adapter: {}", adapter.backend_name()),
+            Err(error) => panic!("unexpected error: {error}"),
+        }
     }
 
     #[test]

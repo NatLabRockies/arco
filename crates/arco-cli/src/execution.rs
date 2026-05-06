@@ -115,6 +115,9 @@ pub struct RustArcoAdapter {
 #[derive(Debug, Default)]
 pub struct ScipArcoAdapter {
     pub(crate) log_to_console: bool,
+    pub(crate) executable: Option<String>,
+    pub(crate) arguments: Vec<String>,
+    pub(crate) environment: std::collections::BTreeMap<String, String>,
 }
 
 #[cfg(feature = "xpress")]
@@ -244,13 +247,28 @@ impl RustArcoAdapter {
 
 impl ScipArcoAdapter {
     pub fn new() -> Self {
-        Self {
-            log_to_console: false,
-        }
+        Self::default()
     }
 
     pub fn with_console_log(log_to_console: bool) -> Self {
-        Self { log_to_console }
+        Self {
+            log_to_console,
+            ..Self::default()
+        }
+    }
+
+    pub fn with_external_process_profile(
+        log_to_console: bool,
+        executable: Option<String>,
+        arguments: Vec<String>,
+        environment: std::collections::BTreeMap<String, String>,
+    ) -> Self {
+        Self {
+            log_to_console,
+            executable,
+            arguments,
+            environment,
+        }
     }
 }
 
