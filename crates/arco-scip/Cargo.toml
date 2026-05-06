@@ -14,9 +14,10 @@ publish = false
 workspace = true
 
 [dependencies]
+arco-contracts = { workspace = true }
 arco-export = { workspace = true }
 arco-kdl = { workspace = true }
-arco-contracts = { workspace = true }
+arco-runtime = { workspace = true }
 arco-targets = { workspace = true }
 miette = { version = "7", features = ["fancy"] }
 thiserror = "2.0"

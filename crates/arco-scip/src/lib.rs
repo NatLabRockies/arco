@@ -5,12 +5,12 @@
 use arco_contracts::{SolverCapabilityModel, SolverFamily, SolverRegistry};
 use arco_export::write_mps;
 use arco_kdl::artifacts::CompiledProblem;
+use arco_runtime::RuntimeWorkspace;
 use arco_targets::LinearReport;
 use miette::Diagnostic;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const FAMILY_NAME: &str = "scip";
@@ -97,10 +97,9 @@ pub fn solve_compiled_problem(
     log_to_console: bool,
 ) -> Result<SolveOutput, Error> {
     let backend = BACKEND_NAME.to_string();
-    let workspace = unique_temp_paths("scip");
-    std::fs::create_dir_all(&workspace).map_err(|source| Error::Io { source })?;
-    let mps_path = workspace.join("problem.mps");
-    let sol_path = workspace.join("solution.sol");
+    let workspace = RuntimeWorkspace::create("scip").map_err(|source| Error::Io { source })?;
+    let mps_path = workspace.path().join("problem.mps");
+    let sol_path = workspace.path().join("solution.sol");
 
     {
         let mut mps_file =
@@ -144,14 +143,7 @@ pub fn solve_compiled_problem(
         });
     }
 
-    let solve_result =
-        build_scip_solve_output(problem, include_variable_values, &backend, &sol_path);
-
-    let _ = std::fs::remove_file(&mps_path);
-    let _ = std::fs::remove_file(&sol_path);
-    let _ = std::fs::remove_dir(&workspace);
-
-    solve_result
+    build_scip_solve_output(problem, include_variable_values, &backend, &sol_path)
 }
 
 #[derive(Debug)]
@@ -159,14 +151,6 @@ struct ScipSolution {
     status: String,
     objective_value: f64,
     variable_values: BTreeMap<String, f64>,
-}
-
-fn unique_temp_paths(prefix: &str) -> PathBuf {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    std::env::temp_dir().join(format!("arco-{prefix}-{}-{now}", std::process::id()))
 }
 
 fn map_scip_status(status: &str) -> SolveStatus {

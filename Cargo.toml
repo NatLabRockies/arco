@@ -11,6 +11,7 @@ default-members = [
     "crates/arco-highs",
     "crates/arco-kdl",
     "crates/arco-ops",
+    "crates/arco-runtime",
     "crates/arco-scip",
     "crates/arco-solver",
     "crates/arco-targets",
@@ -42,6 +43,7 @@ arco-cli = { path = "crates/arco-cli" }
 arco-contracts = { path = "crates/arco-contracts" }
 arco-export = { path = "crates/arco-export" }
 arco-ops = { path = "crates/arco-ops" }
+arco-runtime = { path = "crates/arco-runtime" }
 arco-scip = { path = "crates/arco-scip" }
 arco-targets = { path = "crates/arco-targets" }
 arco-validate = { path = "crates/arco-validate" }

@@ -1,0 +1,16 @@
+[package]
+name = "arco-runtime"
+version = { workspace = true }
+description = "Runtime services for Arco solve execution"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
