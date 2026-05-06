@@ -235,7 +235,7 @@ mod tests {
         let solution =
             ArcoOps::solve(&mut solver, &SolverConfig::default()).expect("solve succeeds");
 
-        assert_eq!(solution.objective_value(), 42.0);
+        assert!((solution.objective_value() - 42.0).abs() < f64::EPSILON);
         assert!(solution.is_optimal());
     }
 

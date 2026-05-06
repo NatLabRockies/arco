@@ -108,25 +108,29 @@ pub fn resolve_selection(
             .filter(|profile| profile.family == selection_token)
             .collect();
 
-        if family_profiles.len() == 1 {
-            if let Some(profile) = family_profiles.pop() {
-                return Ok(ResolvedSelection {
-                    token: selection_token.to_string(),
+        match family_profiles.len().cmp(&1) {
+            std::cmp::Ordering::Equal => {
+                if let Some(profile) = family_profiles.pop() {
+                    return Ok(ResolvedSelection {
+                        token: selection_token.to_string(),
+                        family: selection_token.to_string(),
+                        profile: Some(profile.name.clone()),
+                        transport: profile.transport,
+                    });
+                }
+            }
+            std::cmp::Ordering::Greater => {
+                let mut names: Vec<String> = family_profiles
+                    .iter()
+                    .map(|profile| profile.name.clone())
+                    .collect();
+                names.sort_unstable();
+                return Err(SelectionError::AmbiguousFamilySelection {
                     family: selection_token.to_string(),
-                    profile: Some(profile.name.clone()),
-                    transport: profile.transport,
+                    profiles: names,
                 });
             }
-        } else if family_profiles.len() > 1 {
-            let mut names: Vec<String> = family_profiles
-                .iter()
-                .map(|profile| profile.name.clone())
-                .collect();
-            names.sort_unstable();
-            return Err(SelectionError::AmbiguousFamilySelection {
-                family: selection_token.to_string(),
-                profiles: names,
-            });
+            std::cmp::Ordering::Less => {}
         }
 
         let transport = registry
