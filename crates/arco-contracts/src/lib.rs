@@ -1,5 +1,6 @@
 //! Shared solver/platform contracts for Arco.
 
+pub mod backend;
 pub mod config;
 pub mod profile;
 pub mod registry;
@@ -8,6 +9,7 @@ pub mod selection;
 pub mod traits;
 pub mod types;
 
+pub use backend::SolverBackend;
 pub use config::SolverConfig;
 pub use profile::{SolverConfigDocument, SolverProfile, merged_profiles};
 pub use registry::{SolverCapabilityModel, SolverFamily, SolverRegistry, SolverTransport};

@@ -8,8 +8,7 @@ use arco_cli::driver::{
     RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
     run_file_json_with_options_and_selection, validate_file_only,
 };
-use arco_cli::export::{write_lp, write_mps};
-use arco_kdl::pipeline::compile_file;
+use arco_ops::{ArcoOps, OpsExportFormat};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use miette::IntoDiagnostic;
 use std::fs;
@@ -205,12 +204,14 @@ fn export_model(
     format: ExportFormat,
     output: Option<PathBuf>,
 ) -> miette::Result<()> {
-    let compiled = compile_file(&path)?;
-    let mut buffer = Vec::new();
-    match format {
-        ExportFormat::Lp => write_lp(&compiled.compiled_problem.algebra, &mut buffer)?,
-        ExportFormat::Mps => write_mps(&compiled.compiled_problem.algebra, &mut buffer)?,
-    }
+    let compiled = ArcoOps::compile_file(&path)?;
+    let buffer = ArcoOps::export_problem(
+        &compiled.compiled_problem.algebra,
+        match format {
+            ExportFormat::Lp => OpsExportFormat::Lp,
+            ExportFormat::Mps => OpsExportFormat::Mps,
+        },
+    )?;
 
     if let Some(output_path) = output {
         fs::write(output_path, buffer).into_diagnostic()?;

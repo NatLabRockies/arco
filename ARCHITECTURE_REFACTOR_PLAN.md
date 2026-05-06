@@ -323,8 +323,9 @@ This is the intended shape relative to the current workspace.
 - `arco-core` is expected to narrow or split toward `arco-model` and
   `arco-validate` responsibilities.
 - `arco-export` is expected to narrow into `arco-exchange` semantics.
-- `arco-solver` is expected to become a true solver platform crate, with shared
-  adapter seams extracted into `arco-contracts`.
+- `arco-solver` now routes shared adapter and platform seams through
+  `arco-contracts`; the legacy `arco-solver-types` compatibility pass-through
+  crate has been retired.
 - `bindings/python` should converge on the `arco-python` role, even if the path
   stays the same during migration.
 - `arco-kdl`, `arco-highs`, `arco-ipopt`, `arco-xpress`, `arco-scip`,
@@ -371,8 +372,17 @@ Only after the seams are stable should we expand with:
 Once responsibilities are stable:
 
 - rename crates where needed for clarity
-- remove transitional pass-through modules
+- remove remaining transitional pass-through modules after proving they are unused
 - update architecture rules to enforce the final target-state seams
+
+Current retired pass-throughs:
+
+- `arco-solver-types` was an unused compatibility re-export of `arco-contracts`;
+  new and existing code should import solver/platform contracts from
+  `arco-contracts` or higher-level crate facades directly.
+- `arco-cli::export` was an unused compatibility wrapper around export helpers;
+  interaction code should call `arco-ops` workflows or `arco-export` directly
+  rather than route through the CLI library.
 
 ## Decision checklist for future contributors
 

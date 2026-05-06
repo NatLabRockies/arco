@@ -3,6 +3,7 @@
 use crate::slack::{ElasticHandle, SlackBound, SlackHandle, SlackVariables};
 use crate::types::{Bounds, Sense, Variable};
 use arco_expr::ids::ConstraintId;
+use arco_validate::slack_penalty_is_valid;
 
 use crate::model::error::ModelError;
 use crate::model::{Model, slack_variable_name};
@@ -18,7 +19,7 @@ impl Model {
     ) -> Result<SlackHandle, ModelError> {
         self.ensure_constraint_exists(constraint_id)?;
         let sense = self.objective.sense.ok_or(ModelError::NoObjective)?;
-        if !penalty.is_finite() || penalty < 0.0 {
+        if !slack_penalty_is_valid(penalty) {
             return Err(ModelError::InvalidSlackPenalty { penalty });
         }
 

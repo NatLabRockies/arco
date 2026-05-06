@@ -1,7 +1,8 @@
 use crate::execution::{ExecutionError, RustArcoAdapter, SolveStatus, execute_problem};
 use arco_kdl::ObjectiveSense;
-use arco_kdl::pipeline::{PipelineError, compile_file};
+use arco_kdl::pipeline::PipelineError;
 use arco_kdl::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
+use arco_ops::ArcoOps;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -133,7 +134,7 @@ fn evaluate_case(
     case: &BenchmarkCaseDefinition,
 ) -> Result<CaseOutcome, BenchmarkError> {
     let entrypoint = repo_root.join(&case.entrypoint);
-    let compiled = compile_file(&entrypoint)?;
+    let compiled = ArcoOps::compile_file(&entrypoint)?;
     let execution_result = execute_problem(&compiled.compiled_problem, &RustArcoAdapter::new())?;
 
     let actual_semantic_program =

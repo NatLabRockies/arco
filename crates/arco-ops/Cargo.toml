@@ -14,5 +14,10 @@ publish = false
 workspace = true
 
 [dependencies]
+arco-core = { workspace = true }
+arco-export = { workspace = true }
+arco-expr = { workspace = true }
+arco-kdl = { workspace = true }
 arco-solver = { workspace = true }
 arco-targets = { workspace = true }
+arco-validate = { workspace = true }

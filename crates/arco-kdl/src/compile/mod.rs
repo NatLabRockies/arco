@@ -89,67 +89,10 @@ pub struct TraceabilityRecord {
     pub compiled_name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AlgebraicProblem {
-    pub variable_instances: Vec<VariableInstance>,
-    pub constraints: Vec<LinearConstraint>,
-    pub objective: LinearObjective,
-    pub reports: Vec<LinearReport>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct VariableInstance {
-    pub name: String,
-    pub family: String,
-    pub lower: f64,
-    pub upper: Option<f64>,
-    pub kind: VariableKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum VariableKind {
-    Continuous,
-    Integer,
-    Binary,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LinearConstraint {
-    pub name: String,
-    pub sense: ConstraintSense,
-    pub rhs: f64,
-    pub terms: Vec<LinearTerm>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConstraintSense {
-    GreaterEqual,
-    LessEqual,
-    Equal,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LinearObjective {
-    pub name: String,
-    pub sense: ObjectiveSense,
-    pub constant: f64,
-    pub terms: Vec<LinearTerm>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LinearReport {
-    pub name: String,
-    pub constant: f64,
-    pub terms: Vec<LinearTerm>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LinearTerm {
-    pub variable_name: String,
-    pub coefficient: f64,
-}
-
-pub use crate::ObjectiveSense;
+pub use arco_targets::{
+    AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearReport, LinearTerm,
+    ObjectiveSense, VariableInstance, VariableKind,
+};
 
 #[derive(Debug)]
 struct ScenarioInputs {

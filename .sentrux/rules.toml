@@ -78,7 +78,6 @@ order = 6
 name = "shared_interfaces"
 paths = [
   "crates/arco-contracts/src/**",
-  "crates/arco-solver-types/src/**",
 ]
 order = 7
 

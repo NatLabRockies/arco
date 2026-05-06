@@ -12,7 +12,8 @@ use crate::execution::{
     ExecutionError, OptimizationAdapter, RustArcoAdapter, ScipArcoAdapter, SolveStatus,
     execute_problem_with_options, render_problem_model,
 };
-use arco_kdl::pipeline::{PipelineError, compile_file, validate_file};
+use arco_kdl::pipeline::PipelineError;
+use arco_ops::ArcoOps;
 use arco_solver::{ResolvedSelection, SolverTransport};
 use miette::Diagnostic;
 use std::fmt::Display;
@@ -143,7 +144,7 @@ pub fn run_file_with_options_and_selection(
     selection: &ResolvedSelection,
 ) -> Result<RunSummary, DriverError> {
     let total_start = Instant::now();
-    let compiled = compile_file(path)?;
+    let compiled = ArcoOps::compile_file(path)?;
     debug!(
         "compile timings: parse={:.2} ms validate={:.2} ms lower={:.2} ms",
         compiled.timing.parse.as_secs_f64() * 1000.0,
@@ -262,13 +263,13 @@ pub fn run_file_json_with_options_and_selection(
 }
 
 pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
-    let compiled = compile_file(path)?;
+    let compiled = ArcoOps::compile_file(path)?;
     render_problem_model(&compiled.compiled_problem).map_err(DriverError::from)
 }
 
 pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, DriverError> {
     let started = Instant::now();
-    let validated = validate_file(path)?;
+    let validated = ArcoOps::check_file(path)?;
     let elapsed_ms = started.elapsed().as_millis();
     Ok(format_validate_success(
         &validated.entrypoint,
@@ -284,7 +285,7 @@ fn format_validate_success(path: &Path, elapsed_ms: u128, color_mode: ColorMode)
 }
 
 pub fn inspect_file_report(path: &Path, json_output: bool) -> Result<String, DriverError> {
-    let validated = validate_file(path)?;
+    let validated = ArcoOps::check_file(path)?;
     let program = &validated.semantic_program;
     let payload = crate::inspect::build_inspect_payload(&validated.entrypoint, program);
 

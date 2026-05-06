@@ -2,9 +2,8 @@ use arco_core::{
     Bounds, Constraint, Model, ModelError as ArcoModelError, Objective, PrettyPrintOptions, Sense,
     SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus, Variable,
 };
-use arco_kdl::compile::{
-    CompiledProblem, ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind,
-};
+use arco_kdl::compile::CompiledProblem;
+use arco_targets::{ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -775,9 +774,9 @@ fn try_eval_filter(
 #[cfg(test)]
 mod tests {
     use crate::execution::{MockArcoAdapter, execute_problem_with_options};
-    use arco_kdl::compile::{
-        AlgebraicProblem, CompiledObjective, CompiledProblem, CompiledVariable, LinearObjective,
-        ObjectiveSense, VariableInstance, VariableKind,
+    use arco_kdl::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
+    use arco_targets::{
+        AlgebraicProblem, LinearObjective, ObjectiveSense, VariableInstance, VariableKind,
     };
 
     #[test]

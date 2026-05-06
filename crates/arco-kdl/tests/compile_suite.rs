@@ -394,6 +394,50 @@ fn lowering_instantiates_constraint_bindings_from_tuple_subset_rows()
 }
 
 #[test]
+fn lowering_reports_reduce_projection_expression_and_control()
+-> Result<(), Box<dyn std::error::Error>> {
+    let root = temp_test_dir("report-reduce-projection")?;
+
+    let path = root.join("input.kdl");
+    write_fixture_to_path(
+        "lowering_reports_reduce_projection_expression_and_control.kdl",
+        &path,
+    )?;
+
+    let parsed = parse_program_file(&path)?;
+    let semantic = validate_program(&parsed.program, &path)?;
+    let compiled = compile_program(&semantic, &parsed.program, &path)?;
+
+    assert_eq!(compiled.variable_reports.len(), 1);
+    assert_eq!(
+        compiled.variable_reports[0].control_name,
+        "capacity_nodal_site"
+    );
+    assert!(
+        compiled
+            .algebra
+            .variable_instances
+            .iter()
+            .any(|variable| variable.name == "capacity_nodal_site[north,solar,g1,b1]")
+    );
+
+    let report = compiled
+        .algebra
+        .reports
+        .iter()
+        .find(|report| report.name == "allocated_capacity")
+        .ok_or("missing allocated_capacity report")?;
+    assert_eq!(report.terms.len(), 1);
+    assert_eq!(
+        report.terms[0].variable_name,
+        "capacity_nodal_site[north,solar,g1,b1]"
+    );
+
+    fs::remove_dir_all(&root)?;
+    Ok(())
+}
+
+#[test]
 fn lowering_rejects_constraint_auto_projection_from_high_dim_tuple_domain()
 -> Result<(), Box<dyn std::error::Error>> {
     let root = temp_test_dir("tuple-subset-auto-projection")?;

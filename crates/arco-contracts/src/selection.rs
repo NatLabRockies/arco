@@ -108,25 +108,29 @@ pub fn resolve_selection(
             .filter(|profile| profile.family == selection_token)
             .collect();
 
-        if family_profiles.len() == 1 {
-            if let Some(profile) = family_profiles.pop() {
-                return Ok(ResolvedSelection {
-                    token: selection_token.to_string(),
+        match family_profiles.len().cmp(&1) {
+            std::cmp::Ordering::Equal => {
+                if let Some(profile) = family_profiles.pop() {
+                    return Ok(ResolvedSelection {
+                        token: selection_token.to_string(),
+                        family: selection_token.to_string(),
+                        profile: Some(profile.name.clone()),
+                        transport: profile.transport,
+                    });
+                }
+            }
+            std::cmp::Ordering::Greater => {
+                let mut names: Vec<String> = family_profiles
+                    .iter()
+                    .map(|profile| profile.name.clone())
+                    .collect();
+                names.sort_unstable();
+                return Err(SelectionError::AmbiguousFamilySelection {
                     family: selection_token.to_string(),
-                    profile: Some(profile.name.clone()),
-                    transport: profile.transport,
+                    profiles: names,
                 });
             }
-        } else if family_profiles.len() > 1 {
-            let mut names: Vec<String> = family_profiles
-                .iter()
-                .map(|profile| profile.name.clone())
-                .collect();
-            names.sort_unstable();
-            return Err(SelectionError::AmbiguousFamilySelection {
-                family: selection_token.to_string(),
-                profiles: names,
-            });
+            std::cmp::Ordering::Less => {}
         }
 
         let transport = registry
@@ -151,4 +155,86 @@ pub fn resolve_selection(
     Err(SelectionError::UnknownSelection {
         token: selection_token.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use crate::{
+        SolverCapabilityModel, SolverConfig, SolverFamily, SolverProfile, SolverRegistry,
+        SolverTransport,
+    };
+
+    use super::{SelectionError, resolve_selection};
+
+    fn profile(name: &str, family: &str) -> SolverProfile {
+        SolverProfile {
+            name: name.to_string(),
+            family: family.to_string(),
+            transport: SolverTransport::Embedded,
+            executable: None,
+            arguments: Vec::new(),
+            environment: BTreeMap::new(),
+            options: SolverConfig::default(),
+        }
+    }
+
+    #[test]
+    fn resolve_profile_selection() {
+        let registry = SolverRegistry::with_builtin_families();
+        let profiles = BTreeMap::from([(
+            "xpress-local".to_string(),
+            profile("xpress-local", "xpress"),
+        )]);
+
+        let resolved = resolve_selection(&registry, &profiles, "xpress-local")
+            .unwrap_or_else(|err| panic!("unexpected resolve error: {err}"));
+
+        assert_eq!(resolved.family, "xpress");
+        assert_eq!(resolved.profile.as_deref(), Some("xpress-local"));
+    }
+
+    #[test]
+    fn resolve_family_with_single_profile_autoresolves() {
+        let registry = SolverRegistry::with_builtin_families();
+        let profiles = BTreeMap::from([("highs-fast".to_string(), profile("highs-fast", "highs"))]);
+
+        let resolved = resolve_selection(&registry, &profiles, "highs")
+            .unwrap_or_else(|err| panic!("unexpected resolve error: {err}"));
+
+        assert_eq!(resolved.profile.as_deref(), Some("highs-fast"));
+    }
+
+    #[test]
+    fn resolve_family_with_many_profiles_errors() {
+        let registry = SolverRegistry::with_builtin_families();
+        let profiles = BTreeMap::from([
+            ("highs-a".to_string(), profile("highs-a", "highs")),
+            ("highs-b".to_string(), profile("highs-b", "highs")),
+        ]);
+
+        let result = resolve_selection(&registry, &profiles, "highs");
+
+        assert!(matches!(
+            result,
+            Err(SelectionError::AmbiguousFamilySelection { .. })
+        ));
+    }
+
+    #[test]
+    fn resolve_family_without_profile_uses_embedded_transport() {
+        let mut registry = SolverRegistry::new();
+        registry.add_family(SolverFamily::embedded(
+            "example",
+            "Example",
+            SolverCapabilityModel::lp_mip_default(),
+        ));
+
+        let resolved = resolve_selection(&registry, &BTreeMap::new(), "example")
+            .unwrap_or_else(|err| panic!("unexpected resolve error: {err}"));
+
+        assert_eq!(resolved.profile, None);
+        assert_eq!(resolved.transport, SolverTransport::Embedded);
+    }
 }

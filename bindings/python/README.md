@@ -1,5 +1,9 @@
 # Arco Python bindings
 
+The Python package remains in `bindings/python` for path compatibility with existing build, release, and editable-install workflows. Its Rust crate is named `arco-python` and is the Python interaction surface; public Python imports stay under `arco`.
+
+Python-facing solve orchestration is routed through the shared `arco-ops` facade where it overlaps with other interaction surfaces. The public Python API is unchanged.
+
 Build and install locally with uv:
 
 ```bash

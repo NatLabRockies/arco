@@ -2,6 +2,7 @@
 
 use crate::types::{Bounds, Constraint, SimplifyLevel, Variable};
 use arco_expr::ids::ConstraintId;
+use arco_validate::{bounds_are_valid, coefficient_is_valid};
 
 use crate::model::error::ModelError;
 use crate::model::{ColumnVec, Model};
@@ -81,7 +82,7 @@ impl Model {
         for idx in 0..num_variables {
             let lower = var_lower[idx] as f64;
             let upper = var_upper[idx] as f64;
-            if lower.is_nan() || upper.is_nan() || lower > upper {
+            if !bounds_are_valid(lower, upper) {
                 return Err(ModelError::InvalidVariableBounds { lower, upper });
             }
             model.push_variable(Variable {
@@ -94,7 +95,7 @@ impl Model {
         for idx in 0..num_constraints {
             let lower = con_lower[idx] as f64;
             let upper = con_upper[idx] as f64;
-            if lower.is_nan() || upper.is_nan() || lower > upper {
+            if !bounds_are_valid(lower, upper) {
                 return Err(ModelError::InvalidConstraintBounds { lower, upper });
             }
             model.constraints.push(Constraint {
@@ -122,7 +123,7 @@ impl Model {
                     });
                 }
                 let coefficient = values[idx] as f64;
-                if !coefficient.is_finite() {
+                if !coefficient_is_valid(coefficient) {
                     return Err(ModelError::InvalidCscData {
                         reason: format!(
                             "coefficient at position {idx} must be finite (got {coefficient})"

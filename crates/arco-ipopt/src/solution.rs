@@ -5,7 +5,7 @@ use crate::status::{
     ipopt_has_solution, ipopt_status_string, ipopt_to_core_status, ipopt_to_generic_status,
 };
 use arco_contracts::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
-use arco_solver::{SolutionView, SolverStatus};
+use arco_contracts::{SolutionView, SolverStatus};
 use ipopt::SolveStatus;
 use std::collections::BTreeMap;
 
