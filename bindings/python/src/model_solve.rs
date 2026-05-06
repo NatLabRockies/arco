@@ -1,10 +1,11 @@
 use crate::errors;
 use crate::solver::{
-    SolveOverrides, detect_default_backend, extract_solver_settings, solve_failure_solution,
+    SolveOverrides, detect_default_backend, extract_solver_settings, resolve_backend,
+    solve_failure_solution,
 };
 use crate::{PyModel, PySolveResult};
 use arco_expr::VariableId;
-use arco_ops::{ArcoOps, OpsError};
+use arco_ops::ArcoOps;
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
@@ -44,9 +45,11 @@ pub(crate) fn solve_model(
     );
     let config = effective_settings.to_solver_config();
 
+    let backend = resolve_backend(solver_obj, &selected_backend)?;
+
     let registry = arco_solver::SolverRegistry::with_builtin_families();
     let profiles = std::collections::BTreeMap::new();
-    let resolved = ArcoOps::resolve_solver_selection(&registry, &profiles, &model.default_backend)
+    let resolved = ArcoOps::resolve_solver_selection(&registry, &profiles, &selected_backend)
         .map_err(|error| errors::SolverInternalError::new_err(error.to_string()))?;
     let requirements = arco_solver::SolverRequirements {
         transport: None,
@@ -63,11 +66,10 @@ pub(crate) fn solve_model(
         hints.as_deref(),
     ) {
         Ok(solution) => Ok(PySolveResult::new(solution)),
-        Err(OpsError::Solver(arco_solver::SolverError::SolveFailure { status })) => {
+        Err(arco_solver::SolverError::SolveFailure { status }) => {
             Ok(PySolveResult::new(solve_failure_solution(status)))
         }
-        Err(OpsError::Solver(error)) => Err(errors::generic_solver_error_to_py(error)),
-        Err(error) => Err(errors::SolverInternalError::new_err(error.to_string())),
+        Err(error) => Err(errors::generic_solver_error_to_py(error)),
     }?;
 
     Py::new(py, result)

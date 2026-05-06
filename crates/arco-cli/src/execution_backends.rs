@@ -37,48 +37,34 @@ impl OptimizationAdapter for RustArcoAdapter {
             "solver model translation completed in {:.2} ms",
             build_started.elapsed().as_secs_f64() * 1000.0,
         );
-
-        info!("starting solver backend run through arco-ops: {}", backend);
-        let solver_started = Instant::now();
-        let config = SolverConfig::new().with_log_to_console(self.log_to_console);
-        let solution =
-            ArcoOps::solve_default_model("highs", &model, &config, None).map_err(|source| {
-                ExecutionError::Solve {
-                    backend: backend.clone(),
-                    source: ops_to_solver_error(source),
-                }
+        info!("initializing solver backend instance");
+        let mut solver =
+            HighsSolver::new(model).map_err(|source| ExecutionError::SolverInitialization {
+                backend: backend.clone(),
+                source,
             })?;
+        solver.set_log_to_console(self.log_to_console);
+
+        info!("starting solver backend run: {}", backend);
+        let solver_started = Instant::now();
+        let solution = solver.solve().map_err(|source| ExecutionError::Solve {
+            backend: backend.clone(),
+            source,
+        })?;
         info!(
             "solver backend run completed in {:.2} ms: {}",
             solver_started.elapsed().as_secs_f64() * 1000.0,
             backend
         );
-        if solution.status != ArcoSolverStatus::Optimal {
+        info!("solve status: {}", solution.status_string());
+        if !solution.is_feasible() {
             return Err(ExecutionError::NoFeasibleSolution {
                 backend,
-                status: format!("{:?}", solution.status),
+                status: solution.status_string().to_string(),
             });
         }
 
-        let objective_terms =
-            problem
-                .algebra
-                .objective
-                .terms
-                .iter()
-                .try_fold(0.0, |accumulator, term| {
-                    Ok::<f64, ExecutionError>(
-                        accumulator
-                            + term.coefficient
-                                * lookup_primal_value(
-                                    &backend,
-                                    &term.variable_name,
-                                    &variable_indices,
-                                    &solution.primal_values,
-                                )?,
-                    )
-                })?;
-        let objective_value = problem.algebra.objective.constant + objective_terms;
+        let objective_value = problem.algebra.objective.constant + solution.objective_value();
         let report_values = problem
             .algebra
             .reports
@@ -90,7 +76,7 @@ impl OptimizationAdapter for RustArcoAdapter {
                         &backend,
                         report,
                         &variable_indices,
-                        &solution.primal_values,
+                        solution.primal_values(),
                     )?,
                 })
             })
@@ -110,7 +96,7 @@ impl OptimizationAdapter for RustArcoAdapter {
                             &backend,
                             &instance.name,
                             &variable_indices,
-                            &solution.primal_values,
+                            solution.primal_values(),
                         )
                     })
                     .transpose()?
@@ -128,7 +114,7 @@ impl OptimizationAdapter for RustArcoAdapter {
                                     &backend,
                                     &instance.name,
                                     &variable_indices,
-                                    &solution.primal_values,
+                                    solution.primal_values(),
                                 )?,
                             })
                         })
@@ -146,10 +132,10 @@ impl OptimizationAdapter for RustArcoAdapter {
             .collect::<Result<Vec<_>, _>>()?;
 
         let dual_report_values =
-            extract_dual_report_values(problem, &constraint_indices, &solution.constraint_duals);
+            extract_dual_report_values(problem, &constraint_indices, solution.constraint_duals());
 
         Ok(AdapterSolveOutput {
-            status: map_solver_status(solution.status),
+            status: map_solver_status(solution.core_status()),
             objective_value: ScalarArtifactValue {
                 compiled_name: problem.objective.name.clone(),
                 value: objective_value,
@@ -287,48 +273,34 @@ impl OptimizationAdapter for XpressArcoAdapter {
             "solver model translation completed in {:.2} ms",
             build_started.elapsed().as_secs_f64() * 1000.0
         );
-
-        info!("starting solver backend run through arco-ops: {}", backend);
-        let solver_started = Instant::now();
-        let config = SolverConfig::new().with_log_to_console(self.log_to_console);
-        let solution =
-            ArcoOps::solve_default_model("xpress", &model, &config, None).map_err(|source| {
-                ExecutionError::Solve {
-                    backend: backend.clone(),
-                    source: ops_to_solver_error(source),
-                }
+        info!("initializing solver backend instance");
+        let mut solver =
+            XpressSolver::new(model).map_err(|source| ExecutionError::SolverInitialization {
+                backend: backend.clone(),
+                source,
             })?;
+        solver.set_log_to_console(self.log_to_console);
+
+        info!("starting solver backend run: {}", backend);
+        let solver_started = Instant::now();
+        let solution = solver.solve().map_err(|source| ExecutionError::Solve {
+            backend: backend.clone(),
+            source,
+        })?;
         info!(
             "solver backend run completed in {:.2} ms: {}",
             solver_started.elapsed().as_secs_f64() * 1000.0,
             backend
         );
-        if solution.status != ArcoSolverStatus::Optimal {
+        info!("solve status: {:?}", solution.core_status());
+        if !solution.is_feasible() {
             return Err(ExecutionError::NoFeasibleSolution {
                 backend,
-                status: format!("{:?}", solution.status),
+                status: format!("{:?}", solution.core_status()),
             });
         }
 
-        let objective_terms =
-            problem
-                .algebra
-                .objective
-                .terms
-                .iter()
-                .try_fold(0.0, |accumulator, term| {
-                    Ok::<f64, ExecutionError>(
-                        accumulator
-                            + term.coefficient
-                                * lookup_primal_value(
-                                    &backend,
-                                    &term.variable_name,
-                                    &variable_indices,
-                                    &solution.primal_values,
-                                )?,
-                    )
-                })?;
-        let objective_value = problem.algebra.objective.constant + objective_terms;
+        let objective_value = problem.algebra.objective.constant + solution.objective_value();
         let report_values = problem
             .algebra
             .reports
@@ -340,7 +312,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
                         &backend,
                         report,
                         &variable_indices,
-                        &solution.primal_values,
+                        solution.primal_values(),
                     )?,
                 })
             })
@@ -360,7 +332,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
                             &backend,
                             &instance.name,
                             &variable_indices,
-                            &solution.primal_values,
+                            solution.primal_values(),
                         )
                     })
                     .transpose()?
@@ -378,7 +350,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
                                     &backend,
                                     &instance.name,
                                     &variable_indices,
-                                    &solution.primal_values,
+                                    solution.primal_values(),
                                 )?,
                             })
                         })
@@ -396,10 +368,10 @@ impl OptimizationAdapter for XpressArcoAdapter {
             .collect::<Result<Vec<_>, _>>()?;
 
         let dual_report_values =
-            extract_dual_report_values(problem, &constraint_indices, &solution.constraint_duals);
+            extract_dual_report_values(problem, &constraint_indices, solution.constraint_duals());
 
         Ok(AdapterSolveOutput {
-            status: map_solver_status(solution.status),
+            status: map_solver_status(solution.core_status()),
             objective_value: ScalarArtifactValue {
                 compiled_name: problem.objective.name.clone(),
                 value: objective_value,
@@ -408,12 +380,5 @@ impl OptimizationAdapter for XpressArcoAdapter {
             variable_values,
             dual_report_values,
         })
-    }
-}
-
-fn ops_to_solver_error(error: OpsError) -> SolverError {
-    match error {
-        OpsError::Solver(source) => source,
-        other => SolverError::SolverSpecific(other.to_string()),
     }
 }
