@@ -7,8 +7,8 @@ pub use crate::driver_summary::{
 };
 use crate::driver_summary::{summarize_variables, trim_family_prefix};
 use arco_ops::ArcoOps;
+use arco_ops::compile::pipeline::PipelineError;
 use arco_ops::execution::{ExecutionError, SolveStatus, render_problem_model};
-use arco_ops::kdl::pipeline::PipelineError;
 use arco_ops::solver::{ResolvedSelection, SolverProfile};
 use miette::Diagnostic;
 use std::fmt::Display;

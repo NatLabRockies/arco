@@ -74,7 +74,7 @@ paths = [
   "crates/arco-compile/src/**",
   "crates/arco-lower/src/**",
 ]
-order = 8
+order = 3
 
 [[layers]]
 name = "validation"
@@ -195,13 +195,8 @@ from = "crates/arco-kdl/src/**"
 to = "crates/arco-scip/src/**"
 reason = "Authoring surfaces must not couple to concrete solver adapters"
 
-# Compilation is the only semantic bridge out of the canonical model. It must
-# stay surface-neutral and solver-family-neutral.
-[[boundaries]]
-from = "crates/arco-compile/src/**"
-to = "crates/arco-kdl/src/**"
-reason = "Compilation must consume canonical model semantics, not authoring-surface internals"
-
+# Compilation is the only semantic bridge from parsed authoring ASTs to solver
+# targets/portable IR. Text surfaces parse; compilation validates and lowers.
 [[boundaries]]
 from = "crates/arco-compile/src/**"
 to = "crates/arco-json/src/**"
@@ -610,26 +605,6 @@ reason = "Interaction surfaces must use arco-ops instead of shared solver contra
 from = "crates/arco-cli/src/**"
 to = "crates/arco-solver/src/**"
 reason = "Interaction surfaces must use arco-ops instead of solver platform directly"
-
-[[boundaries]]
-from = "bindings/python/src/**"
-to = "crates/arco-model/src/**"
-reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
-
-[[boundaries]]
-from = "bindings/python/src/**"
-to = "crates/arco-algebra/src/**"
-reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
-
-[[boundaries]]
-from = "bindings/python/src/**"
-to = "crates/arco-expr/src/**"
-reason = "Interaction surfaces must use arco-ops instead of expression internals"
-
-[[boundaries]]
-from = "bindings/python/src/**"
-to = "crates/arco-blocks/src/**"
-reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
 
 [[boundaries]]
 from = "bindings/python/src/**"

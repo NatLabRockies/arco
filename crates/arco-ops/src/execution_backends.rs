@@ -1,3 +1,4 @@
+use crate::compile::compile::CompiledProblem;
 #[cfg(feature = "xpress")]
 use crate::execution::XpressArcoAdapter;
 use crate::execution::{
@@ -6,7 +7,6 @@ use crate::execution::{
     evaluate_linear_report, extract_dual_report_values, lookup_primal_value, map_solver_status,
 };
 use crate::highs::Solver as HighsSolver;
-use crate::kdl::compile::CompiledProblem;
 use crate::scip;
 #[cfg(feature = "xpress")]
 use crate::xpress::Solver as XpressSolver;

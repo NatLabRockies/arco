@@ -1,0 +1,8 @@
+
+model "M" {
+  control "x" lower=0 {
+    index "a"
+  }
+  minimize "Obj" { x[a] }
+}
+scenario "S" { use "M" }

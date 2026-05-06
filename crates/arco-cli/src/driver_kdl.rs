@@ -1,6 +1,6 @@
 use crate::driver::DriverError;
 use arco_ops::ArcoOps;
-use arco_ops::kdl::pipeline::PipelineError;
+use arco_ops::compile::pipeline::PipelineError;
 use miette::{Diagnostic, SourceSpan};
 use serde::Serialize;
 use std::path::Path;

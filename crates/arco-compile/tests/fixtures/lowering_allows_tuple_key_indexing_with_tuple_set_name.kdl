@@ -1,0 +1,37 @@
+
+data "links" source="data/links.csv" {
+  alias "generators" column="gen"
+  alias "buses" column="bus"
+
+  set "area"
+  set "tech"
+  set "generators"
+  set "buses"
+
+  set "feasible_links" {
+    index "a" { in "area" }
+    index "i" { in "tech" }
+    index "g" { in "generators" }
+    index "b" { in "buses" }
+    filter { feasible > 0 }
+  }
+}
+
+model "TupleDispatch" {
+  control "x" lower=0 {
+    index "feasible_links"
+  }
+
+  constraint "cap" {
+    index "feasible_links"
+    expression {
+      x[feasible_links] <= 1
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "TupleDispatch"
+}

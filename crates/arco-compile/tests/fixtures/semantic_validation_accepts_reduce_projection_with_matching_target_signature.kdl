@@ -1,0 +1,38 @@
+
+set "area" { "a1" }
+set "tech" { "solar" }
+set "gen" { "g1" }
+set "bus" { "b1" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "gen" }
+  index "b" { in "bus" }
+}
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "Dispatch" {
+  control "investment" {
+    index "a"
+    index "i"
+    index "g"
+    index "b"
+  }
+
+  expression "investment_by_area_tech[a,i]" {
+    reduce "ai" {
+      sum "investment"
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

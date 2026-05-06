@@ -1,0 +1,28 @@
+
+model "Dispatch" {
+  set "assets" alias="a"
+  set "time" alias="t"
+
+  param "demand" {
+    index "time"
+  }
+  param "capacity_mw" index="assets"
+
+  control "dispatch" index="assets" lower=0
+  control "on" {
+    index "assets"
+    index "time"
+  }
+
+  expression "FuelCost" {
+    sum(dispatch[a] for a in assets)
+  }
+
+  constraint "balance" {
+    sum(dispatch[a] for a in assets) = demand[t]
+  }
+
+  maximize "Revenue" {
+    FuelCost
+  }
+}

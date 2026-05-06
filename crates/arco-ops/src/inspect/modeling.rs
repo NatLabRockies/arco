@@ -3,8 +3,8 @@ use super::{
     SetBinding, SetRef, SourceRef, TermRef, canonical_set_name, collect_indexed_targets,
     lookup_set_size, resolved_set_cardinality,
 };
+use crate::compile::semantic::{ResolvedConstraint, SemanticProgram};
 use crate::kdl::algebra::{self, ComparisonOp, ConstraintBody, Expr, ReductionOp};
-use crate::kdl::semantic::{ResolvedConstraint, SemanticProgram};
 use std::collections::{BTreeMap, BTreeSet};
 
 // ─── Constraint builder ──────────────────────────────────────────

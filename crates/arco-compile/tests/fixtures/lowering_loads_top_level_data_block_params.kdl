@@ -1,0 +1,40 @@
+
+set "time" { "1"; "2" }
+
+data "inputs" source="data/inputs.csv" {
+  map "time" from="time"
+
+  param "capacity" index="time" from="cap" reduce="sum"
+  param "demand" index="time" from="demand"
+}
+
+model "Dispatch" {
+  set time alias="t"
+
+  param "capacity" {
+    index "t"
+  }
+  param "demand" {
+    index "t"
+  }
+
+  control "x" {
+    index "t"
+  }
+
+  constraint "cap_limit[t]" {
+    x[t] <= capacity[t]
+  }
+
+  constraint "balance[t]" {
+    x[t] = demand[t]
+  }
+
+  minimize "Obj" {
+    sum(x[t] for t in time)
+  }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

@@ -1,48 +1,75 @@
-Architecture
+# Architecture
 
-> [!NOTE]
-> This page describes the current workspace shape. For the proposed target-state
-> crate layout and migration direction, see
-> [`../../ARCHITECTURE_REFACTOR_PLAN.md`](../../ARCHITECTURE_REFACTOR_PLAN.md).
+Arco separates interaction surfaces, text authoring formats, compilation, solver
+contracts, and concrete solver adapters. The goal is that every user-facing path
+shares the same semantic lowering and solver orchestration.
 
-Arco is structured as a Rust workspace with multiple crates and Python bindings on top. This split is not arbitrary. It reflects a separation between the stable, performance-critical core and the user-facing API that prioritizes ergonomics over raw speed.
+## Crate roles
 
-Crate overview
+```text
+Interaction surfaces
+  arco-cli       command-line executable
+  arco-python    Python bindings
+  arco-julia     planned Julia bindings
 
-The workspace contains thirteen crates organized into three layers. At the bottom are the foundational crates that define the data structures and algebraic building blocks. arco-core provides the basic abstractions: variables, constraints, expressions, and the solver-agnostic model representation. arco-algebra defines the arithmetic traits that allow composing expressions without dynamic dispatch. arco-index handles the index set machinery that powers multi-dimensional variable arrays.
+Text authoring formats
+  arco-kdl       KDL text parser and source AST
+  arco-json      planned JSON text/document loader
+  arco-yaml      planned YAML text/document loader
 
-The middle layer connects these abstractions to actual solvers. arco-solver defines the interface that any backend must implement. Currently there are two production backends: arco-highs, which wraps the embedded HiGHS solver, and arco-ipopt, which provides nonlinear programming capabilities. There is also arco-xpress for users with access to the FICO Xpress SDK, though this requires a commercial license and separate installation. LP/MPS export helpers live in arco-export, and the external-process SCIP integration is isolated in arco-scip so the CLI can stay thin.
+Compilation
+  arco-compile   semantic validation and lowering from parsed authoring ASTs
+                 to solver-facing targets
 
-The top layer provides specialized functionality. arco-blocks defines the composition system for multi-stage optimization workflows. arco-reporters handles solution output and diagnostic formatting. arco-python contains the PyO3-based bindings that expose everything to Python.
+Canonical model
+  arco-model     in-memory model representation
+  arco-expr      expression IDs and algebraic expressions
+  arco-blocks    block composition support
 
-Python binding layer
+Operations facade
+  arco-ops       shared facade used by CLI and language bindings
 
-The Python API lives in `bindings/python` and is built with PyO3 and maturin. The path remains unchanged for compatibility with existing build, release, and editable-install workflows, while the Rust crate is named `arco-python` to reflect its interaction-surface role. Public Python imports remain under `arco`.
+Solver platform
+  arco-solver    selection, profiles, and preflight
+  arco-contracts shared solver config/status/result contracts
+  arco-targets   solver-facing algebraic target structs
 
-The binding layer is intentionally thin. It does not reimplement logic in Python; it wraps the Rust types directly and handles the translation between Python objects and Rust data structures. Python-facing solve orchestration calls the shared `arco-ops` facade for selection resolution, preflight checks, and backend solve dispatch where those steps overlap with other interaction surfaces.
+Solver adapters
+  arco-highs
+  arco-scip
+  arco-ipopt
+  arco-xpress
 
-This thinness has consequences. Error messages come from Rust and retain their precision. Type stubs are provided so static analysis tools can catch mistakes before runtime. The performance characteristics are essentially those of the underlying Rust code, minus some unavoidable overhead from crossing the language boundary.
+Exchange/export
+  arco-export
+  arco-exchange
+```
 
-The binding layer also handles NumPy integration. Variable arrays can be constructed from NumPy arrays, and solution values can be extracted back into NumPy format without copying data through Python lists. This matters for large models where the difference between a view and a copy is the difference between fitting in memory and not.
+## Dependency shape
 
-Solver abstraction
+```text
+arco-cli ───────┐
+arco-python ────┼──▶ arco-ops
+arco-julia ─────┘       │
+                        ├──▶ arco-kdl/json/yaml  parse text into source ASTs
+                        ├──▶ arco-model          canonical in-memory model APIs
+                        ├──▶ arco-compile        validate and lower parsed sources
+                        ├──▶ arco-solver         selection and preflight
+                        ├──▶ arco-targets        solver-facing algebra
+                        ├──▶ solver adapters     execute solves
+                        └──▶ export/exchange     write exchange formats
+```
 
-The solver interface in arco-solver is designed around a simple contract. A solver takes a model description in a normalized form, translates it to whatever representation the underlying solver requires, executes the solve, and returns results in a standard format. The normalization step is where much of the complexity lives.
+Text authoring crates parse files and source text. They do not own solver
+selection, target lowering, runtime execution, or export behavior. `arco-compile`
+is the semantic bridge that validates parsed authoring ASTs and lowers them into
+solver-facing targets.
 
-When you build a model in Arco, you are constructing an expression graph. Variables reference constraints. Constraints reference expressions. Expressions reference other expressions. Before solving, this graph must be flattened into a sparse matrix format that solvers understand. This flattening involves topological sorting to resolve dependencies, constant folding where possible, and the actual construction of the CSR matrix structure.
+Language bindings and the CLI are interaction surfaces. They stay thin and route
+shared behavior through `arco-ops` rather than assembling parser, compiler,
+solver, and export crates directly.
 
-The abstraction intentionally leaks slightly. Solver-specific options are exposed through configuration objects that accept raw key-value pairs. This allows users to tune solver behavior without Arco needing to maintain a mapping of every possible option for every backend. If you know HiGHS supports a particular setting, you can pass it through. If you pass something invalid, the solver will complain and Arco will surface that error.
+Solver adapters consume solver targets and shared solver contracts. They must not
+compile directly from canonical model internals.
 
-Data flow
-
-A typical workflow looks like this. The user constructs a Model in Python, adding variables and constraints through the bound API. This builds up the expression graph in Rust memory. When solve() is called, the model is frozen and normalized. The normalization produces a compact representation that the solver backend consumes. The backend translates this to its own format, calls the actual solver, and returns raw solution data. Arco wraps this in a SolveResult object that provides convenient accessors for variable values and constraint satisfaction status.
-
-Throughout this process, allocations are minimized. The expression graph is built incrementally but stored compactly. Normalization reuses buffers where possible. Solution data is returned as views rather than copies when the caller requests it. The goal is that solving a model twice should not allocate twice the memory.
-
-The workspace structure
-
-The Cargo workspace is defined at the repository root. All crates share a common version number and lint configuration. This keeps the dependency graph consistent and ensures that a checkout at any particular commit builds all crates against compatible versions of each other.
-
-The Python package is a separate concern. It is built with maturin, which handles the Rust compilation and produces a wheel that contains the compiled extension module. The resulting package embeds the HiGHS solver, so users who pip install arco get a working optimization tool without needing to install anything else.
-
-Version management is automated through release-please, which bumps the version in all Cargo.toml files and pyproject.toml simultaneously. This prevents the drift that often happens when a workspace contains multiple crates that are supposed to be released together.
+`arco-core` has been retired; canonical model code lives in `arco-model`.

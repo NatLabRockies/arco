@@ -5,14 +5,15 @@ pub mod execution;
 mod execution_backends;
 pub mod inspect;
 
+pub use arco_compile as compile;
+use arco_compile::pipeline::{
+    CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
+};
 pub use arco_export::ExportError;
 use arco_export::{write_lp, write_mps};
 pub use arco_expr as expr;
 pub use arco_highs as highs;
 pub use arco_kdl as kdl;
-use arco_kdl::pipeline::{
-    CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
-};
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
 pub use arco_model as model;
 pub use arco_scip as scip;
@@ -137,7 +138,7 @@ impl ArcoOps {
 
     /// Execute a compiled problem using a built-in solver selected by the solver platform.
     pub fn execute_compiled_problem(
-        problem: &kdl::compile::CompiledProblem,
+        problem: &compile::compile::CompiledProblem,
         selection: &ResolvedSelection,
         log_to_console: bool,
         profile: Option<&SolverProfile>,

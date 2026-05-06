@@ -1,0 +1,12 @@
+
+model "Dispatch" {
+  constraint {
+    expression { 0 == 0 }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}

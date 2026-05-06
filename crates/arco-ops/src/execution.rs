@@ -1,4 +1,4 @@
-use crate::kdl::compile::CompiledProblem;
+use crate::compile::compile::CompiledProblem;
 use crate::solver::{SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus};
 use crate::targets::{ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind};
 use arco_model::{
@@ -826,8 +826,8 @@ fn try_eval_filter(
 
 #[cfg(test)]
 mod tests {
+    use crate::compile::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
     use crate::execution::{MockArcoAdapter, execute_problem_with_options};
-    use crate::kdl::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
     use crate::targets::{
         AlgebraicProblem, LinearObjective, ObjectiveSense, VariableInstance, VariableKind,
     };

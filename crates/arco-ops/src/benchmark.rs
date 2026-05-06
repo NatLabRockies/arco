@@ -1,8 +1,8 @@
 use crate::ArcoOps;
+use crate::compile::pipeline::PipelineError;
+use crate::compile::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
 use crate::execution::{ExecutionError, RustArcoAdapter, SolveStatus, execute_problem};
 use crate::kdl::ObjectiveSense;
-use crate::kdl::pipeline::PipelineError;
-use crate::kdl::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
 use crate::targets::ObjectiveSense as TargetObjectiveSense;
 use serde::Deserialize;
 use std::fs;
@@ -259,11 +259,11 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, BenchmarkEr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kdl::algebra::Expr;
-    use crate::kdl::semantic::{
+    use crate::compile::semantic::{
         ResolvedChronology, ResolvedObjective, ResolvedParameters, ResolvedSet, ResolvedSets,
         ResolvedTimeSet, SemanticProgram, TimeResolution,
     };
+    use crate::kdl::algebra::Expr;
     use std::collections::BTreeMap;
 
     fn base_program() -> SemanticProgram {

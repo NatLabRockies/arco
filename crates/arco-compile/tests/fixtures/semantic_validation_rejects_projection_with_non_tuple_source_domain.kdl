@@ -1,0 +1,15 @@
+
+set "area" { "a1" }
+
+projection "ai" {
+  from "area"
+  to "a"
+}
+
+model "Dispatch" {
+  minimize "Obj" { 0 }
+}
+
+scenario "S1" {
+  use "Dispatch"
+}
