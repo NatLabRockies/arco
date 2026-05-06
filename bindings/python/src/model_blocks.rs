@@ -1,6 +1,6 @@
 use crate::{PyModel, PyObject, PySolveResult};
 use arco_blocks::BlockPort;
-use arco_core::solver::SolverStatus;
+use arco_contracts::SolverStatus;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyType};
@@ -442,7 +442,7 @@ fn aggregate_block_status(statuses: &[SolverStatus]) -> SolverStatus {
 #[cfg(test)]
 mod tests {
     use super::aggregate_block_status;
-    use arco_core::solver::SolverStatus;
+    use arco_contracts::SolverStatus;
 
     #[test]
     fn aggregate_returns_optimal_when_all_blocks_optimal() {

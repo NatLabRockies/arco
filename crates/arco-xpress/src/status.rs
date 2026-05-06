@@ -1,6 +1,6 @@
 //! Xpress status to Arco status mapping.
 
-use arco_core::solver::SolverStatus as CoreSolverStatus;
+use arco_contracts::SolverStatus as CoreSolverStatus;
 
 // LP status constants (from Xpress C API)
 const XPRS_LP_UNSTARTED: i32 = 0;

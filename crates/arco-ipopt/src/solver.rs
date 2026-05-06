@@ -133,7 +133,7 @@ impl SolverBackend<Model, VariableId> for IpoptBackend {
         model: &Model,
         config: &SolverConfig,
         primal_start: Option<&[(VariableId, f64)]>,
-    ) -> Result<arco_core::solver::Solution, GenericSolverError> {
+    ) -> Result<Solution, GenericSolverError> {
         solve_model(model, config, primal_start).map(|s| s.into_core_solution())
     }
 

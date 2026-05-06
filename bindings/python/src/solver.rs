@@ -518,10 +518,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 /// Create a Solution for a solve failure (infeasible, unbounded, etc.).
-pub(crate) fn solve_failure_solution(
-    status: arco_core::solver::SolverStatus,
-) -> arco_core::solver::Solution {
-    arco_core::solver::Solution {
+pub(crate) fn solve_failure_solution(status: arco_solver::SolverStatus) -> arco_solver::Solution {
+    arco_solver::Solution {
         primal_values: Vec::new(),
         variable_duals: Vec::new(),
         constraint_duals: Vec::new(),

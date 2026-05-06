@@ -172,22 +172,6 @@ impl Solver {
     }
 }
 
-// Implement the arco_core::Solver trait
-impl arco_core::solver::Solver for Solver {
-    fn solve(
-        &mut self,
-        model: &Model,
-    ) -> Result<arco_contracts::Solution, arco_contracts::SolverError> {
-        let highs_solution = solve_model(
-            model,
-            &self.config,
-            self.primal_start.as_deref(),
-            self.use_async_crs,
-        )?;
-        Ok(highs_solution.into_core_solution())
-    }
-}
-
 // Implement the Solve trait from arco-solver
 impl Solve for Solver {
     type Solution = Solution;

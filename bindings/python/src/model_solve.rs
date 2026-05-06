@@ -1,10 +1,10 @@
 use crate::errors;
 use crate::solver::{
-    SolveOverrides, extract_solver_settings, resolve_backend, solve_failure_solution,
+    SolveOverrides, detect_default_backend, extract_solver_settings, solve_failure_solution,
 };
 use crate::{PyModel, PySolveResult};
 use arco_expr::VariableId;
-use arco_ops::ArcoOps;
+use arco_ops::{ArcoOps, OpsError};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
@@ -38,7 +38,10 @@ pub(crate) fn solve_model(
     };
     let effective_settings = effective_settings.with_overrides(overrides)?;
 
-    let backend = resolve_backend(solver_obj, &model.default_backend)?;
+    let selected_backend = solver_obj.map_or_else(
+        || model.default_backend.clone(),
+        |solver| detect_default_backend(Some(solver)),
+    );
     let config = effective_settings.to_solver_config();
 
     let registry = arco_solver::SolverRegistry::with_builtin_families();
@@ -60,10 +63,11 @@ pub(crate) fn solve_model(
         hints.as_deref(),
     ) {
         Ok(solution) => Ok(PySolveResult::new(solution)),
-        Err(arco_solver::SolverError::SolveFailure { status }) => {
+        Err(OpsError::Solver(arco_solver::SolverError::SolveFailure { status })) => {
             Ok(PySolveResult::new(solve_failure_solution(status)))
         }
-        Err(error) => Err(errors::generic_solver_error_to_py(error)),
+        Err(OpsError::Solver(error)) => Err(errors::generic_solver_error_to_py(error)),
+        Err(error) => Err(errors::SolverInternalError::new_err(error.to_string())),
     }?;
 
     Py::new(py, result)

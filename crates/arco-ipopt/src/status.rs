@@ -1,7 +1,8 @@
 //! IPOPT status to Arco status mapping.
 
 use arco_contracts::SolverStatus;
-use arco_core::solver::SolverStatus as CoreSolverStatus;
+
+type CoreSolverStatus = SolverStatus;
 use ipopt::SolveStatus;
 
 pub(crate) fn ipopt_to_core_status(status: SolveStatus) -> CoreSolverStatus {
