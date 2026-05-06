@@ -96,7 +96,7 @@ impl Solution {
         matches!(self.core_status, CoreSolverStatus::Unbounded)
     }
 
-    /// Convert this Xpress-specific solution into a solver-agnostic `arco_core::Solution`.
+    /// Convert this Xpress-specific solution into a solver-agnostic `arco_model::Solution`.
     pub fn into_core_solution(self) -> CoreSolution {
         CoreSolution {
             primal_values: self.primal_values,

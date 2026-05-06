@@ -14,7 +14,6 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-core = { workspace = true }
 arco-targets = { workspace = true }
 arco-validate = { workspace = true }
 csv = "1.4"

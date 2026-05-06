@@ -1,7 +1,7 @@
-use arco_kdl::ObjectiveSense;
-use arco_kdl::algebra::{self, ConstraintBody, Expr};
-use arco_kdl::semantic::{FamilySignature, SemanticProgram, VariableDeclOverrides};
-use arco_kdl::source::VariableKindDecl;
+use crate::kdl::ObjectiveSense;
+use crate::kdl::algebra::{self, ConstraintBody, Expr};
+use crate::kdl::semantic::{FamilySignature, SemanticProgram, VariableDeclOverrides};
+use crate::kdl::source::VariableKindDecl;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -290,7 +290,7 @@ fn find_set_aliases(program: &SemanticProgram, set_name: &str) -> Vec<String> {
         .collect()
 }
 
-fn resolved_set_cardinality(resolved: &arco_kdl::semantic::ResolvedSet) -> usize {
+fn resolved_set_cardinality(resolved: &crate::kdl::semantic::ResolvedSet) -> usize {
     resolved
         .tuple_rows
         .as_ref()
@@ -321,7 +321,7 @@ fn lookup_set_size(
     lookup_set_size_option(set_sizes, set_aliases, set_name).unwrap_or(0)
 }
 
-fn infer_set_dtype(resolved: &arco_kdl::semantic::ResolvedSet) -> String {
+fn infer_set_dtype(resolved: &crate::kdl::semantic::ResolvedSet) -> String {
     if resolved.values.is_empty() {
         return "string".to_string();
     }
@@ -414,16 +414,17 @@ fn variable_domain(
     (kind, lower, upper)
 }
 
-fn render_bound(bound: &arco_kdl::source::BoundExpr) -> BoundValue {
+fn render_bound(bound: &crate::kdl::source::BoundExpr) -> BoundValue {
     match bound {
-        arco_kdl::source::BoundExpr::Literal(arco_kdl::source::LiteralValue::Integer(v)) => {
+        crate::kdl::source::BoundExpr::Literal(crate::kdl::source::LiteralValue::Integer(v)) => {
             BoundValue::Numeric(*v as f64)
         }
-        arco_kdl::source::BoundExpr::Literal(arco_kdl::source::LiteralValue::Decimal(text)) => text
-            .parse::<f64>()
-            .map_or_else(|_| BoundValue::Symbolic(text.clone()), BoundValue::Numeric),
-        arco_kdl::source::BoundExpr::Literal(other) => BoundValue::Symbolic(format!("{other:?}")),
-        arco_kdl::source::BoundExpr::Formula(expr) => BoundValue::Symbolic(format!("{expr:?}")),
+        crate::kdl::source::BoundExpr::Literal(crate::kdl::source::LiteralValue::Decimal(text)) => {
+            text.parse::<f64>()
+                .map_or_else(|_| BoundValue::Symbolic(text.clone()), BoundValue::Numeric)
+        }
+        crate::kdl::source::BoundExpr::Literal(other) => BoundValue::Symbolic(format!("{other:?}")),
+        crate::kdl::source::BoundExpr::Formula(expr) => BoundValue::Symbolic(format!("{expr:?}")),
     }
 }
 
@@ -630,7 +631,7 @@ fn infer_parameter_sets(
 fn collect_parameter_sets_from_constraint_body(
     body: &ConstraintBody,
     parameter_name: &str,
-    bindings: &[arco_kdl::source::GenerationBinding],
+    bindings: &[crate::kdl::source::GenerationBinding],
     out: &mut Vec<String>,
 ) {
     let symbol_to_set: BTreeMap<&str, &str> = bindings

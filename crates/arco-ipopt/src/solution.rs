@@ -142,12 +142,12 @@ impl Solution {
         ipopt_status_string(self.status)
     }
 
-    /// Convert the IPOPT status to an `arco_core::SolverStatus`.
+    /// Convert the IPOPT status to an `arco_model::SolverStatus`.
     pub fn core_status(&self) -> CoreSolverStatus {
         ipopt_to_core_status(self.status)
     }
 
-    /// Convert this IPOPT-specific solution into a solver-agnostic `arco_core::Solution`.
+    /// Convert this IPOPT-specific solution into a solver-agnostic `arco_model::Solution`.
     pub fn into_core_solution(self) -> CoreSolution {
         CoreSolution {
             primal_values: self.primal_values,

@@ -298,11 +298,13 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
     let variables = inspect_payload["variable"]
         .as_array()
         .expect("variable array");
-    let investment = variables
+    let capacity = variables
         .iter()
-        .find(|record| record["name"] == "investment")
-        .expect("investment variable record");
-    let sets = investment["set"].as_array().expect("investment set array");
+        .find(|record| record["name"] == "capacity_nodal_site")
+        .expect("capacity_nodal_site variable record");
+    let sets = capacity["set"]
+        .as_array()
+        .expect("capacity_nodal_site set array");
     assert_eq!(
         sets.len(),
         4,

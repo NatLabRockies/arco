@@ -1,8 +1,9 @@
+use crate::ArcoOps;
 use crate::execution::{ExecutionError, RustArcoAdapter, SolveStatus, execute_problem};
-use arco_kdl::ObjectiveSense;
-use arco_kdl::pipeline::PipelineError;
-use arco_kdl::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
-use arco_ops::ArcoOps;
+use crate::kdl::ObjectiveSense;
+use crate::kdl::pipeline::PipelineError;
+use crate::kdl::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
+use crate::targets::ObjectiveSense as TargetObjectiveSense;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -227,13 +228,20 @@ fn to_e2e_summary(
         expect_solve_success: case.solvable && execution_result.status == SolveStatus::Optimal,
         objective: Some(ExpectedObjective {
             name: execution_result.objective.dsl_name.clone(),
-            sense: execution_result.objective_sense,
+            sense: kdl_objective_sense(execution_result.objective_sense),
         }),
         reports: execution_result
             .reports
             .iter()
             .map(|report| report.name.clone())
             .collect(),
+    }
+}
+
+fn kdl_objective_sense(sense: TargetObjectiveSense) -> ObjectiveSense {
+    match sense {
+        TargetObjectiveSense::Minimize => ObjectiveSense::Minimize,
+        TargetObjectiveSense::Maximize => ObjectiveSense::Maximize,
     }
 }
 
@@ -251,8 +259,8 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, BenchmarkEr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arco_kdl::algebra::Expr;
-    use arco_kdl::semantic::{
+    use crate::kdl::algebra::Expr;
+    use crate::kdl::semantic::{
         ResolvedChronology, ResolvedObjective, ResolvedParameters, ResolvedSet, ResolvedSets,
         ResolvedTimeSet, SemanticProgram, TimeResolution,
     };

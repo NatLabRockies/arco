@@ -17,12 +17,9 @@ test = false
 
 [dependencies]
 pyo3 = { workspace = true, features = ["extension-module"] }
-arco-core = { workspace = true }
-arco-expr = { workspace = true }
 arco-highs = { workspace = true }
 arco-ops = { workspace = true }
 arco-solver = { workspace = true }
-arco-contracts = { workspace = true }
 arco-blocks = { workspace = true }
 arco-ipopt = { workspace = true, optional = true }
 arco-xpress = { workspace = true, optional = true }

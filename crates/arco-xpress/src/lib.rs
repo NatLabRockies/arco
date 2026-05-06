@@ -1,9 +1,7 @@
-//! FICO Xpress solver backend for Arco optimization.
+//! FICO Xpress solver backend for Arco solver targets.
 //!
-//! This crate provides a bridge from `arco-core::Model` to the FICO Xpress
-//! solver. It supports LP, MIP, and QP problems.
-//!
-//! Xpress is a commercial solver and requires a valid license.
+//! Xpress is a commercial solver and requires a valid license. The adapter is
+//! migrating to the target-based solver seam.
 
 pub mod ffi;
 pub mod solution;
@@ -11,4 +9,4 @@ pub mod solver;
 mod status;
 
 pub use solution::Solution;
-pub use solver::{Solver, XpressBackend};
+pub use solver::Solver;

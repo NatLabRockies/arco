@@ -29,8 +29,12 @@ The target architecture follows these rules:
 5. **Solver adapters are siblings.** One solver family must never depend on
    another.
 6. **The solver platform depends on interfaces, not concrete adapters.**
-7. **Interaction surfaces are shells.** CLI and Python should orchestrate user
-   workflows through a small app-facing seam rather than reaching into internals.
+7. **Interaction surfaces are shells.** CLI, Python, Julia, and future language
+   bindings orchestrate user workflows through `arco-ops` rather than reaching
+   into internals.
+8. **No compatibility-driven architecture.** Breaking API changes are acceptable
+   while this refactor lands. Prefer clean seams over legacy pass-throughs,
+   compatibility crates, or duplicated APIs.
 
 ## Target crate map
 
@@ -88,107 +92,83 @@ The target crate inventory is organized around seams and responsibilities.
 ### Authoring surfaces
 
 - `arco-kdl` — KDL authoring surface.
-- `arco-json` — JSON authoring surface.
-- `arco-yaml` — YAML authoring surface.
+- `arco-json` — planned JSON authoring surface.
+- `arco-yaml` — planned YAML authoring surface.
 
 ### Interaction surfaces
 
 - `arco-cli` — command-line interaction surface.
 - `arco-python` — Python interaction surface.
+- `arco-julia` — planned Julia interaction surface.
+- Other language bindings should follow the same thin interaction-surface seam.
 
 ## Dependency diagram
 
 ```text
-+---------------------------+
-| Interaction surfaces      |
-|---------------------------|
-| arco-cli                  |
-| arco-python               |
-+-------------+-------------+
-              |
-              v
-+---------------------------+
-| arco-ops                  |
-| operations facade seam    |
-+------+------+------+------+----------------+
-       |      |      |      |                |
-       |      |      |      |                v
-       |      |      |      |      +-----------------------+
-       |      |      |      |      | arco-solver           |
-       |      |      |      |      | registry / preflight |
-       |      |      |      |      | selection / solve     |
-       |      |      |      |      +-----+-----------+-----+
-       |      |      |      |            |           |
-       |      |      |      |            |           v
-       |      |      |      |            |   +------------------+
-       |      |      |      |            |   | arco-runtime     |
-       |      |      |      |            |   +------------------+
-       |      |      |      |            |
-       |      |      |      |            +--> +------------------+
-       |      |      |      |                | arco-contracts   |
-       |      |      |      |                +------------------+
-       |      |      |      |
-       |      |      |      +---------------> +----------------------+
-       |      |      |                         | arco-exchange        |
-       |      |      |                         | consumes arco-ir     |
-       |      |      |                         +----------+-----------+
-       |      |      |                                    |
-       |      |      |                                    v
-       |      |      |                         +----------------------+
-       |      |      |                         | arco-ir              |
-       |      |      |                         +----------------------+
-       |      |      |
-       |      |      +-----------------------> +----------------------+
-       |      |                                | arco-compile         |
-       |      |                                +----+----+----+-------+
-       |      |                                     |    |    |
-       |      |                                     |    |    +-------> arco-ir
-       |      |                                     |    |
-       |      |                                     |    +------------> arco-algebra
-       |      |                                     |
-       |      |                                     +------------+----> arco-model
-       |      |                                                  |
-       |      |                                                  +----> arco-blocks
-       |      |
-       |      +-------------------------------> +----------------------+
-       |                                        | arco-validate        |
-       |                                        +----------+-----------+
-       |                                                   |
-       |                                                   v
-       |                                        +----------------------+
-       |                                        | arco-model           |
-       |                                        +----------+-----------+
-       |                                                   ^
-       |                                                   |
-       +-------> +------------------+   +------------------+   +------------------+
-                 | arco-kdl         |   | arco-json        |   | arco-yaml        |
-                 +------------------+   +------------------+   +------------------+
-                           \                  |                  /
-                            \                 |                 /
-                             +----------------+----------------+
-                                              |
-                                              v
-                                        +------------------+
-                                        | arco-model       |
-                                        +--------+---------+
-                                                 |
-                                                 v
-                                        +------------------+
-                                        | arco-algebra     |
-                                        +------------------+
+Interaction surfaces
+┌─────────────────────────────────────────────────────────────┐
+│ CLI / Python / Julia / other language bindings              │
+│ thin shells: user I/O, flags, language ergonomics only       │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ arco-ops                                                    │
+│ application seam: model API, load, validate, compile,       │
+│ inspect, export, solve                                      │
+└───────┬───────────────┬──────────────┬──────────────┬───────┘
+        │               │              │              │
+        ▼               ▼              ▼              ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ authoring    │ │ canonical    │ │ validation   │ │ exchange     │
+│ surfaces     │ │ model        │ │              │ │ over IR      │
+│              │ │              │ │              │ │              │
+│ arco-kdl     │ │ arco-model   │ │ arco-validate│ │ arco-exchange│
+│ arco-json    │ │              │ │              │ │              │
+│   planned    │ │              │ │              │ │              │
+│ arco-yaml    │ │              │ │              │ │              │
+│   planned    │ │              │ │              │ │              │
+└──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+       │                │                │                │
+       └────────────────┴────────────────┘                ▼
+                        │                         ┌──────────────┐
+                        ▼                         │ arco-ir      │
+┌─────────────────────────────────────────────┐   │ portable IR  │
+│ arco-compile                                │   └──────────────┘
+│ lowering / compilation                      │
+└───────────────┬──────────────────────┬──────┘
+                │                      │
+                ▼                      ▼
+        ┌──────────────┐       ┌──────────────┐
+        │ arco-targets │       │ arco-ir      │
+        │ solver IR    │       │ portable IR  │
+        └──────┬───────┘       └──────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────┐
+│ arco-solver                                 │
+│ registry / selection / preflight            │
+└───────────────┬─────────────────────────────┘
+                │
+                ▼
+┌─────────────────────────────────────────────┐
+│ solver adapters                             │
+│ arco-highs / arco-ipopt / arco-xpress       │
+│ arco-scip                                   │
+└───────────────┬─────────────────────────────┘
+                │
+                ▼
+        ┌──────────────┐
+        │ arco-runtime │
+        │ execution    │
+        └──────────────┘
 
-Solver adapter seam:
+Shared solver contracts:
+  arco-solver and solver adapters depend on arco-contracts.
 
-  +------------------+     +------------------+     +------------------+     +------------------+
-  | arco-highs       |     | arco-ipopt       |     | arco-xpress      |     | arco-scip        |
-  +--------+---------+     +--------+---------+     +--------+---------+     +--------+---------+
-           |                        |                        |                        |
-           +------------+-----------+-----------+------------+------------------------+
-                        |                       |                       |
-                        v                       v                       v
-               +------------------+   +------------------+   +------------------+
-               | arco-targets     |   | arco-contracts   |   | arco-runtime     |
-               +------------------+   +------------------+   +------------------+
+Final rule:
+  interaction surfaces depend on arco-ops, not on model, compiler, solver,
+  exchange, runtime, or adapter crates directly.
 ```
 
 ## Responsibilities by seam
@@ -318,71 +298,244 @@ Use this section as the first placement guide when adding features.
 
 ## Current to target migration map
 
-This is the intended shape relative to the current workspace.
+This is the intended shape relative to the current workspace. The migration does
+not preserve legacy APIs by default; when old APIs conflict with the target
+architecture, remove or replace them.
 
-- `arco-core` is expected to narrow or split toward `arco-model` and
-  `arco-validate` responsibilities.
-- `arco-export` is expected to narrow into `arco-exchange` semantics.
-- `arco-solver` now routes shared adapter and platform seams through
-  `arco-contracts`; the legacy `arco-solver-types` compatibility pass-through
-  crate has been retired.
-- `bindings/python` should converge on the `arco-python` role, even if the path
-  stays the same during migration.
-- `arco-kdl`, `arco-highs`, `arco-ipopt`, `arco-xpress`, `arco-scip`,
-  `arco-blocks`, `arco-algebra`, and `arco-tools` already align closely with the
-  target architecture and should mostly tighten seams rather than change purpose.
+- `arco-core` is transitional only. Move canonical model ownership into
+  `arco-model`, then retire `arco-core` instead of keeping a compatibility
+  prelude crate.
+- `arco-expr` must stop leaking to interaction surfaces and solver adapters.
+  Either absorb expression-domain ownership into `arco-model` / `arco-algebra` or
+  keep it as an internal canonical-model dependency only.
+- `arco-export` should collapse into `arco-exchange` or be deleted. Exchange
+  logic consumes `arco-ir`; it should not preserve a second public exchange API
+  only for compatibility.
+- `bindings/python` remains the Python package path, but its Rust crate should
+  depend directly on `arco-ops` only. Python API changes are acceptable.
+- `arco-cli` should depend directly on `arco-ops` only, aside from CLI-only
+  libraries such as argument parsing and diagnostics.
+- `arco-kdl` remains an authoring surface. It must stop producing solver-facing
+  targets directly.
+- Solver adapters remain sibling crates. They must consume `arco-targets`,
+  `arco-contracts`, and runtime services, not canonical model internals.
 
 ## Refactor phases
 
-### Phase 1: establish the missing seams
+### Phase 0: align the architecture rules
 
-Create and adopt the highest-value seam crates first:
+Update `.sentrux/rules.toml` so the checker enforces this document, not the
+transitional repository shape.
 
-- `arco-targets`
-- `arco-contracts`
-- `arco-ops`
-- `arco-validate`
+Required final direct-dependency rules:
 
-These four seams reduce the most coupling with the least conceptual churn.
+- interaction surfaces -> `arco-ops` only
+- authoring surfaces -> `arco-model` and authoring-local dependencies only
+- validation -> `arco-model`
+- compilation -> `arco-model`, `arco-targets`, and `arco-ir`
+- exchange -> `arco-ir`
+- solver platform -> `arco-contracts` and `arco-targets`
+- solver adapters -> `arco-contracts`, `arco-targets`, and `arco-runtime`
 
-### Phase 2: move behavior behind those seams
+Keep violations for:
 
-- move compile outputs behind `arco-targets`
-- move solver-family contracts behind `arco-contracts`
-- move shared validation into `arco-validate`
-- move CLI/Python operation logic into `arco-ops`
+- `arco-kdl -> arco-targets`
+- solver adapters -> `arco-core`, `arco-model`, or `arco-expr`
+- interaction surfaces -> model, compiler, exchange, solver, runtime, or adapter
+  crates
+- exchange -> canonical model crates
 
-### Phase 3: narrow legacy crates
+Acceptance: `sentrux check .` reports only real migration debt and passes once
+all phases are complete.
 
-- shrink `arco-core` toward canonical-model ownership only
-- shrink `arco-export` toward exchange-only ownership
-- shrink `arco-solver` toward platform/orchestration ownership only
+### Phase 1: make `arco-model` the canonical owner
 
-### Phase 4: add new surfaces and adapters through the new seams
+Move canonical domain ownership out of `arco-core` and into `arco-model`:
 
-Only after the seams are stable should we expand with:
+- `Model`
+- variables, constraints, objectives, bounds, and senses
+- model errors and diagnostics-facing domain errors
+- stable semantic handles and IDs
+- snapshots, sparse export views, and model inspection data
+- canonical expression ownership, or explicit integration with `arco-algebra`
 
-- additional authoring surfaces
-- additional language bindings
-- additional solver families
-- additional exchange formats
+Then remove `arco-core` from the workspace. Do not keep a compatibility crate
+unless a short-lived branch-local transition is required to keep intermediate
+commits buildable.
 
-### Phase 5: rename and retire legacy structure
+Acceptance:
 
-Once responsibilities are stable:
+- no workspace crate depends on `arco-core`
+- `arco-core` is removed from `Cargo.toml`
+- canonical model tests live under `arco-model`
 
-- rename crates where needed for clarity
-- remove remaining transitional pass-through modules after proving they are unused
-- update architecture rules to enforce the final target-state seams
+### Phase 2: settle expression ownership
 
-Current retired pass-throughs:
+Decide and implement one expression boundary:
 
-- `arco-solver-types` was an unused compatibility re-export of `arco-contracts`;
-  new and existing code should import solver/platform contracts from
-  `arco-contracts` or higher-level crate facades directly.
-- `arco-cli::export` was an unused compatibility wrapper around export helpers;
-  interaction code should call `arco-ops` workflows or `arco-export` directly
-  rather than route through the CLI library.
+- If expressions are canonical domain concepts, move them into `arco-model`.
+- If expressions are reusable algebra mechanics, keep them below `arco-model` as
+  `arco-algebra` internals.
+
+In either case, prevent expression IDs and internals from crossing into CLI,
+Python, exchange, solver platform, or solver adapters.
+
+Acceptance:
+
+- interaction surfaces do not import `arco-expr`
+- solver adapters do not import `arco-expr`
+- public model/ops APIs expose domain handles or DTOs, not expression internals
+
+### Phase 3: create the compilation seam
+
+Create `arco-compile` as the only semantic bridge out of the canonical model.
+Move lowering and artifact construction currently owned by `arco-kdl` into this
+crate.
+
+`arco-compile` owns:
+
+- canonical model -> `arco-targets`
+- canonical model -> `arco-ir`
+- normalization and lowering diagnostics
+- compile-time traceability metadata
+
+Acceptance:
+
+- `arco-kdl` no longer depends on `arco-targets`
+- KDL tests that assert lowered artifacts move to `arco-compile`
+- `arco-kdl` tests focus on parsing, source diagnostics, and canonical model
+  construction
+
+### Phase 4: make solver adapters target-only
+
+Refactor `arco-highs`, `arco-ipopt`, `arco-xpress`, and `arco-scip` to consume
+compiled targets and shared contracts only.
+
+Adapters own:
+
+- target -> native solver representation
+- family-specific capability and option enforcement
+- native invocation details
+- raw result -> `arco-contracts` result translation
+
+Adapters do not own:
+
+- canonical model flattening
+- authoring-surface parsing
+- solver selection policy
+
+Acceptance:
+
+- adapters have no dependency on `arco-core`, `arco-model`, or `arco-expr`
+- adapters have no dependency on one another
+- adapter tests build targets directly or use test helpers from `arco-targets`
+
+### Phase 5: clean solver platform orchestration
+
+Narrow `arco-solver` to registry, selection, capability preflight, and invocation
+through shared contracts.
+
+`arco-solver` receives compiled targets. It does not parse files, lower models,
+or depend on concrete adapter crates.
+
+Acceptance:
+
+- no `arco-solver -> arco-kdl`
+- no `arco-solver -> arco-model` unless required by target metadata and approved
+  as part of the final seam
+- no `arco-solver -> arco-highs/arco-ipopt/arco-xpress/arco-scip`
+
+### Phase 6: collapse exchange into `arco-exchange`
+
+Make `arco-exchange` the only public import/export crate. It consumes `arco-ir`.
+Remove `arco-export` unless it has a target-state responsibility that is not
+covered by `arco-exchange`.
+
+Acceptance:
+
+- `arco-export` is removed or private to the exchange implementation
+- exchange code does not depend on canonical model crates or solver adapters
+- import/export documentation names `arco-exchange`
+
+### Phase 7: rebuild `arco-ops` as the only application seam
+
+`arco-ops` exposes the user-facing Rust workflow API used by all interaction
+surfaces:
+
+- model construction API
+- load from authoring surfaces
+- validation
+- compilation
+- inspection
+- exchange/import/export
+- solve selection and execution
+- stable DTOs and handles for language bindings
+
+Breaking changes are acceptable. Design the API around target architecture, not
+old Python or CLI internals.
+
+Acceptance:
+
+- common CLI and Python workflows are expressible through `arco-ops`
+- `arco-ops` owns app-level errors and result DTOs
+- no interaction surface needs direct model, compiler, solver, exchange,
+  runtime, or adapter access
+
+### Phase 8: rewrite interaction surfaces
+
+Rewrite CLI and Python bindings to call `arco-ops` only. Julia and future
+language bindings must follow the same rule from their first implementation.
+
+CLI owns:
+
+- command-line parsing
+- terminal formatting
+- process exit behavior
+
+Python/Julia/other bindings own:
+
+- language-native object wrappers
+- language-native error conversion
+- language-native packaging
+
+Acceptance:
+
+- `bindings/python` has one direct internal dependency: `arco-ops`
+- `arco-cli` has one direct internal dependency: `arco-ops`
+- user-facing docs and examples use the new APIs
+
+### Phase 9: delete legacy structure
+
+Remove old compatibility paths rather than preserving them:
+
+- `arco-core`
+- `arco-export`, if replaced by `arco-exchange`
+- direct solve APIs on adapters that accept canonical models
+- old KDL compile artifact reexports
+- duplicated result/status/error types
+- stale tests and examples for removed APIs
+
+Acceptance:
+
+- no retired crate remains in the workspace
+- no compatibility module exists only to preserve old import paths
+- `sentrux check .` passes
+
+### Phase 10: final documentation and verification
+
+Update architecture and user documentation to describe the actual final state.
+
+Required checks before completion:
+
+```sh
+cargo fmt
+cargo clippy --all --benches --tests --examples --all-features -- -D warnings
+cargo test --workspace
+sentrux check .
+```
+
+Document any intentionally missing planned surfaces, such as `arco-json`,
+`arco-yaml`, or `arco-julia`, as planned rather than present.
 
 ## Decision checklist for future contributors
 

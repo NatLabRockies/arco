@@ -277,28 +277,34 @@ pyo3::create_exception!(
     "Variable index out of range for objective."
 );
 
-/// Convert a `arco_core::model::ModelError` into the appropriate ArcoError subclass.
-pub fn model_error_to_py(e: arco_core::model::ModelError) -> PyErr {
+/// Convert a `arco_ops::model::model::ModelError` into the appropriate ArcoError subclass.
+pub fn model_error_to_py(e: arco_ops::model::model::ModelError) -> PyErr {
     let msg = e.to_string();
     match e {
-        arco_core::model::ModelError::EmptyModel => ModelEmptyError::new_err(msg),
-        arco_core::model::ModelError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
-        arco_core::model::ModelError::InvalidVariableBounds { .. } => {
+        arco_ops::model::model::ModelError::EmptyModel => ModelEmptyError::new_err(msg),
+        arco_ops::model::model::ModelError::InvalidVariableId(_) => {
+            VariableInvalidIdError::new_err(msg)
+        }
+        arco_ops::model::model::ModelError::InvalidVariableBounds { .. } => {
             VariableInvalidBoundsError::new_err(msg)
         }
-        arco_core::model::ModelError::InvalidConstraintId(_) => {
+        arco_ops::model::model::ModelError::InvalidConstraintId(_) => {
             ConstraintInvalidIdError::new_err(msg)
         }
-        arco_core::model::ModelError::InvalidConstraintBounds { .. } => {
+        arco_ops::model::model::ModelError::InvalidConstraintBounds { .. } => {
             ConstraintInvalidBoundsError::new_err(msg)
         }
-        arco_core::model::ModelError::NoObjective => ObjectiveMissingError::new_err(msg),
-        arco_core::model::ModelError::MultipleObjectives => ObjectiveAlreadySetError::new_err(msg),
-        arco_core::model::ModelError::InvalidSlackPenalty { .. } => {
+        arco_ops::model::model::ModelError::NoObjective => ObjectiveMissingError::new_err(msg),
+        arco_ops::model::model::ModelError::MultipleObjectives => {
+            ObjectiveAlreadySetError::new_err(msg)
+        }
+        arco_ops::model::model::ModelError::InvalidSlackPenalty { .. } => {
             SlackInvalidPenaltyError::new_err(msg)
         }
-        arco_core::model::ModelError::InvalidCscData { .. } => CscInvalidDataError::new_err(msg),
-        arco_core::model::ModelError::InvalidCoefficient { .. } => {
+        arco_ops::model::model::ModelError::InvalidCscData { .. } => {
+            CscInvalidDataError::new_err(msg)
+        }
+        arco_ops::model::model::ModelError::InvalidCoefficient { .. } => {
             ExprCoefficientError::new_err(msg)
         }
     }

@@ -61,7 +61,7 @@ mod tests {
 
     #[test]
     fn test_solver_status_is_same_as_core() {
-        // Since SolverStatus is now re-exported from arco-core, these are the same type
+        // Since SolverStatus is now re-exported from arco-model, these are the same type
         assert_eq!(SolverStatus::Optimal, CoreSolverStatus::Optimal);
         assert_eq!(SolverStatus::TimeLimit, CoreSolverStatus::TimeLimit);
         assert_eq!(

@@ -1,9 +1,10 @@
-use arco_core::{
+use crate::kdl::compile::CompiledProblem;
+use crate::solver::{SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus};
+use crate::targets::{ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind};
+use arco_model::{
     Bounds, Constraint, Model, ModelError as ArcoModelError, Objective, PrettyPrintOptions, Sense,
-    SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus, Variable,
+    Variable,
 };
-use arco_kdl::compile::CompiledProblem;
-use arco_targets::{ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -225,6 +226,8 @@ pub enum ExecutionError {
     ExternalSolverProcess { backend: String, message: String },
     #[error("adapter backend `{backend}` produced an invalid solution file: {message}")]
     ExternalSolverParse { backend: String, message: String },
+    #[error("{message}")]
+    BackendNotAvailable { message: String },
 }
 
 impl MockArcoAdapter {
@@ -242,6 +245,38 @@ impl RustArcoAdapter {
 
     pub fn with_console_log(log_to_console: bool) -> Self {
         Self { log_to_console }
+    }
+}
+
+pub fn builtin_adapter_for_selection(
+    selection: &crate::solver::ResolvedSelection,
+    log_to_console: bool,
+    profile: Option<&crate::solver::SolverProfile>,
+) -> Result<Box<dyn OptimizationAdapter>, String> {
+    match selection.transport {
+        crate::solver::SolverTransport::Embedded => match selection.family.as_str() {
+            "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
+            #[cfg(feature = "xpress")]
+            "xpress" => Ok(Box::new(XpressArcoAdapter::with_console_log(
+                log_to_console,
+            ))),
+            #[cfg(not(feature = "xpress"))]
+            "xpress" => Err("Xpress solver backend is not available in this build".to_string()),
+            family => Err(format!(
+                "embedded solver family '{family}' is not available in this build"
+            )),
+        },
+        crate::solver::SolverTransport::ExternalProcess => match selection.family.as_str() {
+            "scip" => Ok(Box::new(ScipArcoAdapter::with_external_process_profile(
+                log_to_console,
+                profile.and_then(|value| value.executable.clone()),
+                profile.map_or_else(Vec::new, |value| value.arguments.clone()),
+                profile.map_or_else(Default::default, |value| value.environment.clone()),
+            ))),
+            family => Err(format!(
+                "external-process solver family '{family}' is not available in this build"
+            )),
+        },
     }
 }
 
@@ -477,6 +512,7 @@ pub fn render_problem_model(problem: &CompiledProblem) -> Result<String, Executi
     Ok(built.model.format_ascii(PrettyPrintOptions::full()))
 }
 
+#[allow(dead_code)]
 pub(crate) struct BuiltModel {
     pub(crate) model: Model,
     pub(crate) variable_indices: BTreeMap<String, usize>,
@@ -753,10 +789,10 @@ fn extract_index_parts(
 /// Only supports comparison expressions with identifier/string/number operands.
 /// Returns `None` for unsupported expression types to allow caller to decide handling.
 fn try_eval_filter(
-    expr: &arco_kdl::algebra::Expr,
+    expr: &crate::kdl::algebra::Expr,
     bindings: &BTreeMap<&str, &str>,
 ) -> Option<bool> {
-    use arco_kdl::algebra::{ComparisonOp, Expr};
+    use crate::kdl::algebra::{ComparisonOp, Expr};
     match expr {
         Expr::Comparison { op, left, right } => {
             let lhs = match left.as_ref() {
@@ -791,8 +827,8 @@ fn try_eval_filter(
 #[cfg(test)]
 mod tests {
     use crate::execution::{MockArcoAdapter, execute_problem_with_options};
-    use arco_kdl::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
-    use arco_targets::{
+    use crate::kdl::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
+    use crate::targets::{
         AlgebraicProblem, LinearObjective, ObjectiveSense, VariableInstance, VariableKind,
     };
 

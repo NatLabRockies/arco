@@ -2,10 +2,9 @@
 
 use crate::types::{Bounds, Constraint, SimplifyLevel, Variable};
 use arco_expr::ids::ConstraintId;
-use arco_validate::{bounds_are_valid, coefficient_is_valid};
 
 use crate::model::error::ModelError;
-use crate::model::{ColumnVec, Model};
+use crate::model::{ColumnVec, Model, bounds_are_valid, coefficient_is_valid};
 
 /// Input data for building a model from CSC format.
 pub struct CscInput<'a> {

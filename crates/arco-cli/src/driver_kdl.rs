@@ -1,6 +1,6 @@
 use crate::driver::DriverError;
-use arco_kdl::pipeline::PipelineError;
 use arco_ops::ArcoOps;
+use arco_ops::kdl::pipeline::PipelineError;
 use miette::{Diagnostic, SourceSpan};
 use serde::Serialize;
 use std::path::Path;
@@ -88,17 +88,16 @@ fn pipeline_error_location(path: &Path, error: &PipelineError) -> (Option<usize>
     span_line_column(path, span)
 }
 
-fn source_error_span(error: &arco_kdl::source::SourceError) -> Option<SourceSpan> {
+fn source_error_span(error: &arco_ops::kdl::source::SourceError) -> Option<SourceSpan> {
     match error {
-        arco_kdl::source::SourceError::MissingNode { span, .. }
-        | arco_kdl::source::SourceError::MissingArgument { span, .. }
-        | arco_kdl::source::SourceError::MissingProperty { span, .. }
-        | arco_kdl::source::SourceError::InvalidValue { span, .. }
-        | arco_kdl::source::SourceError::UnsupportedDeclaration { span, .. }
-        | arco_kdl::source::SourceError::InvalidAlgebra { span, .. } => Some(*span),
-        arco_kdl::source::SourceError::Io { .. } | arco_kdl::source::SourceError::Kdl { .. } => {
-            None
-        }
+        arco_ops::kdl::source::SourceError::MissingNode { span, .. }
+        | arco_ops::kdl::source::SourceError::MissingArgument { span, .. }
+        | arco_ops::kdl::source::SourceError::MissingProperty { span, .. }
+        | arco_ops::kdl::source::SourceError::InvalidValue { span, .. }
+        | arco_ops::kdl::source::SourceError::UnsupportedDeclaration { span, .. }
+        | arco_ops::kdl::source::SourceError::InvalidAlgebra { span, .. } => Some(*span),
+        arco_ops::kdl::source::SourceError::Io { .. }
+        | arco_ops::kdl::source::SourceError::Kdl { .. } => None,
     }
 }
 

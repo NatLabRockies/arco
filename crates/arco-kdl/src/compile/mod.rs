@@ -60,7 +60,7 @@ pub struct CompiledConstraint {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledObjective {
     pub name: String,
-    pub sense: ObjectiveSense,
+    pub sense: TargetObjectiveSense,
     pub expression: String,
 }
 
@@ -92,7 +92,7 @@ pub struct TraceabilityRecord {
 
 pub use arco_targets::{
     AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearReport, LinearTerm,
-    ObjectiveSense, VariableInstance, VariableKind,
+    ObjectiveSense as TargetObjectiveSense, VariableInstance, VariableKind,
 };
 
 #[derive(Debug)]
@@ -256,7 +256,10 @@ fn compile_constraint(constraint: &ResolvedConstraint) -> CompiledConstraint {
 fn compile_objective(objective: &ResolvedObjective) -> CompiledObjective {
     CompiledObjective {
         name: objective.name.clone(),
-        sense: objective.sense,
+        sense: match objective.sense {
+            crate::ObjectiveSense::Minimize => TargetObjectiveSense::Minimize,
+            crate::ObjectiveSense::Maximize => TargetObjectiveSense::Maximize,
+        },
         expression: objective.expression_text.clone(),
     }
 }

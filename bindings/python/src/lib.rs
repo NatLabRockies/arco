@@ -3,36 +3,14 @@
 //! This module exposes Arco's model builder and solver to Python with zero-copy access
 //! to solution data through memoryview.
 
-mod arrays;
-mod bounds;
-mod constraint;
-mod enums;
-mod errors;
-mod expr;
-mod handles;
-mod helpers;
-mod index_set;
-mod iterators;
-mod logging;
-mod model_blocks;
-mod model_edit;
-mod model_init;
-mod model_inspect;
-mod model_pretty;
-mod model_solve;
-mod serde_bridge;
-mod slack_variable;
-mod snapshot;
-mod solution;
-mod solver;
-mod variable;
-mod views;
+mod py_modules;
 
+use crate::py_modules as pym;
 use arco_blocks::{BlockPort, add_blocks_submodule};
-use arco_core::model::PrettyPrintOptions;
-use arco_core::types::Bounds;
-use arco_core::{InspectOptions, Model, Objective, Sense, SlackBound, Variable};
-use arco_expr::{ComparisonSense, ConstraintId, VariableId};
+use arco_ops::expr::{ComparisonSense, ConstraintId, VariableId};
+use arco_ops::model::model::PrettyPrintOptions;
+use arco_ops::model::types::Bounds;
+use arco_ops::model::{InspectOptions, Model, Objective, Sense, SlackBound, Variable};
 
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
@@ -50,25 +28,8 @@ where
     Ok(dict.unbind().into())
 }
 
-// Re-export types from modules
-pub use arrays::{PyConstraintArray, PyExprArray, PyVariableArray};
-pub use bounds::{BoundsSpec, PyBounds};
-pub use constraint::PyConstraint;
-pub use enums::{PyComparisonSense, PySense, PySimplifyLevel};
-pub use expr::{PyConstraintExpr, PyExpr};
-pub use handles::{PyElasticHandle, PySlackHandle};
-pub use index_set::PyIndexSet;
-pub use model_blocks::{PyBlockHandle, PyBlockPorts, PyBlockResults};
-pub use slack_variable::PySlackVariable;
-pub use snapshot::{PyModelSnapshot, PySnapshotMetadata};
-pub use solution::{PySolutionStatus, PySolveResult};
-#[cfg(feature = "ipopt")]
-pub use solver::PyIpopt;
-pub use solver::{PyHiGHS, PySolver, PySolverProfile, PySolverSelection, PyXpress, SolverSettings};
-pub use variable::PyVariable;
-pub use views::{
-    PyCoefficientView, PyConstraintView, PyObjectiveView, PySlackView, PyVariableView,
-};
+mod py_exports;
+pub use py_exports::*;
 
 /// Python wrapper for the Arco optimization model
 #[pyclass(name = "Model")]
@@ -78,11 +39,11 @@ pub struct PyModel {
     default_backend: String,
     last_solution: Option<Py<PySolveResult>>,
     /// Block definitions added via add_block()
-    block_defs: Vec<model_blocks::BlockDef>,
+    block_defs: Vec<pym::model_blocks::BlockDef>,
     /// Links between blocks
-    link_defs: Vec<model_blocks::LinkDef>,
+    link_defs: Vec<pym::model_blocks::LinkDef>,
     /// Compact metadata for arrays created via add_variables() for pretty-printing.
-    array_print_specs: Vec<model_pretty::ArrayPrintSpec>,
+    array_print_specs: Vec<pym::model_pretty::ArrayPrintSpec>,
 }
 
 impl PyModel {
@@ -112,7 +73,7 @@ impl PyModel {
         simplify_level: Option<PySimplifyLevel>,
         solver: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        model_init::new_model(simplify_level, solver)
+        pym::model_init::new_model(simplify_level, solver)
     }
 
     /// Build a model directly from CSC data.
@@ -135,7 +96,7 @@ impl PyModel {
         is_integer: &Bound<'_, PyAny>,
         simplify_level: Option<PySimplifyLevel>,
     ) -> PyResult<Self> {
-        model_init::from_csc_model(
+        pym::model_init::from_csc_model(
             num_constraints,
             num_variables,
             col_ptrs,
@@ -179,12 +140,12 @@ impl PyModel {
         let var_id = self
             .inner
             .add_variable(var)
-            .map_err(errors::model_error_to_py)?;
+            .map_err(pym::errors::model_error_to_py)?;
 
         if let Some(ref n) = name {
             self.inner
                 .set_variable_name(var_id, n.clone())
-                .map_err(errors::model_error_to_py)?;
+                .map_err(pym::errors::model_error_to_py)?;
         }
 
         Ok(PyVariable::new(var_id.inner(), name, effective_bounds))
@@ -204,7 +165,7 @@ impl PyModel {
         let index_sets = extract_index_sets(index_sets)?;
 
         if index_sets.is_empty() {
-            return Err(errors::IndexSetEmptyError::new_err(
+            return Err(pym::errors::IndexSetEmptyError::new_err(
                 "index_sets must be non-empty",
             ));
         }
@@ -214,7 +175,7 @@ impl PyModel {
             .map(|s| {
                 let size = s.borrow(py).members.len();
                 if size == 0 {
-                    return Err(errors::IndexSetEmptyError::new_err(
+                    return Err(pym::errors::IndexSetEmptyError::new_err(
                         "index sets must be non-empty",
                     ));
                 }
@@ -224,7 +185,7 @@ impl PyModel {
 
         let total = shape.iter().try_fold(1usize, |acc, &size| {
             acc.checked_mul(size)
-                .ok_or_else(|| errors::ArrayOverflowError::new_err("array size overflow"))
+                .ok_or_else(|| pym::errors::ArrayOverflowError::new_err("array size overflow"))
         })?;
 
         // Try scalar bounds first (BoundsSpec), then per-element array bounds
@@ -252,7 +213,7 @@ impl PyModel {
     fn deactivate_variable(&mut self, var_id: u32) -> PyResult<()> {
         self.inner
             .deactivate_variable(VariableId::new(var_id))
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Activate a previously deactivated variable.
@@ -260,7 +221,7 @@ impl PyModel {
     fn activate_variable(&mut self, var_id: u32) -> PyResult<()> {
         self.inner
             .activate_variable(VariableId::new(var_id))
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Check whether a variable is active.
@@ -268,7 +229,7 @@ impl PyModel {
     fn is_variable_active(&self, var_id: u32) -> PyResult<bool> {
         self.inner
             .is_variable_active(VariableId::new(var_id))
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Add a constraint to the model.
@@ -294,7 +255,7 @@ impl PyModel {
                 .or_else(|_| expr.extract::<PyExpr>())
             {
                 let bounds = bounds.ok_or_else(|| {
-                    errors::ConstraintBoundsMissingError::new_err(
+                    pym::errors::ConstraintBoundsMissingError::new_err(
                         "bounds are required when expression has no comparison",
                     )
                 })?;
@@ -302,7 +263,7 @@ impl PyModel {
                 let bounds = Bounds::new(bounds.inner.lower - offset, bounds.inner.upper - offset);
                 (expr, bounds)
             } else {
-                return Err(errors::ConstraintTypeError::new_err(
+                return Err(pym::errors::ConstraintTypeError::new_err(
                     "expected an Expr, Variable, or ConstraintExpr",
                 ));
             };
@@ -310,7 +271,7 @@ impl PyModel {
         let constraint_id = self
             .inner
             .add_expr_constraint(expr, constraint_bounds)
-            .map_err(errors::model_error_to_py)?;
+            .map_err(pym::errors::model_error_to_py)?;
         self.set_constraint_name_if_provided(constraint_id, name.clone())?;
         Ok(PyConstraint::new(
             constraint_id.inner(),
@@ -335,7 +296,7 @@ impl PyModel {
         // Branch 1: ConstraintArray input
         if let Ok(array) = expr.extract::<PyRef<'_, PyConstraintArray>>() {
             if rhs.is_some() || sense != PyComparisonSense::GreaterEqual {
-                return Err(errors::ConstraintSenseError::new_err(
+                return Err(pym::errors::ConstraintSenseError::new_err(
                     "sense/rhs are not supported for comparison arrays",
                 ));
             }
@@ -357,7 +318,9 @@ impl PyModel {
         // Branch 2: VariableArray or ExprArray input
         let sense: ComparisonSense = sense.into();
         let rhs_obj = rhs.ok_or_else(|| {
-            errors::ConstraintBoundsMissingError::new_err("rhs is required for add_constraints")
+            pym::errors::ConstraintBoundsMissingError::new_err(
+                "rhs is required for add_constraints",
+            )
         })?;
 
         if let Ok(array) = expr.extract::<PyRef<'_, PyVariableArray>>() {
@@ -382,7 +345,7 @@ impl PyModel {
             );
         }
 
-        Err(errors::ConstraintTypeError::new_err(
+        Err(pym::errors::ConstraintTypeError::new_err(
             "expected ConstraintArray, VariableArray, or ExprArray",
         ))
     }
@@ -406,7 +369,7 @@ impl PyModel {
             .borrow_mut()
             .inner
             .add_slack(constraint_id, parsed_bound, penalty, name.clone())
-            .map_err(errors::model_error_to_py)?;
+            .map_err(pym::errors::model_error_to_py)?;
         let model_obj: PyObject = slf.clone().unbind().into_any();
 
         Ok(PySlackVariable::new(
@@ -463,7 +426,7 @@ impl PyModel {
                 .borrow_mut()
                 .inner
                 .add_slack(constraint_id, parsed_bound, *pen, name.clone())
-                .map_err(errors::model_error_to_py)?;
+                .map_err(pym::errors::model_error_to_py)?;
 
             results.push(PySlackVariable::new(
                 py_constraint,
@@ -491,7 +454,7 @@ impl PyModel {
         let handle = self
             .inner
             .make_elastic(constraint_id, upper_penalty, lower_penalty, name)
-            .map_err(errors::model_error_to_py)?;
+            .map_err(pym::errors::model_error_to_py)?;
         Ok(PyElasticHandle::from_handle(handle))
     }
 
@@ -508,7 +471,7 @@ impl PyModel {
 
         self.inner
             .set_coefficient(var_id, constraint_id, coeff)
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Set the objective function
@@ -535,11 +498,11 @@ impl PyModel {
 
         self.inner
             .set_objective(objective)
-            .map_err(errors::model_error_to_py)?;
+            .map_err(pym::errors::model_error_to_py)?;
 
         self.inner
             .set_objective_name(name)
-            .map_err(errors::model_error_to_py)?;
+            .map_err(pym::errors::model_error_to_py)?;
         Ok(())
     }
 
@@ -560,7 +523,7 @@ impl PyModel {
     fn set_objective_name(&mut self, name: Option<String>) -> PyResult<()> {
         self.inner
             .set_objective_name(name)
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Get the objective name stored in model metadata.
@@ -580,7 +543,7 @@ impl PyModel {
     fn set_expr_simplify(&mut self, level: PySimplifyLevel) -> PyResult<()> {
         self.inner
             .set_expr_simplify(level.into())
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Solve the model and return a solution.
@@ -615,7 +578,7 @@ impl PyModel {
             );
         }
 
-        let py_result = model_solve::solve_model(
+        let py_result = pym::model_solve::solve_model(
             self,
             py,
             solver,
@@ -687,15 +650,15 @@ impl PyModel {
     }
 
     /// Returns an iterator over all constraints in the model.
-    fn list_constraints(slf: PyRef<'_, Self>) -> iterators::PyConstraintIterator {
+    fn list_constraints(slf: PyRef<'_, Self>) -> pym::iterators::PyConstraintIterator {
         let total = slf.inner.num_constraints();
-        iterators::PyConstraintIterator::new(slf.into(), total)
+        pym::iterators::PyConstraintIterator::new(slf.into(), total)
     }
 
     /// Returns an iterator over all variables in the model.
-    fn list_variables(slf: PyRef<'_, Self>) -> iterators::PyVariableIterator {
+    fn list_variables(slf: PyRef<'_, Self>) -> pym::iterators::PyVariableIterator {
         let total = slf.inner.num_variables();
-        iterators::PyVariableIterator::new(slf.into(), total)
+        pym::iterators::PyVariableIterator::new(slf.into(), total)
     }
 
     /// Returns a constraint by exact name match.
@@ -740,14 +703,14 @@ impl PyModel {
     }
 
     fn __str__(&self) -> String {
-        let adapter = model_pretty::PythonPrettyAdapter { model: self };
+        let adapter = pym::model_pretty::PythonPrettyAdapter { model: self };
         self.inner
             .format_ascii_with_adapter(&adapter, PrettyPrintOptions::preview())
     }
 
     /// Pretty-print the model in a human-readable algebraic form.
     fn pprint(&self, py: Python<'_>) -> PyResult<()> {
-        let adapter = model_pretty::PythonPrettyAdapter { model: self };
+        let adapter = pym::model_pretty::PythonPrettyAdapter { model: self };
         let rendered = self
             .inner
             .format_ascii_with_adapter(&adapter, PrettyPrintOptions::full());
@@ -766,7 +729,7 @@ impl PyModel {
 
     /// Get sparse matrix columns as dict mapping variable_id -> [(constraint_id, coefficient), ...]
     fn get_columns(&self, py: Python<'_>) -> PyResult<PyObject> {
-        model_inspect::get_columns(self, py)
+        pym::model_inspect::get_columns(self, py)
     }
 
     /// Export CSC matrix in a sparse-matrix compatible format.
@@ -777,7 +740,7 @@ impl PyModel {
     /// - values: list of non-zero values
     /// - shape: tuple (num_constraints, num_variables)
     fn export_csc(&self, py: Python<'_>) -> PyResult<PyObject> {
-        model_inspect::export_csc(self, py)
+        pym::model_inspect::export_csc(self, py)
     }
 
     /// Export CRS matrix in a sparse-matrix compatible format.
@@ -788,7 +751,7 @@ impl PyModel {
     /// - values: list of non-zero values
     /// - shape: tuple (num_constraints, num_variables)
     fn export_crs(&self, py: Python<'_>) -> PyResult<PyObject> {
-        model_inspect::export_crs(self, py)
+        pym::model_inspect::export_crs(self, py)
     }
 
     /// Export COO matrix in a sparse-matrix compatible format.
@@ -799,12 +762,12 @@ impl PyModel {
     /// - values: list of non-zero values
     /// - shape: tuple (num_constraints, num_variables)
     fn export_coo(&self, py: Python<'_>) -> PyResult<PyObject> {
-        model_inspect::export_coo(self, py)
+        pym::model_inspect::export_coo(self, py)
     }
 
     #[allow(clippy::unused_self)]
     fn export_arrow(&self) -> PyResult<PyObject> {
-        model_inspect::export_arrow()
+        pym::model_inspect::export_arrow()
     }
 
     /// Set name for a variable
@@ -817,7 +780,7 @@ impl PyModel {
         let id = VariableId::new(var_id);
         self.inner
             .set_variable_name(id, name)
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Get name for a variable
@@ -849,10 +812,10 @@ impl PyModel {
         metadata: &Bound<'_, pyo3::types::PyDict>,
     ) -> PyResult<()> {
         let id = VariableId::new(var_id);
-        let value = serde_bridge::py_any_to_json(&metadata.clone().into_any())?;
+        let value = pym::serde_bridge::py_any_to_json(&metadata.clone().into_any())?;
         self.inner
             .set_variable_metadata(id, value)
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Get metadata for a variable
@@ -866,7 +829,7 @@ impl PyModel {
         let id = VariableId::new(var_id);
         self.inner
             .get_variable_metadata(id)
-            .and_then(|v| serde_bridge::json_to_py(py, v).ok())
+            .and_then(|v| pym::serde_bridge::json_to_py(py, v).ok())
     }
 
     /// Set name for a constraint
@@ -879,7 +842,7 @@ impl PyModel {
         let id = ConstraintId::new(con_id);
         self.inner
             .set_constraint_name(id, name)
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Get name for a constraint
@@ -914,10 +877,10 @@ impl PyModel {
         metadata: &Bound<'_, pyo3::types::PyDict>,
     ) -> PyResult<()> {
         let id = ConstraintId::new(con_id);
-        let value = serde_bridge::py_any_to_json(&metadata.clone().into_any())?;
+        let value = pym::serde_bridge::py_any_to_json(&metadata.clone().into_any())?;
         self.inner
             .set_constraint_metadata(id, value)
-            .map_err(errors::model_error_to_py)
+            .map_err(pym::errors::model_error_to_py)
     }
 
     /// Get metadata for a constraint
@@ -931,7 +894,7 @@ impl PyModel {
         let id = ConstraintId::new(con_id);
         self.inner
             .get_constraint_metadata(id)
-            .and_then(|v| serde_bridge::json_to_py(py, v).ok())
+            .and_then(|v| pym::serde_bridge::json_to_py(py, v).ok())
     }
 
     /// Inspect the model structure and return a snapshot.
@@ -1029,7 +992,7 @@ mod tests {
 /// Extract a `PyConstraint` from a Python object.
 fn extract_constraint(ob: &Bound<'_, PyAny>) -> PyResult<Py<PyConstraint>> {
     ob.extract::<Py<PyConstraint>>()
-        .map_err(|_| errors::ConstraintTypeError::new_err("expected a Constraint"))
+        .map_err(|_| pym::errors::ConstraintTypeError::new_err("expected a Constraint"))
 }
 /// Extract a `ConstraintId` from a `PyConstraint`.
 fn extract_constraint_id(ob: &Bound<'_, PyAny>) -> PyResult<ConstraintId> {
@@ -1055,7 +1018,7 @@ fn extract_index_sets(tuple: &Bound<'_, PyTuple>) -> PyResult<Vec<Py<PyIndexSet>
 
 /// Extract a `PyExpr` from a Python object that may be a `PyExpr`, `PyVariable`, or scalar.
 fn extract_expr(ob: &Bound<'_, PyAny>) -> PyResult<PyExpr> {
-    Ok(ob.extract::<crate::expr::ExprLike>()?.0)
+    Ok(ob.extract::<pym::expr::ExprLike>()?.0)
 }
 
 /// Collect linear terms from a slice of PyExpr values into a single Vec.
@@ -1092,7 +1055,7 @@ fn parse_slack_bound(bound: &str) -> PyResult<SlackBound> {
         "lower" => Ok(SlackBound::Lower),
         "upper" => Ok(SlackBound::Upper),
         "both" => Ok(SlackBound::Both),
-        _ => Err(errors::SlackBoundError::new_err(format!(
+        _ => Err(pym::errors::SlackBoundError::new_err(format!(
             "Invalid slack bound '{}' (expected 'lower', 'upper', or 'both')",
             bound
         ))),
@@ -1115,27 +1078,27 @@ fn arco(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBlockHandle>()?;
     m.add_class::<PyBlockPorts>()?;
     m.add_class::<PyBlockResults>()?;
-    let typed_block_fn = wrap_pyfunction!(model_blocks::typed_block, m)?;
+    let typed_block_fn = wrap_pyfunction!(pym::model_blocks::typed_block, m)?;
     m.add_function(typed_block_fn.clone())?;
 
     // Register from submodules
-    enums::register(m)?;
-    errors::register(m)?;
-    solver::register(m)?;
-    solution::register(m)?;
-    bounds::register(m)?;
-    index_set::register(m)?;
-    expr::register(m)?;
-    arrays::register(m)?;
-    variable::register(m)?;
-    constraint::register(m)?;
-    handles::register(m)?;
-    slack_variable::register(m)?;
-    views::register(m)?;
-    snapshot::register(m)?;
-    logging::register(m)?;
-    iterators::register(m)?;
-    bounds::export_bound_constants(m)?;
+    pym::enums::register(m)?;
+    pym::errors::register(m)?;
+    pym::solver::register(m)?;
+    pym::solution::register(m)?;
+    pym::bounds::register(m)?;
+    pym::index_set::register(m)?;
+    pym::expr::register(m)?;
+    pym::arrays::register(m)?;
+    pym::variable::register(m)?;
+    pym::constraint::register(m)?;
+    pym::handles::register(m)?;
+    pym::slack_variable::register(m)?;
+    pym::views::register(m)?;
+    pym::snapshot::register(m)?;
+    pym::logging::register(m)?;
+    pym::iterators::register(m)?;
+    pym::bounds::export_bound_constants(m)?;
     add_blocks_submodule(m.py(), m)?;
     m.setattr("block", typed_block_fn)?;
 

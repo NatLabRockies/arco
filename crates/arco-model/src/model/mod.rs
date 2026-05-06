@@ -78,6 +78,21 @@ pub struct Model {
 
 pub(crate) const BITS_PER_WORD: usize = u64::BITS as usize;
 
+#[inline]
+pub(crate) fn bounds_are_valid(lower: f64, upper: f64) -> bool {
+    !lower.is_nan() && !upper.is_nan() && lower <= upper
+}
+
+#[inline]
+pub(crate) fn coefficient_is_valid(coefficient: f64) -> bool {
+    coefficient.is_finite()
+}
+
+#[inline]
+pub(crate) fn slack_penalty_is_valid(penalty: f64) -> bool {
+    penalty.is_finite() && penalty >= 0.0
+}
+
 /// Upsert a coefficient in a column: update existing entry or append.
 #[inline]
 pub(crate) fn column_upsert(column: &mut ColumnVec, constraint_id: ConstraintId, coefficient: f64) {

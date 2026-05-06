@@ -3,10 +3,9 @@
 use crate::slack::{ElasticHandle, SlackBound, SlackHandle, SlackVariables};
 use crate::types::{Bounds, Sense, Variable};
 use arco_expr::ids::ConstraintId;
-use arco_validate::slack_penalty_is_valid;
 
 use crate::model::error::ModelError;
-use crate::model::{Model, slack_variable_name};
+use crate::model::{Model, slack_penalty_is_valid, slack_variable_name};
 
 impl Model {
     /// Attach slack variables to a constraint bound.

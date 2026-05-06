@@ -14,10 +14,23 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-core = { workspace = true }
+arco-model = { workspace = true }
 arco-export = { workspace = true }
 arco-expr = { workspace = true }
+arco-highs = { workspace = true }
 arco-kdl = { workspace = true }
+arco-scip = { workspace = true }
 arco-solver = { workspace = true }
 arco-targets = { workspace = true }
 arco-validate = { workspace = true }
+arco-xpress = { workspace = true, optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { workspace = true }
+toml = { workspace = true }
+toml_edit = "0.22"
+thiserror = "2.0"
+tracing = { workspace = true }
+
+[features]
+default = []
+xpress = ["dep:arco-xpress"]

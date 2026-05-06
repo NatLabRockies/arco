@@ -1,5 +1,5 @@
-pub use crate::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
-pub use arco_targets::{
-    AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearReport, LinearTerm,
-    ObjectiveSense, VariableInstance, VariableKind,
+pub use crate::compile::{
+    AlgebraicProblem, CompiledObjective, CompiledProblem, CompiledVariable, ConstraintSense,
+    LinearConstraint, LinearObjective, LinearReport, LinearTerm,
+    TargetObjectiveSense as ObjectiveSense, VariableInstance, VariableKind,
 };

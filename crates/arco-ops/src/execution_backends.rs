@@ -1,16 +1,15 @@
 #[cfg(feature = "xpress")]
 use crate::execution::XpressArcoAdapter;
 use crate::execution::{
-    AdapterSolveOutput, BuiltModel, ExecutionError, OptimizationAdapter, RustArcoAdapter,
-    ScalarArtifactValue, ScipArcoAdapter, SolveStatus, VariableArtifactValue,
-    VariableInstanceArtifactValue, build_model, evaluate_linear_report, extract_dual_report_values,
-    lookup_primal_value, map_solver_status,
+    AdapterSolveOutput, ExecutionError, OptimizationAdapter, RustArcoAdapter, ScalarArtifactValue,
+    ScipArcoAdapter, SolveStatus, VariableArtifactValue, VariableInstanceArtifactValue,
+    evaluate_linear_report, extract_dual_report_values, lookup_primal_value, map_solver_status,
 };
-use arco_highs::Solver as HighsSolver;
-use arco_kdl::compile::CompiledProblem;
-use arco_scip as scip;
+use crate::highs::Solver as HighsSolver;
+use crate::kdl::compile::CompiledProblem;
+use crate::scip;
 #[cfg(feature = "xpress")]
-use arco_xpress::Solver as XpressSolver;
+use crate::xpress::Solver as XpressSolver;
 use std::time::Instant;
 use tracing::info;
 
@@ -26,23 +25,33 @@ impl OptimizationAdapter for RustArcoAdapter {
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
         info!("solving with {}", backend);
-        info!("translating lowered algebra into solver model");
+        info!("building solver index maps");
         let build_started = Instant::now();
-        let BuiltModel {
-            model,
-            variable_indices,
-            constraint_indices,
-        } = build_model(problem, &backend)?;
+        let variable_indices = problem
+            .algebra
+            .variable_instances
+            .iter()
+            .enumerate()
+            .map(|(index, instance)| (instance.name.clone(), index))
+            .collect();
+        let constraint_indices = problem
+            .algebra
+            .constraints
+            .iter()
+            .enumerate()
+            .map(|(index, constraint)| (constraint.name.clone(), index))
+            .collect();
         info!(
-            "solver model translation completed in {:.2} ms",
+            "solver index map build completed in {:.2} ms",
             build_started.elapsed().as_secs_f64() * 1000.0,
         );
         info!("initializing solver backend instance");
-        let mut solver =
-            HighsSolver::new(model).map_err(|source| ExecutionError::SolverInitialization {
+        let mut solver = HighsSolver::new(problem.algebra.clone()).map_err(|source| {
+            ExecutionError::SolverInitialization {
                 backend: backend.clone(),
                 source,
-            })?;
+            }
+        })?;
         solver.set_log_to_console(self.log_to_console);
 
         info!("starting solver backend run: {}", backend);

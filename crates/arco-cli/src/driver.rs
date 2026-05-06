@@ -6,15 +6,10 @@ pub use crate::driver_summary::{
     RunSummary, TimingSummary, VariableSummary, VariableValueSummary,
 };
 use crate::driver_summary::{summarize_variables, trim_family_prefix};
-#[cfg(feature = "xpress")]
-use crate::execution::XpressArcoAdapter;
-use crate::execution::{
-    ExecutionError, OptimizationAdapter, RustArcoAdapter, ScipArcoAdapter, SolveStatus,
-    execute_problem_with_options, render_problem_model,
-};
-use arco_kdl::pipeline::PipelineError;
 use arco_ops::ArcoOps;
-use arco_solver::{ResolvedSelection, SolverProfile, SolverTransport};
+use arco_ops::execution::{ExecutionError, SolveStatus, render_problem_model};
+use arco_ops::kdl::pipeline::PipelineError;
+use arco_ops::solver::{ResolvedSelection, SolverProfile};
 use miette::Diagnostic;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -113,44 +108,6 @@ fn selected_profile<'a>(
         .and_then(|name| state.merged_profiles.get(name))
 }
 
-fn select_adapter(
-    selection: &ResolvedSelection,
-    log_to_console: bool,
-    profile: Option<&SolverProfile>,
-) -> Result<Box<dyn OptimizationAdapter>, DriverError> {
-    match selection.transport {
-        SolverTransport::Embedded => match selection.family.as_str() {
-            "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
-            #[cfg(feature = "xpress")]
-            "xpress" => Ok(Box::new(XpressArcoAdapter::with_console_log(
-                log_to_console,
-            ))),
-            #[cfg(not(feature = "xpress"))]
-            "xpress" => Err(DriverError::BackendNotAvailable {
-                message: "Xpress solver backend is not available in this build".to_string(),
-            }),
-            family => Err(DriverError::BackendNotAvailable {
-                message: format!(
-                    "embedded solver family '{family}' is not available in this build"
-                ),
-            }),
-        },
-        SolverTransport::ExternalProcess => match selection.family.as_str() {
-            "scip" => Ok(Box::new(ScipArcoAdapter::with_external_process_profile(
-                log_to_console,
-                profile.and_then(|value| value.executable.clone()),
-                profile.map_or_else(Vec::new, |value| value.arguments.clone()),
-                profile.map_or_else(Default::default, |value| value.environment.clone()),
-            ))),
-            family => Err(DriverError::BackendNotAvailable {
-                message: format!(
-                    "external-process solver family '{family}' is not available in this build"
-                ),
-            }),
-        },
-    }
-}
-
 pub fn run_file(path: &Path) -> Result<RunSummary, DriverError> {
     run_file_with_options_and_selection(path, &RunOptions::default(), &load_resolved_selection()?)
 }
@@ -234,17 +191,17 @@ fn run_file_with_options_and_profile(
 
     let solve_start = Instant::now();
     let include_variable_values = !(options.compact && options.filter_asset.is_none());
-    let adapter = select_adapter(selection, options.solver_log, profile)?;
     debug!(
-        "starting backend solve phase (family={}, transport={:?}, backend={}, include_variable_values={})",
+        "starting backend solve phase (family={}, transport={:?}, include_variable_values={})",
         selection.family.as_str(),
         selection.transport,
-        adapter.backend_name(),
         include_variable_values
     );
-    let execution_result = execute_problem_with_options(
+    let execution_result = ArcoOps::execute_compiled_problem(
         &compiled.compiled_problem,
-        adapter.as_ref(),
+        selection,
+        options.solver_log,
+        profile,
         include_variable_values,
     )?;
     let solve = solve_start.elapsed();
@@ -335,16 +292,16 @@ fn format_validate_success(path: &Path, elapsed_ms: u128, color_mode: ColorMode)
 pub fn inspect_file_report(path: &Path, json_output: bool) -> Result<String, DriverError> {
     let validated = ArcoOps::check_file(path)?;
     let program = &validated.semantic_program;
-    let payload = crate::inspect::build_inspect_payload(&validated.entrypoint, program);
+    let payload = arco_ops::inspect::build_inspect_payload(&validated.entrypoint, program);
 
     if json_output {
-        return crate::inspect::render_json(&payload).map_err(|source| DriverError::Json {
+        return arco_ops::inspect::render_json(&payload).map_err(|source| DriverError::Json {
             path: path.to_path_buf(),
             source,
         });
     }
 
-    crate::inspect::render_toml(&payload).map_err(|_| DriverError::InspectFormat {
+    arco_ops::inspect::render_toml(&payload).map_err(|_| DriverError::InspectFormat {
         message: "failed to serialize inspect payload as TOML".to_string(),
     })
 }
@@ -367,9 +324,8 @@ fn peak_rss_bytes() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DriverError, format_validate_success, select_adapter};
+    use super::format_validate_success;
     use crate::driver_kdl::span_line_column;
-    use arco_solver::{ResolvedSelection, SolverTransport};
     use miette::SourceSpan;
     use std::fs;
     use std::path::Path;
@@ -406,35 +362,6 @@ mod tests {
             )
         );
         assert!(!rendered.contains("\x1b["));
-    }
-
-    #[test]
-    fn select_adapter_routes_external_process_selection_to_scip_adapter() {
-        let selection = ResolvedSelection {
-            token: "scip".to_string(),
-            family: "scip".to_string(),
-            profile: None,
-            transport: SolverTransport::ExternalProcess,
-        };
-
-        let adapter = select_adapter(&selection, false, None).expect("selection should resolve");
-        assert_eq!(adapter.backend_name(), "arco-external-scip");
-    }
-
-    #[test]
-    fn select_adapter_rejects_unknown_external_process_family() {
-        let selection = ResolvedSelection {
-            token: "profile-name".to_string(),
-            family: "custom".to_string(),
-            profile: Some("profile-name".to_string()),
-            transport: SolverTransport::ExternalProcess,
-        };
-
-        match select_adapter(&selection, false, None) {
-            Err(DriverError::BackendNotAvailable { .. }) => {}
-            Ok(adapter) => panic!("unexpected adapter: {}", adapter.backend_name()),
-            Err(error) => panic!("unexpected error: {error}"),
-        }
     }
 
     #[test]

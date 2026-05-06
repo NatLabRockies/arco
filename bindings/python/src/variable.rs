@@ -1,11 +1,11 @@
 //! Python wrapper for Variable objects returned by add_variable/add_variables.
 
-use arco_expr::ComparisonSense;
+use arco_ops::expr::ComparisonSense;
 use pyo3::prelude::*;
 
-use crate::bounds::{BoundsSpec, PyBounds};
-use crate::errors::ExprDivisionByZeroError;
-use crate::expr::{PyConstraintExpr, PyExpr};
+use crate::py_modules::bounds::{BoundsSpec, PyBounds};
+use crate::py_modules::errors::ExprDivisionByZeroError;
+use crate::py_modules::expr::{PyConstraintExpr, PyExpr};
 
 /// A decision variable returned by `add_variable()`.
 ///
@@ -33,7 +33,7 @@ impl PyVariable {
     pub fn from_model_variable(
         var_id: u32,
         name: Option<String>,
-        var: &arco_core::types::Variable,
+        var: &arco_ops::model::types::Variable,
     ) -> Self {
         let is_binary = var.is_integer && var.bounds.lower == 0.0 && var.bounds.upper == 1.0;
         Self {

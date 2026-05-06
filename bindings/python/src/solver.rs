@@ -1,6 +1,6 @@
 //! Python wrappers for solver configuration and instances.
 
-use crate::errors::SolverInvalidSettingError;
+use crate::py_modules::errors::SolverInvalidSettingError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -582,36 +582,7 @@ pub(crate) fn extract_solver_settings(
     if let Ok(base) = solver.cast::<PySolver>() {
         return Ok(base.borrow().settings.clone());
     }
-    Err(crate::errors::SolverTypeError::new_err(
+    Err(crate::py_modules::errors::SolverTypeError::new_err(
         "solver must be a SolverSelection, SolverProfile, Solver, HiGHS, Ipopt, or Xpress instance",
     ))
-}
-
-/// Resolve which `SolverBackend` implementation to use.
-pub(crate) fn resolve_backend(
-    solver: Option<&Bound<'_, PyAny>>,
-    default_backend: &str,
-) -> PyResult<Box<dyn arco_solver::SolverBackend>> {
-    #[cfg(feature = "ipopt")]
-    if solver.is_some_and(|s| s.cast::<PyIpopt>().is_ok()) || default_backend == "ipopt" {
-        return Ok(Box::new(arco_ipopt::IpoptBackend));
-    }
-    #[cfg(not(feature = "ipopt"))]
-    if default_backend == "ipopt" {
-        return Err(crate::errors::SolverInternalError::new_err(
-            "Ipopt backend is not enabled in this build",
-        ));
-    }
-    #[cfg(feature = "xpress")]
-    if solver.is_some_and(|s| s.cast::<PyXpress>().is_ok()) || default_backend == "xpress" {
-        return Ok(Box::new(arco_xpress::XpressBackend));
-    }
-    #[cfg(not(feature = "xpress"))]
-    if solver.is_some_and(|s| s.cast::<PyXpress>().is_ok()) || default_backend == "xpress" {
-        return Err(crate::errors::SolverInternalError::new_err(
-            "Xpress backend is not enabled in this build",
-        ));
-    }
-    // Default: HiGHS
-    Ok(Box::new(arco_highs::HiGHSBackend))
 }

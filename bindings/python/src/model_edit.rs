@@ -1,12 +1,12 @@
-use crate::arrays;
-use crate::errors;
+use crate::py_modules::arrays;
+use crate::py_modules::errors;
 use crate::{
     BoundsSpec, PyConstraintArray, PyExpr, PyIndexSet, PyModel, PyVariable, PyVariableArray,
     bounds_from_sense, extract_objective_terms,
 };
-use arco_core::types::Bounds;
-use arco_core::{Objective, Sense, Variable};
-use arco_expr::{ComparisonSense, ConstraintId, VariableId};
+use arco_ops::expr::{ComparisonSense, ConstraintId, VariableId};
+use arco_ops::model::types::Bounds;
+use arco_ops::model::{Objective, Sense, Variable};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 

@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
 use pyo3::types::PySlice;
 
-use crate::errors::{ArrayIndexError, ArrayShapeMismatchError, ArrayTypeError};
-use crate::index_set::{IndexMember, PyIndexSet};
+use crate::py_modules::errors::{ArrayIndexError, ArrayShapeMismatchError, ArrayTypeError};
+use crate::py_modules::index_set::{IndexMember, PyIndexSet};
 
 /// Resolved axis index: either a single index or a range of indices.
 pub(super) enum AxisIndex {

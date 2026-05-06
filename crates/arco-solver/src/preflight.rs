@@ -1,5 +1,5 @@
 use crate::{ResolvedSelection, SolverRegistry, SolverTransport};
-use arco_core::Model;
+use arco_model::Model;
 
 /// Preflight requirement constraints.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

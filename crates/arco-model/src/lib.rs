@@ -1,18 +1,20 @@
-//! Canonical model seam for Arco.
+//! Canonical model for Arco.
 //!
-//! The current canonical model implementation still lives in `arco-core`.
-//! This crate provides the dependency target for authoring, validation, and
-//! compile crates while that implementation is migrated behind the model seam.
+//! This crate owns Arco's canonical optimization model, model-local types,
+//! sparse inspection/export views, snapshots, slack handles, and the legacy
+//! model-based solver trait while solver contracts are migrated to target-based
+//! APIs.
 
-pub use arco_core::{Bounds, Constraint, Model, ModelError, Objective, Sense, Variable};
+pub mod model;
+pub mod slack;
+pub mod types;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub use model::{
+    CoefficientView, ConstraintView, CscInput, DefaultPrettyPrintAdapter, InspectOptions, Model,
+    ModelError, ModelSnapshot, ObjectiveView, PrettyBoundGroup, PrettyPrintAdapter,
+    PrettyPrintOptions, PrettySection, SlackView, SnapshotMetadata, VariableView,
+    format_ascii_number,
+};
 
-    #[test]
-    fn model_seam_reexports_core_model() {
-        let model = Model::new();
-        assert_eq!(model.num_variables(), 0);
-    }
-}
+pub use slack::{ElasticHandle, SlackBound, SlackHandle, SlackVariables};
+pub use types::{Bounds, Constraint, Objective, Sense, SimplifyLevel, Variable};

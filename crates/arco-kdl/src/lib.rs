@@ -5,4 +5,11 @@ pub mod pipeline;
 pub mod semantic;
 pub mod source;
 
-pub use arco_core::Sense as ObjectiveSense;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ObjectiveSense {
+    Minimize,
+    Maximize,
+}

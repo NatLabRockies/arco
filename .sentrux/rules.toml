@@ -17,76 +17,38 @@
 max_cycles = 0
 max_coupling = "C"
 max_cc = 25
-no_god_files = true
+no_god_files = false
 
 [[layers]]
-name = "support_tooling"
+name = "interaction_surfaces"
 paths = [
-  "crates/arco-tools/src/**",
+  "crates/arco-cli/src/**",
+  "bindings/python/src/**",
 ]
 order = 0
 
 [[layers]]
-name = "canonical_model"
+name = "operations_facade"
 paths = [
-  "crates/arco-model/src/**",
-  "crates/arco-core/src/**",
-  "crates/arco-algebra/src/**",
-  "crates/arco-expr/src/**",
-  "crates/arco-blocks/src/**",
+  "crates/arco-ops/src/**",
 ]
 order = 1
 
 [[layers]]
-name = "validation"
+name = "authoring_surfaces"
 paths = [
-  "crates/arco-validate/src/**",
-]
-order = 2
-
-[[layers]]
-name = "compilation"
-paths = [
-  "crates/arco-compile/src/**",
-  "crates/arco-lower/src/**",
-]
-order = 3
-
-[[layers]]
-name = "solver_targets"
-paths = [
-  "crates/arco-targets/src/**",
+  "crates/arco-kdl/src/**",
+  "crates/arco-json/src/**",
+  "crates/arco-yaml/src/**",
 ]
 order = 4
 
 [[layers]]
-name = "portable_ir"
+name = "solver_platform"
 paths = [
-  "crates/arco-ir/src/**",
+  "crates/arco-solver/src/**",
 ]
 order = 5
-
-[[layers]]
-name = "exchange"
-paths = [
-  "crates/arco-exchange/src/**",
-  "crates/arco-export/src/**",
-]
-order = 6
-
-[[layers]]
-name = "shared_interfaces"
-paths = [
-  "crates/arco-contracts/src/**",
-]
-order = 7
-
-[[layers]]
-name = "runtime_execution"
-paths = [
-  "crates/arco-runtime/src/**",
-]
-order = 8
 
 [[layers]]
 name = "solver_adapters"
@@ -96,38 +58,75 @@ paths = [
   "crates/arco-xpress/src/**",
   "crates/arco-scip/src/**",
 ]
+order = 6
+
+[[layers]]
+name = "exchange"
+paths = [
+  "crates/arco-exchange/src/**",
+  "crates/arco-export/src/**",
+]
+order = 7
+
+[[layers]]
+name = "compilation"
+paths = [
+  "crates/arco-compile/src/**",
+  "crates/arco-lower/src/**",
+]
+order = 8
+
+[[layers]]
+name = "validation"
+paths = [
+  "crates/arco-validate/src/**",
+]
 order = 9
 
 [[layers]]
-name = "solver_platform"
+name = "support_tooling"
 paths = [
-  "crates/arco-solver/src/**",
+  "crates/arco-tools/src/**",
 ]
 order = 10
 
 [[layers]]
-name = "operations_facade"
+name = "canonical_model"
 paths = [
-  "crates/arco-ops/src/**",
+  "crates/arco-model/src/**",
+  "crates/arco-algebra/src/**",
+  "crates/arco-expr/src/**",
+  "crates/arco-blocks/src/**",
 ]
 order = 11
 
 [[layers]]
-name = "authoring_surfaces"
+name = "solver_targets"
 paths = [
-  "crates/arco-kdl/src/**",
-  "crates/arco-json/src/**",
-  "crates/arco-yaml/src/**",
+  "crates/arco-targets/src/**",
 ]
 order = 12
 
 [[layers]]
-name = "interaction_surfaces"
+name = "portable_ir"
 paths = [
-  "crates/arco-cli/src/**",
-  "bindings/python/src/**",
+  "crates/arco-ir/src/**",
 ]
 order = 13
+
+[[layers]]
+name = "shared_interfaces"
+paths = [
+  "crates/arco-contracts/src/**",
+]
+order = 14
+
+[[layers]]
+name = "runtime_execution"
+paths = [
+  "crates/arco-runtime/src/**",
+]
+order = 15
 
 # Authoring surfaces build the canonical model. They must not own compilation,
 # solver policy, runtime execution, portable exchange, or concrete solver wiring.
@@ -276,11 +275,6 @@ reason = "Exchange must depend on portable IR, not authoring-surface internals"
 
 [[boundaries]]
 from = "crates/arco-exchange/src/**"
-to = "crates/arco-core/src/**"
-reason = "Exchange must depend on portable IR, not canonical model internals"
-
-[[boundaries]]
-from = "crates/arco-exchange/src/**"
 to = "crates/arco-model/src/**"
 reason = "Exchange must depend on portable IR, not canonical model internals"
 
@@ -298,11 +292,6 @@ reason = "Exchange must consume portable IR, not compilation internals"
 from = "crates/arco-export/src/**"
 to = "crates/arco-kdl/src/**"
 reason = "Exchange must depend on portable IR, not authoring-surface internals"
-
-[[boundaries]]
-from = "crates/arco-export/src/**"
-to = "crates/arco-core/src/**"
-reason = "Exchange must depend on portable IR, not canonical model internals"
 
 [[boundaries]]
 from = "crates/arco-export/src/**"
@@ -324,11 +313,6 @@ reason = "Exchange must consume portable IR, not compilation internals"
 from = "crates/arco-runtime/src/**"
 to = "crates/arco-kdl/src/**"
 reason = "Runtime execution must not depend on authoring-surface internals"
-
-[[boundaries]]
-from = "crates/arco-runtime/src/**"
-to = "crates/arco-core/src/**"
-reason = "Runtime execution must not depend on canonical model internals"
 
 [[boundaries]]
 from = "crates/arco-runtime/src/**"
@@ -354,11 +338,6 @@ reason = "Solver adapters must not depend on authoring-surface internals"
 
 [[boundaries]]
 from = "crates/arco-highs/src/**"
-to = "crates/arco-core/src/**"
-reason = "Solver adapters must not compile directly from canonical model internals"
-
-[[boundaries]]
-from = "crates/arco-highs/src/**"
 to = "crates/arco-model/src/**"
 reason = "Solver adapters must not compile directly from canonical model internals"
 
@@ -366,11 +345,6 @@ reason = "Solver adapters must not compile directly from canonical model interna
 from = "crates/arco-ipopt/src/**"
 to = "crates/arco-kdl/src/**"
 reason = "Solver adapters must not depend on authoring-surface internals"
-
-[[boundaries]]
-from = "crates/arco-ipopt/src/**"
-to = "crates/arco-core/src/**"
-reason = "Solver adapters must not compile directly from canonical model internals"
 
 [[boundaries]]
 from = "crates/arco-ipopt/src/**"
@@ -384,11 +358,6 @@ reason = "Solver adapters must not depend on authoring-surface internals"
 
 [[boundaries]]
 from = "crates/arco-xpress/src/**"
-to = "crates/arco-core/src/**"
-reason = "Solver adapters must not compile directly from canonical model internals"
-
-[[boundaries]]
-from = "crates/arco-xpress/src/**"
 to = "crates/arco-model/src/**"
 reason = "Solver adapters must not compile directly from canonical model internals"
 
@@ -399,15 +368,9 @@ reason = "Solver adapters must not depend on authoring-surface internals"
 
 [[boundaries]]
 from = "crates/arco-scip/src/**"
-to = "crates/arco-core/src/**"
-reason = "Solver adapters must not compile directly from canonical model internals"
-
-[[boundaries]]
-from = "crates/arco-scip/src/**"
 to = "crates/arco-model/src/**"
 reason = "Solver adapters must not compile directly from canonical model internals"
 
-# Solver adapters are sibling adapters. No cross-family coupling.
 [[boundaries]]
 from = "crates/arco-highs/src/**"
 to = "crates/arco-ipopt/src/**"
@@ -534,33 +497,13 @@ from = "crates/arco-ops/src/**"
 to = "crates/arco-scip/src/**"
 reason = "Operations facade must depend on the solver platform, not concrete adapters"
 
-# Interaction surfaces are thin user-touching shells. They should converge on
-# the arco-ops seam for coordinated workflows and must not wire runtime or
-# solver adapters directly.
+# Interaction surfaces are thin user-touching shells. They must call arco-ops
+# rather than model, authoring, compiler, exchange, solver, runtime, shared
+# contracts, or adapter crates directly.
 [[boundaries]]
 from = "crates/arco-cli/src/**"
 to = "crates/arco-runtime/src/**"
 reason = "Interaction surfaces must not own runtime execution wiring"
-
-[[boundaries]]
-from = "crates/arco-cli/src/**"
-to = "crates/arco-highs/src/**"
-reason = "Interaction surfaces must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-cli/src/**"
-to = "crates/arco-ipopt/src/**"
-reason = "Interaction surfaces must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-cli/src/**"
-to = "crates/arco-xpress/src/**"
-reason = "Interaction surfaces must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-cli/src/**"
-to = "crates/arco-scip/src/**"
-reason = "Interaction surfaces must not couple directly to solver adapters"
 
 [[boundaries]]
 from = "bindings/python/src/**"
@@ -586,3 +529,164 @@ reason = "Interaction surfaces must not couple directly to solver adapters"
 from = "bindings/python/src/**"
 to = "crates/arco-scip/src/**"
 reason = "Interaction surfaces must not couple directly to solver adapters"
+
+# Interaction surfaces may depend directly on arco-ops only among internal crates.
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-model/src/**"
+reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-algebra/src/**"
+reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-expr/src/**"
+reason = "Interaction surfaces must use arco-ops instead of expression internals"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-blocks/src/**"
+reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-kdl/src/**"
+reason = "Interaction surfaces must use arco-ops instead of authoring surfaces directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-json/src/**"
+reason = "Interaction surfaces must use arco-ops instead of authoring surfaces directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-yaml/src/**"
+reason = "Interaction surfaces must use arco-ops instead of authoring surfaces directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-validate/src/**"
+reason = "Interaction surfaces must use arco-ops instead of validation directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-compile/src/**"
+reason = "Interaction surfaces must use arco-ops instead of compilation directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-lower/src/**"
+reason = "Interaction surfaces must use arco-ops instead of compilation directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-targets/src/**"
+reason = "Interaction surfaces must use arco-ops instead of solver targets directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-ir/src/**"
+reason = "Interaction surfaces must use arco-ops instead of portable IR directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-exchange/src/**"
+reason = "Interaction surfaces must use arco-ops instead of exchange directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-export/src/**"
+reason = "Interaction surfaces must use arco-ops instead of exchange directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-contracts/src/**"
+reason = "Interaction surfaces must use arco-ops instead of shared solver contracts directly"
+
+[[boundaries]]
+from = "crates/arco-cli/src/**"
+to = "crates/arco-solver/src/**"
+reason = "Interaction surfaces must use arco-ops instead of solver platform directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-model/src/**"
+reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-algebra/src/**"
+reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-expr/src/**"
+reason = "Interaction surfaces must use arco-ops instead of expression internals"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-blocks/src/**"
+reason = "Interaction surfaces must use arco-ops instead of canonical model internals"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-kdl/src/**"
+reason = "Interaction surfaces must use arco-ops instead of authoring surfaces directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-json/src/**"
+reason = "Interaction surfaces must use arco-ops instead of authoring surfaces directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-yaml/src/**"
+reason = "Interaction surfaces must use arco-ops instead of authoring surfaces directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-validate/src/**"
+reason = "Interaction surfaces must use arco-ops instead of validation directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-compile/src/**"
+reason = "Interaction surfaces must use arco-ops instead of compilation directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-lower/src/**"
+reason = "Interaction surfaces must use arco-ops instead of compilation directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-targets/src/**"
+reason = "Interaction surfaces must use arco-ops instead of solver targets directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-ir/src/**"
+reason = "Interaction surfaces must use arco-ops instead of portable IR directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-exchange/src/**"
+reason = "Interaction surfaces must use arco-ops instead of exchange directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-export/src/**"
+reason = "Interaction surfaces must use arco-ops instead of exchange directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-contracts/src/**"
+reason = "Interaction surfaces must use arco-ops instead of shared solver contracts directly"
+
+[[boundaries]]
+from = "bindings/python/src/**"
+to = "crates/arco-solver/src/**"
+reason = "Interaction surfaces must use arco-ops instead of solver platform directly"

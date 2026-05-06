@@ -73,7 +73,10 @@ fn compile_algebra(
         constraints,
         objective: LinearObjective {
             name: program.active_objective.name.clone(),
-            sense: program.active_objective.sense,
+            sense: match program.active_objective.sense {
+                crate::ObjectiveSense::Minimize => TargetObjectiveSense::Minimize,
+                crate::ObjectiveSense::Maximize => TargetObjectiveSense::Maximize,
+            },
             constant: objective.constant,
             terms: objective.into_terms(),
         },
@@ -184,11 +187,8 @@ fn resolve_variable_domains(
     entrypoint: &Path,
 ) -> Result<Vec<VariableInstance>, CompileError> {
     let asset_names: BTreeSet<&str> = inputs.assets.iter().map(|a| a.name.as_str()).collect();
-    let asset_lookup: BTreeMap<&str, &AssetInputs> = inputs
-        .assets
-        .iter()
-        .map(|a| (a.name.as_str(), a))
-        .collect();
+    let asset_lookup: BTreeMap<&str, &AssetInputs> =
+        inputs.assets.iter().map(|a| (a.name.as_str(), a)).collect();
 
     let asset_index = signature.indices.iter().position(|index_name| {
         is_asset_domain(
@@ -201,13 +201,9 @@ fn resolve_variable_domains(
     });
 
     let mut instances = Vec::new();
-    if let Some(tuple_rows) = resolve_tuple_domain_rows(
-        signature,
-        program,
-        reverse_aliases,
-        family,
-        entrypoint,
-    )? {
+    if let Some(tuple_rows) =
+        resolve_tuple_domain_rows(signature, program, reverse_aliases, family, entrypoint)?
+    {
         for combo in tuple_rows {
             let asset = asset_index.and_then(|idx| asset_lookup.get(combo[idx].as_str()).copied());
 
@@ -267,7 +263,8 @@ fn resolve_variable_domains(
             .and_then(|asset_name| asset_lookup.get(asset_name).copied());
 
         if variable_instance_is_active(&signature.target, asset) {
-            let name = build_indexed_name_from_positions(&signature.target, &domain_values, &positions);
+            let name =
+                build_indexed_name_from_positions(&signature.target, &domain_values, &positions);
             let (lower, upper, kind) =
                 variable_domain_policy(&signature.target, asset, overrides, entrypoint)?;
             instances.push(VariableInstance {

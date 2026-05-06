@@ -1,9 +1,13 @@
 //! Solver-facing compile target seam for Arco.
 
-use arco_validate::SolveTargetValidationInput;
 use serde::{Deserialize, Serialize};
 
-pub use arco_core::Sense as ObjectiveSense;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ObjectiveSense {
+    Minimize,
+    Maximize,
+}
 
 /// Minimal lowered target summary passed to solver-side orchestration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,12 +18,6 @@ pub struct SolveTarget {
     pub variable_count: usize,
     /// Number of constraints.
     pub constraint_count: usize,
-}
-
-impl SolveTargetValidationInput for SolveTarget {
-    fn has_variables(&self) -> bool {
-        self.variable_count > 0
-    }
 }
 
 impl SolveTarget {
@@ -34,7 +32,7 @@ impl SolveTarget {
 
     /// Whether the target has any decision variables.
     pub fn has_variables(&self) -> bool {
-        SolveTargetValidationInput::has_variables(self)
+        self.variable_count > 0
     }
 }
 

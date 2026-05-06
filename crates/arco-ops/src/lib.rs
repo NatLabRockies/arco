@@ -1,17 +1,31 @@
 //! Operations facade seam for Arco interaction surfaces.
 
+pub mod benchmark;
+pub mod execution;
+mod execution_backends;
+pub mod inspect;
+
 pub use arco_export::ExportError;
 use arco_export::{write_lp, write_mps};
+pub use arco_expr as expr;
+pub use arco_highs as highs;
+pub use arco_kdl as kdl;
 use arco_kdl::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
 };
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
+pub use arco_model as model;
+pub use arco_scip as scip;
+pub use arco_solver as solver;
 use arco_solver::{
     PreflightError, ResolvedSelection, SelectionError, Solution, SolutionView, Solve, SolveRequest,
     SolverConfig, SolverError, SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
 };
+pub use arco_targets as targets;
 use arco_targets::{AlgebraicProblem, SolveTarget};
 use arco_validate::{ValidationIssue, ValidationReport, ValidationSeverity, validate_solve_target};
+#[cfg(feature = "xpress")]
+pub use arco_xpress as xpress;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -93,7 +107,7 @@ impl ArcoOps {
     pub fn preflight_solver_selection(
         registry: &SolverRegistry,
         selection: &ResolvedSelection,
-        model: &arco_core::Model,
+        model: &arco_model::Model,
         requirements: &SolverRequirements,
     ) -> Result<(), PreflightError> {
         arco_solver::preflight_selection(registry, selection, model, requirements)
@@ -102,7 +116,7 @@ impl ArcoOps {
     /// Solve an in-memory model through a platform backend.
     pub fn solve_model_backend(
         backend: &dyn arco_solver::SolverBackend,
-        model: &arco_core::Model,
+        model: &arco_model::Model,
         config: &SolverConfig,
         primal_start: Option<&[(arco_expr::VariableId, f64)]>,
     ) -> Result<Solution, SolverError> {
@@ -118,7 +132,20 @@ impl ArcoOps {
 
     /// Run canonical validation on a lowered solve target.
     pub fn validate_target(target: &SolveTarget) -> OpsValidationReport {
-        validate_solve_target(target)
+        validate_solve_target(target.has_variables())
+    }
+
+    /// Execute a compiled problem using a built-in solver selected by the solver platform.
+    pub fn execute_compiled_problem(
+        problem: &kdl::compile::CompiledProblem,
+        selection: &ResolvedSelection,
+        log_to_console: bool,
+        profile: Option<&SolverProfile>,
+        include_variable_values: bool,
+    ) -> Result<execution::ExecutionResult, execution::ExecutionError> {
+        let adapter = execution::builtin_adapter_for_selection(selection, log_to_console, profile)
+            .map_err(|message| execution::ExecutionError::BackendNotAvailable { message })?;
+        execution::execute_problem_with_options(problem, adapter.as_ref(), include_variable_values)
     }
 }
 
@@ -271,7 +298,7 @@ mod tests {
         ArcoOps::preflight_solver_selection(
             &registry,
             &resolved,
-            &arco_core::Model::new(),
+            &arco_model::Model::new(),
             &requirements,
         )
         .expect("preflight should pass");

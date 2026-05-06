@@ -1,12 +1,10 @@
 //! Model builder methods for adding variables, constraints, and objectives.
 
+use crate::model::error::ModelError;
+use crate::model::{BITS_PER_WORD, Model, bounds_are_valid, coefficient_is_valid, column_upsert};
 use crate::types::{Bounds, Constraint, Objective, Sense, Variable};
 use arco_expr::expr::{ComparisonSense, ConstraintExpr, Expr};
 use arco_expr::ids::{ConstraintId, VariableId};
-use arco_validate::{bounds_are_valid, coefficient_is_valid};
-
-use crate::model::error::ModelError;
-use crate::model::{BITS_PER_WORD, Model, column_upsert};
 
 impl Model {
     /// Pre-allocate capacity for the given number of additional variables.

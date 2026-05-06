@@ -1,9 +1,9 @@
-use crate::errors;
-use crate::helpers;
-use crate::solver::{self, SolverSettings};
+use crate::py_modules::errors;
+use crate::py_modules::helpers;
+use crate::py_modules::solver::{self, SolverSettings};
 use crate::{PyModel, PySimplifyLevel};
-use arco_core::Model;
-use arco_core::model::CscInput;
+use arco_ops::model::Model;
+use arco_ops::model::model::CscInput;
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 

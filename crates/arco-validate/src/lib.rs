@@ -68,16 +68,10 @@ impl ValidationReport {
     }
 }
 
-/// Solver-target view required by canonical validation.
-pub trait SolveTargetValidationInput {
-    /// Whether the target contains any decision variables.
-    fn has_variables(&self) -> bool;
-}
-
 /// Run canonical validation on a lowered solve target.
-pub fn validate_solve_target(target: &impl SolveTargetValidationInput) -> ValidationReport {
+pub fn validate_solve_target(has_variables: bool) -> ValidationReport {
     let mut report = ValidationReport::new();
-    if !target.has_variables() {
+    if !has_variables {
         report.push(ValidationIssue::error(
             "TARGET_EMPTY_VARIABLE_SET",
             "target has no decision variables",
@@ -126,21 +120,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        SolveTargetValidationInput, ValidationIssue, ValidationReport, ValidationSeverity,
-        bounds_are_valid, coefficient_is_valid, duplicate_tuple_row_messages,
-        slack_penalty_is_valid, validate_solve_target,
+        ValidationIssue, ValidationReport, ValidationSeverity, bounds_are_valid,
+        coefficient_is_valid, duplicate_tuple_row_messages, slack_penalty_is_valid,
+        validate_solve_target,
     };
     use std::collections::BTreeMap;
-
-    struct TargetFixture {
-        has_variables: bool,
-    }
-
-    impl SolveTargetValidationInput for TargetFixture {
-        fn has_variables(&self) -> bool {
-            self.has_variables
-        }
-    }
 
     #[test]
     fn issue_constructors_set_expected_severity() {
@@ -172,9 +156,7 @@ mod tests {
 
     #[test]
     fn validate_solve_target_rejects_targets_without_variables() {
-        let report = validate_solve_target(&TargetFixture {
-            has_variables: false,
-        });
+        let report = validate_solve_target(false);
 
         assert!(!report.is_valid());
         assert_eq!(report.issues.len(), 1);
@@ -184,9 +166,7 @@ mod tests {
 
     #[test]
     fn validate_solve_target_accepts_targets_with_variables() {
-        let report = validate_solve_target(&TargetFixture {
-            has_variables: true,
-        });
+        let report = validate_solve_target(true);
 
         assert!(report.is_valid());
         assert!(report.issues.is_empty());

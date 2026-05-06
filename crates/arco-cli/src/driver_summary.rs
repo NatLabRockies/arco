@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use arco_kdl::ObjectiveSense;
+use arco_ops::targets::ObjectiveSense;
 use serde::Serialize;
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -78,7 +78,7 @@ pub struct TimingSummary {
 }
 
 pub(crate) fn summarize_variables(
-    variables: &[crate::execution::MappedVariableResult],
+    variables: &[arco_ops::execution::MappedVariableResult],
     options: &crate::driver::RunOptions,
 ) -> Vec<VariableSummary> {
     if options.filter_variable.is_none() {

@@ -14,7 +14,7 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-core = { workspace = true }
+arco-model = { workspace = true }
 arco-expr = { workspace = true }
 arco-contracts = { workspace = true }
 tracing = { workspace = true }
