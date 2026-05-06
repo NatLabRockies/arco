@@ -1,0 +1,17 @@
+[package]
+name = "arco-model"
+version = { workspace = true }
+description = "Canonical Arco model seam"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-core = { workspace = true }

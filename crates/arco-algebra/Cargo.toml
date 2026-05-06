@@ -1,0 +1,17 @@
+[package]
+name = "arco-algebra"
+version = { workspace = true }
+description = "Canonical algebra seam for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-expr = { workspace = true }

@@ -2,6 +2,7 @@
 members = ["crates/*", "bindings/python"]
 exclude = ["scripts"]
 default-members = [
+    "crates/arco-algebra",
     "crates/arco-blocks",
     "crates/arco-cli",
     "crates/arco-contracts",
@@ -10,6 +11,7 @@ default-members = [
     "crates/arco-expr",
     "crates/arco-highs",
     "crates/arco-kdl",
+    "crates/arco-model",
     "crates/arco-ops",
     "crates/arco-runtime",
     "crates/arco-scip",
@@ -29,6 +31,7 @@ sysinfo = "0.33"
 pyo3 = "0.28"
 tracing-subscriber = "0.3"
 smallvec = "1"
+arco-algebra = { path = "crates/arco-algebra" }
 arco-core = { path = "crates/arco-core" }
 arco-expr = { path = "crates/arco-expr" }
 arco-solver = { path = "crates/arco-solver" }
@@ -40,6 +43,7 @@ arco-tools = { path = "crates/arco-tools" }
 arco-blocks = { path = "crates/arco-blocks" }
 arco-kdl = { path = "crates/arco-kdl" }
 arco-cli = { path = "crates/arco-cli" }
+arco-model = { path = "crates/arco-model" }
 arco-contracts = { path = "crates/arco-contracts" }
 arco-export = { path = "crates/arco-export" }
 arco-ops = { path = "crates/arco-ops" }
