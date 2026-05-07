@@ -109,8 +109,8 @@ Implemented and final-Sentrux-clean for this slice:
 - `arco-model` indexed data now has sparse and dense numeric parameter tables,
   duplicate reducers, key filters, and explicit domain materialization.
 - `arco-model` now owns expression builders, expression IDs, and linear
-  expression types directly. `arco-expr` and `arco-algebra` are excluded from
-  active workspace membership after their remaining active dependents were
+  expression types directly. `arco-expr` is excluded from active workspace
+  membership and `arco-algebra` has been removed after its active dependents were
   migrated.
 - `bindings/python` now depends directly on `arco-ops` for core APIs and
   `arco-blocks` for block composition; it no longer aliases `arco-blocks` as
@@ -240,7 +240,7 @@ just ci
 
 - Modify: `crates/arco-model/src/**`
 - Modify/Delete later: `crates/arco-expr/**`
-- Modify/Delete later: `crates/arco-algebra/**`
+- Deleted: `crates/arco-algebra/**`
 - Modify dependent crate manifests only where dependencies are removed
 
 **Steps:**
@@ -252,7 +252,8 @@ just ci
 - [x] Migrate expression builders, IDs, and algebra helpers into the primitive
       crate without making all linear/quadratic data symbolic.
 - [x] Remove remaining active-workspace dependencies on `arco-expr` and
-      `arco-algebra`. Both crates are excluded from workspace membership.
+      `arco-algebra`. `arco-expr` is excluded from workspace membership and
+      `arco-algebra` has been deleted.
 
 **Acceptance criteria:**
 
@@ -683,7 +684,6 @@ just ci
 
 - Delete: retired crates only after no active dependents remain
   - `crates/arco-expr/**`
-  - `crates/arco-algebra/**`
   - `crates/arco-compile/**` if no reusable helpers remain
   - `crates/arco-ir/**`
   - `crates/arco-targets/**`

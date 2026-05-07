@@ -1,11 +1,6 @@
 [workspace]
 members = ["crates/*", "bindings/python"]
-exclude = [
-    "scripts",
-    "crates/arco-algebra",
-    "crates/arco-expr",
-    "crates/arco-contracts",
-]
+exclude = ["scripts", "crates/arco-expr", "crates/arco-contracts"]
 default-members = [
     "crates/arco-blocks",
     "crates/arco-cli",
