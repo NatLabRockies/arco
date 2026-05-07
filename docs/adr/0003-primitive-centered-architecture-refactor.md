@@ -63,13 +63,14 @@ Arco will standardize on these crate ownership rules:
 7. `arco-solver` owns solver-side contracts, preflight, capability models,
    selections, statuses, and result envelopes. Concrete solver adapters are
    siblings that consume model views and solver contracts.
-8. `arco-ops` is the stable adapter for CLI, Python, Julia, and block-facing
+8. `arco-ops` is the stable adapter for CLI, Julia, and block-facing
    interaction APIs. It exposes wrappers/DTOs rather than making raw primitive
    re-exports the primary public contract.
-9. `arco-blocks` is a language-neutral composition layer over `arco-ops`, not a
-   primitive model kernel or PyO3-first layer.
-10. CLI and Python bindings depend on `arco-ops` only among Arco crates. They own
-    I/O, language ergonomics, and error presentation.
+9. `arco-blocks` is a language-neutral composition layer over `arco-ops` and is
+   the only Arco crate imported directly by Python bindings.
+10. CLI depends on `arco-ops` only among Arco crates. Python bindings depend on
+    `arco-blocks` only among Arco crates. They own I/O, language ergonomics, and
+    error presentation.
 
 ## QA/QC contract
 
@@ -85,6 +86,37 @@ A chunk is not reviewable until both commands pass. If either command fails at
 chunk start because of pre-existing migration debt, the chunk must either remove
 that debt or remain a draft PR. Each PR description should paste the final command
 results.
+
+### Implementation progress as of 2026-05-07
+
+Implemented but not yet final-Sentrux-clean:
+
+- `arco-model` now exposes primitive IDs, `ModelBuilder`, `Model64`, `Model32`,
+  `ModelView`, `ModelPatch`, `PatchedModelView`, structural facts, fingerprints,
+  indexed-data primitives, document DTO shells, and an `arco_model::expr` import
+  seam.
+- `arco-diagnostics` exists with format-neutral diagnostic codes, severities,
+  source IDs, source spans, provenance, diagnostics, and reports.
+- `arco-validate` has `validate_model_view` and `diagnose_model_view` over
+  `ModelView`, while keeping the legacy target boolean validator during
+  migration.
+- `arco-solver` has `preflight_model_view` and keeps `preflight_selection` as a
+  concrete-model wrapper.
+- `bindings/python` now has only `arco-blocks` as a direct Arco dependency in
+  `Cargo.toml`; the current source path still uses transitional `arco-blocks`
+  re-exports that must be replaced with real block DTO/wrapper APIs before final
+  Sentrux closure.
+
+Validated for this progress slice:
+
+```bash
+cargo fmt --all
+cargo test -p arco-diagnostics -p arco-model -p arco-validate -p arco-solver
+cargo clippy -p arco-diagnostics -p arco-model -p arco-validate -p arco-solver -p arco-blocks -p arco-python --benches --tests --examples -- -D warnings
+```
+
+Remaining gate debt is tracked in the unfinished chunk checkboxes below and must
+be resolved without changing `.sentrux/rules.toml`.
 
 ### Current target-rule debt to clear first
 
@@ -168,17 +200,22 @@ Chunk 4
 
 **Steps:**
 
-- [ ] Add or harden compact public ID wrappers for variables, constraints, and
+- [x] Add or harden compact public ID wrappers for variables, constraints, and
       expressions.
-- [ ] Implement the finite `ModelBuilder<S> -> Model<S>` construction path with
+- [x] Implement the finite `ModelBuilder<S> -> Model<S>` construction path with
       scalar-generic aliases for `Model64`, `Model32`, and the default `Model`.
+      Current implementation is a transitional f64-backed builder facade; true
+      generic storage remains open.
 - [ ] Make frozen `Model<S>` immutable, shareable, and readable through
-      `ModelView`.
+      `ModelView`. `ModelView` exists; the legacy mutable `Model` remains the
+      primary storage type.
 - [ ] Add value-only `ModelPatch<S>` and `PatchedModelView<S>` for bounds,
       coefficients, objective data, and sidecars without structural mutation.
-- [ ] Store hot numeric data in compact contiguous layouts and keep names,
+      Bounds patching exists; coefficient/objective/sidecar overrides remain
+      open.
+- [x] Store hot numeric data in compact contiguous layouts and keep names,
       provenance, and metadata in lazy sidecars.
-- [ ] Add fingerprints and cheap structural facts needed by validation, format,
+- [x] Add fingerprints and cheap structural facts needed by validation, format,
       and solver layers.
 
 **Acceptance criteria:**
@@ -212,12 +249,14 @@ just ci
 
 **Steps:**
 
-- [ ] Move detached `Expr<S>` values into `arco-model`.
+- [ ] Move detached `Expr<S>` values into `arco-model`. `arco_model::expr` now
+      exists as the canonical import seam, but it still re-exports `arco-expr`.
 - [ ] Preserve LP/QP fast paths with local promotion to symbolic expressions.
 - [ ] Add built-in nonlinear operators as compact enum variants.
 - [ ] Add opaque namespaced custom operators with declared arity and metadata.
 - [ ] Migrate expression builders, IDs, and algebra helpers into the primitive
-      crate without making all linear/quadratic data symbolic.
+      crate without making all linear/quadratic data symbolic. IDs are exposed
+      from `arco-model`; expression builders and algebra helpers remain open.
 - [ ] Remove downstream dependencies on `arco-expr` and `arco-algebra` once their
       APIs are absorbed.
 
@@ -252,14 +291,15 @@ just ci
 
 **Steps:**
 
-- [ ] Add ordered unique sets, tuple sets, domains, and index keys.
+- [x] Add ordered unique sets, tuple sets, domains, and index keys.
 - [ ] Add dense and sparse `ParameterTable<S>` plus non-numeric
-      `AttributeTable`.
-- [ ] Add shared value/string pooling inside `IndexedData`.
+      `AttributeTable`. Sparse `ParameterTable<S>` and `AttributeTable` exist;
+      dense storage remains open.
+- [x] Add shared value/string pooling inside `IndexedData`.
 - [ ] Add projection/filter views and explicit materialization points.
-- [ ] Add duplicate-key reducers for numeric table construction: sum, min, max,
+- [x] Add duplicate-key reducers for numeric table construction: sum, min, max,
       count, and mean.
-- [ ] Add stable `ModelDocument`, `IndexedDataDocument`, and `ArcoDocument`
+- [x] Add stable `ModelDocument`, `IndexedDataDocument`, and `ArcoDocument`
       DTOs with shared schema version, document kind, scalar type, and canonical
       scalar strings.
 
@@ -292,11 +332,12 @@ just ci
 
 **Steps:**
 
-- [ ] Define shared diagnostic codes, severity, source IDs, source spans, and
+- [x] Define shared diagnostic codes, severity, source IDs, source spans, and
       coarse provenance types.
-- [ ] Keep the crate independent of authoring formats.
+- [x] Keep the crate independent of authoring formats.
 - [ ] Replace duplicated local diagnostic structs only where the owning crate is
-      already touched by this chunk.
+      already touched by this chunk. `arco-validate` can emit
+      `DiagnosticReport`, but its local `ValidationIssue` remains for now.
 - [ ] Document which diagnostics remain authoring-specific and why.
 
 **Acceptance criteria:**
@@ -367,11 +408,14 @@ just ci
 
 **Steps:**
 
-- [ ] Make user-facing validation consume `ModelView` and patched views.
+- [x] Make user-facing validation consume `ModelView` and patched views.
+      `validate_model_view` and `diagnose_model_view` exist.
 - [ ] Keep structural invariants in `arco-model` builders and `finish()`.
+      Legacy mutable model invariants still need full frozen-builder hardening.
 - [ ] Move policy checks, semantic warnings, friendly reports, and capability
-      requirement extraction into `arco-validate`.
-- [ ] Remove validation dependencies on KDL internals and retired handoff data
+      requirement extraction into `arco-validate`. Basic model-view validation
+      exists; capability extraction remains open.
+- [x] Remove validation dependencies on KDL internals and retired handoff data
       structures.
 
 **Acceptance criteria:**
@@ -448,12 +492,14 @@ just ci
 
 - [ ] Move solve requests, results, statuses, capabilities, options, profiles,
       selections, solver traits, registry, preflight, and compatibility
-      requirements into `arco-solver`.
+      requirements into `arco-solver`. Model-view preflight exists; contracts
+      still come through `arco-contracts`.
 - [ ] Absorb `arco-contracts` where practical.
 - [ ] Make solver adapters consume model views plus solver contracts directly.
 - [ ] Keep `arco-solver` adapter-neutral; concrete adapters must not register
       themselves by depending back into the primitive crate.
 - [ ] Store result values keyed by stable model IDs and carry model fingerprints.
+      Model fingerprints exist; solver results do not yet carry them.
 - [ ] Allocate solver-native buffers only inside adapters and only when required.
 
 **Acceptance criteria:**
@@ -527,7 +573,9 @@ just ci
 **Steps:**
 
 - [ ] Make block composition depend on `arco-ops` rather than primitive, KDL,
-      validation, format, solver, or concrete adapter crates.
+      validation, format, solver, or concrete adapter crates. `arco-blocks`
+      now depends on `arco-ops`, but it still uses transitional re-exports that
+      leak lower crates to Sentrux.
 - [ ] Keep block runs language-neutral and PyO3-free.
 - [ ] Model typed inputs, outputs, feedforward links, DAG execution, diagnostics,
       and extracted outputs through stable operations.
@@ -583,11 +631,11 @@ sentrux check .
 just ci
 ```
 
-## Chunk 12: Rewrite Python bindings to use `arco-ops` only
+## Chunk 12: Rewrite Python bindings to use `arco-blocks` only
 
-**Type:** AFK after Python DTO contracts are approved
-**Blocked by:** Chunk 9
-**Can run in parallel with:** Chunks 10 and 11
+**Type:** AFK after Python/block DTO contracts are approved
+**Blocked by:** Chunks 9 and 10
+**Can run in parallel with:** Chunk 11
 
 **Files:**
 
@@ -598,21 +646,25 @@ just ci
 
 **Steps:**
 
-- [ ] Replace direct imports of `arco-model`, KDL, validation, format/export,
-      solver primitives, runtime, and concrete solver adapters with `arco-ops`
-      calls.
+- [x] Remove direct Cargo dependencies on `arco-model`, KDL, validation,
+      format/export, solver primitives, runtime, concrete solver adapters, and
+      `arco-ops`. Python now depends directly on `arco-blocks` only among Arco
+      crates.
+- [ ] Replace source-level lower-crate access with real `arco-blocks` DTO/wrapper
+      APIs. Current code still uses transitional aliases/re-exports to keep the
+      existing PyO3 implementation compiling.
 - [ ] Keep Python ownership limited to language ergonomics, PyO3 conversion,
       Python errors, type stubs, and documentation examples.
 - [ ] Move any remaining block-specific Python schema/callback mechanics out of
-      `arco-blocks` core.
+      `arco-blocks` core. Current `arco-blocks` remains PyO3-first.
 - [ ] Add regression coverage for the currently reported Python -> `arco-model`
       Sentrux violations.
 
 **Acceptance criteria:**
 
-- Python bindings depend on `arco-ops` only among Arco crates.
+- Python bindings depend on `arco-blocks` only among Arco crates.
 - Python type stubs and docs describe the same stable concepts exposed by
-  `arco-ops`.
+  `arco-blocks`.
 - `sentrux check .` reports no Python boundary violations.
 
 **Validation:**

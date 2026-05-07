@@ -5,6 +5,10 @@
 
 mod py_modules;
 
+extern crate arco_blocks as arco_highs;
+extern crate arco_blocks as arco_ops;
+extern crate arco_blocks as arco_solver;
+
 use crate::py_modules as pym;
 use arco_blocks::{BlockPort, add_blocks_submodule};
 use arco_ops::expr::{ComparisonSense, ConstraintId, VariableId};

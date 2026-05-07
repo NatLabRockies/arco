@@ -1,5 +1,5 @@
 use crate::{ResolvedSelection, SolverRegistry, SolverTransport};
-use arco_model::Model;
+use arco_model::{ModelView, VariableId};
 
 /// Preflight requirement constraints.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -54,13 +54,12 @@ impl std::fmt::Display for PreflightError {
 
 impl std::error::Error for PreflightError {}
 
-fn has_integer_variables(model: &Model) -> bool {
+fn has_integer_variables(model: &impl ModelView) -> bool {
     for idx in 0..model.num_variables() {
-        let variable_id = arco_expr::VariableId::new(idx as u32);
+        let variable_id = VariableId::new(idx as u32);
         if model
-            .get_variable(variable_id)
-            .map(|variable| variable.is_active && variable.is_integer)
-            .unwrap_or(false)
+            .variable(variable_id)
+            .is_some_and(|variable| variable.is_active && variable.is_integer)
         {
             return true;
         }
@@ -68,11 +67,11 @@ fn has_integer_variables(model: &Model) -> bool {
     false
 }
 
-/// Validate resolved selection against model + explicit requirements.
-pub fn preflight_selection(
+/// Validate resolved selection against a primitive model view + explicit requirements.
+pub fn preflight_model_view(
     registry: &SolverRegistry,
     resolved: &ResolvedSelection,
-    model: &Model,
+    model: &impl ModelView,
     requirements: &SolverRequirements,
 ) -> Result<(), PreflightError> {
     if let Some(required_transport) = requirements.transport {
@@ -107,4 +106,14 @@ pub fn preflight_selection(
     }
 
     Ok(())
+}
+
+/// Validate resolved selection against the concrete model type.
+pub fn preflight_selection(
+    registry: &SolverRegistry,
+    resolved: &ResolvedSelection,
+    model: &arco_model::Model,
+    requirements: &SolverRequirements,
+) -> Result<(), PreflightError> {
+    preflight_model_view(registry, resolved, model, requirements)
 }

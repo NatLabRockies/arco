@@ -11,7 +11,9 @@ pub use arco_contracts::{
     SolverProfile, SolverRegistry, SolverSelection, SolverStatus, SolverTransport, merged_profiles,
     resolve_selection,
 };
-pub use preflight::{PreflightError, SolverRequirements, preflight_selection};
+pub use preflight::{
+    PreflightError, SolverRequirements, preflight_model_view, preflight_selection,
+};
 
 /// Platform-facing backend trait for Arco's core model type.
 ///

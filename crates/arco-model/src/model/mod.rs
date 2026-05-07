@@ -23,6 +23,7 @@ mod pretty;
 mod slack;
 mod sparse;
 mod storage;
+mod view;
 
 use crate::slack::SlackHandle;
 use crate::types::{Bounds, Constraint, Objective, SimplifyLevel, Variable};
@@ -46,6 +47,7 @@ pub use pretty::{
     PrettySection, format_ascii_number,
 };
 pub use sparse::{CooMatrix, CrsMatrix, CscMatrix, SparseMatrixExport};
+pub use view::{ModelFingerprint, ModelPatch, ModelView, PatchedModelView, StructuralFacts};
 
 /// A lazy model builder for linear and mixed-integer programs.
 ///

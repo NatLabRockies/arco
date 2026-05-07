@@ -1,5 +1,7 @@
 //! Canonical model validation seam for Arco.
 
+use arco_diagnostics::{Diagnostic, DiagnosticCode, DiagnosticReport, Severity};
+use arco_model::ModelView;
 use std::collections::BTreeMap;
 
 /// Severity level for a validation issue.
@@ -68,6 +70,46 @@ impl ValidationReport {
     }
 }
 
+/// Run canonical validation on a primitive model view.
+pub fn validate_model_view(model: &impl ModelView) -> ValidationReport {
+    let mut report = ValidationReport::new();
+    if model.num_variables() == 0 {
+        report.push(ValidationIssue::error(
+            "MODEL_EMPTY_VARIABLE_SET",
+            "model has no decision variables",
+        ));
+    }
+    for variable_index in 0..model.num_variables() {
+        let variable_id = arco_model::VariableId::new(variable_index as u32);
+        if let Some(variable) = model.variable(variable_id) {
+            if !bounds_are_valid(variable.bounds.lower, variable.bounds.upper) {
+                report.push(ValidationIssue::error(
+                    "MODEL_INVALID_VARIABLE_BOUNDS",
+                    format!("variable {} has invalid bounds", variable_id.inner()),
+                ));
+            }
+        }
+    }
+    report
+}
+
+/// Diagnostic form of canonical model-view validation.
+pub fn diagnose_model_view(model: &impl ModelView) -> DiagnosticReport {
+    let mut diagnostics = DiagnosticReport::new();
+    for issue in validate_model_view(model).issues {
+        let severity = match issue.severity {
+            ValidationSeverity::Error => Severity::Error,
+            ValidationSeverity::Warning => Severity::Warning,
+        };
+        diagnostics.push(Diagnostic::new(
+            DiagnosticCode::new(issue.code),
+            severity,
+            issue.message,
+        ));
+    }
+    diagnostics
+}
+
 /// Run canonical validation on a lowered solve target.
 pub fn validate_solve_target(has_variables: bool) -> ValidationReport {
     let mut report = ValidationReport::new();
@@ -121,8 +163,8 @@ where
 mod tests {
     use super::{
         ValidationIssue, ValidationReport, ValidationSeverity, bounds_are_valid,
-        coefficient_is_valid, duplicate_tuple_row_messages, slack_penalty_is_valid,
-        validate_solve_target,
+        coefficient_is_valid, diagnose_model_view, duplicate_tuple_row_messages,
+        slack_penalty_is_valid, validate_model_view, validate_solve_target,
     };
     use std::collections::BTreeMap;
 
@@ -170,6 +212,16 @@ mod tests {
 
         assert!(report.is_valid());
         assert!(report.issues.is_empty());
+    }
+
+    #[test]
+    fn validate_model_view_rejects_empty_models() {
+        let model = arco_model::Model::new();
+        let report = validate_model_view(&model);
+
+        assert!(!report.is_valid());
+        assert_eq!(report.issues[0].code, "MODEL_EMPTY_VARIABLE_SET");
+        assert!(diagnose_model_view(&model).has_errors());
     }
 
     #[test]

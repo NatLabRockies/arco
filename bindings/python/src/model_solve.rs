@@ -185,7 +185,7 @@ fn push_bounded_constraint(
                 sense: ConstraintSense::Equal,
                 rhs: bounds.lower,
                 terms,
-            })
+            });
         }
         (true, true) => {
             constraints.push(LinearConstraint {

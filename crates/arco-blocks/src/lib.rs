@@ -22,6 +22,10 @@ use crate::spec::{
 };
 use crate::transform::Transform;
 use crate::util::{log_block_error, log_block_phase, model_type, rss_bytes};
+pub use arco_ops as ops;
+pub use arco_ops::highs::{Solver, highs_version};
+pub use arco_ops::solver::{Solution, SolutionView, SolverConfig, SolverError, SolverStatus};
+pub use arco_ops::{expr, highs, model, solver, targets};
 use arco_tools::rss_delta;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
