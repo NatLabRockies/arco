@@ -107,6 +107,8 @@ Implemented and final-Sentrux-clean for this slice:
 - `arco-kdl` can build primitive `FrozenModel`, `IndexedData`,
   `ModelDocument`, and `ArcoDocument` values directly from parsed KDL for the
   covered finite linear subset.
+- `arco-model` indexed data now has sparse and dense numeric parameter tables,
+  duplicate reducers, key filters, and explicit domain materialization.
 - `bindings/python` now has only `arco-blocks` as a direct Arco dependency in
   `Cargo.toml`; the current source path still uses transitional `arco-blocks`
   re-exports that must be replaced with real block DTO/wrapper APIs before full
@@ -284,11 +286,12 @@ just ci
 **Steps:**
 
 - [x] Add ordered unique sets, tuple sets, domains, and index keys.
-- [ ] Add dense and sparse `ParameterTable<S>` plus non-numeric
-      `AttributeTable`. Sparse `ParameterTable<S>` and `AttributeTable` exist;
-      dense storage remains open.
+- [x] Add dense and sparse `ParameterTable<S>` plus non-numeric
+      `AttributeTable`.
 - [x] Add shared value/string pooling inside `IndexedData`.
-- [ ] Add projection/filter views and explicit materialization points.
+- [x] Add projection/filter views and explicit materialization points for the
+      current primitive table shape. Remaining projection operators can be added
+      as new domain rules land.
 - [x] Add duplicate-key reducers for numeric table construction: sum, min, max,
       count, and mean.
 - [x] Add stable `ModelDocument`, `IndexedDataDocument`, and `ArcoDocument`
