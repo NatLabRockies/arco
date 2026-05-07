@@ -1,7 +1,7 @@
 //! Xpress solver implementation over solver-facing targets.
 
 use crate::solution::Solution;
-use arco_contracts::{Solve, SolverConfig, SolverError as CoreSolverError};
+use arco_solver::{Solve, SolverConfig, SolverError as CoreSolverError};
 use arco_targets::AlgebraicProblem;
 use tracing::debug;
 

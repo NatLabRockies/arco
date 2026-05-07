@@ -3,10 +3,10 @@
 use crate::ffi::{HighsModel, HighsModelError, HighsOption, HighsStatus};
 use crate::solution::Solution;
 use crate::status::{highs_has_solution, highs_to_core_status};
-use arco_contracts::SolverError as GenericSolverError;
-use arco_contracts::{Solve, SolverConfig};
 use arco_model::{ConstraintId, ModelView, Sense, VariableId};
 use arco_solver::ModelViewSolveResult;
+use arco_solver::SolverError as GenericSolverError;
+use arco_solver::{Solve, SolverConfig};
 use arco_targets::{AlgebraicProblem, ConstraintSense, ObjectiveSense, VariableKind};
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
@@ -14,7 +14,7 @@ use std::time::Instant;
 use tracing::{debug, trace, warn};
 
 /// Re-export of contract solver error for backward compatibility.
-pub type SolverError = arco_contracts::SolverError;
+pub type SolverError = arco_solver::SolverError;
 
 fn highs_model_error_to_solver_error(err: HighsModelError) -> SolverError {
     SolverError::SolverSpecific(err.to_string())

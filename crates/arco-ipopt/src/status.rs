@@ -1,6 +1,6 @@
 //! IPOPT status to Arco status mapping.
 
-use arco_contracts::SolverStatus;
+use arco_solver::SolverStatus;
 
 type CoreSolverStatus = SolverStatus;
 use ipopt::SolveStatus;

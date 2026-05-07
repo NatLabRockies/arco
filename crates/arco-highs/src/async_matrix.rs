@@ -276,8 +276,8 @@ impl Default for AsyncCrsBuilder {
 mod tests {
     use super::*;
     use arco_model::expr::Expr;
-    use arco_model::Variable;
     use arco_model::types::Bounds;
+    use arco_model::Variable;
 
     #[test]
     fn test_async_crs_builder_creation() {

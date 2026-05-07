@@ -1,7 +1,7 @@
 //! Solution extraction from Xpress solver results.
 
-use arco_contracts::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
-use arco_contracts::{SolutionView, SolverStatus};
+use arco_solver::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
+use arco_solver::{SolutionView, SolverStatus};
 use std::collections::BTreeMap;
 
 /// Solution obtained from the Xpress solver.

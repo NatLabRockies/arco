@@ -14,9 +14,8 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-contracts = { workspace = true }
-arco-model = { workspace = true }
 arco-solver = { workspace = true }
+arco-model = { workspace = true }
 arco-targets = { workspace = true }
 arco-tools = { workspace = true }
 highs = "1.8"

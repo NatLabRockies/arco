@@ -2,8 +2,8 @@
 
 use crate::problem::ArcoProblem;
 use crate::solution::Solution;
-use arco_contracts::SolverError as CoreSolverError;
-use arco_contracts::{Solve, SolverConfig, SolverError as GenericSolverError};
+use arco_solver::SolverError as CoreSolverError;
+use arco_solver::{Solve, SolverConfig, SolverError as GenericSolverError};
 use arco_targets::AlgebraicProblem;
 use tracing::debug;
 

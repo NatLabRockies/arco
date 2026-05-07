@@ -36,9 +36,11 @@ arco-ops (transitional facade)
 ## Transitional seams still present
 
 The workspace still contains migration-debt crates and couplings from the older
-compile/target architecture (`arco-compile`, `arco-targets`, `arco-contracts`,
-`arco-expr`, `arco-algebra`, and legacy export seams). These are being removed
-chunk-by-chunk per the ARD/plan and `.sentrux` rules.
+compile/target architecture (`arco-compile`, `arco-targets`, `arco-algebra`,
+and legacy export seams). `arco-expr` and `arco-contracts` are excluded from
+active workspace membership after their APIs were absorbed into `arco-model` and
+`arco-solver`. Remaining seams are being removed chunk-by-chunk per the ARD/plan
+and `.sentrux` rules.
 
 ## KDL boundary status
 

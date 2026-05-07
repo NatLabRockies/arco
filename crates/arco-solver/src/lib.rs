@@ -3,17 +3,27 @@
 //! Contract types (selection, config, status, traits) live in `arco-contracts`.
 //! This crate focuses on platform behavior such as preflight.
 
+mod backend;
+mod config;
 mod preflight;
+mod profile;
+mod registry;
+mod request;
+mod selection;
+mod traits;
+mod types;
 
-pub use arco_contracts::{
-    ResolvedSelection, SelectionError, Solution, SolutionView, Solve, SolveRequest,
-    SolverCapabilityModel, SolverConfig, SolverConfigDocument, SolverError, SolverFamily,
-    SolverProfile, SolverRegistry, SolverSelection, SolverStatus, SolverTransport, merged_profiles,
-    resolve_selection,
-};
+pub use backend::SolverBackend as GenericSolverBackend;
+pub use config::SolverConfig;
 pub use preflight::{
     PreflightError, SolverRequirements, preflight_model_view, preflight_selection,
 };
+pub use profile::{SolverConfigDocument, SolverProfile, merged_profiles};
+pub use registry::{SolverCapabilityModel, SolverFamily, SolverRegistry, SolverTransport};
+pub use request::SolveRequest;
+pub use selection::{ResolvedSelection, SelectionError, SolverSelection, resolve_selection};
+pub use traits::{SolutionView, Solve};
+pub use types::{Solution, SolverError, SolverStatus};
 
 /// Minimal result envelope for direct solves over primitive model views.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,12 +43,9 @@ pub struct ModelViewSolveResult {
 /// Solver adapters implement the generic `arco_contracts::SolverBackend`
 /// contract directly; this alias trait keeps orchestration callers on the
 /// concrete Arco model signature.
-pub trait SolverBackend:
-    arco_contracts::SolverBackend<arco_model::Model, arco_model::VariableId>
-{
-}
+pub trait SolverBackend: backend::SolverBackend<arco_model::Model, arco_model::VariableId> {}
 
 impl<T> SolverBackend for T where
-    T: arco_contracts::SolverBackend<arco_model::Model, arco_model::VariableId>
+    T: backend::SolverBackend<arco_model::Model, arco_model::VariableId>
 {
 }

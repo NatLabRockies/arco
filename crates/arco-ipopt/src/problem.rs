@@ -4,7 +4,7 @@
 //! Nonlinear target support will live here once `arco-targets` exposes the
 //! required nonlinear structures.
 
-use arco_contracts::SolverError;
+use arco_solver::SolverError;
 use arco_targets::{AlgebraicProblem, VariableKind};
 
 pub struct ArcoProblem;

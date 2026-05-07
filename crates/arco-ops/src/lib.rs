@@ -14,6 +14,7 @@ use arco_export::{write_lp, write_mps};
 pub use arco_highs as highs;
 pub use arco_kdl as kdl;
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
+use arco_kdl::{PrimitiveBuildError, build_model};
 pub use arco_model as model;
 pub use arco_model::expr;
 pub use arco_scip as scip;
@@ -71,6 +72,18 @@ impl ArcoOps {
     /// Compile a KDL model file to Arco's algebraic problem representation.
     pub fn compile_file(path: &Path) -> Result<CompiledProgram, PipelineError> {
         compile_file(path)
+    }
+
+    /// Build a primitive frozen model directly from a KDL model file.
+    pub fn build_primitive_model_file(
+        path: &Path,
+    ) -> Result<arco_model::Model64, PrimitiveBuildError> {
+        let parsed =
+            Self::load_file(path).map_err(|error| PrimitiveBuildError::UnsupportedExpression {
+                context: "source parse".to_string(),
+                expr: error.to_string(),
+            })?;
+        build_model(&parsed)
     }
 
     /// Export an algebraic problem to a text interchange format.
@@ -220,6 +233,11 @@ mod tests {
             .join("examples/dense-lp/input.kdl")
     }
 
+    fn primitive_fixture_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../arco-kdl/tests/fixtures/primitives_builds_simple_model_and_docs.kdl")
+    }
+
     #[test]
     fn load_file_parses_kdl_source() {
         let loaded = ArcoOps::load_file(&fixture_path()).expect("fixture should load");
@@ -245,6 +263,15 @@ mod tests {
                 .variable_instances
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn build_primitive_model_file_uses_direct_kdl_builder() {
+        let model = ArcoOps::build_primitive_model_file(&primitive_fixture_path())
+            .expect("primitive fixture should build");
+
+        assert_eq!(model.num_variables(), 2);
+        assert_eq!(model.num_constraints(), 1);
     }
 
     #[test]

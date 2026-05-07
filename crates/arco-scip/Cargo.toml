@@ -14,7 +14,7 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-contracts = { workspace = true }
+arco-solver = { workspace = true }
 arco-export = { workspace = true }
 arco-runtime = { workspace = true }
 arco-targets = { workspace = true }

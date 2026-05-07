@@ -112,7 +112,9 @@ Implemented and final-Sentrux-clean for this slice:
 - `arco-model` now owns expression builders, expression IDs, and linear
   expression types directly; `arco-algebra` is a compatibility import seam over
   `arco-model`, and `arco-model`, `arco-solver`, `arco-highs`, and `arco-ops`
-  no longer depend on `arco-expr`.
+  no longer depend on `arco-expr`. `arco-expr` is excluded from active
+  workspace membership after its remaining optional adapter dependents were
+  migrated.
 - `bindings/python` now has only `arco-blocks` as a direct Arco dependency in
   `Cargo.toml`; the current source path still uses transitional `arco-blocks`
   re-exports that must be replaced with real block DTO/wrapper APIs before full
@@ -253,9 +255,9 @@ just ci
 - [ ] Add opaque namespaced custom operators with declared arity and metadata.
 - [x] Migrate expression builders, IDs, and algebra helpers into the primitive
       crate without making all linear/quadratic data symbolic.
-- [ ] Remove remaining downstream dependencies on `arco-expr` and `arco-algebra`
-      once legacy surface crates finish migrating. Core primitive/ops crates no
-      longer depend on `arco-expr`.
+- [x] Remove remaining active-workspace dependencies on `arco-expr`. The crate
+      is excluded from workspace membership; `arco-algebra` remains only as a
+      compatibility import seam over `arco-model`.
 
 **Acceptance criteria:**
 
@@ -490,11 +492,11 @@ just ci
 
 **Steps:**
 
-- [ ] Move solve requests, results, statuses, capabilities, options, profiles,
+- [x] Move solve requests, results, statuses, capabilities, options, profiles,
       selections, solver traits, registry, preflight, and compatibility
-      requirements into `arco-solver`. Model-view preflight exists; contracts
-      still come through `arco-contracts`.
-- [ ] Absorb `arco-contracts` where practical.
+      requirements into `arco-solver`.
+- [x] Absorb `arco-contracts` where practical. It is excluded from active
+      workspace membership after active adapters migrated to `arco-solver`.
 - [ ] Make solver adapters consume model views plus solver contracts directly.
 - [ ] Keep `arco-solver` adapter-neutral; concrete adapters must not register
       themselves by depending back into the primitive crate.

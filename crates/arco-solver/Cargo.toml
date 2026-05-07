@@ -15,4 +15,4 @@ workspace = true
 
 [dependencies]
 arco-model = { workspace = true }
-arco-contracts = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
