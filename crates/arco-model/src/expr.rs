@@ -75,7 +75,7 @@ mod error_tests {
 // User-facing API is degree-agnostic. Degree partitioning is an
 // internal detail only exposed at the solver boundary.
 
-pub use crate::ids::VariableId;
+pub use crate::ids::{ConstraintId, VariableId};
 use std::collections::HashMap;
 
 /// Sparse polynomial expression split by degree plus a constant term.
