@@ -1,8 +1,12 @@
 [workspace]
 members = ["crates/*", "bindings/python"]
-exclude = ["scripts", "crates/arco-expr", "crates/arco-contracts"]
-default-members = [
+exclude = [
+    "scripts",
     "crates/arco-algebra",
+    "crates/arco-expr",
+    "crates/arco-contracts",
+]
+default-members = [
     "crates/arco-blocks",
     "crates/arco-cli",
     "crates/arco-compile",
@@ -30,7 +34,6 @@ sysinfo = "0.33"
 pyo3 = "0.28"
 tracing-subscriber = "0.3"
 smallvec = "1"
-arco-algebra = { path = "crates/arco-algebra" }
 arco-solver = { path = "crates/arco-solver" }
 arco-highs = { path = "crates/arco-highs" }
 arco-ipopt = { path = "crates/arco-ipopt" }

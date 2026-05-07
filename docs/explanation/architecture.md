@@ -40,8 +40,8 @@ arco-ops (transitional facade)
 ## Transitional seams still present
 
 The workspace still contains migration-debt crates and couplings from the older
-compile/target architecture (`arco-compile`, `arco-targets`, `arco-algebra`,
-and legacy export seams). `arco-expr` and `arco-contracts` are excluded from
+compile/target architecture (`arco-compile`, `arco-targets`, and legacy export
+seams). `arco-expr`, `arco-algebra`, and `arco-contracts` are excluded from
 active workspace membership after their APIs were absorbed into `arco-model` and
 `arco-solver`. Remaining seams are being removed chunk-by-chunk per the ARD/plan
 and `.sentrux` rules.
@@ -50,15 +50,15 @@ and `.sentrux` rules.
 
 Active-workspace dependency snapshot from `cargo metadata --no-deps`:
 
-| Crate                               | Active workspace dependents                                          | Retirement status                                                                 |
-| ----------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `arco-expr` (excluded on disk)      | none                                                                 | Safe boundary: no active dependents.                                              |
-| `arco-contracts` (excluded on disk) | none                                                                 | Safe boundary: no active dependents.                                              |
-| `arco-algebra`                      | none                                                                 | Not deleted yet; treated as compatibility seam pending explicit removal decision. |
-| `arco-compile`                      | `arco-ops`                                                           | **Blocked**: cannot retire until `arco-ops` drops this dependency.                |
-| `arco-ir`                           | `arco-export`, `arco-format`                                         | **Blocked**: cannot retire until export/format path stops depending on IR seam.   |
-| `arco-targets`                      | `arco-compile`, `arco-export`, `arco-highs`, `arco-ops`, `arco-scip` | **Blocked**: still on active solve/export path.                                   |
-| `arco-export`                       | `arco-format`, `arco-ops`, `arco-scip`                               | **Blocked**: still on active format/ops/adapter path.                             |
+| Crate                               | Active workspace dependents                                          | Retirement status                                                               |
+| ----------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `arco-expr` (excluded on disk)      | none                                                                 | Safe boundary: no active dependents.                                            |
+| `arco-contracts` (excluded on disk) | none                                                                 | Safe boundary: no active dependents.                                            |
+| `arco-algebra` (excluded on disk)   | none                                                                 | Retired from active workspace; expression APIs live in `arco-model`.            |
+| `arco-compile`                      | `arco-ops`                                                           | **Blocked**: cannot retire until `arco-ops` drops this dependency.              |
+| `arco-ir`                           | `arco-export`, `arco-format`                                         | **Blocked**: cannot retire until export/format path stops depending on IR seam. |
+| `arco-targets`                      | `arco-compile`, `arco-export`, `arco-highs`, `arco-ops`, `arco-scip` | **Blocked**: still on active solve/export path.                                 |
+| `arco-export`                       | `arco-format`, `arco-ops`, `arco-scip`                               | **Blocked**: still on active format/ops/adapter path.                           |
 
 This is why destructive crate deletion is not yet safe for `arco-compile`,
 `arco-ir`, `arco-targets`, or `arco-export`.

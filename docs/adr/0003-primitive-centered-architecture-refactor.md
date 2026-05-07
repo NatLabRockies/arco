@@ -109,15 +109,12 @@ Implemented and final-Sentrux-clean for this slice:
 - `arco-model` indexed data now has sparse and dense numeric parameter tables,
   duplicate reducers, key filters, and explicit domain materialization.
 - `arco-model` now owns expression builders, expression IDs, and linear
-  expression types directly; `arco-algebra` is a compatibility import seam over
-  `arco-model`, and `arco-model`, `arco-solver`, `arco-highs`, and `arco-ops`
-  no longer depend on `arco-expr`. `arco-expr` is excluded from active
-  workspace membership after its remaining optional adapter dependents were
+  expression types directly. `arco-expr` and `arco-algebra` are excluded from
+  active workspace membership after their remaining active dependents were
   migrated.
-- `bindings/python` now has only `arco-blocks` as a direct Arco dependency in
-  `Cargo.toml`; the current source path still uses transitional `arco-blocks`
-  re-exports that must be replaced with real block DTO/wrapper APIs before full
-  architecture closure.
+- `bindings/python` now depends directly on `arco-ops` for core APIs and
+  `arco-blocks` for block composition; it no longer aliases `arco-blocks` as
+  lower crates.
 
 Validated for this progress slice:
 
@@ -254,9 +251,8 @@ just ci
 - [ ] Add opaque namespaced custom operators with declared arity and metadata.
 - [x] Migrate expression builders, IDs, and algebra helpers into the primitive
       crate without making all linear/quadratic data symbolic.
-- [x] Remove remaining active-workspace dependencies on `arco-expr`. The crate
-      is excluded from workspace membership; `arco-algebra` remains only as a
-      compatibility import seam over `arco-model`.
+- [x] Remove remaining active-workspace dependencies on `arco-expr` and
+      `arco-algebra`. Both crates are excluded from workspace membership.
 
 **Acceptance criteria:**
 
@@ -265,7 +261,7 @@ just ci
 - A model with one symbolic nonlinear expression does not force unrelated LP/QP
   data into symbolic storage.
 - `arco-expr` and `arco-algebra` are no longer required by active workspace
-  crates after the migration slice that removes their dependents.
+  crates.
 
 **Validation:**
 
