@@ -109,6 +109,10 @@ Implemented and final-Sentrux-clean for this slice:
   covered finite linear subset.
 - `arco-model` indexed data now has sparse and dense numeric parameter tables,
   duplicate reducers, key filters, and explicit domain materialization.
+- `arco-model` now owns expression builders, expression IDs, and linear
+  expression types directly; `arco-algebra` is a compatibility import seam over
+  `arco-model`, and `arco-model`, `arco-solver`, `arco-highs`, and `arco-ops`
+  no longer depend on `arco-expr`.
 - `bindings/python` now has only `arco-blocks` as a direct Arco dependency in
   `Cargo.toml`; the current source path still uses transitional `arco-blocks`
   re-exports that must be replaced with real block DTO/wrapper APIs before full
@@ -243,16 +247,15 @@ just ci
 
 **Steps:**
 
-- [ ] Move detached `Expr<S>` values into `arco-model`. `arco_model::expr` now
-      exists as the canonical import seam, but it still re-exports `arco-expr`.
+- [x] Move detached `Expr<S>` values into `arco-model`.
 - [ ] Preserve LP/QP fast paths with local promotion to symbolic expressions.
 - [ ] Add built-in nonlinear operators as compact enum variants.
 - [ ] Add opaque namespaced custom operators with declared arity and metadata.
-- [ ] Migrate expression builders, IDs, and algebra helpers into the primitive
-      crate without making all linear/quadratic data symbolic. IDs are exposed
-      from `arco-model`; expression builders and algebra helpers remain open.
-- [ ] Remove downstream dependencies on `arco-expr` and `arco-algebra` once their
-      APIs are absorbed.
+- [x] Migrate expression builders, IDs, and algebra helpers into the primitive
+      crate without making all linear/quadratic data symbolic.
+- [ ] Remove remaining downstream dependencies on `arco-expr` and `arco-algebra`
+      once legacy surface crates finish migrating. Core primitive/ops crates no
+      longer depend on `arco-expr`.
 
 **Acceptance criteria:**
 

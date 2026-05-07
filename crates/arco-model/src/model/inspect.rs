@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 
+use crate::ids::{ConstraintId, VariableId};
 use crate::slack::{SlackBound, SlackVariables};
 use crate::types::{Bounds, Sense};
-use arco_expr::ids::{ConstraintId, VariableId};
 
 use crate::model::Model;
 

@@ -15,5 +15,4 @@ workspace = true
 
 [dependencies]
 arco-model = { workspace = true }
-arco-expr = { workspace = true }
 arco-contracts = { workspace = true }

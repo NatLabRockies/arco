@@ -1,4 +1,4 @@
-use arco_expr::ids::VariableId;
+use crate::ids::VariableId;
 use serde::{Deserialize, Serialize};
 
 /// Optimization sense

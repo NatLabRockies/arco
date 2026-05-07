@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
-use arco_expr::ids::{ConstraintId, VariableId};
+use crate::ids::{ConstraintId, VariableId};
 
 use crate::model::{Model, SparseMatrixExport};
 use crate::types::{Bounds, Sense};
@@ -542,11 +542,11 @@ fn format_variable_bounds_line(label: &str, bounds: Bounds) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::ids::{ConstraintId, VariableId};
     use crate::model::{
         Model, PrettyBoundGroup, PrettyPrintAdapter, PrettyPrintOptions, PrettySection,
     };
     use crate::types::{Bounds, Constraint, Objective, Sense, Variable};
-    use arco_expr::ids::{ConstraintId, VariableId};
 
     struct LabelAdapter;
 

@@ -1,6 +1,6 @@
 //! Model error types.
 
-use arco_expr::ids::{ConstraintId, VariableId};
+use crate::ids::{ConstraintId, VariableId};
 
 /// Errors that can occur during model operations
 #[derive(Debug, Clone, PartialEq)]

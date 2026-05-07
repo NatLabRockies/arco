@@ -1,7 +1,7 @@
 //! CSC format import for building models from sparse matrices.
 
+use crate::ids::ConstraintId;
 use crate::types::{Bounds, Constraint, SimplifyLevel, Variable};
-use arco_expr::ids::ConstraintId;
 
 use crate::model::error::ModelError;
 use crate::model::{ColumnVec, Model, bounds_are_valid, coefficient_is_valid};

@@ -1,10 +1,4 @@
-//! Compact identifier wrappers owned by the primitive model crate.
-//!
-//! `VariableId` and `ConstraintId` currently preserve the legacy type identity
-//! while downstream crates migrate off `arco-expr` imports. `ExpressionId` is the
-//! primitive identifier for stored symbolic expressions.
-
-pub use arco_expr::ids::{ConstraintId, VariableId};
+//! Typed identifier wrappers owned by the primitive model crate.
 
 macro_rules! define_id_type {
     ($name:ident) => {
@@ -27,16 +21,29 @@ macro_rules! define_id_type {
     };
 }
 
+define_id_type!(VariableId);
+define_id_type!(ConstraintId);
 define_id_type!(ExpressionId);
 
 #[cfg(test)]
 mod tests {
-    use crate::ids::{ConstraintId, ExpressionId, VariableId};
+    use super::{ConstraintId, ExpressionId, VariableId};
 
     #[test]
-    fn ids_roundtrip_inner_values() {
-        assert_eq!(VariableId::new(3).inner(), 3);
-        assert_eq!(ConstraintId::new(5).inner(), 5);
-        assert_eq!(ExpressionId::new(7).inner(), 7);
+    fn variable_id_roundtrip() {
+        let id = VariableId::new(7);
+        assert_eq!(id.inner(), 7);
+    }
+
+    #[test]
+    fn constraint_id_roundtrip() {
+        let id = ConstraintId::new(11);
+        assert_eq!(id.inner(), 11);
+    }
+
+    #[test]
+    fn expression_id_roundtrip() {
+        let id = ExpressionId::new(13);
+        assert_eq!(id.inner(), 13);
     }
 }

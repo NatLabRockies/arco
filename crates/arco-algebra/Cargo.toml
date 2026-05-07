@@ -14,4 +14,4 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-expr = { workspace = true }
+arco-model = { workspace = true }

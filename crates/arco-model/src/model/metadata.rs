@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use arco_expr::ids::{ConstraintId, VariableId};
+use crate::ids::{ConstraintId, VariableId};
 
 use crate::model::Model;
 use crate::model::error::ModelError;

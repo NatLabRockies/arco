@@ -1,9 +1,10 @@
 //! Canonical algebra seam for Arco.
 //!
-//! Expression internals currently live in `arco-expr`; this crate is the stable
-//! dependency target for canonical-model algebra during the migration.
+//! Expression internals live in `arco-model`; this crate is a stable algebra
+//! import seam while legacy callers migrate.
 
-pub use arco_expr::*;
+pub use arco_model::expr::{ComparisonSense, ConstraintExpr, Expr, LinearExprError};
+pub use arco_model::{ConstraintId, ExpressionId, VariableId};
 
 #[cfg(test)]
 mod tests {

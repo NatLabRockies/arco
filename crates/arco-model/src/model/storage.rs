@@ -1,7 +1,7 @@
 //! Storage access methods for the model.
 
+use crate::ids::{ConstraintId, VariableId};
 use crate::types::{Constraint, Variable};
-use arco_expr::ids::{ConstraintId, VariableId};
 
 use crate::model::Model;
 use crate::model::error::ModelError;

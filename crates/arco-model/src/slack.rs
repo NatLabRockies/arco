@@ -1,4 +1,4 @@
-use arco_expr::ids::{ConstraintId, VariableId};
+use crate::ids::{ConstraintId, VariableId};
 
 /// Which bound(s) a slack variable relaxes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,7 +59,7 @@ pub struct ElasticHandle {
 #[cfg(test)]
 mod tests {
     use super::{ElasticHandle, SlackBound, SlackVariables};
-    use arco_expr::ids::VariableId;
+    use crate::ids::VariableId;
 
     #[test]
     fn slack_bound_variants_report_consistent_strings_and_flags() {

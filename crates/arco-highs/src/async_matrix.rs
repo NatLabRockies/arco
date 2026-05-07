@@ -27,8 +27,7 @@
 //! Final CRS (stored by constraint)
 //! ```
 
-use arco_expr::VariableId;
-use arco_model::Model;
+use arco_model::{Model, VariableId};
 use std::collections::BTreeMap;
 use std::time::Instant;
 use tracing::{debug, trace};
@@ -276,7 +275,7 @@ impl Default for AsyncCrsBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arco_expr::Expr;
+    use arco_model::expr::Expr;
     use arco_model::Variable;
     use arco_model::types::Bounds;
 

@@ -25,9 +25,9 @@ mod sparse;
 mod storage;
 mod view;
 
+use crate::ids::{ConstraintId, VariableId};
 use crate::slack::SlackHandle;
 use crate::types::{Bounds, Constraint, Objective, SimplifyLevel, Variable};
-use arco_expr::ids::{ConstraintId, VariableId};
 use smallvec::SmallVec;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
@@ -352,8 +352,8 @@ pub(crate) fn slack_variable_name(
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
+    use crate::expr::{ComparisonSense, ConstraintExpr, Expr};
     use crate::types::{Bounds, Constraint, Objective, Sense, Variable};
-    use arco_expr::expr::{ComparisonSense, ConstraintExpr, Expr};
 
     mod metadata_inspect;
     mod slack_csc;

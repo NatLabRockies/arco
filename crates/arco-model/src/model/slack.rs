@@ -1,8 +1,8 @@
 //! Slack variable and elastic constraint support.
 
+use crate::ids::ConstraintId;
 use crate::slack::{ElasticHandle, SlackBound, SlackHandle, SlackVariables};
 use crate::types::{Bounds, Sense, Variable};
-use arco_expr::ids::ConstraintId;
 
 use crate::model::error::ModelError;
 use crate::model::{Model, slack_penalty_is_valid, slack_variable_name};

@@ -34,11 +34,11 @@ pub struct ModelViewSolveResult {
 /// contract directly; this alias trait keeps orchestration callers on the
 /// concrete Arco model signature.
 pub trait SolverBackend:
-    arco_contracts::SolverBackend<arco_model::Model, arco_expr::VariableId>
+    arco_contracts::SolverBackend<arco_model::Model, arco_model::VariableId>
 {
 }
 
 impl<T> SolverBackend for T where
-    T: arco_contracts::SolverBackend<arco_model::Model, arco_expr::VariableId>
+    T: arco_contracts::SolverBackend<arco_model::Model, arco_model::VariableId>
 {
 }

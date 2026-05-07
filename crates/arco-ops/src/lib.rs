@@ -11,11 +11,11 @@ use arco_compile::pipeline::{
 };
 pub use arco_export::ExportError;
 use arco_export::{write_lp, write_mps};
-pub use arco_expr as expr;
 pub use arco_highs as highs;
 pub use arco_kdl as kdl;
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
 pub use arco_model as model;
+pub use arco_model::expr;
 pub use arco_scip as scip;
 pub use arco_solver as solver;
 use arco_solver::{
@@ -119,7 +119,7 @@ impl ArcoOps {
         backend: &dyn arco_solver::SolverBackend,
         model: &arco_model::Model,
         config: &SolverConfig,
-        primal_start: Option<&[(arco_expr::VariableId, f64)]>,
+        primal_start: Option<&[(arco_model::VariableId, f64)]>,
     ) -> Result<Solution, SolverError> {
         backend.solve(model, config, primal_start)
     }
