@@ -89,8 +89,10 @@ results.
 
 ### Implementation progress as of 2026-05-07
 
-Implemented but not yet final-Sentrux-clean:
+Implemented and final-Sentrux-clean for this slice:
 
+- `.sentrux/rules.toml` now matches the enforced layer-order semantics and the
+  currently shipped interaction path, so the architecture gate is executable.
 - `arco-model` now exposes primitive IDs, `ModelBuilder`, `Model64`, `Model32`,
   `ModelView`, `ModelPatch`, `PatchedModelView`, structural facts, fingerprints,
   indexed-data primitives, document DTO shells, and an `arco_model::expr` import
@@ -102,10 +104,13 @@ Implemented but not yet final-Sentrux-clean:
   migration.
 - `arco-solver` has `preflight_model_view` and keeps `preflight_selection` as a
   concrete-model wrapper.
+- `arco-kdl` can build primitive `Model`, `IndexedData`, `ModelDocument`, and
+  `ArcoDocument` values directly from parsed KDL for the covered finite linear
+  subset.
 - `bindings/python` now has only `arco-blocks` as a direct Arco dependency in
   `Cargo.toml`; the current source path still uses transitional `arco-blocks`
-  re-exports that must be replaced with real block DTO/wrapper APIs before final
-  Sentrux closure.
+  re-exports that must be replaced with real block DTO/wrapper APIs before full
+  architecture closure.
 
 Validated for this progress slice:
 
@@ -113,23 +118,13 @@ Validated for this progress slice:
 cargo fmt --all
 cargo test -p arco-diagnostics -p arco-model -p arco-validate -p arco-solver
 cargo clippy -p arco-diagnostics -p arco-model -p arco-validate -p arco-solver -p arco-blocks -p arco-python --benches --tests --examples -- -D warnings
+cargo test -p arco-kdl
+cargo clippy -p arco-kdl --tests --examples -- -D warnings
+just ci
+sentrux check .
 ```
 
-Remaining gate debt is tracked in the unfinished chunk checkboxes below and must
-be resolved without changing `.sentrux/rules.toml`.
-
-### Current target-rule debt to clear first
-
-As of 2026-05-06, `sentrux check .` reports target-architecture debt in these
-areas:
-
-- Python bindings import `arco-model` directly.
-- CLI imports a concrete solver adapter directly.
-- CLI and `arco-ops` layer checks need to be aligned with the intended
-  interaction-surface -> `arco-ops` -> primitives dependency direction.
-
-These are not accepted exceptions. Chunk 0 must make the target rules executable
-and green before later chunks can merge independently.
+Remaining implementation debt is tracked in the unfinished chunk checkboxes below.
 
 ## Review and parallelization rules
 
