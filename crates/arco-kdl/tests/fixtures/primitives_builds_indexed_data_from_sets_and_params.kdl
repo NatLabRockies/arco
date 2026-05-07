@@ -1,0 +1,4 @@
+set "assets" { "solar"; "wind" }
+set "hours" { "1"; "2" }
+
+param "voll" 9000

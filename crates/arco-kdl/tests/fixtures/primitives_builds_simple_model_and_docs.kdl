@@ -1,0 +1,12 @@
+model "Simple" {
+  control "x" lower=0 upper=10
+  control "y" lower=0
+
+  constraint "demand" {
+    x + y >= 10
+  }
+
+  minimize "Cost" {
+    3 * x + 2 * y
+  }
+}

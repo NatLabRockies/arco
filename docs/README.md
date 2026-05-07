@@ -57,7 +57,7 @@ Background material and design decisions that help you understand why arco works
 the way it does.
 
 - [Why Arco](explanation/why-arco.md) -- motivation and design philosophy behind the library.
-- [Architecture](explanation/architecture.md) -- how the Rust crates and Python bindings fit together.
+- [Architecture](explanation/architecture.md) -- shipped crate seams today, including active migration seams.
 - [Refactor Plan](../ARCHITECTURE_REFACTOR_PLAN.md) -- target-state crate architecture, seams, and growth rules.
 - [Architecture Refactor ARD](adr/0003-primitive-centered-architecture-refactor.md) -- decision summary, parallel migration chunks, and QA gates.
 - [Core Concepts](explanation/core-concepts.md) -- variables, constraints, expressions, and the model lifecycle.
