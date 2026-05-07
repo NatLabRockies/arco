@@ -15,7 +15,7 @@ workspace = true
 
 [dependencies]
 arco-model = { workspace = true }
-arco-export = { workspace = true }
+arco-format = { workspace = true }
 arco-highs = { workspace = true }
 arco-kdl = { workspace = true }
 arco-compile = { workspace = true }

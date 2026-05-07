@@ -9,8 +9,12 @@ pub use arco_compile as compile;
 use arco_compile::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
 };
-pub use arco_export::ExportError;
-use arco_export::{write_lp, write_mps};
+pub use arco_format::ExportError;
+use arco_format::{
+    PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective,
+    PortableLinearReport, PortableLinearTerm, PortableObjectiveSense, PortableProblem,
+    PortableVariableInstance, PortableVariableKind, write_lp, write_mps,
+};
 pub use arco_highs as highs;
 pub use arco_kdl as kdl;
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
@@ -25,7 +29,10 @@ use arco_solver::{
     SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
 };
 pub use arco_targets as targets;
-use arco_targets::{AlgebraicProblem, SolveTarget};
+use arco_targets::{
+    AlgebraicProblem, ConstraintSense, ObjectiveSense as TargetObjectiveSense, SolveTarget,
+    VariableKind,
+};
 use arco_validate::{ValidationIssue, ValidationReport, ValidationSeverity, validate_solve_target};
 #[cfg(feature = "xpress")]
 pub use arco_xpress as xpress;
@@ -94,8 +101,12 @@ impl ArcoOps {
     ) -> Result<Vec<u8>, ExportError> {
         let mut buffer = Vec::new();
         match format {
-            OpsExportFormat::Lp => write_lp(problem, &mut buffer)?,
-            OpsExportFormat::Mps => write_mps(problem, &mut buffer)?,
+            OpsExportFormat::Lp => {
+                write_lp(&portable_problem_from_algebraic(problem), &mut buffer)?
+            }
+            OpsExportFormat::Mps => {
+                write_mps(&portable_problem_from_algebraic(problem), &mut buffer)?;
+            }
         }
         Ok(buffer)
     }
@@ -172,6 +183,68 @@ impl ArcoOps {
             .map_err(|message| execution::ExecutionError::BackendNotAvailable { message })?;
         execution::execute_problem_with_options(problem, adapter.as_ref(), include_variable_values)
     }
+}
+
+fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
+    PortableProblem {
+        variable_instances: problem
+            .variable_instances
+            .iter()
+            .map(|variable| PortableVariableInstance {
+                name: variable.name.clone(),
+                family: variable.family.clone(),
+                lower: variable.lower,
+                upper: variable.upper,
+                kind: match variable.kind {
+                    VariableKind::Continuous => PortableVariableKind::Continuous,
+                    VariableKind::Integer => PortableVariableKind::Integer,
+                    VariableKind::Binary => PortableVariableKind::Binary,
+                },
+            })
+            .collect(),
+        constraints: problem
+            .constraints
+            .iter()
+            .map(|constraint| PortableLinearConstraint {
+                name: constraint.name.clone(),
+                sense: match constraint.sense {
+                    ConstraintSense::GreaterEqual => PortableConstraintSense::GreaterEqual,
+                    ConstraintSense::LessEqual => PortableConstraintSense::LessEqual,
+                    ConstraintSense::Equal => PortableConstraintSense::Equal,
+                },
+                rhs: constraint.rhs,
+                terms: portable_terms(&constraint.terms),
+            })
+            .collect(),
+        objective: PortableLinearObjective {
+            name: problem.objective.name.clone(),
+            sense: match problem.objective.sense {
+                TargetObjectiveSense::Minimize => PortableObjectiveSense::Minimize,
+                TargetObjectiveSense::Maximize => PortableObjectiveSense::Maximize,
+            },
+            constant: problem.objective.constant,
+            terms: portable_terms(&problem.objective.terms),
+        },
+        reports: problem
+            .reports
+            .iter()
+            .map(|report| PortableLinearReport {
+                name: report.name.clone(),
+                constant: report.constant,
+                terms: portable_terms(&report.terms),
+            })
+            .collect(),
+    }
+}
+
+fn portable_terms(terms: &[arco_targets::LinearTerm]) -> Vec<PortableLinearTerm> {
+    terms
+        .iter()
+        .map(|term| PortableLinearTerm {
+            variable_name: term.variable_name.clone(),
+            coefficient: term.coefficient,
+        })
+        .collect()
 }
 
 #[cfg(test)]

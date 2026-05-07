@@ -15,7 +15,7 @@ workspace = true
 
 [dependencies]
 arco-solver = { workspace = true }
-arco-export = { workspace = true }
+arco-format = { workspace = true }
 arco-runtime = { workspace = true }
 arco-targets = { workspace = true }
 miette = { version = "7", features = ["fancy"] }

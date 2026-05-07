@@ -2,10 +2,14 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
-use arco_export::write_mps;
+use arco_format::{
+    PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective,
+    PortableLinearReport, PortableLinearTerm, PortableObjectiveSense, PortableProblem,
+    PortableVariableInstance, PortableVariableKind, write_mps,
+};
 use arco_runtime::RuntimeWorkspace;
 use arco_solver::{SolverCapabilityModel, SolverFamily, SolverRegistry};
-use arco_targets::{AlgebraicProblem, LinearReport};
+use arco_targets::{AlgebraicProblem, ConstraintSense, LinearReport, ObjectiveSense, VariableKind};
 use miette::Diagnostic;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -130,7 +134,11 @@ pub fn solve_problem_with_options(
     {
         let mut mps_file =
             std::fs::File::create(&mps_path).map_err(|source| Error::Io { source })?;
-        write_mps(problem.algebra, &mut mps_file).map_err(|source| Error::Process {
+        write_mps(
+            &portable_problem_from_algebraic(problem.algebra),
+            &mut mps_file,
+        )
+        .map_err(|source| Error::Process {
             message: source.to_string(),
         })?;
     }
@@ -174,6 +182,68 @@ pub fn solve_problem_with_options(
     }
 
     build_scip_solve_output(problem, include_variable_values, &backend, &sol_path)
+}
+
+fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
+    PortableProblem {
+        variable_instances: problem
+            .variable_instances
+            .iter()
+            .map(|variable| PortableVariableInstance {
+                name: variable.name.clone(),
+                family: variable.family.clone(),
+                lower: variable.lower,
+                upper: variable.upper,
+                kind: match variable.kind {
+                    VariableKind::Continuous => PortableVariableKind::Continuous,
+                    VariableKind::Integer => PortableVariableKind::Integer,
+                    VariableKind::Binary => PortableVariableKind::Binary,
+                },
+            })
+            .collect(),
+        constraints: problem
+            .constraints
+            .iter()
+            .map(|constraint| PortableLinearConstraint {
+                name: constraint.name.clone(),
+                sense: match constraint.sense {
+                    ConstraintSense::GreaterEqual => PortableConstraintSense::GreaterEqual,
+                    ConstraintSense::LessEqual => PortableConstraintSense::LessEqual,
+                    ConstraintSense::Equal => PortableConstraintSense::Equal,
+                },
+                rhs: constraint.rhs,
+                terms: portable_terms(&constraint.terms),
+            })
+            .collect(),
+        objective: PortableLinearObjective {
+            name: problem.objective.name.clone(),
+            sense: match problem.objective.sense {
+                ObjectiveSense::Minimize => PortableObjectiveSense::Minimize,
+                ObjectiveSense::Maximize => PortableObjectiveSense::Maximize,
+            },
+            constant: problem.objective.constant,
+            terms: portable_terms(&problem.objective.terms),
+        },
+        reports: problem
+            .reports
+            .iter()
+            .map(|report| PortableLinearReport {
+                name: report.name.clone(),
+                constant: report.constant,
+                terms: portable_terms(&report.terms),
+            })
+            .collect(),
+    }
+}
+
+fn portable_terms(terms: &[arco_targets::LinearTerm]) -> Vec<PortableLinearTerm> {
+    terms
+        .iter()
+        .map(|term| PortableLinearTerm {
+            variable_name: term.variable_name.clone(),
+            coefficient: term.coefficient,
+        })
+        .collect()
 }
 
 #[derive(Debug)]

@@ -1,20 +1,228 @@
-//! Format seam for portable Arco IR and primitive model views.
+//! Format seam for portable Arco format DTOs and primitive model views.
 
+use arco_model::{ConstraintId, ModelView, Sense, VariableId};
+use std::collections::BTreeMap;
 use std::io::Write;
 
-pub use arco_export::ExportError;
-use arco_ir::{
-    PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective, PortableLinearTerm,
-    PortableObjectiveSense, PortableProblem, PortableVariableInstance, PortableVariableKind,
-};
-use arco_model::{ConstraintId, ModelView, Sense, VariableId};
+#[derive(Debug, thiserror::Error, miette::Diagnostic)]
+pub enum ExportError {
+    #[error("failed to write exported model: {source}")]
+    Io {
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortableProblem {
+    pub variable_instances: Vec<PortableVariableInstance>,
+    pub constraints: Vec<PortableLinearConstraint>,
+    pub objective: PortableLinearObjective,
+    pub reports: Vec<PortableLinearReport>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortableVariableInstance {
+    pub name: String,
+    pub family: String,
+    pub lower: f64,
+    pub upper: Option<f64>,
+    pub kind: PortableVariableKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortableVariableKind {
+    Continuous,
+    Integer,
+    Binary,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortableLinearConstraint {
+    pub name: String,
+    pub sense: PortableConstraintSense,
+    pub rhs: f64,
+    pub terms: Vec<PortableLinearTerm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortableConstraintSense {
+    GreaterEqual,
+    LessEqual,
+    Equal,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortableLinearObjective {
+    pub name: String,
+    pub sense: PortableObjectiveSense,
+    pub constant: f64,
+    pub terms: Vec<PortableLinearTerm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortableObjectiveSense {
+    Minimize,
+    Maximize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortableLinearReport {
+    pub name: String,
+    pub constant: f64,
+    pub terms: Vec<PortableLinearTerm>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PortableLinearTerm {
+    pub variable_name: String,
+    pub coefficient: f64,
+}
 
 pub fn write_lp(problem: &PortableProblem, writer: &mut dyn Write) -> Result<(), ExportError> {
-    arco_export::write_portable_lp(problem, writer)
+    writeln!(writer, "\\ Problem name: MODEL").map_err(io_error)?;
+    writeln!(writer, "{}", lp_objective_header(problem.objective.sense)).map_err(io_error)?;
+    writeln!(
+        writer,
+        "  {}: {}",
+        problem.objective.name,
+        format_linear_expression(&problem.objective.terms, problem.objective.constant)
+    )
+    .map_err(io_error)?;
+    writeln!(writer, "Subject To").map_err(io_error)?;
+    for constraint in &problem.constraints {
+        writeln!(
+            writer,
+            "  {}: {} {} {}",
+            constraint.name,
+            format_linear_expression(&constraint.terms, 0.0),
+            lp_constraint_sense(constraint.sense),
+            format_number(constraint.rhs)
+        )
+        .map_err(io_error)?;
+    }
+
+    writeln!(writer, "Bounds").map_err(io_error)?;
+    for variable in &problem.variable_instances {
+        write_lp_bounds_line(variable, writer)?;
+    }
+
+    let generals = problem
+        .variable_instances
+        .iter()
+        .filter(|variable| variable.kind == PortableVariableKind::Integer)
+        .map(|variable| variable.name.as_str())
+        .collect::<Vec<_>>();
+    if !generals.is_empty() {
+        writeln!(writer, "Generals").map_err(io_error)?;
+        for name in generals {
+            writeln!(writer, "  {name}").map_err(io_error)?;
+        }
+    }
+
+    let binaries = problem
+        .variable_instances
+        .iter()
+        .filter(|variable| variable.kind == PortableVariableKind::Binary)
+        .map(|variable| variable.name.as_str())
+        .collect::<Vec<_>>();
+    if !binaries.is_empty() {
+        writeln!(writer, "Binaries").map_err(io_error)?;
+        for name in binaries {
+            writeln!(writer, "  {name}").map_err(io_error)?;
+        }
+    }
+
+    writeln!(writer, "End").map_err(io_error)?;
+    Ok(())
 }
 
 pub fn write_mps(problem: &PortableProblem, writer: &mut dyn Write) -> Result<(), ExportError> {
-    arco_export::write_portable_mps(problem, writer)
+    writeln!(writer, "NAME          MODEL").map_err(io_error)?;
+    writeln!(writer, "ROWS").map_err(io_error)?;
+    writeln!(writer, " N  OBJ").map_err(io_error)?;
+    for constraint in &problem.constraints {
+        writeln!(
+            writer,
+            " {}  {}",
+            mps_row_type(constraint.sense),
+            constraint.name
+        )
+        .map_err(io_error)?;
+    }
+
+    let objective_terms = problem
+        .objective
+        .terms
+        .iter()
+        .map(|term| (term.variable_name.clone(), term.coefficient))
+        .collect::<BTreeMap<_, _>>();
+    let column_terms = build_column_terms(problem, &objective_terms);
+
+    writeln!(writer, "COLUMNS").map_err(io_error)?;
+    let mut in_integer_block = false;
+    for variable in &problem.variable_instances {
+        let is_integer = variable.kind != PortableVariableKind::Continuous;
+        if is_integer && !in_integer_block {
+            writeln!(writer, "    MARKER    'MARKER'                 'INTORG'")
+                .map_err(io_error)?;
+            in_integer_block = true;
+        } else if !is_integer && in_integer_block {
+            writeln!(writer, "    MARKER    'MARKER'                 'INTEND'")
+                .map_err(io_error)?;
+            in_integer_block = false;
+        }
+
+        let entries = column_terms
+            .get(&variable.name)
+            .cloned()
+            .unwrap_or_default();
+        for pair in entries.chunks(2) {
+            match pair {
+                [(row_1, value_1), (row_2, value_2)] => writeln!(
+                    writer,
+                    "    {:<8}  {:<8}  {:>16}  {:<8}  {:>16}",
+                    variable.name,
+                    row_1,
+                    format_number(*value_1),
+                    row_2,
+                    format_number(*value_2)
+                )
+                .map_err(io_error)?,
+                [(row_1, value_1)] => writeln!(
+                    writer,
+                    "    {:<8}  {:<8}  {:>16}",
+                    variable.name,
+                    row_1,
+                    format_number(*value_1)
+                )
+                .map_err(io_error)?,
+                _ => {}
+            }
+        }
+    }
+    if in_integer_block {
+        writeln!(writer, "    MARKER    'MARKER'                 'INTEND'").map_err(io_error)?;
+    }
+
+    writeln!(writer, "RHS").map_err(io_error)?;
+    for constraint in &problem.constraints {
+        writeln!(
+            writer,
+            "    RHS1      {:<8}  {:>16}",
+            constraint.name,
+            format_number(constraint.rhs)
+        )
+        .map_err(io_error)?;
+    }
+
+    writeln!(writer, "BOUNDS").map_err(io_error)?;
+    for variable in &problem.variable_instances {
+        write_mps_bounds(variable, writer)?;
+    }
+
+    writeln!(writer, "ENDATA").map_err(io_error)?;
+    Ok(())
 }
 
 /// Format request over a primitive model view.
@@ -205,82 +413,337 @@ fn constraint_name(model: &impl ModelView, id: ConstraintId, index: usize) -> St
         .map_or_else(|| format!("c{index}"), str::to_string)
 }
 
+fn build_column_terms(
+    problem: &PortableProblem,
+    objective_terms: &BTreeMap<String, f64>,
+) -> BTreeMap<String, Vec<(String, f64)>> {
+    let mut terms = BTreeMap::<String, Vec<(String, f64)>>::new();
+
+    for variable in &problem.variable_instances {
+        if let Some(value) = objective_terms.get(&variable.name) {
+            terms
+                .entry(variable.name.clone())
+                .or_default()
+                .push(("OBJ".to_string(), *value));
+        }
+    }
+
+    for constraint in &problem.constraints {
+        for term in &constraint.terms {
+            terms
+                .entry(term.variable_name.clone())
+                .or_default()
+                .push((constraint.name.clone(), term.coefficient));
+        }
+    }
+
+    terms
+}
+
+fn lp_objective_header(sense: PortableObjectiveSense) -> &'static str {
+    match sense {
+        PortableObjectiveSense::Minimize => "Minimize",
+        PortableObjectiveSense::Maximize => "Maximize",
+    }
+}
+
+fn lp_constraint_sense(sense: PortableConstraintSense) -> &'static str {
+    match sense {
+        PortableConstraintSense::GreaterEqual => ">=",
+        PortableConstraintSense::LessEqual => "<=",
+        PortableConstraintSense::Equal => "=",
+    }
+}
+
+fn mps_row_type(sense: PortableConstraintSense) -> char {
+    match sense {
+        PortableConstraintSense::GreaterEqual => 'G',
+        PortableConstraintSense::LessEqual => 'L',
+        PortableConstraintSense::Equal => 'E',
+    }
+}
+
+fn write_lp_bounds_line(
+    variable: &PortableVariableInstance,
+    writer: &mut dyn Write,
+) -> Result<(), ExportError> {
+    match variable.upper {
+        Some(upper) if (variable.lower - upper).abs() < f64::EPSILON => writeln!(
+            writer,
+            "  {} = {}",
+            variable.name,
+            format_number(variable.lower)
+        )
+        .map_err(io_error)?,
+        Some(upper) => writeln!(
+            writer,
+            "  {} <= {} <= {}",
+            format_number(variable.lower),
+            variable.name,
+            format_number(upper)
+        )
+        .map_err(io_error)?,
+        None if variable.lower == f64::NEG_INFINITY => {
+            writeln!(writer, "  {} free", variable.name).map_err(io_error)?;
+        }
+        None => writeln!(
+            writer,
+            "  {} <= {}",
+            format_number(variable.lower),
+            variable.name
+        )
+        .map_err(io_error)?,
+    }
+
+    Ok(())
+}
+
+fn write_mps_bounds(
+    variable: &PortableVariableInstance,
+    writer: &mut dyn Write,
+) -> Result<(), ExportError> {
+    match variable.kind {
+        PortableVariableKind::Binary => {
+            writeln!(writer, " BV BND1      {}", variable.name).map_err(io_error)?;
+            return Ok(());
+        }
+        PortableVariableKind::Integer | PortableVariableKind::Continuous => {}
+    }
+
+    if variable.lower == f64::NEG_INFINITY && variable.upper.is_none() {
+        writeln!(writer, " FR BND1      {}", variable.name).map_err(io_error)?;
+        return Ok(());
+    }
+
+    let lower_code = if variable.kind == PortableVariableKind::Integer {
+        "LI"
+    } else {
+        "LO"
+    };
+    writeln!(
+        writer,
+        " {} BND1      {:<8}  {}",
+        lower_code,
+        variable.name,
+        format_number(variable.lower)
+    )
+    .map_err(io_error)?;
+
+    if let Some(upper) = variable.upper {
+        let upper_code = if variable.kind == PortableVariableKind::Integer {
+            "UI"
+        } else {
+            "UP"
+        };
+        writeln!(
+            writer,
+            " {} BND1      {:<8}  {}",
+            upper_code,
+            variable.name,
+            format_number(upper)
+        )
+        .map_err(io_error)?;
+    }
+
+    Ok(())
+}
+
+fn format_linear_expression(terms: &[PortableLinearTerm], constant: f64) -> String {
+    let mut parts = Vec::new();
+    if constant != 0.0 || terms.is_empty() {
+        parts.push(format_number(constant));
+    }
+
+    for term in terms {
+        let sign = if term.coefficient < 0.0 { "-" } else { "+" };
+        let absolute = term.coefficient.abs();
+        let body = if approximately_one(absolute) {
+            term.variable_name.clone()
+        } else {
+            format!("{} {}", format_number(absolute), term.variable_name)
+        };
+
+        if parts.is_empty() {
+            if sign == "-" {
+                parts.push(format!("- {body}"));
+            } else {
+                parts.push(body);
+            }
+        } else {
+            parts.push(format!("{sign} {body}"));
+        }
+    }
+
+    parts.join(" ")
+}
+
+fn approximately_one(value: f64) -> bool {
+    (value - 1.0).abs() < 1e-9
+}
+
+fn format_number(value: f64) -> String {
+    if value.is_nan() {
+        return "NaN".to_string();
+    }
+    if value.is_infinite() {
+        return if value.is_sign_positive() {
+            "+inf".to_string()
+        } else {
+            "-inf".to_string()
+        };
+    }
+    let mut text = if approximately_one(value.fract()) || value.fract().abs() < 1e-9 {
+        format!("{value:.0}")
+    } else {
+        format!("{value}")
+    };
+    if text == "-0" {
+        text = "0".to_string();
+    }
+    text
+}
+
+fn io_error(source: std::io::Error) -> ExportError {
+    ExportError::Io { source }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use arco_ir::{PortableLinearObjective, PortableObjectiveSense};
+    use crate::{
+        PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective,
+        PortableLinearTerm, PortableObjectiveSense, PortableProblem, PortableVariableInstance,
+        PortableVariableKind, write_lp,
+    };
     use arco_model::{Bounds, Constraint, Model, Objective, Sense, Variable};
 
     #[test]
     fn write_lp_accepts_portable_problem() {
-        let problem = PortableProblem {
-            variable_instances: Vec::new(),
-            constraints: Vec::new(),
-            objective: PortableLinearObjective {
-                name: "obj".to_string(),
-                sense: PortableObjectiveSense::Minimize,
-                constant: 0.0,
-                terms: Vec::new(),
-            },
-            reports: Vec::new(),
-        };
         let mut output = Vec::new();
+        write_lp(&portable_problem(), &mut output).expect("portable LP should render");
 
-        write_lp(&problem, &mut output).expect("portable LP export should succeed");
+        let output = String::from_utf8(output).expect("valid utf8");
+        assert!(output.contains("Minimize"));
+        assert!(output.contains("  demand: x + 2 y >= 7"));
+        assert!(output.contains("Binaries"));
+    }
 
+    #[test]
+    fn write_lp_accepts_model_view() {
+        let model = model_view_problem();
+        let output = crate::export_model_view_lp(&model).expect("model view LP should render");
+
+        assert_eq!(output.format, "lp");
         assert!(
-            String::from_utf8(output)
+            String::from_utf8(output.bytes)
                 .expect("valid utf8")
                 .contains("Minimize")
         );
     }
 
     #[test]
-    fn write_lp_accepts_model_view() {
-        let model = named_model_view_fixture();
-
-        let result = export_model_view_lp(&model).expect("model-view LP export");
-        let rendered = String::from_utf8(result.bytes).expect("valid utf8");
-        assert_eq!(result.format, "lp");
-        assert!(rendered.contains("Minimize"));
-        assert!(rendered.contains("demand:"));
-        assert!(rendered.contains("power"));
-    }
-
-    #[test]
     fn write_mps_accepts_model_view() {
-        let model = named_model_view_fixture();
+        let model = model_view_problem();
+        let output = crate::export_model_view_mps(&model).expect("model view MPS should render");
 
-        let result = export_model_view_mps(&model).expect("model-view MPS export");
-        let rendered = String::from_utf8(result.bytes).expect("valid utf8");
-        assert_eq!(result.format, "mps");
-        assert!(rendered.contains("NAME"));
-        assert!(rendered.contains("demand"));
-        assert!(rendered.contains("power"));
+        assert_eq!(output.format, "mps");
+        assert!(
+            String::from_utf8(output.bytes)
+                .expect("valid utf8")
+                .contains("NAME          MODEL")
+        );
     }
 
-    fn named_model_view_fixture() -> Model {
+    fn portable_problem() -> PortableProblem {
+        PortableProblem {
+            variable_instances: vec![
+                PortableVariableInstance {
+                    name: "x".to_string(),
+                    family: "vars".to_string(),
+                    lower: 0.0,
+                    upper: Some(10.0),
+                    kind: PortableVariableKind::Continuous,
+                },
+                PortableVariableInstance {
+                    name: "y".to_string(),
+                    family: "vars".to_string(),
+                    lower: -2.0,
+                    upper: Some(5.0),
+                    kind: PortableVariableKind::Integer,
+                },
+                PortableVariableInstance {
+                    name: "z".to_string(),
+                    family: "vars".to_string(),
+                    lower: 0.0,
+                    upper: Some(1.0),
+                    kind: PortableVariableKind::Binary,
+                },
+            ],
+            constraints: vec![
+                PortableLinearConstraint {
+                    name: "demand".to_string(),
+                    sense: PortableConstraintSense::GreaterEqual,
+                    rhs: 7.0,
+                    terms: vec![
+                        PortableLinearTerm {
+                            variable_name: "x".to_string(),
+                            coefficient: 1.0,
+                        },
+                        PortableLinearTerm {
+                            variable_name: "y".to_string(),
+                            coefficient: 2.0,
+                        },
+                    ],
+                },
+                PortableLinearConstraint {
+                    name: "capacity".to_string(),
+                    sense: PortableConstraintSense::LessEqual,
+                    rhs: 11.5,
+                    terms: vec![PortableLinearTerm {
+                        variable_name: "z".to_string(),
+                        coefficient: -3.0,
+                    }],
+                },
+            ],
+            objective: PortableLinearObjective {
+                name: "cost".to_string(),
+                sense: PortableObjectiveSense::Minimize,
+                constant: 4.0,
+                terms: vec![
+                    PortableLinearTerm {
+                        variable_name: "x".to_string(),
+                        coefficient: 1.5,
+                    },
+                    PortableLinearTerm {
+                        variable_name: "y".to_string(),
+                        coefficient: -1.0,
+                    },
+                    PortableLinearTerm {
+                        variable_name: "z".to_string(),
+                        coefficient: 2.0,
+                    },
+                ],
+            },
+            reports: Vec::new(),
+        }
+    }
+
+    fn model_view_problem() -> Model {
         let mut model = Model::new();
         let x = model
-            .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
-            .expect("variable");
-        let demand = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("add x");
+        let c = model
             .add_constraint(Constraint {
-                bounds: Bounds::new(1.0, f64::INFINITY),
+                bounds: Bounds::new(7.0, f64::INFINITY),
             })
-            .expect("constraint");
-        model.set_variable_name(x, "power".to_string()).unwrap();
-        model
-            .set_constraint_name(demand, "demand".to_string())
-            .unwrap();
-        model.set_objective_name(Some("cost".to_string())).unwrap();
-        model.set_coefficient(x, demand, 1.0).expect("coefficient");
+            .expect("add c");
+        model.set_coefficient(x, c, 1.0).expect("set coeff");
         model
             .set_objective(Objective {
                 sense: Some(Sense::Minimize),
-                terms: vec![(x, 2.0)],
+                terms: vec![(x, 1.5)],
             })
-            .expect("objective");
+            .expect("set objective");
         model
     }
 }

@@ -436,27 +436,27 @@ just ci
 **Files:**
 
 - Modify: `crates/arco-format/**`
-- Modify: `crates/arco-export/**`
+- Delete: `crates/arco-export/**` after its LP/MPS writers move into active format seams
 - Possibly create: concrete format crates such as `arco-lp`, `arco-mps`, or
   `arco-nl` when split out of legacy export code
 
 **Steps:**
 
-- [ ] Define format-side requests, errors, capability declarations, numeric
+- [x] Define format-side requests, errors, capability declarations, numeric
       rendering policy, naming/escaping hooks, traversal helpers, and result DTOs.
 - [ ] Keep canonical model serialization in `arco-model` documents, not in the
       format crate.
-- [ ] Make concrete export formats consume `ModelView` or patched views. LP and
+- [x] Make concrete export formats consume `ModelView` or patched views. LP and
       MPS have primitive `ModelView` entry points; NL and legacy facade routing
       remain open.
 - [ ] Allocate row-major buffers, render trees, or format-specific layouts only
       when the concrete format requires them.
-- [ ] Remove format dependencies on KDL and solver selection.
+- [x] Remove format dependencies on KDL, solver selection, legacy IR, and legacy export crates.
 
 **Acceptance criteria:**
 
-- LP/MPS/NL or legacy export paths are downstream views over primitive models,
-  not canonical serialization.
+- LP/MPS export paths are downstream views over primitive models, not canonical
+  serialization.
 - `arco-format` stays format-neutral unless concrete formats are behind optional
   features that do not affect the primitive contract.
 - `sentrux check .` confirms format primitives do not depend on authoring or
@@ -685,9 +685,10 @@ just ci
 - Delete: retired crates only after no active dependents remain
   - `crates/arco-expr/**`
   - `crates/arco-compile/**` if no reusable helpers remain
-  - `crates/arco-ir/**`
+  - `crates/arco-ir/**` (deleted after portable DTOs moved to `arco-format`)
   - `crates/arco-targets/**`
   - `crates/arco-contracts/**` after absorption
+  - `crates/arco-export/**` (deleted after LP/MPS writers moved to `arco-format`)
 - Modify: `Cargo.toml`
 - Modify: `docs/explanation/architecture.md`
 - Modify: `docs/README.md`
