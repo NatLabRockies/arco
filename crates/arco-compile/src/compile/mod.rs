@@ -92,7 +92,7 @@ pub struct TraceabilityRecord {
 
 pub use arco_targets::{
     AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearReport, LinearTerm,
-    ObjectiveSense as TargetObjectiveSense, VariableInstance, VariableKind,
+    ObjectiveSense as TargetObjectiveSense, SolveTarget, VariableInstance, VariableKind,
 };
 
 #[derive(Debug)]

@@ -6,6 +6,10 @@ mod execution_backends;
 pub mod inspect;
 
 pub use arco_compile as compile;
+use arco_compile::compile::{
+    AlgebraicProblem, ConstraintSense, LinearTerm as TargetLinearTerm, SolveTarget,
+    TargetObjectiveSense, VariableKind,
+};
 use arco_compile::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
 };
@@ -15,23 +19,16 @@ use arco_format::{
     PortableLinearReport, PortableLinearTerm, PortableObjectiveSense, PortableProblem,
     PortableVariableInstance, PortableVariableKind, write_lp, write_mps,
 };
-pub use arco_highs as highs;
 pub use arco_kdl as kdl;
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
 use arco_kdl::{PrimitiveBuildError, build_model};
 pub use arco_model as model;
 pub use arco_model::expr;
-pub use arco_scip as scip;
 pub use arco_solver as solver;
 use arco_solver::{
     ModelViewBackendRegistry, ModelViewSolveResult, PreflightError, ResolvedSelection,
     SelectionError, Solution, SolutionView, Solve, SolveRequest, SolverConfig, SolverError,
     SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
-};
-pub use arco_targets as targets;
-use arco_targets::{
-    AlgebraicProblem, ConstraintSense, ObjectiveSense as TargetObjectiveSense, SolveTarget,
-    VariableKind,
 };
 use arco_validate::{ValidationIssue, ValidationReport, ValidationSeverity, validate_solve_target};
 #[cfg(feature = "xpress")]
@@ -102,7 +99,7 @@ impl ArcoOps {
         let mut buffer = Vec::new();
         match format {
             OpsExportFormat::Lp => {
-                write_lp(&portable_problem_from_algebraic(problem), &mut buffer)?
+                write_lp(&portable_problem_from_algebraic(problem), &mut buffer)?;
             }
             OpsExportFormat::Mps => {
                 write_mps(&portable_problem_from_algebraic(problem), &mut buffer)?;
@@ -118,6 +115,11 @@ impl ArcoOps {
         S::Solution: SolutionView,
     {
         solver.solve(config)
+    }
+
+    /// Build the solver registry with all families wired below interaction surfaces.
+    pub fn solver_registry_with_builtin_families() -> SolverRegistry {
+        execution_backends::solver_registry_with_builtin_families()
     }
 
     /// Resolve a solver selection against the available registry and profiles.
@@ -159,6 +161,20 @@ impl ArcoOps {
         registry.solve(family, model, config)
     }
 
+    /// Solve a primitive model view through built-in backends registered below interaction surfaces.
+    pub fn solve_model_view_with_builtin_backend(
+        family: &str,
+        model: &dyn arco_model::ModelView,
+        config: &SolverConfig,
+    ) -> Result<ModelViewSolveResult, SolverError> {
+        execution_backends::solve_model_view_with_builtin_backend(family, model, config)
+    }
+
+    /// Report a built-in solver backend version when available.
+    pub fn builtin_solver_version(family: &str) -> Option<String> {
+        execution_backends::builtin_solver_version(family)
+    }
+
     /// Build a minimal solve request from an optional solver selection.
     pub fn build_solve_request(selection: Option<SolverSelection>) -> SolveRequest {
         selection.map_or_else(SolveRequest::new, |value| {
@@ -185,7 +201,7 @@ impl ArcoOps {
     }
 }
 
-fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
+pub(crate) fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
     PortableProblem {
         variable_instances: problem
             .variable_instances
@@ -237,7 +253,7 @@ fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProble
     }
 }
 
-fn portable_terms(terms: &[arco_targets::LinearTerm]) -> Vec<PortableLinearTerm> {
+fn portable_terms(terms: &[TargetLinearTerm]) -> Vec<PortableLinearTerm> {
     terms
         .iter()
         .map(|term| PortableLinearTerm {
@@ -250,13 +266,13 @@ fn portable_terms(terms: &[arco_targets::LinearTerm]) -> Vec<PortableLinearTerm>
 #[cfg(test)]
 mod tests {
     use super::{ArcoOps, OpsExportFormat};
+    use arco_compile::compile::SolveTarget;
     use arco_model::ModelView;
     use arco_solver::{
         ModelViewBackend, ModelViewBackendRegistry, ModelViewSolveResult, SolutionView, Solve,
         SolverConfig, SolverError, SolverRegistry, SolverRequirements, SolverSelection,
         SolverStatus, SolverTransport,
     };
-    use arco_targets::SolveTarget;
     use std::path::PathBuf;
 
     struct FixtureSolver;
@@ -330,6 +346,9 @@ mod tests {
                 status: SolverStatus::Optimal,
                 objective_value: 7.0,
                 primal_values: Vec::new(),
+                variable_duals: Vec::new(),
+                row_values: Vec::new(),
+                constraint_duals: Vec::new(),
             })
         }
     }

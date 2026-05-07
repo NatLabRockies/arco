@@ -1,20 +1,19 @@
-//! Xpress solver implementation over solver-facing targets.
+//! Xpress solver implementation over primitive model views.
 
 use crate::solution::Solution;
+use arco_model::ModelView;
 use arco_solver::{Solve, SolverConfig, SolverError as CoreSolverError};
-use arco_targets::AlgebraicProblem;
 use tracing::debug;
 
 pub type SolverError = CoreSolverError;
 
 pub struct Solver {
-    problem: AlgebraicProblem,
     config: SolverConfig,
 }
 
 impl Solver {
-    pub fn new(problem: AlgebraicProblem) -> Result<Self, SolverError> {
-        if problem.variable_instances.is_empty() {
+    pub fn new(model: &impl ModelView) -> Result<Self, SolverError> {
+        if model.num_variables() == 0 {
             return Err(SolverError::EmptyModel);
         }
         debug!(
@@ -22,12 +21,11 @@ impl Solver {
             operation = "init",
             status = "success",
             solver = "xpress",
-            variables = problem.variable_instances.len() as u64,
-            constraints = problem.constraints.len() as u64,
-            "Creating Xpress solver from target"
+            variables = model.num_variables() as u64,
+            constraints = model.num_constraints() as u64,
+            "Creating Xpress solver from model view"
         );
         Ok(Self {
-            problem,
             config: SolverConfig::new(),
         })
     }
@@ -73,11 +71,11 @@ impl Solver {
     }
 
     pub fn solve(&mut self) -> Result<Solution, SolverError> {
-        solve_problem(&self.problem, &self.config)
+        solve_problem(&self.config)
     }
 
     pub fn solve_with_config(&mut self, config: &SolverConfig) -> Result<Solution, SolverError> {
-        solve_problem(&self.problem, config)
+        solve_problem(config)
     }
 }
 
@@ -89,11 +87,8 @@ impl Solve for Solver {
     }
 }
 
-fn solve_problem(
-    _problem: &AlgebraicProblem,
-    _config: &SolverConfig,
-) -> Result<Solution, SolverError> {
+fn solve_problem(_config: &SolverConfig) -> Result<Solution, SolverError> {
     Err(SolverError::SolverNotAvailable(
-        "Xpress target adapter is not implemented yet".to_string(),
+        "Xpress model-view adapter is not implemented yet".to_string(),
     ))
 }

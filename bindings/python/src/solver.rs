@@ -81,30 +81,6 @@ impl SolverSettings {
         )
     }
 
-    pub fn apply_highs(&self, solver: &mut arco_ops::highs::Solver) {
-        if let Some(enabled) = self.log_to_console {
-            solver.set_log_to_console(enabled);
-        }
-        if let Some(limit) = self.time_limit {
-            solver.set_time_limit(limit);
-        }
-        if let Some(gap) = self.mip_gap {
-            solver.set_mip_gap(gap);
-        }
-        if let Some(level) = self.verbosity {
-            solver.set_verbosity(level);
-        }
-        if let Some(presolve) = self.presolve {
-            solver.set_presolve(presolve);
-        }
-        if let Some(threads) = self.threads {
-            solver.set_threads(threads);
-        }
-        if let Some(tolerance) = self.tolerance {
-            solver.set_tolerance(tolerance);
-        }
-    }
-
     /// Convert these settings into a generic `SolverConfig`.
     pub fn to_solver_config(&self) -> arco_ops::solver::SolverConfig {
         let mut config = arco_ops::solver::SolverConfig::new();

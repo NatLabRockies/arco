@@ -2,14 +2,9 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
-use arco_format::{
-    PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective,
-    PortableLinearReport, PortableLinearTerm, PortableObjectiveSense, PortableProblem,
-    PortableVariableInstance, PortableVariableKind, write_mps,
-};
+use arco_format::{PortableLinearReport, PortableProblem, write_mps};
 use arco_runtime::RuntimeWorkspace;
 use arco_solver::{SolverCapabilityModel, SolverFamily, SolverRegistry};
-use arco_targets::{AlgebraicProblem, ConstraintSense, LinearReport, ObjectiveSense, VariableKind};
 use miette::Diagnostic;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -103,7 +98,7 @@ pub struct ExternalProcessOptions {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ScipProblem<'a> {
-    pub algebra: &'a AlgebraicProblem,
+    pub portable: &'a PortableProblem,
     pub variable_families: &'a [String],
 }
 
@@ -134,11 +129,7 @@ pub fn solve_problem_with_options(
     {
         let mut mps_file =
             std::fs::File::create(&mps_path).map_err(|source| Error::Io { source })?;
-        write_mps(
-            &portable_problem_from_algebraic(problem.algebra),
-            &mut mps_file,
-        )
-        .map_err(|source| Error::Process {
+        write_mps(problem.portable, &mut mps_file).map_err(|source| Error::Process {
             message: source.to_string(),
         })?;
     }
@@ -182,68 +173,6 @@ pub fn solve_problem_with_options(
     }
 
     build_scip_solve_output(problem, include_variable_values, &backend, &sol_path)
-}
-
-fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
-    PortableProblem {
-        variable_instances: problem
-            .variable_instances
-            .iter()
-            .map(|variable| PortableVariableInstance {
-                name: variable.name.clone(),
-                family: variable.family.clone(),
-                lower: variable.lower,
-                upper: variable.upper,
-                kind: match variable.kind {
-                    VariableKind::Continuous => PortableVariableKind::Continuous,
-                    VariableKind::Integer => PortableVariableKind::Integer,
-                    VariableKind::Binary => PortableVariableKind::Binary,
-                },
-            })
-            .collect(),
-        constraints: problem
-            .constraints
-            .iter()
-            .map(|constraint| PortableLinearConstraint {
-                name: constraint.name.clone(),
-                sense: match constraint.sense {
-                    ConstraintSense::GreaterEqual => PortableConstraintSense::GreaterEqual,
-                    ConstraintSense::LessEqual => PortableConstraintSense::LessEqual,
-                    ConstraintSense::Equal => PortableConstraintSense::Equal,
-                },
-                rhs: constraint.rhs,
-                terms: portable_terms(&constraint.terms),
-            })
-            .collect(),
-        objective: PortableLinearObjective {
-            name: problem.objective.name.clone(),
-            sense: match problem.objective.sense {
-                ObjectiveSense::Minimize => PortableObjectiveSense::Minimize,
-                ObjectiveSense::Maximize => PortableObjectiveSense::Maximize,
-            },
-            constant: problem.objective.constant,
-            terms: portable_terms(&problem.objective.terms),
-        },
-        reports: problem
-            .reports
-            .iter()
-            .map(|report| PortableLinearReport {
-                name: report.name.clone(),
-                constant: report.constant,
-                terms: portable_terms(&report.terms),
-            })
-            .collect(),
-    }
-}
-
-fn portable_terms(terms: &[arco_targets::LinearTerm]) -> Vec<PortableLinearTerm> {
-    terms
-        .iter()
-        .map(|term| PortableLinearTerm {
-            variable_name: term.variable_name.clone(),
-            coefficient: term.coefficient,
-        })
-        .collect()
 }
 
 #[derive(Debug)]
@@ -328,7 +257,7 @@ fn build_scip_solve_output(
     }
 
     let report_values = problem
-        .algebra
+        .portable
         .reports
         .iter()
         .map(|report| ScalarValue {
@@ -342,7 +271,7 @@ fn build_scip_solve_output(
         .iter()
         .map(|family| {
             let representative_value = problem
-                .algebra
+                .portable
                 .variable_instances
                 .iter()
                 .find(|instance| instance.family == *family)
@@ -351,7 +280,7 @@ fn build_scip_solve_output(
 
             let values = if include_variable_values {
                 problem
-                    .algebra
+                    .portable
                     .variable_instances
                     .iter()
                     .filter(|instance| instance.family == *family)
@@ -374,14 +303,14 @@ fn build_scip_solve_output(
 
     Ok(SolveOutput {
         status,
-        objective_value: problem.algebra.objective.constant + solution.objective_value,
+        objective_value: problem.portable.objective.constant + solution.objective_value,
         report_values,
         variable_values,
     })
 }
 
 fn evaluate_scip_linear_report(
-    report: &LinearReport,
+    report: &PortableLinearReport,
     variable_values: &BTreeMap<String, f64>,
 ) -> f64 {
     let terms_value: f64 = report
@@ -401,11 +330,11 @@ fn evaluate_scip_linear_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use arco_solver::{SolverRegistry, SolverTransport};
-    use arco_targets::{
-        AlgebraicProblem, LinearObjective, LinearReport, LinearTerm, ObjectiveSense,
-        VariableInstance, VariableKind,
+    use arco_format::{
+        PortableLinearObjective, PortableLinearTerm, PortableObjectiveSense,
+        PortableVariableInstance, PortableVariableKind,
     };
+    use arco_solver::{SolverRegistry, SolverTransport};
     use std::collections::BTreeMap;
 
     #[test]
@@ -459,14 +388,14 @@ mod tests {
 
     #[test]
     fn evaluate_scip_linear_report_defaults_missing_variables_to_zero() {
-        let report = LinearReport {
+        let report = PortableLinearReport {
             name: "r".to_string(),
             terms: vec![
-                LinearTerm {
+                PortableLinearTerm {
                     coefficient: 2.0,
                     variable_name: "x".to_string(),
                 },
-                LinearTerm {
+                PortableLinearTerm {
                     coefficient: -1.0,
                     variable_name: "y".to_string(),
                 },
@@ -481,18 +410,18 @@ mod tests {
 
     #[test]
     fn solve_output_defaults_missing_variable_values_to_zero() {
-        let problem = AlgebraicProblem {
-            variable_instances: vec![VariableInstance {
+        let problem = PortableProblem {
+            variable_instances: vec![PortableVariableInstance {
                 name: "x[A,1]".to_string(),
                 family: "x[a,t]".to_string(),
                 lower: 0.0,
                 upper: None,
-                kind: VariableKind::Continuous,
+                kind: PortableVariableKind::Continuous,
             }],
             constraints: Vec::new(),
-            objective: LinearObjective {
+            objective: PortableLinearObjective {
                 name: "obj".to_string(),
-                sense: ObjectiveSense::Maximize,
+                sense: PortableObjectiveSense::Maximize,
                 constant: 0.0,
                 terms: Vec::new(),
             },

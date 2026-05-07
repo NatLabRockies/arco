@@ -1,30 +1,27 @@
-//! IPOPT target adapter placeholder.
-//!
-//! IPOPT is being migrated from canonical-model input to solver-target input.
-//! Nonlinear target support will live here once `arco-targets` exposes the
-//! required nonlinear structures.
+//! IPOPT model-view adapter placeholder.
 
+use arco_model::{ModelView, VariableId};
 use arco_solver::SolverError;
-use arco_targets::{AlgebraicProblem, VariableKind};
 
 pub struct ArcoProblem;
 
 impl ArcoProblem {
-    pub fn validate_supported_target(problem: &AlgebraicProblem) -> Result<(), SolverError> {
-        if problem.variable_instances.is_empty() {
+    pub fn validate_supported_model(model: &impl ModelView) -> Result<(), SolverError> {
+        if model.num_variables() == 0 {
             return Err(SolverError::EmptyModel);
         }
-        if problem
-            .variable_instances
-            .iter()
-            .any(|variable| matches!(variable.kind, VariableKind::Integer | VariableKind::Binary))
-        {
-            return Err(SolverError::SolverSpecific(
-                "IPOPT does not support integer variables".to_string(),
-            ));
+        for index in 0..model.num_variables() {
+            let variable = model
+                .variable(VariableId::new(index as u32))
+                .ok_or(SolverError::InvalidVariableId(index as u32))?;
+            if variable.is_integer {
+                return Err(SolverError::SolverSpecific(
+                    "IPOPT does not support integer variables".to_string(),
+                ));
+            }
         }
         Err(SolverError::SolverNotAvailable(
-            "IPOPT target adapter is not implemented yet".to_string(),
+            "IPOPT model-view adapter is not implemented yet".to_string(),
         ))
     }
 }

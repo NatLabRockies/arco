@@ -51,15 +51,15 @@ chunk-by-chunk per the ARD/plan and `.sentrux` rules.
 
 Active-workspace dependency snapshot from `cargo metadata --no-deps`:
 
-| Crate                               | Active workspace dependents                           | Retirement status                                                  |
-| ----------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
-| `arco-expr` (excluded on disk)      | none                                                  | Safe boundary: no active dependents.                               |
-| `arco-contracts` (excluded on disk) | none                                                  | Safe boundary: no active dependents.                               |
-| `arco-algebra` (deleted)            | none                                                  | Removed; expression APIs live in `arco-model`.                     |
-| `arco-compile`                      | `arco-ops`                                            | **Blocked**: cannot retire until `arco-ops` drops this dependency. |
-| `arco-ir` (deleted)                 | none                                                  | Removed; portable export DTOs live in `arco-format`.               |
-| `arco-targets`                      | `arco-compile`, `arco-highs`, `arco-ops`, `arco-scip` | **Blocked**: still on active solve/export path.                    |
-| `arco-export` (deleted)             | none                                                  | Removed; LP/MPS writers live in `arco-format`.                     |
+| Crate                               | Active workspace dependents | Retirement status                                                  |
+| ----------------------------------- | --------------------------- | ------------------------------------------------------------------ |
+| `arco-expr` (excluded on disk)      | none                        | Safe boundary: no active dependents.                               |
+| `arco-contracts` (excluded on disk) | none                        | Safe boundary: no active dependents.                               |
+| `arco-algebra` (deleted)            | none                        | Removed; expression APIs live in `arco-model`.                     |
+| `arco-compile`                      | `arco-ops`                  | **Blocked**: cannot retire until `arco-ops` drops this dependency. |
+| `arco-ir` (deleted)                 | none                        | Removed; portable export DTOs live in `arco-format`.               |
+| `arco-targets`                      | `arco-compile`              | **Blocked**: still behind the legacy compile seam.                 |
+| `arco-export` (deleted)             | none                        | Removed; LP/MPS writers live in `arco-format`.                     |
 
 This is why destructive crate deletion is not yet safe for `arco-compile` or
 `arco-targets`.

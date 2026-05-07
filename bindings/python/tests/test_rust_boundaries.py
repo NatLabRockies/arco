@@ -24,6 +24,9 @@ def test_python_sources_use_arco_ops_for_core_arco_apis() -> None:
         "arco_blocks::solver",
         "arco_blocks::targets",
         "arco_blocks::highs",
+        "arco_ops::highs",
+        "arco_ops::scip",
+        "arco_ops::targets",
     )
 
     for source in (PYTHON_CRATE / "src").rglob("*.rs"):

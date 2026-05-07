@@ -4,14 +4,50 @@ use crate::execution::XpressArcoAdapter;
 use crate::execution::{
     AdapterSolveOutput, ExecutionError, OptimizationAdapter, RustArcoAdapter, ScalarArtifactValue,
     ScipArcoAdapter, SolveStatus, VariableArtifactValue, VariableInstanceArtifactValue,
-    evaluate_linear_report, extract_dual_report_values, lookup_primal_value, map_solver_status,
+    build_model, evaluate_linear_report, extract_dual_report_values, lookup_primal_value,
+    map_solver_status,
 };
-use crate::highs::Solver as HighsSolver;
-use crate::scip;
+use crate::portable_problem_from_algebraic;
 #[cfg(feature = "xpress")]
 use crate::xpress::Solver as XpressSolver;
+use arco_highs::{HighsModelViewBackend, highs_version};
+use arco_scip as scip;
+use arco_solver::{
+    ModelViewBackendRegistry, ModelViewSolveResult, SolverConfig, SolverError, SolverRegistry,
+};
 use std::time::Instant;
 use tracing::info;
+
+pub(crate) fn solver_registry_with_builtin_families() -> SolverRegistry {
+    let mut registry = SolverRegistry::with_builtin_families();
+    scip::register_solver_family(&mut registry);
+    registry
+}
+
+pub(crate) fn solve_model_view_with_builtin_backend(
+    family: &str,
+    model: &dyn arco_model::ModelView,
+    config: &SolverConfig,
+) -> Result<ModelViewSolveResult, SolverError> {
+    let highs = HighsModelViewBackend;
+    let mut registry = ModelViewBackendRegistry::new();
+    registry.register(&highs);
+    registry.solve(normalize_model_view_backend_family(family), model, config)
+}
+
+pub(crate) fn builtin_solver_version(family: &str) -> Option<String> {
+    match normalize_model_view_backend_family(family) {
+        "highs" => highs_version(),
+        _ => None,
+    }
+}
+
+fn normalize_model_view_backend_family(family: &str) -> &str {
+    match family {
+        "arco-rust-highs" => "highs",
+        other => other,
+    }
+}
 
 impl OptimizationAdapter for RustArcoAdapter {
     fn backend_name(&self) -> &'static str {
@@ -25,55 +61,38 @@ impl OptimizationAdapter for RustArcoAdapter {
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
         info!("solving with {}", backend);
-        info!("building solver index maps");
+        info!("building primitive model view");
         let build_started = Instant::now();
-        let variable_indices = problem
-            .algebra
-            .variable_instances
-            .iter()
-            .enumerate()
-            .map(|(index, instance)| (instance.name.clone(), index))
-            .collect();
-        let constraint_indices = problem
-            .algebra
-            .constraints
-            .iter()
-            .enumerate()
-            .map(|(index, constraint)| (constraint.name.clone(), index))
-            .collect();
+        let built = build_model(problem, &backend)?;
+        let variable_indices = built.variable_indices;
+        let constraint_indices = built.constraint_indices;
         info!(
-            "solver index map build completed in {:.2} ms",
+            "primitive model build completed in {:.2} ms",
             build_started.elapsed().as_secs_f64() * 1000.0,
         );
-        info!("initializing solver backend instance");
-        let mut solver = HighsSolver::new(problem.algebra.clone()).map_err(|source| {
-            ExecutionError::SolverInitialization {
-                backend: backend.clone(),
-                source,
-            }
-        })?;
-        solver.set_log_to_console(self.log_to_console);
 
         info!("starting solver backend run: {}", backend);
         let solver_started = Instant::now();
-        let solution = solver.solve().map_err(|source| ExecutionError::Solve {
-            backend: backend.clone(),
-            source,
-        })?;
+        let config = SolverConfig::default().with_log_to_console(self.log_to_console);
+        let solution = solve_model_view_with_builtin_backend("highs", &built.model, &config)
+            .map_err(|source| ExecutionError::Solve {
+                backend: backend.clone(),
+                source,
+            })?;
         info!(
             "solver backend run completed in {:.2} ms: {}",
             solver_started.elapsed().as_secs_f64() * 1000.0,
             backend
         );
-        info!("solve status: {}", solution.status_string());
-        if !solution.is_feasible() {
+        info!("solve status: {}", solution.status);
+        if !solution.status.is_feasible() {
             return Err(ExecutionError::NoFeasibleSolution {
                 backend,
-                status: solution.status_string().to_string(),
+                status: solution.status.to_string(),
             });
         }
 
-        let objective_value = problem.algebra.objective.constant + solution.objective_value();
+        let objective_value = problem.algebra.objective.constant + solution.objective_value;
         let report_values = problem
             .algebra
             .reports
@@ -85,7 +104,7 @@ impl OptimizationAdapter for RustArcoAdapter {
                         &backend,
                         report,
                         &variable_indices,
-                        solution.primal_values(),
+                        &solution.primal_values,
                     )?,
                 })
             })
@@ -105,7 +124,7 @@ impl OptimizationAdapter for RustArcoAdapter {
                             &backend,
                             &instance.name,
                             &variable_indices,
-                            solution.primal_values(),
+                            &solution.primal_values,
                         )
                     })
                     .transpose()?
@@ -123,7 +142,7 @@ impl OptimizationAdapter for RustArcoAdapter {
                                     &backend,
                                     &instance.name,
                                     &variable_indices,
-                                    solution.primal_values(),
+                                    &solution.primal_values,
                                 )?,
                             })
                         })
@@ -141,10 +160,10 @@ impl OptimizationAdapter for RustArcoAdapter {
             .collect::<Result<Vec<_>, _>>()?;
 
         let dual_report_values =
-            extract_dual_report_values(problem, &constraint_indices, solution.constraint_duals());
+            extract_dual_report_values(problem, &constraint_indices, &solution.constraint_duals);
 
         Ok(AdapterSolveOutput {
-            status: map_solver_status(solution.core_status()),
+            status: map_solver_status(solution.status),
             objective_value: ScalarArtifactValue {
                 compiled_name: problem.objective.name.clone(),
                 value: objective_value,
@@ -177,8 +196,9 @@ impl OptimizationAdapter for ScipArcoAdapter {
             .iter()
             .map(|variable| variable.family.clone())
             .collect::<Vec<_>>();
+        let portable = portable_problem_from_algebraic(&problem.algebra);
         let scip_problem = scip::ScipProblem {
-            algebra: &problem.algebra,
+            portable: &portable,
             variable_families: &variable_families,
         };
         let solution = scip::solve_problem_with_options(

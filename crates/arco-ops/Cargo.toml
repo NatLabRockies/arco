@@ -21,7 +21,6 @@ arco-kdl = { workspace = true }
 arco-compile = { workspace = true }
 arco-scip = { workspace = true }
 arco-solver = { workspace = true }
-arco-targets = { workspace = true }
 arco-validate = { workspace = true }
 arco-xpress = { workspace = true, optional = true }
 serde = { version = "1.0", features = ["derive"] }

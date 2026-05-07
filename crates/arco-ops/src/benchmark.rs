@@ -1,9 +1,9 @@
 use crate::ArcoOps;
+use crate::compile::compile::TargetObjectiveSense;
 use crate::compile::pipeline::PipelineError;
 use crate::compile::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
 use crate::execution::{ExecutionError, RustArcoAdapter, SolveStatus, execute_problem};
 use crate::kdl::ObjectiveSense;
-use crate::targets::ObjectiveSense as TargetObjectiveSense;
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};

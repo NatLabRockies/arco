@@ -78,6 +78,9 @@ mod tests {
                 status: SolverStatus::Optimal,
                 objective_value: 1.0,
                 primal_values: Vec::new(),
+                variable_duals: Vec::new(),
+                row_values: Vec::new(),
+                constraint_duals: Vec::new(),
             })
         }
     }

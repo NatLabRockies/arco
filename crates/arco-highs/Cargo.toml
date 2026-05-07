@@ -1,7 +1,7 @@
 [package]
 name = "arco-highs"
 version = { workspace = true }
-description = "HiGHS solver adapter for Arco targets"
+description = "HiGHS solver adapter for Arco model views"
 edition = { workspace = true }
 rust-version = { workspace = true }
 homepage = { workspace = true }
@@ -16,8 +16,6 @@ workspace = true
 [dependencies]
 arco-solver = { workspace = true }
 arco-model = { workspace = true }
-arco-targets = { workspace = true }
-arco-tools = { workspace = true }
 highs = "1.8"
 highs-sys = "1.12.1"
 tracing = { workspace = true }

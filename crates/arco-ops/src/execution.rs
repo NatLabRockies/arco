@@ -1,6 +1,8 @@
 use crate::compile::compile::CompiledProblem;
+use crate::compile::compile::{
+    ConstraintSense, LinearReport, LinearTerm, TargetObjectiveSense as ObjectiveSense, VariableKind,
+};
 use crate::solver::{SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus};
-use crate::targets::{ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind};
 use arco_model::{
     Bounds, Constraint, Model, ModelError as ArcoModelError, Objective, PrettyPrintOptions, Sense,
     Variable,
@@ -826,11 +828,12 @@ fn try_eval_filter(
 
 #[cfg(test)]
 mod tests {
+    use crate::compile::compile::{
+        AlgebraicProblem, LinearObjective, TargetObjectiveSense as ObjectiveSense,
+        VariableInstance, VariableKind,
+    };
     use crate::compile::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
     use crate::execution::{MockArcoAdapter, execute_problem_with_options};
-    use crate::targets::{
-        AlgebraicProblem, LinearObjective, ObjectiveSense, VariableInstance, VariableKind,
-    };
 
     #[test]
     #[allow(clippy::float_cmp)]

@@ -2,7 +2,7 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
-use arco_ops::scip;
+use arco_ops::ArcoOps;
 use arco_ops::solver::{
     ResolvedSelection, SelectionError, SolverConfigDocument, SolverProfile, SolverRegistry,
     SolverTransport, merged_profiles, resolve_selection,
@@ -143,8 +143,7 @@ pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {
         .or_else(|| project.default_selection.clone())
         .unwrap_or_else(|| "highs".to_string());
 
-    let mut registry = SolverRegistry::with_builtin_families();
-    scip::register_solver_family(&mut registry);
+    let registry = ArcoOps::solver_registry_with_builtin_families();
     let resolved = resolve_selection(&registry, &merged_profiles, &selection)
         .map_err(|source| ConfigError::InvalidSelection { source })?;
 
@@ -356,8 +355,8 @@ mod tests {
     #[test]
     fn selection_support_check_accepts_external_process_selection() {
         let resolved = ResolvedSelection {
-            token: scip::FAMILY_NAME.to_string(),
-            family: scip::FAMILY_NAME.to_string(),
+            token: "scip".to_string(),
+            family: "scip".to_string(),
             profile: None,
             transport: arco_ops::solver::SolverTransport::ExternalProcess,
         };

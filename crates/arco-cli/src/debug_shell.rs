@@ -1,5 +1,7 @@
 use arco_ops::ArcoOps;
-use arco_ops::targets::{AlgebraicProblem, ConstraintSense, ObjectiveSense, VariableKind};
+use arco_ops::compile::compile::{
+    AlgebraicProblem, ConstraintSense, TargetObjectiveSense as ObjectiveSense, VariableKind,
+};
 use miette::{IntoDiagnostic, Result, miette};
 use std::collections::BTreeMap;
 use std::fs::{File, remove_file};
@@ -314,9 +316,9 @@ impl Drop for DebugBootstrapScript {
 #[cfg(test)]
 mod tests {
     use crate::debug_shell::{PythonModelData, build_ipython_script, build_python_model_data};
-    use arco_ops::targets::{
+    use arco_ops::compile::compile::{
         AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearTerm,
-        ObjectiveSense, VariableInstance, VariableKind,
+        TargetObjectiveSense as ObjectiveSense, VariableInstance, VariableKind,
     };
     use std::path::Path;
 

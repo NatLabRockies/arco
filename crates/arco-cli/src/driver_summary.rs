@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use arco_ops::targets::ObjectiveSense;
+use arco_ops::compile::compile::TargetObjectiveSense as ObjectiveSense;
 use serde::Serialize;
 
 #[derive(Debug, Serialize, PartialEq)]

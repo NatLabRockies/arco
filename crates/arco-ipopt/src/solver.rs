@@ -1,33 +1,31 @@
-//! IPOPT solver implementation over solver-facing targets.
+//! IPOPT solver implementation over primitive model views.
 
 use crate::problem::ArcoProblem;
 use crate::solution::Solution;
+use arco_model::ModelView;
 use arco_solver::SolverError as CoreSolverError;
 use arco_solver::{Solve, SolverConfig, SolverError as GenericSolverError};
-use arco_targets::AlgebraicProblem;
 use tracing::debug;
 
 pub type SolverError = CoreSolverError;
 
 pub struct Solver {
-    problem: AlgebraicProblem,
     config: SolverConfig,
 }
 
 impl Solver {
-    pub fn new(problem: AlgebraicProblem) -> Result<Self, SolverError> {
-        ArcoProblem::validate_supported_target(&problem)?;
+    pub fn new(model: &impl ModelView) -> Result<Self, SolverError> {
+        ArcoProblem::validate_supported_model(model)?;
         debug!(
             component = "solver",
             operation = "init",
             status = "success",
             solver = "ipopt",
-            variables = problem.variable_instances.len() as u64,
-            constraints = problem.constraints.len() as u64,
-            "Creating IPOPT solver from target"
+            variables = model.num_variables() as u64,
+            constraints = model.num_constraints() as u64,
+            "Creating IPOPT solver from model view"
         );
         Ok(Self {
-            problem,
             config: SolverConfig::new(),
         })
     }
@@ -61,11 +59,11 @@ impl Solver {
     }
 
     pub fn solve(&mut self) -> Result<Solution, SolverError> {
-        solve_problem(&self.problem, &self.config)
+        solve_problem(&self.config)
     }
 
     pub fn solve_with_config(&mut self, config: &SolverConfig) -> Result<Solution, SolverError> {
-        solve_problem(&self.problem, config)
+        solve_problem(config)
     }
 }
 
@@ -77,11 +75,8 @@ impl Solve for Solver {
     }
 }
 
-fn solve_problem(
-    _problem: &AlgebraicProblem,
-    _config: &SolverConfig,
-) -> Result<Solution, SolverError> {
+fn solve_problem(_config: &SolverConfig) -> Result<Solution, SolverError> {
     Err(SolverError::SolverNotAvailable(
-        "IPOPT target adapter is not implemented yet".to_string(),
+        "IPOPT model-view adapter is not implemented yet".to_string(),
     ))
 }

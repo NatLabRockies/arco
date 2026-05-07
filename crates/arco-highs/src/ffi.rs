@@ -9,7 +9,11 @@ use std::fmt;
 use tracing::{debug, trace, warn};
 
 /// Objective sense for optimization.
-pub use arco_targets::ObjectiveSense;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectiveSense {
+    Minimize,
+    Maximize,
+}
 
 /// Status of the solver
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

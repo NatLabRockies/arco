@@ -38,6 +38,12 @@ pub struct ModelViewSolveResult {
     pub objective_value: f64,
     /// Primal values in model variable-id order.
     pub primal_values: Vec<f64>,
+    /// Reduced costs in model variable-id order when the backend reports them.
+    pub variable_duals: Vec<f64>,
+    /// Row activities in model constraint-id order when the backend reports them.
+    pub row_values: Vec<f64>,
+    /// Constraint duals in model constraint-id order when the backend reports them.
+    pub constraint_duals: Vec<f64>,
 }
 
 /// Platform-facing backend trait for Arco's core model type.
