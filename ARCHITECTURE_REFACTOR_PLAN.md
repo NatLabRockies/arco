@@ -1,554 +1,553 @@
 # Architecture Refactor Plan
 
-This document describes the target-state crate architecture for Arco. It is a
-planning document, not a description of the repository as it exists today.
+This document describes Arco's target-state architecture. It is a planning
+contract, not a description of the current transitional repository.
 
-The goal is to make Arco easier to extend without blurring responsibilities:
-
-- authoring surfaces build the canonical model
-- compilation is the only semantic bridge out of the canonical model
-- portable exchange stays separate from direct solver execution
-- solver families plug into one common seam
-- interaction surfaces stay thin
-- memory-sensitive implementation details stay localized
+Arco's north star is to provide the ultimate building blocks for optimization
+modeling: **primitives, not prescribed workflows**. Users should be able to build
+modeling libraries, data layers, solver integrations, and interaction surfaces on
+top of Arco without core-developer intervention.
 
 ## Design rules
 
-The target architecture follows these rules:
-
-1. **Authoring surfaces are replaceable.** KDL, JSON, YAML, and future frontends
-   build the canonical model but do not own compilation, exchange, runtime, or
-   solver policy.
-2. **The canonical model is the semantic center.** Domain meaning lives there,
-   not in parsers, bindings, or solver adapters.
-3. **Compilation is the only semantic bridge out.** Anything downstream of the
-   canonical model consumes compiled targets or portable IR, not authoring
-   internals.
-4. **Exchange consumes portable IR only.** Import/export formats should not pull
-   on canonical-model or solver-specific code.
-5. **Solver adapters are siblings.** One solver family must never depend on
-   another.
-6. **The solver platform depends on interfaces, not concrete adapters.**
-7. **Interaction surfaces are shells.** CLI, Python, Julia, and future language
-   bindings orchestrate user workflows through `arco-ops` rather than reaching
-   into internals.
-8. **No compatibility-driven architecture.** Breaking API changes are acceptable
-   while this refactor lands. Prefer clean seams over legacy pass-throughs,
-   compatibility crates, or duplicated APIs.
+1. **`arco-model` is the primitive crate.** It owns finite optimization model
+   primitives, indexed in-memory data primitives, expression primitives, and
+   stable primitive document schemas.
+2. **Primitives are concrete and finite.** `arco-model` stores concrete
+   optimization instances and concrete indexed data. Templates, scenarios,
+   parameter binding, and multi-objective workflows live above it.
+3. **Primitives do not dictate workflow.** `arco-model` exposes mechanisms:
+   variables, expressions, constraints, objective, sets, tuple sets, parameter
+   tables, attribute tables, documents, and read-only views.
+4. **Interaction surfaces go through `arco-ops`.** `arco-ops` is the stability
+   adapter between primitive Rust APIs and CLI/Python/Julia/user-facing bindings.
+5. **Authoring surfaces are replaceable.** KDL, JSON, YAML, and future frontends
+   parse their own syntax, resolve language-specific semantics, and build
+   primitives. They do not own solving, format/export, or runtime policy.
+6. **The frozen model is solve-ready.** Direct solve/export paths consume
+   `ModelView` or patched model views. There is no mandatory model → IR → target
+   handoff that duplicates the problem before solver-native loading.
+7. **Transformations are optional and demand-driven.** Row-major buffers,
+   solver-specific tapes, LP/MPS/NL render trees, and other alternate layouts are
+   built only when an adapter/exporter genuinely needs them.
+8. **Solver families plug into `arco-solver` primitives.** Solver adapters are
+   siblings and depend on model views, solver-facing contracts, and runtime
+   services, not on authoring surfaces or duplicate IR/target crates.
+9. **Memory behavior is architectural.** Hot numeric storage must be compact,
+   cache-friendly, sidecar-free, and generic over `f32`/`f64` where useful.
+10. **No compatibility-driven architecture.** During this refactor, prefer clean
+    seams over legacy pass-throughs or public API duplication.
 
 ## Target crate map
 
-The target crate inventory is organized around seams and responsibilities.
+### Primitive model crate
 
-### Support tooling
+- `arco-model` — the primitive optimization modeling crate.
 
-- `arco-tools` — developer tooling, diagnostics, profiling helpers, and other
-  support utilities. Not part of the main solve pipeline.
+  It owns:
+  - finite model primitives: variables, bounds, variable kinds, expressions,
+    bounded constraints, a single objective, names/metadata sidecars, structural
+    facts, fingerprints, patches, and read-only model views
+  - expression primitives: detached `Expr<S>` values, LP/QP fast paths, local
+    promotion to symbolic expressions, built-in nonlinear operators, and opaque
+    namespaced custom operators with declared arity
+  - indexed data primitives under `arco_model::indexed`: ordered sets, tuple
+    sets, domains, index keys, numeric parameter tables, attribute tables,
+    projection/filter primitives, and `IndexedData`
+  - stable primitive documents: `ModelDocument`, `IndexedDataDocument`, and a
+    combined `ArcoDocument`
 
-### Canonical model
+  It does **not** own:
+  - KDL/JSON/YAML syntax
+  - reusable parametric templates or late-bound parameters
+  - scenario orchestration
+  - multi-objective workflows
+  - solver selection, solving, results, logs, or artifacts
+  - dataframe/CSV/Parquet/database ingestion
+  - source-specific naming policies such as `x[north,solar]`
 
-- `arco-model` — canonical domain model and stable semantic types.
-- `arco-algebra` — symbolic algebra and expression-level operators used by the
-  canonical model.
-- `arco-blocks` — reusable model-building blocks layered on top of the
-  canonical model.
-- `arco-validate` — canonical-model validation and invariant checking.
+- `arco-expr` — retired in the target architecture. Expression and ID primitives
+  move into `arco-model`.
+- `arco-algebra` — retired in the target architecture. It is currently only a
+  migration seam over `arco-expr` and should be absorbed into `arco-model`.
 
-### Compilation
+### Diagnostics
 
-- `arco-compile` — lowering and compile orchestration from canonical model to
-  downstream artifacts.
-- `arco-targets` — the solver-facing compile output seam. Defines the lowered
-  targets consumed by runtime and solver families.
-- `arco-ir` — portable IR for interchange, inspection, and external exchange.
+- `arco-diagnostics` — planned foundational diagnostics/provenance crate used by
+  model, authoring, validation, and compilation layers.
 
-### Exchange
-
-- `arco-exchange` — import/export logic for portable IR and exchange formats.
-
-### Shared interfaces
-
-- `arco-contracts` — shared solve and solver-platform contracts: selections,
-  requests, results, capabilities, registration, lifecycle, and invocation
-  seams. This is the main contract crate for the solver-facing side of the
-  architecture.
-
-### Runtime and orchestration
-
-- `arco-runtime` — execution mechanics, resource handling, and runtime services
-  used during solves.
-- `arco-solver` — solver registry, solver preflight, selection, and solve
-  orchestration.
-- `arco-ops` — small operations facade used by CLI and language bindings for
-  load, validate, compile, exchange, inspect, and solve flows.
-
-### Solver adapters
-
-- `arco-highs` — HiGHS solver-family adapter.
-- `arco-ipopt` — IPOPT solver-family adapter.
-- `arco-xpress` — Xpress solver-family adapter.
-- `arco-scip` — SCIP solver-family adapter.
+  It owns shared diagnostic codes, severity, source IDs/spans, and coarse
+  provenance types. It must not depend on authoring formats.
 
 ### Authoring surfaces
 
-- `arco-kdl` — KDL authoring surface.
+- `arco-kdl` — KDL authoring DSL. It keeps KDL parser/AST/semantic machinery for
+  syntax, scoping, aliases, source spans, KDL-specific diagnostics, and authoring
+  conveniences, then builds `arco-model` primitives.
 - `arco-json` — planned JSON authoring surface.
 - `arco-yaml` — planned YAML authoring surface.
 
+Authoring surfaces may build `Model`, `IndexedData`, and primitive documents.
+They must not invoke solvers, own format/export behavior, or require an
+intermediate IR/target handoff.
+
+### Validation
+
+- `arco-validate` — user-facing validation/reporting over `arco-model` views.
+
+`arco-model` validates structural invariants while building or finishing a
+model. `arco-validate` provides friendly reports, policy checks, semantic
+warnings, and capability-requirement extraction. It is a user-facing validation
+layer over model views, not a required step in the direct solve path.
+
+### Optional transformations and retired handoff crates
+
+The target architecture has no mandatory `arco-model -> arco-compile -> arco-ir
+-> arco-targets` handoff. The frozen `arco-model::Model` is the canonical
+solve-ready representation, and consumers read it through `ModelView` or patched
+model views.
+
+- `arco-compile` — retired as a mandatory bridge in the target architecture.
+  Reusable transformation or analysis helpers may be introduced later only when
+  duplication across adapters/exporters proves they are needed.
+- `arco-targets` — retired in the target architecture. Solver adapters consume
+  model views plus `arco-solver` contracts directly, allocating target-specific
+  buffers only when necessary.
+- `arco-ir` — retired in the target architecture. The name is avoided because it
+  obscures the distinction between primitive model storage, optional
+  transformations, and solver-native representations.
+
+### Format primitives and concrete formats
+
+- `arco-format` — format-side primitives and contracts: export/import
+  requests, common format errors, format capability declarations, numeric
+  rendering policy, naming/escaping hooks, model-view traversal helpers, and
+  format result/report DTOs. Current transitional crate: `arco-exchange`.
+- `arco-export` — legacy export crate to collapse into concrete format crates or
+  retire.
+- planned format crates such as `arco-lp`, `arco-mps`, and `arco-nl` implement
+  concrete downstream formats on top of `arco-format` and `arco-model` views.
+
+`arco-format` is foundational because every concrete export/import format needs
+one shared vocabulary. It must stay format-neutral unless concrete formats are
+behind optional features that do not pull format dependencies into the primitive
+contract.
+
+Canonical model serialization belongs to `arco-model` documents, not to
+`arco-format`. LP/MPS/NL are format/export views and may be lossy or
+subset-specific.
+
+### Solver primitives, runtime, and adapters
+
+- `arco-solver` — solver-side primitives and contracts: solve requests, results,
+  statuses, capabilities, option/profile/selection types, solver traits, generic
+  registry/preflight types, and model-view compatibility requirements.
+- `arco-runtime` — execution mechanics and runtime services used during solves.
+- `arco-highs`, `arco-ipopt`, `arco-xpress`, `arco-scip` — concrete solver-family
+  adapters that translate `ModelView` data into solver-native objects.
+
+`arco-solver` is foundational because solver adapters, `arco-ops`, and result
+views need one shared vocabulary. It must stay adapter-neutral: no concrete
+solver family depends back into it through registrations or built-in wiring.
+
+Solver results live outside `arco-model`. They should carry model fingerprints
+and values keyed by stable model IDs. Joined ergonomic result views belong in
+`arco-solver` or `arco-ops`, not in the primitive model.
+
+### Stability adapter and composition layers
+
+- `arco-ops` — stability adapter for interaction surfaces. It exposes stable
+  wrapper/DTO types over primitive model, indexed data, document, validation,
+  format/export, and solve concepts. It should not primarily re-export
+  primitive crates.
+- `arco-blocks` — high-level run-container composition layer over `arco-ops`.
+  It models multiple optimization containers, typed ports, feedforward links,
+  block DAG execution, block runs, diagnostics, and extracted outputs.
+
+`arco-blocks` is not a primitive model kernel. It is a composition layer. Its
+core target should be Rust/language-neutral and should not require PyO3; Python
+schema/callback ergonomics belong in `arco-ops` adapters or Python bindings.
+
 ### Interaction surfaces
 
-- `arco-cli` — command-line interaction surface.
-- `arco-python` — Python interaction surface.
-- `arco-julia` — planned Julia interaction surface.
-- Other language bindings should follow the same thin interaction-surface seam.
+- `arco-cli` — command-line shell over `arco-ops`.
+- `arco-python` / `bindings/python` — Python shell over `arco-ops`.
+- `arco-julia` — planned Julia shell over `arco-ops`.
+
+Interaction surfaces own language ergonomics, I/O, process behavior, and error
+presentation. They should not depend directly on primitives, retired handoff
+crates, solvers, format/export layers, runtime, or adapters.
 
 ## Dependency diagram
 
 ```text
 Interaction surfaces
-┌─────────────────────────────────────────────────────────────┐
-│ CLI / Python / Julia / other language bindings              │
-│ thin shells: user I/O, flags, language ergonomics only       │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│ arco-ops                                                    │
-│ application seam: model API, load, validate, compile,       │
-│ inspect, export, solve                                      │
-└───────┬───────────────┬──────────────┬──────────────┬───────┘
-        │               │              │              │
-        ▼               ▼              ▼              ▼
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ authoring    │ │ canonical    │ │ validation   │ │ exchange     │
-│ surfaces     │ │ model        │ │              │ │ over IR      │
-│              │ │              │ │              │ │              │
-│ arco-kdl     │ │ arco-model   │ │ arco-validate│ │ arco-exchange│
-│ arco-json    │ │              │ │              │ │              │
-│   planned    │ │              │ │              │ │              │
-│ arco-yaml    │ │              │ │              │ │              │
-│   planned    │ │              │ │              │ │              │
-└──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-       │                │                │                │
-       └────────────────┴────────────────┘                ▼
-                        │                         ┌──────────────┐
-                        ▼                         │ arco-ir      │
-┌─────────────────────────────────────────────┐   │ portable IR  │
-│ arco-compile                                │   └──────────────┘
-│ lowering / compilation                      │
-└───────────────┬──────────────────────┬──────┘
-                │                      │
-                ▼                      ▼
-        ┌──────────────┐       ┌──────────────┐
-        │ arco-targets │       │ arco-ir      │
-        │ solver IR    │       │ portable IR  │
-        └──────┬───────┘       └──────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────────┐
-│ arco-solver                                 │
-│ registry / selection / preflight            │
-└───────────────┬─────────────────────────────┘
-                │
-                ▼
-┌─────────────────────────────────────────────┐
-│ solver adapters                             │
-│ arco-highs / arco-ipopt / arco-xpress       │
-│ arco-scip                                   │
-└───────────────┬─────────────────────────────┘
-                │
-                ▼
-        ┌──────────────┐
-        │ arco-runtime │
-        │ execution    │
-        └──────────────┘
-
-Shared solver contracts:
-  arco-solver and solver adapters depend on arco-contracts.
-
-Final rule:
-  interaction surfaces depend on arco-ops, not on model, compiler, solver,
-  exchange, runtime, or adapter crates directly.
+  arco-cli / arco-python / arco-julia
+        │
+        ▼
+arco-ops
+  stable primitive/document/validate/export/solve adapters
+        │
+        ├──────────────► arco-blocks? (composition exposed through ops adapters)
+        │
+        ├──────────────► arco-kdl / future authoring surfaces
+        │                         │
+        │                         ▼
+        ├──────────────► arco-model
+        │                 finite model + expressions + indexed data + documents
+        │                         ▲
+        │                         │
+        ├──────────────► arco-validate
+        │
+        ├──────────────► arco-format ───────► LP / MPS / NL / other exports
+        │                         ▲
+        │                         │
+        ├──────────────► arco-solver ───────► solver adapters ───► native solvers
+        │                         ▲                  ▲
+        │                         │                  │
+        └──────────────► arco-runtime
 ```
 
-## Responsibilities by seam
+Foundational diagnostics:
 
-### 1. Authoring surfaces
+```text
+arco-diagnostics -> used by arco-model, authoring, validation, formats, solvers
+```
 
-Authoring surfaces are responsible for:
+## `arco-model` primitive design
 
-- parsing and source-location reporting
-- source-specific syntax checks
-- building canonical-model structures
-- preserving enough provenance for diagnostics
+### Finite model kernel
 
-Authoring surfaces are not responsible for:
+The finite kernel represents concrete optimization instances:
 
-- solver-family decisions
-- runtime execution
-- portable exchange ownership
-- direct lowering to one specific solver family
+- scalar variables with explicit `Continuous`, `Integer`, or `Binary` kind
+- concrete `Bounds<S>` with `±infinity`, not `Option<S>`
+- detached expressions `Expr<S>`
+- bounded constraints: `lower <= expr <= upper`
+- one active objective with sense and expression
+- optional names, provenance, and user metadata sidecars
+- model fingerprints and structural facts
+- stable lossless serialization documents
 
-If we add a new input format, it belongs here.
+It does not represent late-bound named parameters, templates, scenario sweeps, or
+multi-objective workflows.
 
-### 2. Canonical model
+### Construction and immutability
 
-The canonical model is responsible for:
+Construction uses mutable builders. Durable artifacts are frozen:
 
-- domain meaning
-- canonical sets, parameters, controls, objectives, and related semantics
-- expression composition through stable semantic types
-- reusable model-building blocks
-- validation of semantic invariants
+```rust
+ModelBuilder<S> -> Model<S>
+IndexedDataBuilder<S> -> IndexedData<S>
+```
 
-The canonical model should be the place where domain rules are easiest to find.
-If a rule matters across all surfaces and all solver families, it belongs here or
-in `arco-validate`.
+`ModelBuilder::finish()` compacts and normalizes storage. `Model<S>` is frozen,
+shareable, cacheable, and consumed through read-only `ModelView` APIs.
 
-### 3. Compilation
+Efficient updates use value-only patches:
 
-Compilation is responsible for:
+```rust
+Model<S> + ModelPatch<S> -> PatchedModelView<S>
+```
 
-- translating canonical semantics into executable or exchangeable artifacts
-- normalization and lowering
-- building the **Solver IR boundary** consumed by solver families
-- building portable IR for exchange paths
+`ModelPatch` can update values such as bounds, coefficients, objective data, and
+sidecar metadata. It cannot add/remove variables, constraints, expression nodes,
+or custom operators. Downstream export/solve APIs should consume views instead
+of materializing a full patched model.
 
-Compilation must not know about concrete solver adapters. If a new solver family
-needs a special translation, that logic belongs behind the solver-family seam,
-not inside `arco-compile`.
+### Numeric scalar strategy
 
-### 4. Exchange
+`arco-model` is scalar-generic over supported floating types:
 
-Exchange is responsible for:
+```rust
+Model<S>
+Model64 = Model<f64>
+Model32 = Model<f32>
+Model = Model64
+```
 
-- portable serialization and deserialization
-- import/export formats that sit on top of portable IR
+The default user-facing type is `f64`. `f32` is first-class for memory-sensitive
+or solver-specific paths. Downcasting from `f64` to `f32` must be explicit.
 
-If a feature exists mainly to move models or compiled artifacts between systems,
-it belongs here.
+Public IDs remain compact `u32` wrappers:
 
-### 5. Shared interfaces
+```rust
+VariableId(u32)
+ConstraintId(u32)
+ExpressionId(u32)
+```
 
-These crates define seams rather than heavyweight implementation:
+### Expression representation
 
-- `arco-contracts` holds stable contracts shared across solver selection,
-  preflight, invocation, results, capabilities, and adapter lifecycle
+Public expressions are detached values so third-party libraries can build and
+return expressions without owning a model reference. Internally, the frozen model
+may ingest expressions into compact storage.
 
-If multiple runtime or adapter modules need the same concept, put the contract
-here before duplicating it elsewhere.
+`Expr<S>` should optimize common cases:
 
-### 6. Runtime and orchestration
+```text
+constant -> variable -> affine -> quadratic -> symbolic
+```
 
-This layer is responsible for:
+Promotion is local. A model with one symbolic nonlinear constraint must not force
+all LP/QP data into symbolic storage.
 
-- solve execution mechanics
-- registry and discovery of solver families
-- solver selection and solver preflight
-- capability enforcement policy
-- top-level user workflows exposed to interaction surfaces
+Built-in nonlinear operators are compact enum variants. Custom operators are
+opaque namespaced atoms with declared arity:
 
-`arco-ops` should be the main entry seam for CLI and Python. If interaction
-code needs to coordinate parsing, validation, compilation, exchange,
-inspection, and solving, the operations belong in `arco-ops`, not in the
-surface itself.
+```rust
+CustomOperatorId { namespace, name }
+CustomOperatorDecl { id, arity, metadata }
+```
 
-### 7. Solver adapters
+`arco-model` stores custom operators but does not evaluate, differentiate,
+simplify, lower, or solve them.
 
-Solver adapters are responsible for:
+### Hot storage layout
 
-- translating `arco-targets` into one solver family’s native representation
-- enforcing family-specific option and capability rules
-- invoking the solver through the transport defined by the selected profile
-- translating raw results back into shared solver result types
+Frozen hot storage should favor structure-of-arrays and contiguous buffers:
 
-If we onboard a new solver family, it gets its own adapter crate and implements
-the contracts defined in `arco-contracts`.
+```rust
+LinearMatrix<S> {
+    col_offsets: Vec<u32>,
+    row_indices: Vec<u32>,
+    values: Vec<S>,
+}
+```
 
-### 8. Interaction surfaces
+Avoid hot-path layouts such as `Vec<Vec<_>>` or padded `(u32, f64)` tuples when a
+compact columnar layout is available. Sidecars for names, provenance, and
+metadata must be lazy and separate from numeric storage.
 
-Interaction surfaces are responsible for:
+Streaming/chunked construction should support append-only/order-declared column
+input so huge models do not need a full temporary matrix.
 
-- user I/O
-- CLI flags, commands, and formatting
-- Python binding ergonomics and object translation
-- presenting diagnostics and results
+### Structural facts, classification, and validation
 
-Interaction surfaces should stay thin. They should not own solver policy,
-canonical semantics, or direct adapter wiring.
+`arco-model` may expose cheap structural facts:
 
-## Where new code goes as Arco grows
+- has integer variables
+- has quadratic terms
+- has symbolic expressions
+- has custom operators
+- max expression degree where cheap
 
-Use this section as the first placement guide when adding features.
+Final LP/QP/NLP/MILP/MIQP/MINLP classification and solver compatibility checks
+belong in validation, compilation, and solver capability layers.
 
-| If we are adding...                                           | Put it in...                                                   | Why                                                |
-| ------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------- |
-| a new input syntax or file format                             | `arco-kdl`, `arco-json`, `arco-yaml`, or a new authoring crate | authoring surfaces own parsing and provenance      |
-| a semantic validation rule shared by all surfaces             | `arco-validate`                                                | one place for canonical invariants                 |
-| a new canonical concept used across compilers and solvers     | `arco-model` or `arco-algebra`                                 | semantic center stays centralized                  |
-| reusable model composition logic                              | `arco-blocks`                                                  | blocks are part of model construction, not runtime |
-| a new lowering artifact consumed by solvers                   | `arco-targets`                                                 | solver-facing compile seam                         |
-| a portable format for interchange                             | `arco-ir` plus `arco-exchange`                                 | portable exchange must stay separate               |
-| solver selection, registry, profile, or preflight logic       | `arco-solver`                                                  | solver platform owns orchestration                 |
-| adapter capability metadata or lifecycle contract             | `arco-contracts`                                               | shared solver-family seam                          |
-| one concrete solver family                                    | a new `arco-<family>` crate                                    | adapters stay sibling modules                      |
-| a CLI or Python operation that combines existing capabilities | `arco-ops`                                                     | keep surfaces thin                                 |
-| a new end-user shell                                          | a new interaction crate                                        | interaction belongs at the edge                    |
-| diagnostics/profiling/dev-only helpers                        | `arco-tools`                                                   | support tooling is not core runtime                |
+### Serialization documents
 
-## Current to target migration map
+Primitive serialization is a stable ecosystem contract. It is not solver/export
+serialization.
 
-This is the intended shape relative to the current workspace. The migration does
-not preserve legacy APIs by default; when old APIs conflict with the target
-architecture, remove or replace them.
+`arco-model` owns stable DTOs:
 
-- `arco-core` is transitional only. Move canonical model ownership into
-  `arco-model`, then retire `arco-core` instead of keeping a compatibility
-  prelude crate.
-- `arco-expr` must stop leaking to interaction surfaces and solver adapters.
-  Either absorb expression-domain ownership into `arco-model` / `arco-algebra` or
-  keep it as an internal canonical-model dependency only.
-- `arco-export` should collapse into `arco-exchange` or be deleted. Exchange
-  logic consumes `arco-ir`; it should not preserve a second public exchange API
-  only for compatibility.
-- `bindings/python` remains the Python package path, but its Rust crate should
-  depend directly on `arco-ops` only. Python API changes are acceptable.
-- `arco-cli` should depend directly on `arco-ops` only, aside from CLI-only
-  libraries such as argument parsing and diagnostics.
-- `arco-kdl` remains an authoring surface. It must stop producing solver-facing
-  targets directly.
-- Solver adapters remain sibling crates. They must consume `arco-targets`,
-  `arco-contracts`, and runtime services, not canonical model internals.
+- `ModelDocument`
+- `IndexedDataDocument`
+- combined `ArcoDocument`
+
+Documents have one shared primitive `schema_version` and a `document_kind`.
+Scalar precision is preserved by a document-level `scalar_type`, and scalar
+values serialize as canonical strings to preserve infinities and roundtrip
+intent.
+
+Example shape:
+
+```json
+{
+  "schema_version": 1,
+  "document_kind": "model",
+  "scalar_type": "f64"
+}
+```
+
+The DTOs are stable. Internal storage is private and may change.
+
+## Indexed data primitives
+
+`arco_model::indexed` is part of the primitive crate, not a separate crate in the
+target architecture. It provides in-memory data/index primitives used by KDL,
+Python, Rust libraries, and third-party modeling layers.
+
+It owns:
+
+- ordered unique sets
+- tuple sets
+- domains / index keys
+- numeric `ParameterTable<S>` with dense and sparse storage
+- non-numeric `AttributeTable`
+- shared value/string pool inside `IndexedData`
+- lazy projection views and optional materialization
+- low-level Rust predicate filters
+- basic numeric duplicate reducers for table construction: sum, min, max, count,
+  mean
+- stable lossless `IndexedDataDocument`
+
+It does not own:
+
+- variable families
+- constraint families
+- indexed objectives
+- templates
+- scenarios
+- joins/group-by/dataframe pipelines
+- file/database ingestion
+- row/cell-level provenance
+- naming/rendering policies
+
+Index values support string, integer, canonical decimal, and boolean values in
+v1. Dates, timestamps, UUIDs, nulls, and floats are not primitive index values.
+Dates/timestamps may be represented by strings or integers in outer layers.
+
+`Set` and tuple rows enforce uniqueness by default. Numeric `ParameterTable`
+construction may explicitly aggregate duplicate keys with a reducer. Missing
+values are explicit; the default missing policy is error.
+
+## `arco-ops` stability adapter
+
+`arco-ops` exists to decouple primitive Rust APIs from interaction surfaces. It
+should expose stable wrappers/DTOs rather than making raw primitive re-exports the
+main public contract.
+
+Target v1 focus:
+
+- primitive model adapters
+- indexed data adapters
+- document load/save adapters
+- validation adapters
+- format/export adapters
+- solve adapters
+- stable errors/reports/results
+
+Avoid opinionated workflow bundles in v1, such as `load_validate_solve`, scenario
+sweeps, or multi-objective orchestration. Those can be added later or live in
+workflow crates.
+
+## `arco-blocks` composition layer
+
+`arco-blocks` is Arco's high-level block/run-container layer, inspired by block
+composition in algebraic modeling systems. It lets users compose multiple
+optimization containers and feed outputs forward between them.
+
+A block run may:
+
+- receive typed inputs
+- build or patch a model
+- validate/format-export/solve through `arco-ops`
+- extract outputs from data, model, or solution
+- feed outputs to downstream blocks
+- record diagnostics
+
+`arco-blocks` should depend on `arco-ops`, not directly on primitive or solver
+crates. KDL block graph authoring is deferred; KDL may eventually build block
+graphs, but the first target is model/data authoring.
+
+## Migration map
+
+- Absorb `arco-expr` into `arco-model`.
+- Absorb `arco-algebra` into `arco-model` and retire the crate.
+- Move finite model ownership fully into `arco-model` and remove old compatibility
+  structures that duplicate the primitive API.
+- Add `arco_model::indexed` inside `arco-model` for in-memory indexed data
+  primitives.
+- Add stable primitive document DTOs in `arco-model`.
+- Keep `arco-kdl` as a KDL parser/semantic layer that builds primitives.
+- Keep `arco-validate` as a user-facing validation/reporting layer over model
+  views.
+- Retire `arco-compile`, `arco-ir`, and `arco-targets` as mandatory handoff
+  crates; introduce shared transformation helpers later only if measured
+  duplication justifies them.
+- Absorb `arco-contracts` into `arco-solver` when practical.
+- Collapse or retire `arco-export`; rename `arco-exchange` to `arco-format` for the target format primitive crate.
+- Rebuild `arco-ops` as the stable adapter over primitives and solver workflows.
+- Refactor `arco-blocks` into a language-neutral run-container composition layer
+  over `arco-ops`; move Python/PyO3-specific ergonomics to adapters/bindings.
+- Rewrite CLI/Python to depend on `arco-ops` only among Arco crates.
 
 ## Refactor phases
 
-### Phase 0: align the architecture rules
+### Phase 0: encode the target architecture
 
-Update `.sentrux/rules.toml` so the checker enforces this document, not the
-transitional repository shape.
+Update `.sentrux/rules.toml` to enforce this target, not the current transition.
+Expected migration-debt violations include direct interaction-surface access to
+primitives, KDL-to-retired-handoff coupling, dependencies on retired handoff
+crates, `arco-ops` raw re-exports, and remaining `arco-expr`/`arco-algebra`
+dependencies.
 
-Required final direct-dependency rules:
+### Phase 1: redesign `arco-model`
 
-- interaction surfaces -> `arco-ops` only
-- authoring surfaces -> `arco-model` and authoring-local dependencies only
-- validation -> `arco-model`
-- compilation -> `arco-model`, `arco-targets`, and `arco-ir`
-- exchange -> `arco-ir`
-- solver platform -> `arco-contracts` and `arco-targets`
-- solver adapters -> `arco-contracts`, `arco-targets`, and `arco-runtime`
+Implement the primitive finite model and indexed data design:
 
-Keep violations for:
+- `ModelBuilder<S> -> Model<S>`
+- detached `Expr<S>` with LP/QP fast paths and local symbolic promotion
+- frozen model views and value-only patches
+- compact CSC/SoA storage
+- `Model32` / `Model64` aliases
+- `arco_model::indexed` primitives
+- primitive documents and fingerprints
 
-- `arco-kdl -> arco-targets`
-- solver adapters -> `arco-core`, `arco-model`, or `arco-expr`
-- interaction surfaces -> model, compiler, exchange, solver, runtime, or adapter
-  crates
-- exchange -> canonical model crates
+### Phase 2: absorb expression/algebra crates
 
-Acceptance: `sentrux check .` reports only real migration debt and passes once
-all phases are complete.
+Move expression IDs, expression builders, and operators into `arco-model`.
+Remove dependencies on `arco-expr` and `arco-algebra`, then retire those crates.
 
-### Phase 1: make `arco-model` the canonical owner
+### Phase 3: authoring builds primitives
 
-Move canonical domain ownership out of `arco-core` and into `arco-model`:
+Refactor `arco-kdl` so its parser/semantic layer builds `Model`, `IndexedData`,
+or primitive documents. It must not produce retired target/IR representations or
+call solve paths.
 
-- `Model`
-- variables, constraints, objectives, bounds, and senses
-- model errors and diagnostics-facing domain errors
-- stable semantic handles and IDs
-- snapshots, sparse export views, and model inspection data
-- canonical expression ownership, or explicit integration with `arco-algebra`
+### Phase 4: retire mandatory handoff crates
 
-Then remove `arco-core` from the workspace. Do not keep a compatibility crate
-unless a short-lived branch-local transition is required to keep intermediate
-commits buildable.
+Remove the mandatory `arco-compile`, `arco-ir`, and `arco-targets` bridge from
+solve/export paths. Move any still-useful tests to model-view, format, solver,
+or optional transformation-helper coverage.
 
-Acceptance:
+### Phase 5: model-view solver and format consumers
 
-- no workspace crate depends on `arco-core`
-- `arco-core` is removed from `Cargo.toml`
-- canonical model tests live under `arco-model`
+Refactor solver primitives, solver adapters, and format/export crates to consume
+`ModelView` / patched model views directly. They may allocate target-specific
+buffers only when a solver/export format genuinely requires another layout.
 
-### Phase 2: settle expression ownership
+### Phase 6: rebuild `arco-ops`
 
-Decide and implement one expression boundary:
+Expose stable wrappers and DTOs over primitive/document/validation/export/solve
+capabilities. Remove primary raw re-exports of primitive/internal crates.
 
-- If expressions are canonical domain concepts, move them into `arco-model`.
-- If expressions are reusable algebra mechanics, keep them below `arco-model` as
-  `arco-algebra` internals.
+### Phase 7: rebuild `arco-blocks`
 
-In either case, prevent expression IDs and internals from crossing into CLI,
-Python, exchange, solver platform, or solver adapters.
-
-Acceptance:
-
-- interaction surfaces do not import `arco-expr`
-- solver adapters do not import `arco-expr`
-- public model/ops APIs expose domain handles or DTOs, not expression internals
-
-### Phase 3: create the compilation seam
-
-Create `arco-compile` as the only semantic bridge out of the canonical model.
-Move lowering and artifact construction currently owned by `arco-kdl` into this
-crate.
-
-`arco-compile` owns:
-
-- canonical model -> `arco-targets`
-- canonical model -> `arco-ir`
-- normalization and lowering diagnostics
-- compile-time traceability metadata
-
-Acceptance:
-
-- `arco-kdl` no longer depends on `arco-targets`
-- KDL tests that assert lowered artifacts move to `arco-compile`
-- `arco-kdl` tests focus on parsing, source diagnostics, and canonical model
-  construction
-
-### Phase 4: make solver adapters target-only
-
-Refactor `arco-highs`, `arco-ipopt`, `arco-xpress`, and `arco-scip` to consume
-compiled targets and shared contracts only.
-
-Adapters own:
-
-- target -> native solver representation
-- family-specific capability and option enforcement
-- native invocation details
-- raw result -> `arco-contracts` result translation
-
-Adapters do not own:
-
-- canonical model flattening
-- authoring-surface parsing
-- solver selection policy
-
-Acceptance:
-
-- adapters have no dependency on `arco-core`, `arco-model`, or `arco-expr`
-- adapters have no dependency on one another
-- adapter tests build targets directly or use test helpers from `arco-targets`
-
-### Phase 5: clean solver platform orchestration
-
-Narrow `arco-solver` to registry, selection, capability preflight, and invocation
-through shared contracts.
-
-`arco-solver` receives compiled targets. It does not parse files, lower models,
-or depend on concrete adapter crates.
-
-Acceptance:
-
-- no `arco-solver -> arco-kdl`
-- no `arco-solver -> arco-model` unless required by target metadata and approved
-  as part of the final seam
-- no `arco-solver -> arco-highs/arco-ipopt/arco-xpress/arco-scip`
-
-### Phase 6: collapse exchange into `arco-exchange`
-
-Make `arco-exchange` the only public import/export crate. It consumes `arco-ir`.
-Remove `arco-export` unless it has a target-state responsibility that is not
-covered by `arco-exchange`.
-
-Acceptance:
-
-- `arco-export` is removed or private to the exchange implementation
-- exchange code does not depend on canonical model crates or solver adapters
-- import/export documentation names `arco-exchange`
-
-### Phase 7: rebuild `arco-ops` as the only application seam
-
-`arco-ops` exposes the user-facing Rust workflow API used by all interaction
-surfaces:
-
-- model construction API
-- load from authoring surfaces
-- validation
-- compilation
-- inspection
-- exchange/import/export
-- solve selection and execution
-- stable DTOs and handles for language bindings
-
-Breaking changes are acceptable. Design the API around target architecture, not
-old Python or CLI internals.
-
-Acceptance:
-
-- common CLI and Python workflows are expressible through `arco-ops`
-- `arco-ops` owns app-level errors and result DTOs
-- no interaction surface needs direct model, compiler, solver, exchange,
-  runtime, or adapter access
+Make block composition depend on `arco-ops` and move Python-specific schema and
+callback mechanics out of the core block layer.
 
 ### Phase 8: rewrite interaction surfaces
 
-Rewrite CLI and Python bindings to call `arco-ops` only. Julia and future
-language bindings must follow the same rule from their first implementation.
-
-CLI owns:
-
-- command-line parsing
-- terminal formatting
-- process exit behavior
-
-Python/Julia/other bindings own:
-
-- language-native object wrappers
-- language-native error conversion
-- language-native packaging
-
-Acceptance:
-
-- `bindings/python` has one direct internal dependency: `arco-ops`
-- `arco-cli` has one direct internal dependency: `arco-ops`
-- user-facing docs and examples use the new APIs
+Rewrite CLI and Python bindings to use `arco-ops` only among Arco crates. They
+own user I/O and language ergonomics, not architecture policy.
 
 ### Phase 9: delete legacy structure
 
-Remove old compatibility paths rather than preserving them:
+Remove retired crates, compatibility modules, duplicated result/error/status
+contracts, direct adapter solve APIs over models, and stale tests/examples.
 
-- `arco-core`
-- `arco-export`, if replaced by `arco-exchange`
-- direct solve APIs on adapters that accept canonical models
-- old KDL compile artifact reexports
-- duplicated result/status/error types
-- stale tests and examples for removed APIs
+### Phase 10: document and verify
 
-Acceptance:
-
-- no retired crate remains in the workspace
-- no compatibility module exists only to preserve old import paths
-- `sentrux check .` passes
-
-### Phase 10: final documentation and verification
-
-Update architecture and user documentation to describe the actual final state.
-
-Required checks before completion:
-
-```sh
-cargo fmt
-cargo clippy --all --benches --tests --examples --all-features -- -D warnings
-cargo test --workspace
-sentrux check .
-```
-
-Document any intentionally missing planned surfaces, such as `arco-json`,
-`arco-yaml`, or `arco-julia`, as planned rather than present.
+Update user and contributor documentation to describe the actual final state.
+Run the relevant checks for changed areas, then full workspace checks before
+shipping the refactor.
 
 ## Decision checklist for future contributors
 
-Before creating a new crate or adding behavior to an existing one, answer these
-questions:
+Before adding a crate, API, or dependency, answer:
 
-1. Is this semantic meaning, or just translation/presentation?
-2. Does this belong to the canonical model, compilation, exchange, runtime, or
-   an outer surface?
-3. Can this depend on an existing seam instead of a concrete implementation?
-4. If we add a second implementation later, is the seam already explicit?
-5. Would putting this elsewhere make CLI/Python, parsers, or adapters smarter
-   than they should be?
-
-If the answer is unclear, prefer strengthening an existing seam over adding a
-cross-layer dependency.
+1. Is this a primitive, an adapter, an optional transformation, a solver concern,
+   or a workflow?
+2. Does it belong in `arco-model`, `arco-ops`, `arco-blocks`, an authoring
+   surface, format layer, solver primitives, or a solver adapter?
+3. Does this force a workflow where a primitive mechanism would be enough?
+4. Does this add strings, metadata, provenance, or dynamic dispatch to a hot
+   numeric path?
+5. Can this use a stable DTO/view instead of depending on an internal
+   representation?
+6. Would a third-party crate be able to build the same thing without core changes?
+7. Does this preserve interaction-surface stability by routing through
+   `arco-ops`?
