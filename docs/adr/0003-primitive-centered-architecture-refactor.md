@@ -448,7 +448,9 @@ just ci
       rendering policy, naming/escaping hooks, traversal helpers, and result DTOs.
 - [ ] Keep canonical model serialization in `arco-model` documents, not in the
       format crate.
-- [ ] Make concrete export formats consume `ModelView` or patched views.
+- [ ] Make concrete export formats consume `ModelView` or patched views. LP and
+      MPS have primitive `ModelView` entry points; NL and legacy facade routing
+      remain open.
 - [ ] Allocate row-major buffers, render trees, or format-specific layouts only
       when the concrete format requires them.
 - [ ] Remove format dependencies on KDL and solver selection.

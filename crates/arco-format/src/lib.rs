@@ -1,4 +1,4 @@
-//! Exchange seam for portable Arco IR and primitive model views.
+//! Format seam for portable Arco IR and primitive model views.
 
 use std::io::Write;
 
@@ -63,6 +63,25 @@ pub fn export_model_view_lp(model: &impl ModelView) -> Result<FormatResult, Expo
     })
 }
 
+/// Render a primitive model view as MPS text.
+pub fn write_model_view_mps(
+    model: &impl ModelView,
+    writer: &mut dyn Write,
+) -> Result<(), ExportError> {
+    let portable = portable_problem_from_model_view(model);
+    write_mps(&portable, writer)
+}
+
+/// Render a primitive model view as MPS bytes.
+pub fn export_model_view_mps(model: &impl ModelView) -> Result<FormatResult, ExportError> {
+    let mut bytes = Vec::new();
+    write_model_view_mps(model, &mut bytes)?;
+    Ok(FormatResult {
+        bytes,
+        format: "mps",
+    })
+}
+
 fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
     let variable_instances = (0..model.num_variables())
         .filter_map(|idx| {
@@ -78,8 +97,8 @@ fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
                 PortableVariableKind::Continuous
             };
             Some(PortableVariableInstance {
-                name: variable_name(idx),
-                family: variable_name(idx),
+                name: variable_name(model, variable_id, idx),
+                family: variable_name(model, variable_id, idx),
                 lower: variable.bounds.lower,
                 upper: variable
                     .bounds
@@ -101,7 +120,7 @@ fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
             let row_idx = constraint_id.inner() as usize;
             if let Some(terms) = terms_by_constraint.get_mut(row_idx) {
                 terms.push(PortableLinearTerm {
-                    variable_name: variable_name(var_idx),
+                    variable_name: variable_name(model, variable_id, var_idx),
                     coefficient: *coefficient,
                 });
             }
@@ -121,26 +140,26 @@ fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
                             == constraint.bounds.upper.to_bits() =>
                     {
                         PortableLinearConstraint {
-                            name: constraint_name(idx),
+                            name: constraint_name(model, ConstraintId::new(idx as u32), idx),
                             sense: PortableConstraintSense::Equal,
                             rhs: constraint.bounds.lower,
                             terms: terms_by_constraint[idx].clone(),
                         }
                     }
                     (_, true) => PortableLinearConstraint {
-                        name: constraint_name(idx),
+                        name: constraint_name(model, ConstraintId::new(idx as u32), idx),
                         sense: PortableConstraintSense::LessEqual,
                         rhs: constraint.bounds.upper,
                         terms: terms_by_constraint[idx].clone(),
                     },
                     (true, false) => PortableLinearConstraint {
-                        name: constraint_name(idx),
+                        name: constraint_name(model, ConstraintId::new(idx as u32), idx),
                         sense: PortableConstraintSense::GreaterEqual,
                         rhs: constraint.bounds.lower,
                         terms: terms_by_constraint[idx].clone(),
                     },
                     (false, false) => PortableLinearConstraint {
-                        name: constraint_name(idx),
+                        name: constraint_name(model, ConstraintId::new(idx as u32), idx),
                         sense: PortableConstraintSense::Equal,
                         rhs: 0.0,
                         terms: Vec::new(),
@@ -155,7 +174,7 @@ fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
         variable_instances,
         constraints,
         objective: PortableLinearObjective {
-            name: "obj".to_string(),
+            name: model.objective_name().unwrap_or("obj").to_string(),
             sense: match objective.sense.unwrap_or(Sense::Minimize) {
                 Sense::Minimize => PortableObjectiveSense::Minimize,
                 Sense::Maximize => PortableObjectiveSense::Maximize,
@@ -165,7 +184,7 @@ fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
                 .terms
                 .iter()
                 .map(|(variable_id, coefficient)| PortableLinearTerm {
-                    variable_name: variable_name(variable_id.inner() as usize),
+                    variable_name: variable_name(model, *variable_id, variable_id.inner() as usize),
                     coefficient: *coefficient,
                 })
                 .collect(),
@@ -174,12 +193,16 @@ fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
     }
 }
 
-fn variable_name(index: usize) -> String {
-    format!("x{index}")
+fn variable_name(model: &impl ModelView, id: VariableId, index: usize) -> String {
+    model
+        .variable_name(id)
+        .map_or_else(|| format!("x{index}"), str::to_string)
 }
 
-fn constraint_name(index: usize) -> String {
-    format!("c{index}")
+fn constraint_name(model: &impl ModelView, id: ConstraintId, index: usize) -> String {
+    model
+        .constraint_name(id)
+        .map_or_else(|| format!("c{index}"), str::to_string)
 }
 
 #[cfg(test)]
@@ -214,6 +237,29 @@ mod tests {
 
     #[test]
     fn write_lp_accepts_model_view() {
+        let model = named_model_view_fixture();
+
+        let result = export_model_view_lp(&model).expect("model-view LP export");
+        let rendered = String::from_utf8(result.bytes).expect("valid utf8");
+        assert_eq!(result.format, "lp");
+        assert!(rendered.contains("Minimize"));
+        assert!(rendered.contains("demand:"));
+        assert!(rendered.contains("power"));
+    }
+
+    #[test]
+    fn write_mps_accepts_model_view() {
+        let model = named_model_view_fixture();
+
+        let result = export_model_view_mps(&model).expect("model-view MPS export");
+        let rendered = String::from_utf8(result.bytes).expect("valid utf8");
+        assert_eq!(result.format, "mps");
+        assert!(rendered.contains("NAME"));
+        assert!(rendered.contains("demand"));
+        assert!(rendered.contains("power"));
+    }
+
+    fn named_model_view_fixture() -> Model {
         let mut model = Model::new();
         let x = model
             .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
@@ -223,6 +269,11 @@ mod tests {
                 bounds: Bounds::new(1.0, f64::INFINITY),
             })
             .expect("constraint");
+        model.set_variable_name(x, "power".to_string()).unwrap();
+        model
+            .set_constraint_name(demand, "demand".to_string())
+            .unwrap();
+        model.set_objective_name(Some("cost".to_string())).unwrap();
         model.set_coefficient(x, demand, 1.0).expect("coefficient");
         model
             .set_objective(Objective {
@@ -230,12 +281,6 @@ mod tests {
                 terms: vec![(x, 2.0)],
             })
             .expect("objective");
-
-        let result = export_model_view_lp(&model).expect("model-view LP export");
-        let rendered = String::from_utf8(result.bytes).expect("valid utf8");
-        assert_eq!(result.format, "lp");
-        assert!(rendered.contains("Minimize"));
-        assert!(rendered.contains("c0:"));
-        assert!(rendered.contains("x0"));
+        model
     }
 }
