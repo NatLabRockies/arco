@@ -24,10 +24,11 @@ arco-ops (transitional facade)
 
 ## Crate responsibilities (current)
 
-- `arco-model`: canonical primitive model APIs (`ModelBuilder`, `ModelView`,
-  `ModelPatch`), indexed-data primitives, and primitive document DTOs.
+- `arco-model`: canonical primitive model APIs (`ModelBuilder`, `FrozenModel`,
+  `ModelView`, `ModelPatch`), indexed-data primitives, and primitive document
+  DTOs.
 - `arco-kdl`: KDL parser/AST/diagnostics plus direct primitive builders for
-  `Model`, `IndexedData`, and primitive documents.
+  `FrozenModel`, `IndexedData`, and primitive documents.
 - `arco-validate`: user-facing validation over model views.
 - `arco-solver`: solver-facing contracts, selection, and preflight.
 - `arco-ops`: transitional interaction facade used by surface crates.

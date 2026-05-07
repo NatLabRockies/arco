@@ -93,10 +93,10 @@ Implemented and final-Sentrux-clean for this slice:
 
 - `.sentrux/rules.toml` now matches the enforced layer-order semantics and the
   currently shipped interaction path, so the architecture gate is executable.
-- `arco-model` now exposes primitive IDs, `ModelBuilder`, `Model64`, `Model32`,
-  `ModelView`, `ModelPatch`, `PatchedModelView`, structural facts, fingerprints,
-  indexed-data primitives, document DTO shells, and an `arco_model::expr` import
-  seam.
+- `arco-model` now exposes primitive IDs, `ModelBuilder`, immutable
+  `FrozenModel`, `Model64`, `Model32`, `ModelView`, `ModelPatch`,
+  `PatchedModelView`, structural facts, fingerprints, indexed-data primitives,
+  document DTO shells, and an `arco_model::expr` import seam.
 - `arco-diagnostics` exists with format-neutral diagnostic codes, severities,
   source IDs, source spans, provenance, diagnostics, and reports.
 - `arco-validate` has `validate_model_view` and `diagnose_model_view` over
@@ -104,9 +104,9 @@ Implemented and final-Sentrux-clean for this slice:
   migration.
 - `arco-solver` has `preflight_model_view` and keeps `preflight_selection` as a
   concrete-model wrapper.
-- `arco-kdl` can build primitive `Model`, `IndexedData`, `ModelDocument`, and
-  `ArcoDocument` values directly from parsed KDL for the covered finite linear
-  subset.
+- `arco-kdl` can build primitive `FrozenModel`, `IndexedData`,
+  `ModelDocument`, and `ArcoDocument` values directly from parsed KDL for the
+  covered finite linear subset.
 - `bindings/python` now has only `arco-blocks` as a direct Arco dependency in
   `Cargo.toml`; the current source path still uses transitional `arco-blocks`
   re-exports that must be replaced with real block DTO/wrapper APIs before full
@@ -197,17 +197,14 @@ Chunk 4
 
 - [x] Add or harden compact public ID wrappers for variables, constraints, and
       expressions.
-- [x] Implement the finite `ModelBuilder<S> -> Model<S>` construction path with
-      scalar-generic aliases for `Model64`, `Model32`, and the default `Model`.
-      Current implementation is a transitional f64-backed builder facade; true
-      generic storage remains open.
-- [ ] Make frozen `Model<S>` immutable, shareable, and readable through
-      `ModelView`. `ModelView` exists; the legacy mutable `Model` remains the
-      primary storage type.
-- [ ] Add value-only `ModelPatch<S>` and `PatchedModelView<S>` for bounds,
+- [x] Implement the finite `ModelBuilder<S> -> FrozenModel<S>` construction path
+      with scalar-generic aliases for `Model64`, `Model32`, and the legacy
+      mutable `Model` kept as the internal storage kernel.
+- [x] Make frozen `Model<S>` immutable, shareable, and readable through
+      `ModelView`. The frozen public path now wraps the legacy mutable storage
+      and exposes no mutation methods.
+- [x] Add value-only `ModelPatch<S>` and `PatchedModelView<S>` for bounds,
       coefficients, objective data, and sidecars without structural mutation.
-      Bounds patching exists; coefficient/objective/sidecar overrides remain
-      open.
 - [x] Store hot numeric data in compact contiguous layouts and keep names,
       provenance, and metadata in lazy sidecars.
 - [x] Add fingerprints and cheap structural facts needed by validation, format,

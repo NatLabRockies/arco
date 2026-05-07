@@ -14,7 +14,7 @@ pub mod model;
 pub mod slack;
 pub mod types;
 
-pub use builder::{Model32, Model64, ModelBuilder};
+pub use builder::{FrozenModel, Model32, Model64, ModelBuilder};
 pub use ids::{ConstraintId, ExpressionId, VariableId};
 pub use model::{
     CoefficientView, ConstraintView, CscInput, DefaultPrettyPrintAdapter, InspectOptions, Model,

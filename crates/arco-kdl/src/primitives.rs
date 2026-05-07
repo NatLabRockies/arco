@@ -6,7 +6,7 @@ use arco_model::indexed::{
     DuplicateReducer, IndexKey, IndexValue, IndexedData, ParameterTable, Set,
 };
 use arco_model::{
-    Bounds, Constraint, Model, ModelBuilder, ModelView, Objective, Sense, Variable, VariableId,
+    Bounds, Constraint, Model64, ModelBuilder, ModelView, Objective, Sense, Variable, VariableId,
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -66,7 +66,7 @@ impl LinearExpr {
     }
 }
 
-pub fn build_model(parsed: &ParsedSource) -> Result<Model, PrimitiveBuildError> {
+pub fn build_model(parsed: &ParsedSource) -> Result<Model64, PrimitiveBuildError> {
     let model_decl = parsed
         .program
         .models

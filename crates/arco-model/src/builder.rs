@@ -1,12 +1,19 @@
 //! Frozen primitive construction path.
 //!
-//! This module provides the `ModelBuilder<S> -> Model` seam used by new
-//! consumers. The concrete storage is currently the compact `f64` model; `f32`
-//! builders convert explicitly at finish time.
+//! This module provides the `ModelBuilder<S> -> FrozenModel<S>` seam used by
+//! new consumers. Builders are mutable; finished models are read-only views over
+//! compact primitive storage.
 
 use crate::ids::{ConstraintId, VariableId};
-use crate::{Constraint, Model, ModelError, Objective, Variable};
+use crate::{Constraint, Model, ModelError, ModelView, Objective, Variable};
 use std::marker::PhantomData;
+
+/// Immutable scalar-tagged model produced by [`ModelBuilder`].
+#[derive(Debug, Clone)]
+pub struct FrozenModel<S = f64> {
+    model: Model,
+    _scalar: PhantomData<S>,
+}
 
 /// Scalar-generic model builder facade.
 #[derive(Debug, Clone)]
@@ -16,10 +23,94 @@ pub struct ModelBuilder<S = f64> {
 }
 
 /// Default frozen model type.
-pub type Model64 = Model;
+pub type Model64 = FrozenModel<f64>;
 
-/// Transitional f32 builder output uses f64 storage until a full f32 hot path lands.
-pub type Model32 = Model;
+/// f32-tagged frozen model. Numeric storage is still canonical f64 until the
+/// solver/export hot paths gain native f32 kernels.
+pub type Model32 = FrozenModel<f32>;
+
+impl<S> FrozenModel<S> {
+    pub(crate) fn new(model: Model) -> Self {
+        Self {
+            model,
+            _scalar: PhantomData,
+        }
+    }
+
+    pub fn as_model(&self) -> &Model {
+        &self.model
+    }
+
+    pub fn into_model(self) -> Model {
+        self.model
+    }
+
+    pub fn num_variables(&self) -> usize {
+        self.model.num_variables()
+    }
+
+    pub fn num_constraints(&self) -> usize {
+        self.model.num_constraints()
+    }
+
+    pub fn num_coefficients(&self) -> usize {
+        self.model.num_coefficients()
+    }
+
+    pub fn objective(&self) -> &Objective {
+        self.model.objective()
+    }
+}
+
+impl<S> ModelView for FrozenModel<S> {
+    fn num_variables(&self) -> usize {
+        self.model.num_variables()
+    }
+
+    fn num_constraints(&self) -> usize {
+        self.model.num_constraints()
+    }
+
+    fn num_coefficients(&self) -> usize {
+        self.model.num_coefficients()
+    }
+
+    fn variable(&self, id: VariableId) -> Option<Variable> {
+        self.model.variable(id)
+    }
+
+    fn constraint(&self, id: ConstraintId) -> Option<Constraint> {
+        self.model.constraint(id)
+    }
+
+    fn objective(&self) -> &Objective {
+        self.model.objective()
+    }
+
+    fn column(&self, id: VariableId) -> Option<&[(ConstraintId, f64)]> {
+        self.model.column(id)
+    }
+
+    fn variable_name(&self, id: VariableId) -> Option<&str> {
+        self.model.get_variable_name(id)
+    }
+
+    fn constraint_name(&self, id: ConstraintId) -> Option<&str> {
+        self.model.get_constraint_name(id)
+    }
+
+    fn objective_name(&self) -> Option<&str> {
+        self.model.get_objective_name()
+    }
+
+    fn variable_metadata(&self, id: VariableId) -> Option<&serde_json::Value> {
+        self.model.get_variable_metadata(id)
+    }
+
+    fn constraint_metadata(&self, id: ConstraintId) -> Option<&serde_json::Value> {
+        self.model.get_constraint_metadata(id)
+    }
+}
 
 impl<S> Default for ModelBuilder<S> {
     fn default() -> Self {
@@ -77,7 +168,11 @@ impl<S> ModelBuilder<S> {
         self.model.set_objective_name(name)
     }
 
-    pub fn finish(self) -> Model {
+    pub fn finish(self) -> FrozenModel<S> {
+        FrozenModel::new(self.model)
+    }
+
+    pub fn finish_legacy_model(self) -> Model {
         self.model
     }
 }
