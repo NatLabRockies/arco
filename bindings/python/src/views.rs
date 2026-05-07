@@ -1,6 +1,6 @@
 //! Python wrappers for model view types.
 
-use arco_ops::model::types::Bounds;
+use arco_ops::modeling::types::Bounds;
 use pyo3::prelude::*;
 
 use crate::PyObject;

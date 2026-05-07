@@ -27,9 +27,21 @@ def test_python_sources_use_arco_ops_for_core_arco_apis() -> None:
         "arco_ops::highs",
         "arco_ops::scip",
         "arco_ops::targets",
+        "arco_ops::solver::",
+        "arco_ops::model::",
+        "arco_ops::expr::",
     )
 
     for source in (PYTHON_CRATE / "src").rglob("*.rs"):
         content = source.read_text()
         for token in forbidden_tokens:
             assert token not in content, f"found {token!r} in {source}"
+
+
+def test_model_solve_rejects_unsupported_primal_start_path() -> None:
+    model_solve = (PYTHON_CRATE / "src" / "model_solve.rs").read_text()
+
+    assert (
+        "primal_start is not supported on the model-view solve path yet" in model_solve
+    )
+    assert "_warm_start_hint_count" not in model_solve

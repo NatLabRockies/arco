@@ -1,6 +1,6 @@
 //! Python wrapper for Variable objects returned by add_variable/add_variables.
 
-use arco_ops::expr::ComparisonSense;
+use arco_ops::expression::ComparisonSense;
 use pyo3::prelude::*;
 
 use crate::py_modules::bounds::{BoundsSpec, PyBounds};
@@ -33,7 +33,7 @@ impl PyVariable {
     pub fn from_model_variable(
         var_id: u32,
         name: Option<String>,
-        var: &arco_ops::model::types::Variable,
+        var: &arco_ops::modeling::types::Variable,
     ) -> Self {
         let is_binary = var.is_integer && var.bounds.lower == 0.0 && var.bounds.upper == 1.0;
         Self {

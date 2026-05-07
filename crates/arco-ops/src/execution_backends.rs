@@ -29,10 +29,29 @@ pub(crate) fn solve_model_view_with_builtin_backend(
     model: &dyn arco_model::ModelView,
     config: &SolverConfig,
 ) -> Result<ModelViewSolveResult, SolverError> {
-    let highs = HighsModelViewBackend;
-    let mut registry = ModelViewBackendRegistry::new();
-    registry.register(&highs);
-    registry.solve(normalize_model_view_backend_family(family), model, config)
+    match normalize_model_view_backend_family(family) {
+        "highs" => {
+            let highs = HighsModelViewBackend;
+            let mut registry = ModelViewBackendRegistry::new();
+            registry.register(&highs);
+            registry.solve("highs", model, config)
+        }
+        "ipopt" => Err(SolverError::SolverNotAvailable(
+            "IPOPT model-view backend is not implemented yet; use a supported backend such as 'highs'"
+                .to_string(),
+        )),
+        "xpress" => Err(SolverError::SolverNotAvailable(
+            "Xpress model-view backend is not implemented yet; use a supported backend such as 'highs'"
+                .to_string(),
+        )),
+        "scip" => Err(SolverError::SolverNotAvailable(
+            "SCIP is available as an external-process adapter, not as a builtin model-view backend"
+                .to_string(),
+        )),
+        other => Err(SolverError::SolverNotAvailable(format!(
+            "no builtin model-view backend registered for '{other}'"
+        ))),
+    }
 }
 
 pub(crate) fn builtin_solver_version(family: &str) -> Option<String> {
@@ -45,6 +64,8 @@ pub(crate) fn builtin_solver_version(family: &str) -> Option<String> {
 fn normalize_model_view_backend_family(family: &str) -> &str {
     match family {
         "arco-rust-highs" => "highs",
+        "arco-rust-xpress" => "xpress",
+        "arco-rust-scip" => "scip",
         other => other,
     }
 }
@@ -293,25 +314,25 @@ impl OptimizationAdapter for XpressArcoAdapter {
         info!("solving with {}", backend);
         info!("translating lowered algebra into solver model");
         let build_started = Instant::now();
-        let BuiltModel {
-            model,
-            variable_indices,
-            constraint_indices,
-        } = build_model(problem, &backend)?;
+        let built = build_model(problem, &backend)?;
+        let variable_indices = built.variable_indices;
+        let constraint_indices = built.constraint_indices;
         info!(
             "solver model translation completed in {:.2} ms",
             build_started.elapsed().as_secs_f64() * 1000.0
         );
-        info!("initializing solver backend instance");
-        let mut solver =
-            XpressSolver::new(model).map_err(|source| ExecutionError::SolverInitialization {
-                backend: backend.clone(),
-                source,
-            })?;
-        solver.set_log_to_console(self.log_to_console);
 
         info!("starting solver backend run: {}", backend);
         let solver_started = Instant::now();
+        info!("initializing solver backend instance");
+        let mut solver = XpressSolver::new(&built.model).map_err(|source| {
+            ExecutionError::SolverInitialization {
+                backend: backend.clone(),
+                source,
+            }
+        })?;
+        solver.set_log_to_console(self.log_to_console);
+
         let solution = solver.solve().map_err(|source| ExecutionError::Solve {
             backend: backend.clone(),
             source,
@@ -409,5 +430,58 @@ impl OptimizationAdapter for XpressArcoAdapter {
             variable_values,
             dual_report_values,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_model_view_backend_family, solve_model_view_with_builtin_backend};
+    use arco_model::Model;
+    use arco_solver::{SolverConfig, SolverError};
+
+    #[test]
+    fn normalize_model_view_backend_family_maps_known_aliases() {
+        assert_eq!(
+            normalize_model_view_backend_family("arco-rust-highs"),
+            "highs"
+        );
+        assert_eq!(
+            normalize_model_view_backend_family("arco-rust-xpress"),
+            "xpress"
+        );
+        assert_eq!(
+            normalize_model_view_backend_family("arco-rust-scip"),
+            "scip"
+        );
+    }
+
+    #[test]
+    fn builtin_model_view_backend_reports_ipopt_not_implemented() {
+        let model = Model::new();
+        let error = solve_model_view_with_builtin_backend("ipopt", &model, &SolverConfig::new())
+            .expect_err("ipopt backend should report unavailable status");
+
+        assert!(matches!(error, SolverError::SolverNotAvailable(_)));
+        assert!(error.to_string().contains("IPOPT model-view backend"));
+    }
+
+    #[test]
+    fn builtin_model_view_backend_reports_scip_external_only() {
+        let model = Model::new();
+        let error = solve_model_view_with_builtin_backend("scip", &model, &SolverConfig::new())
+            .expect_err("scip backend should report external-process only path");
+
+        assert!(matches!(error, SolverError::SolverNotAvailable(_)));
+        assert!(error.to_string().contains("external-process adapter"));
+    }
+
+    #[test]
+    fn builtin_model_view_backend_reports_unknown_family() {
+        let model = Model::new();
+        let error = solve_model_view_with_builtin_backend("unknown", &model, &SolverConfig::new())
+            .expect_err("unknown backend should report unavailable status");
+
+        assert!(matches!(error, SolverError::SolverNotAvailable(_)));
+        assert!(error.to_string().contains("unknown"));
     }
 }

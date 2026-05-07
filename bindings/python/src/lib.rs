@@ -7,10 +7,10 @@ mod py_modules;
 
 use crate::py_modules as pym;
 use arco_blocks::{BlockPort, add_blocks_submodule};
-use arco_ops::expr::{ComparisonSense, ConstraintId, VariableId};
-use arco_ops::model::model::PrettyPrintOptions;
-use arco_ops::model::types::Bounds;
-use arco_ops::model::{InspectOptions, Model, Objective, Sense, SlackBound, Variable};
+use arco_ops::expression::{ComparisonSense, ConstraintId, VariableId};
+use arco_ops::modeling::model::PrettyPrintOptions;
+use arco_ops::modeling::types::Bounds;
+use arco_ops::modeling::{InspectOptions, Model, Objective, Sense, SlackBound, Variable};
 
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;

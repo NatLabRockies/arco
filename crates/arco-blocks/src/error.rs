@@ -9,6 +9,8 @@ pub(crate) enum BlockError {
     BlockNotFound(String),
     /// A cycle was found while validating dependencies.
     CycleDetected(String),
+    /// A block input is required but was not provided by inputs or upstream links.
+    MissingRequiredInput { block: String, input: String },
 }
 
 impl std::fmt::Display for BlockError {
@@ -23,6 +25,10 @@ impl std::fmt::Display for BlockError {
             BlockError::CycleDetected(msg) => {
                 write!(f, "ARCO_BLOCK_503: Cycle detected: {msg}")
             }
+            BlockError::MissingRequiredInput { block, input } => write!(
+                f,
+                "ARCO_BLOCK_502: Input '{input}' not provided for block '{block}'"
+            ),
         }
     }
 }
@@ -44,5 +50,13 @@ mod tests {
 
         let err = BlockError::CycleDetected("A -> B -> A".to_string());
         assert!(err.to_string().contains("ARCO_BLOCK_503"));
+
+        let err = BlockError::MissingRequiredInput {
+            block: "Demand".to_string(),
+            input: "cost".to_string(),
+        };
+        assert!(err.to_string().contains("ARCO_BLOCK_502"));
+        assert!(err.to_string().contains("Demand"));
+        assert!(err.to_string().contains("cost"));
     }
 }

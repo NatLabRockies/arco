@@ -8,7 +8,7 @@ use crate::py_modules::expr::PyExpr;
 use crate::py_modules::index_set::PyIndexSet;
 use crate::py_modules::variable::PyVariable;
 
-use arco_ops::expr::{Expr, VariableId};
+use arco_ops::expression::{Expr, VariableId};
 
 use super::LinearArrayCore;
 use super::indexing::{

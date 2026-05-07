@@ -1,9 +1,9 @@
 use crate::ArcoOps;
-use crate::compile::compile::TargetObjectiveSense;
 use crate::compile::pipeline::PipelineError;
 use crate::compile::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
-use crate::execution::{ExecutionError, RustArcoAdapter, SolveStatus, execute_problem};
 use crate::kdl::ObjectiveSense;
+use crate::modeling::{ModelView, Sense};
+use crate::solve::{ModelViewSolveResult, SolverConfig, SolverError, SolverStatus};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,7 +26,9 @@ pub enum BenchmarkError {
     #[error(transparent)]
     Pipeline(#[from] PipelineError),
     #[error(transparent)]
-    Execution(#[from] ExecutionError),
+    PrimitiveBuild(#[from] crate::kdl::PrimitiveBuildError),
+    #[error(transparent)]
+    Solver(#[from] SolverError),
     #[error("missing required node `{name}` in {path}")]
     MissingNode { name: &'static str, path: PathBuf },
     #[error("semantic program mismatch for case `{case_id}`")]
@@ -135,12 +137,14 @@ fn evaluate_case(
     case: &BenchmarkCaseDefinition,
 ) -> Result<CaseOutcome, BenchmarkError> {
     let entrypoint = repo_root.join(&case.entrypoint);
-    let compiled = ArcoOps::compile_file(&entrypoint)?;
-    let execution_result = execute_problem(&compiled.compiled_problem, &RustArcoAdapter::new())?;
+    let validated = ArcoOps::check_file(&entrypoint)?;
+    let model = ArcoOps::build_primitive_model_file(&entrypoint)?;
+    let solve_result =
+        ArcoOps::solve_model_view_with_builtin_backend("highs", &model, &SolverConfig::default())?;
 
     let actual_semantic_program =
-        to_semantic_expectation(case, &compiled.semantic_program, &entrypoint)?;
-    let actual_e2e_summary = to_e2e_summary(case, &execution_result);
+        to_semantic_expectation(case, &validated.semantic_program, &entrypoint)?;
+    let actual_e2e_summary = to_e2e_summary(case, &model, &solve_result);
     let expected_semantic_program = read_json(&repo_root.join(&case.expected_semantic_program))?;
     let expected_e2e_summary = read_json(&repo_root.join(&case.expected_e2e_summary))?;
 
@@ -218,30 +222,33 @@ fn required_set_values(
 
 fn to_e2e_summary(
     case: &BenchmarkCaseDefinition,
-    execution_result: &crate::execution::ExecutionResult,
+    model: &impl ModelView,
+    solve_result: &ModelViewSolveResult,
 ) -> ExpectedE2eSummary {
+    let objective_name = model.objective_name().unwrap_or("obj").to_string();
+    let objective_sense = model
+        .objective()
+        .sense
+        .map_or(ObjectiveSense::Minimize, kdl_objective_sense);
+
     ExpectedE2eSummary {
         case_id: case.id.clone(),
         expect_parse_success: true,
         expect_semantic_validation_success: true,
         expect_compile_success: true,
-        expect_solve_success: case.solvable && execution_result.status == SolveStatus::Optimal,
+        expect_solve_success: case.solvable && solve_result.status == SolverStatus::Optimal,
         objective: Some(ExpectedObjective {
-            name: execution_result.objective.dsl_name.clone(),
-            sense: kdl_objective_sense(execution_result.objective_sense),
+            name: objective_name,
+            sense: objective_sense,
         }),
-        reports: execution_result
-            .reports
-            .iter()
-            .map(|report| report.name.clone())
-            .collect(),
+        reports: Vec::new(),
     }
 }
 
-fn kdl_objective_sense(sense: TargetObjectiveSense) -> ObjectiveSense {
+fn kdl_objective_sense(sense: Sense) -> ObjectiveSense {
     match sense {
-        TargetObjectiveSense::Minimize => ObjectiveSense::Minimize,
-        TargetObjectiveSense::Maximize => ObjectiveSense::Maximize,
+        Sense::Minimize => ObjectiveSense::Minimize,
+        Sense::Maximize => ObjectiveSense::Maximize,
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::sparse_export_dict;
 use crate::{PyModel, PyObject};
-use arco_ops::model::model::SparseMatrixExport;
+use arco_ops::modeling::model::SparseMatrixExport;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;

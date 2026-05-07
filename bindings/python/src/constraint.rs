@@ -1,6 +1,6 @@
 //! Python wrapper for Constraint objects returned by add_constraint/add_constraints.
 
-use arco_ops::model::types::Bounds;
+use arco_ops::modeling::types::Bounds;
 use pyo3::prelude::*;
 
 use crate::py_modules::bounds::PyBounds;

@@ -1,8 +1,9 @@
 # Architecture
 
-Arco is in an incremental migration to the primitive-centered architecture in
-[`ARCHITECTURE_REFACTOR_PLAN.md`](../../ARCHITECTURE_REFACTOR_PLAN.md). This page
-tracks the **currently shipped** crate seams.
+Arco ships the primitive-centered architecture described in
+[`ARCHITECTURE_REFACTOR_PLAN.md`](../../ARCHITECTURE_REFACTOR_PLAN.md), with
+remaining migration debt tracked in ADR chunk checklists. This page tracks the
+**currently shipped** crate seams.
 
 ## Shipped core shape
 
@@ -33,32 +34,33 @@ arco-ops (transitional facade)
 - `arco-validate`: user-facing validation over model views.
 - `arco-solver`: solver-facing contracts, selection, and preflight.
 - `arco-ops`: transitional interaction facade used by CLI, Python core APIs,
-  and block composition.
+  and block composition. LP/MPS file export now uses a direct
+  KDL -> primitive frozen-model -> format path.
 - `arco-blocks`: block composition layer over `arco-ops`; Python imports it only
   for block-specific APIs.
 
 ## Transitional seams still present
 
 The old compile/target handoff crates are retired from the active workspace.
-`arco-expr` and `arco-contracts` are excluded from active workspace membership
-after their APIs were absorbed into `arco-model` and `arco-solver`.
+`arco-expr` and `arco-contracts` have been removed after their APIs were
+absorbed into `arco-model` and `arco-solver`.
 `arco-algebra`, `arco-ir`, `arco-export`, `arco-compile`, and `arco-targets`
-have been removed after expression, portable export, and legacy lowering APIs
-moved into active primitive/model-view seams.
+have also been removed after expression, portable export, and legacy lowering
+APIs moved into active primitive/model-view seams.
 
 ## Legacy crate retirement boundary (2026-05-06)
 
 Active-workspace dependency snapshot from `cargo metadata --no-deps`:
 
-| Crate                               | Active workspace dependents | Retirement status                                             |
-| ----------------------------------- | --------------------------- | ------------------------------------------------------------- |
-| `arco-expr` (excluded on disk)      | none                        | Safe boundary: no active dependents.                          |
-| `arco-contracts` (excluded on disk) | none                        | Safe boundary: no active dependents.                          |
-| `arco-algebra` (deleted)            | none                        | Removed; expression APIs live in `arco-model`.                |
-| `arco-compile` (deleted)            | none                        | Removed; legacy lowering internals now live under `arco-ops`. |
-| `arco-ir` (deleted)                 | none                        | Removed; portable export DTOs live in `arco-format`.          |
-| `arco-targets` (deleted)            | none                        | Removed; target DTOs are no longer a standalone crate seam.   |
-| `arco-export` (deleted)             | none                        | Removed; LP/MPS writers live in `arco-format`.                |
+| Crate                      | Active workspace dependents | Retirement status                                             |
+| -------------------------- | --------------------------- | ------------------------------------------------------------- |
+| `arco-expr` (deleted)      | none                        | Removed; expression and ID primitives live in `arco-model`.   |
+| `arco-contracts` (deleted) | none                        | Removed; solver contracts live in `arco-solver`.              |
+| `arco-algebra` (deleted)   | none                        | Removed; expression APIs live in `arco-model`.                |
+| `arco-compile` (deleted)   | none                        | Removed; legacy lowering internals now live under `arco-ops`. |
+| `arco-ir` (deleted)        | none                        | Removed; portable export DTOs live in `arco-format`.          |
+| `arco-targets` (deleted)   | none                        | Removed; target DTOs are no longer a standalone crate seam.   |
+| `arco-export` (deleted)    | none                        | Removed; LP/MPS writers live in `arco-format`.                |
 
 ## KDL boundary status
 

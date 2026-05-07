@@ -6,10 +6,9 @@ pub use crate::driver_summary::{
     RunSummary, TimingSummary, VariableSummary, VariableValueSummary,
 };
 use crate::driver_summary::{summarize_variables, trim_family_prefix};
-use arco_ops::ArcoOps;
-use arco_ops::compile::pipeline::PipelineError;
 use arco_ops::execution::{ExecutionError, SolveStatus, render_problem_model};
-use arco_ops::solver::{ResolvedSelection, SolverProfile};
+use arco_ops::solve::{ResolvedSelection, SolverProfile};
+use arco_ops::{ArcoOps, OpsCompileError};
 use miette::Diagnostic;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -30,7 +29,7 @@ pub struct RunOptions {
 #[derive(Debug, Error)]
 pub enum DriverError {
     #[error(transparent)]
-    Pipeline(#[from] PipelineError),
+    Pipeline(#[from] OpsCompileError),
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]

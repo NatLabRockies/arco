@@ -82,8 +82,8 @@ impl SolverSettings {
     }
 
     /// Convert these settings into a generic `SolverConfig`.
-    pub fn to_solver_config(&self) -> arco_ops::solver::SolverConfig {
-        let mut config = arco_ops::solver::SolverConfig::new();
+    pub fn to_solver_config(&self) -> arco_ops::solve::SolverConfig {
+        let mut config = arco_ops::solve::SolverConfig::new();
         if let Some(presolve) = self.presolve {
             config = config.with_presolve(presolve);
         }
@@ -495,9 +495,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 /// Create a Solution for a solve failure (infeasible, unbounded, etc.).
 pub(crate) fn solve_failure_solution(
-    status: arco_ops::solver::SolverStatus,
-) -> arco_ops::solver::Solution {
-    arco_ops::solver::Solution {
+    status: arco_ops::solve::SolverStatus,
+) -> arco_ops::solve::Solution {
+    arco_ops::solve::Solution {
         primal_values: Vec::new(),
         variable_duals: Vec::new(),
         constraint_duals: Vec::new(),

@@ -2,7 +2,7 @@ use crate::compile::compile::CompiledProblem;
 use crate::compile::compile::{
     ConstraintSense, LinearReport, LinearTerm, TargetObjectiveSense as ObjectiveSense, VariableKind,
 };
-use crate::solver::{SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus};
+use crate::solve::{SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus};
 use arco_model::{
     Bounds, Constraint, Model, ModelError as ArcoModelError, Objective, PrettyPrintOptions, Sense,
     Variable,
@@ -251,12 +251,12 @@ impl RustArcoAdapter {
 }
 
 pub fn builtin_adapter_for_selection(
-    selection: &crate::solver::ResolvedSelection,
+    selection: &crate::solve::ResolvedSelection,
     log_to_console: bool,
-    profile: Option<&crate::solver::SolverProfile>,
+    profile: Option<&crate::solve::SolverProfile>,
 ) -> Result<Box<dyn OptimizationAdapter>, String> {
     match selection.transport {
-        crate::solver::SolverTransport::Embedded => match selection.family.as_str() {
+        crate::solve::SolverTransport::Embedded => match selection.family.as_str() {
             "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
             #[cfg(feature = "xpress")]
             "xpress" => Ok(Box::new(XpressArcoAdapter::with_console_log(
@@ -268,7 +268,7 @@ pub fn builtin_adapter_for_selection(
                 "embedded solver family '{family}' is not available in this build"
             )),
         },
-        crate::solver::SolverTransport::ExternalProcess => match selection.family.as_str() {
+        crate::solve::SolverTransport::ExternalProcess => match selection.family.as_str() {
             "scip" => Ok(Box::new(ScipArcoAdapter::with_external_process_profile(
                 log_to_console,
                 profile.and_then(|value| value.executable.clone()),

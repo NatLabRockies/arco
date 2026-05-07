@@ -1,10 +1,10 @@
 use crate::{PyIndexSet, PyModel};
-use arco_ops::expr::VariableId;
-use arco_ops::model::Model;
-use arco_ops::model::model::{
+use arco_ops::expression::VariableId;
+use arco_ops::modeling::Model;
+use arco_ops::modeling::model::{
     PrettyBoundGroup, PrettyPrintAdapter, PrettySection, format_ascii_number,
 };
-use arco_ops::model::types::Bounds;
+use arco_ops::modeling::types::Bounds;
 use pyo3::prelude::*;
 use std::collections::HashSet;
 use std::fmt::Write as _;

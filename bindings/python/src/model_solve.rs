@@ -3,7 +3,7 @@ use crate::py_modules::solver::{
     SolveOverrides, detect_default_backend, extract_solver_settings, solve_failure_solution,
 };
 use crate::{PyModel, PySolveResult};
-use arco_ops::solver::{ModelViewSolveResult, Solution, SolverError};
+use arco_ops::solve::{ModelViewSolveResult, Solution, SolverError};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 use std::collections::BTreeMap;
@@ -21,7 +21,8 @@ pub(crate) fn solve_model(
     if model.inner.num_variables() == 0 {
         return Err(errors::generic_solver_error_to_py(SolverError::EmptyModel));
     }
-    let _warm_start_hint_count = primal_start.as_ref().map_or(0, Vec::len);
+    reject_unsupported_primal_start(primal_start.as_deref())
+        .map_err(errors::generic_solver_error_to_py)?;
 
     let selected_backend = solver_obj.map_or_else(
         || model.default_backend.clone(),
@@ -58,6 +59,15 @@ pub(crate) fn solve_model(
     }?;
 
     Py::new(py, result)
+}
+
+fn reject_unsupported_primal_start(primal_start: Option<&[(u32, f64)]>) -> Result<(), SolverError> {
+    if primal_start.is_some_and(|values| !values.is_empty()) {
+        return Err(SolverError::SolverSpecific(
+            "primal_start is not supported on the model-view solve path yet".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn solution_from_model_view_result(result: ModelViewSolveResult) -> Solution {

@@ -1,6 +1,6 @@
 //! Python wrappers for variable, expression, and constraint arrays.
 
-use arco_ops::expr::{ComparisonSense, Expr, VariableId};
+use arco_ops::expression::{ComparisonSense, Expr, VariableId};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 

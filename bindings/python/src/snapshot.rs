@@ -1,6 +1,6 @@
 //! Python wrappers for model snapshot types.
 
-use arco_ops::model::Sense;
+use arco_ops::modeling::Sense;
 use pyo3::prelude::*;
 
 use crate::py_modules::views::{
@@ -82,7 +82,7 @@ impl PyModelSnapshot {
 impl PyModelSnapshot {
     pub fn from_snapshot(
         _py: Python<'_>,
-        snapshot: arco_ops::model::ModelSnapshot,
+        snapshot: arco_ops::modeling::ModelSnapshot,
     ) -> PyResult<Self> {
         let variables = snapshot
             .variables

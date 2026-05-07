@@ -3,7 +3,7 @@
 #![allow(unused_assignments)]
 
 use arco_ops::ArcoOps;
-use arco_ops::solver::{
+use arco_ops::solve::{
     ResolvedSelection, SelectionError, SolverConfigDocument, SolverProfile, SolverRegistry,
     SolverTransport, merged_profiles, resolve_selection,
 };
@@ -317,11 +317,11 @@ mod tests {
                 SolverProfile {
                     name: "xpress".to_string(),
                     family: "xpress".to_string(),
-                    transport: arco_ops::solver::SolverTransport::ExternalProcess,
+                    transport: arco_ops::solve::SolverTransport::ExternalProcess,
                     executable: Some("/opt/xpress/bin/xprs".to_string()),
                     arguments: vec!["--quiet".to_string()],
                     environment: BTreeMap::new(),
-                    options: arco_ops::solver::SolverConfig::new().with_threads(4),
+                    options: arco_ops::solve::SolverConfig::new().with_threads(4),
                 },
             )]),
         };
@@ -334,11 +334,11 @@ mod tests {
                 SolverProfile {
                     name: "xpress".to_string(),
                     family: "xpress".to_string(),
-                    transport: arco_ops::solver::SolverTransport::ExternalProcess,
+                    transport: arco_ops::solve::SolverTransport::ExternalProcess,
                     executable: Some("/home/user/xprs".to_string()),
                     arguments: vec!["--nolog".to_string()],
                     environment: BTreeMap::new(),
-                    options: arco_ops::solver::SolverConfig::new().with_threads(8),
+                    options: arco_ops::solve::SolverConfig::new().with_threads(8),
                 },
             )]),
         };
@@ -358,7 +358,7 @@ mod tests {
             token: "scip".to_string(),
             family: "scip".to_string(),
             profile: None,
-            transport: arco_ops::solver::SolverTransport::ExternalProcess,
+            transport: arco_ops::solve::SolverTransport::ExternalProcess,
         };
 
         assert!(super::selection_is_supported_in_cli(&resolved));
@@ -371,14 +371,14 @@ mod tests {
             SolverProfile {
                 name: "xpress".to_string(),
                 family: "xpress".to_string(),
-                transport: arco_ops::solver::SolverTransport::ExternalProcess,
+                transport: arco_ops::solve::SolverTransport::ExternalProcess,
                 executable: None,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
                     "XPRESS_TOKEN".to_string(),
                     "plaintext-secret".to_string(),
                 )]),
-                options: arco_ops::solver::SolverConfig::default(),
+                options: arco_ops::solve::SolverConfig::default(),
             },
         )]);
 

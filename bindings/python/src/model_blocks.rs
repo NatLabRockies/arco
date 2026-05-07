@@ -1,6 +1,6 @@
 use crate::{PyModel, PyObject, PySolveResult};
 use arco_blocks::BlockPort;
-use arco_ops::solver::SolverStatus;
+use arco_ops::solve::SolverStatus;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyType};
@@ -357,7 +357,7 @@ impl PyModel {
             if solution_opt.is_none() {
                 // Block was dropped — create a minimal error result
                 let result = PySolveResult::new(crate::py_modules::solver::solve_failure_solution(
-                    arco_ops::solver::SolverStatus::Unknown,
+                    arco_ops::solve::SolverStatus::Unknown,
                 ));
                 let py_result = Py::new(py, result)?;
                 block_results.push((name, py_result));
@@ -442,7 +442,7 @@ fn aggregate_block_status(statuses: &[SolverStatus]) -> SolverStatus {
 #[cfg(test)]
 mod tests {
     use super::aggregate_block_status;
-    use arco_ops::solver::SolverStatus;
+    use arco_ops::solve::SolverStatus;
 
     #[test]
     fn aggregate_returns_optimal_when_all_blocks_optimal() {

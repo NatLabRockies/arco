@@ -1,30 +1,73 @@
 //! Operations facade seam for Arco interaction surfaces.
 
 pub mod benchmark;
-pub mod compile;
+mod compile;
 pub mod execution;
 mod execution_backends;
 pub mod inspect;
 
-use crate::compile::compile::{
-    AlgebraicProblem, ConstraintSense, LinearTerm as TargetLinearTerm, SolveTarget,
-    TargetObjectiveSense, VariableKind,
-};
+use crate::compile::compile::{LinearTerm as TargetLinearTerm, SolveTarget};
 use crate::compile::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
+};
+use crate::compile::targets::{
+    AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearTerm,
+    ObjectiveSense as TargetObjectiveSense, VariableInstance, VariableKind,
 };
 pub use arco_format::ExportError;
 use arco_format::{
     PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective,
     PortableLinearReport, PortableLinearTerm, PortableObjectiveSense, PortableProblem,
-    PortableVariableInstance, PortableVariableKind, write_lp, write_mps,
+    PortableVariableInstance, PortableVariableKind, export_model_view_lp, export_model_view_mps,
+    write_lp, write_mps,
 };
-pub use arco_kdl as kdl;
+use arco_kdl as kdl;
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
 use arco_kdl::{PrimitiveBuildError, build_model};
-pub use arco_model as model;
-pub use arco_model::expr;
-pub use arco_solver as solver;
+/// Stable model-facing vocabulary exposed through the ops seam.
+pub mod modeling {
+    pub use arco_model::{
+        ElasticHandle, InspectOptions, Model, ModelPatch, ModelSnapshot, ModelView, Objective,
+        PatchedModelView, Sense, SimplifyLevel, SlackBound, SlackHandle, Variable,
+    };
+
+    /// Model-core types intentionally surfaced through ops.
+    pub mod model {
+        pub use arco_model::model::SparseMatrixExport;
+        pub use arco_model::{
+            CscInput, ModelError, PrettyBoundGroup, PrettyPrintAdapter, PrettyPrintOptions,
+            PrettySection, format_ascii_number,
+        };
+    }
+
+    /// Primitive value types intentionally surfaced through ops.
+    pub mod types {
+        pub use arco_model::{Bounds, Constraint, Variable};
+    }
+
+    /// Slack helper types intentionally surfaced through ops.
+    pub mod slack {
+        pub use arco_model::SlackVariables;
+    }
+}
+
+/// Stable expression vocabulary exposed through the ops seam.
+pub mod expression {
+    pub use arco_model::expr::{ComparisonSense, ConstraintExpr, Expr, LinearExprError};
+    pub use arco_model::{ConstraintId, VariableId};
+}
+
+/// Stable solver-facing operations vocabulary exposed through the ops seam.
+pub mod solve {
+    pub use arco_solver::{
+        ModelViewBackend, ModelViewBackendRegistry, ModelViewSolveResult, ResolvedSelection,
+        SelectionError, Solution, SolutionView, Solve, SolveRequest, SolverCapabilityModel,
+        SolverConfig, SolverConfigDocument, SolverError, SolverFamily, SolverProfile,
+        SolverRegistry, SolverRequirements, SolverSelection, SolverStatus, SolverTransport,
+        merged_profiles, preflight_model_view, preflight_selection, resolve_selection,
+    };
+}
+
 use arco_solver::{
     ModelViewBackendRegistry, ModelViewSolveResult, PreflightError, ResolvedSelection,
     SelectionError, Solution, SolutionView, Solve, SolveRequest, SolverConfig, SolverError,
@@ -35,15 +78,42 @@ use arco_validate::{ValidationIssue, ValidationReport, ValidationSeverity, valid
 pub use arco_xpress as xpress;
 use std::collections::BTreeMap;
 use std::path::Path;
+use thiserror::Error;
 
 /// Validation severity for the operations facade.
 pub type OpsValidationSeverity = ValidationSeverity;
+
+/// KDL source error type for the operations facade.
+pub type OpsSourceError = SourceError;
 
 /// Validation issue for the operations facade.
 pub type OpsValidationIssue = ValidationIssue;
 
 /// Validation report for the operations facade.
 pub type OpsValidationReport = ValidationReport;
+
+/// Compile/check error exposed by the operations facade.
+pub type OpsCompileError = PipelineError;
+
+/// Facade DTO aliases that hide compile-internal module paths.
+pub type OpsAlgebraicProblem = AlgebraicProblem;
+pub type OpsConstraintSense = ConstraintSense;
+pub type OpsLinearConstraint = LinearConstraint;
+pub type OpsLinearObjective = LinearObjective;
+pub type OpsLinearReport = crate::compile::targets::LinearReport;
+pub type OpsLinearTerm = LinearTerm;
+pub type OpsObjectiveSense = TargetObjectiveSense;
+pub type OpsVariableInstance = VariableInstance;
+pub type OpsVariableKind = VariableKind;
+
+/// Errors emitted when exporting a model file through primitive paths.
+#[derive(Debug, Error, miette::Diagnostic)]
+pub enum OpsExportFileError {
+    #[error(transparent)]
+    PrimitiveBuild(#[from] PrimitiveBuildError),
+    #[error(transparent)]
+    Export(#[from] ExportError),
+}
 
 /// Export format supported by the operations facade.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,17 +135,17 @@ impl ArcoOps {
     }
 
     /// Load and parse a KDL model file.
-    pub fn load_file(path: &Path) -> Result<ParsedSource, SourceError> {
+    pub fn load_file(path: &Path) -> Result<ParsedSource, OpsSourceError> {
         parse_program_file(path)
     }
 
     /// Check a KDL model file through semantic validation.
-    pub fn check_file(path: &Path) -> Result<ValidatedProgram, PipelineError> {
+    pub fn check_file(path: &Path) -> Result<ValidatedProgram, OpsCompileError> {
         validate_file(path)
     }
 
     /// Compile a KDL model file to Arco's algebraic problem representation.
-    pub fn compile_file(path: &Path) -> Result<CompiledProgram, PipelineError> {
+    pub fn compile_file(path: &Path) -> Result<CompiledProgram, OpsCompileError> {
         compile_file(path)
     }
 
@@ -93,7 +163,7 @@ impl ArcoOps {
 
     /// Export an algebraic problem to a text interchange format.
     pub fn export_problem(
-        problem: &AlgebraicProblem,
+        problem: &OpsAlgebraicProblem,
         format: OpsExportFormat,
     ) -> Result<Vec<u8>, ExportError> {
         let mut buffer = Vec::new();
@@ -106,6 +176,19 @@ impl ArcoOps {
             }
         }
         Ok(buffer)
+    }
+
+    /// Export a KDL model file directly from the primitive frozen model path.
+    pub fn export_model_file(
+        path: &Path,
+        format: OpsExportFormat,
+    ) -> Result<Vec<u8>, OpsExportFileError> {
+        let model = Self::build_primitive_model_file(path)?;
+        let result = match format {
+            OpsExportFormat::Lp => export_model_view_lp(&model)?,
+            OpsExportFormat::Mps => export_model_view_mps(&model)?,
+        };
+        Ok(result.bytes)
     }
 
     /// Solve through a solver implementation using the shared solver contract.
@@ -201,6 +284,19 @@ impl ArcoOps {
     }
 }
 
+/// Extract a source span from KDL source errors that carry declaration locations.
+pub fn source_error_span(error: &OpsSourceError) -> Option<miette::SourceSpan> {
+    match error {
+        SourceError::MissingNode { span, .. }
+        | SourceError::MissingArgument { span, .. }
+        | SourceError::MissingProperty { span, .. }
+        | SourceError::InvalidValue { span, .. }
+        | SourceError::UnsupportedDeclaration { span, .. }
+        | SourceError::InvalidAlgebra { span, .. } => Some(*span),
+        SourceError::Io { .. } | SourceError::Kdl { .. } => None,
+    }
+}
+
 pub(crate) fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
     PortableProblem {
         variable_instances: problem
@@ -265,7 +361,7 @@ fn portable_terms(terms: &[TargetLinearTerm]) -> Vec<PortableLinearTerm> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ArcoOps, OpsExportFormat};
+    use super::{ArcoOps, OpsExportFormat, source_error_span};
     use crate::compile::compile::SolveTarget;
     use arco_model::ModelView;
     use arco_solver::{
@@ -273,6 +369,7 @@ mod tests {
         SolverConfig, SolverError, SolverRegistry, SolverRequirements, SolverSelection,
         SolverStatus, SolverTransport,
     };
+    use miette::{NamedSource, SourceOffset};
     use std::path::PathBuf;
 
     struct FixtureSolver;
@@ -411,6 +508,14 @@ mod tests {
     }
 
     #[test]
+    fn export_model_file_uses_primitive_path() {
+        let exported = ArcoOps::export_model_file(&primitive_fixture_path(), OpsExportFormat::Lp)
+            .expect("primitive fixture should export");
+
+        assert!(String::from_utf8_lossy(&exported).starts_with("\\ Problem name: MODEL"));
+    }
+
+    #[test]
     fn solve_delegates_to_shared_solver_contract() {
         let mut solver = FixtureSolver;
         let solution =
@@ -488,5 +593,30 @@ mod tests {
 
         assert!(report.is_valid());
         assert!(report.issues.is_empty());
+    }
+
+    #[test]
+    fn source_error_span_returns_span_for_declaration_errors() {
+        let source = NamedSource::new("test.kdl", "model demo {}".to_string());
+        let error = crate::kdl::source::SourceError::UnsupportedDeclaration {
+            name: "legacy_decl".to_string(),
+            path: PathBuf::from("test.kdl"),
+            source_text: Box::new(source),
+            span: (SourceOffset::from(0), 5).into(),
+        };
+
+        let span = source_error_span(&error).expect("unsupported declaration should include span");
+        assert_eq!(span.offset(), 0);
+        assert_eq!(span.len(), 5);
+    }
+
+    #[test]
+    fn source_error_span_returns_none_for_io_errors() {
+        let error = crate::kdl::source::SourceError::Io {
+            path: PathBuf::from("missing.kdl"),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "missing"),
+        };
+
+        assert!(source_error_span(&error).is_none());
     }
 }

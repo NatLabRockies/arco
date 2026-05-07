@@ -1,6 +1,5 @@
 use crate::driver::DriverError;
-use arco_ops::ArcoOps;
-use arco_ops::compile::pipeline::PipelineError;
+use arco_ops::{ArcoOps, OpsCompileError};
 use miette::{Diagnostic, SourceSpan};
 use serde::Serialize;
 use std::path::Path;
@@ -53,7 +52,7 @@ pub fn kdl_check_file_json(path: &Path) -> Result<KdlCheckOutcome, DriverError> 
     Ok(KdlCheckOutcome { valid, json })
 }
 
-fn pipeline_error_diagnostic(path: &Path, error: &PipelineError) -> KdlDiagnostic {
+fn pipeline_error_diagnostic(path: &Path, error: &OpsCompileError) -> KdlDiagnostic {
     let (line, column) = pipeline_error_location(path, error);
     let diagnostic = pipeline_error_inner_diagnostic(error);
 
@@ -68,37 +67,24 @@ fn pipeline_error_diagnostic(path: &Path, error: &PipelineError) -> KdlDiagnosti
     }
 }
 
-fn pipeline_error_inner_diagnostic(error: &PipelineError) -> &dyn Diagnostic {
+fn pipeline_error_inner_diagnostic(error: &OpsCompileError) -> &dyn Diagnostic {
     match error {
-        PipelineError::Source(error) => error,
-        PipelineError::Semantic(error) => error,
-        PipelineError::Compile(error) => error,
+        OpsCompileError::Source(error) => error,
+        OpsCompileError::Semantic(error) => error,
+        OpsCompileError::Compile(error) => error,
     }
 }
 
-fn pipeline_error_location(path: &Path, error: &PipelineError) -> (Option<usize>, Option<usize>) {
-    let PipelineError::Source(error) = error else {
+fn pipeline_error_location(path: &Path, error: &OpsCompileError) -> (Option<usize>, Option<usize>) {
+    let OpsCompileError::Source(error) = error else {
         return (None, None);
     };
 
-    let Some(span) = source_error_span(error) else {
+    let Some(span) = arco_ops::source_error_span(error) else {
         return (None, None);
     };
 
     span_line_column(path, span)
-}
-
-fn source_error_span(error: &arco_ops::kdl::source::SourceError) -> Option<SourceSpan> {
-    match error {
-        arco_ops::kdl::source::SourceError::MissingNode { span, .. }
-        | arco_ops::kdl::source::SourceError::MissingArgument { span, .. }
-        | arco_ops::kdl::source::SourceError::MissingProperty { span, .. }
-        | arco_ops::kdl::source::SourceError::InvalidValue { span, .. }
-        | arco_ops::kdl::source::SourceError::UnsupportedDeclaration { span, .. }
-        | arco_ops::kdl::source::SourceError::InvalidAlgebra { span, .. } => Some(*span),
-        arco_ops::kdl::source::SourceError::Io { .. }
-        | arco_ops::kdl::source::SourceError::Kdl { .. } => None,
-    }
 }
 
 pub(crate) fn span_line_column(path: &Path, span: SourceSpan) -> (Option<usize>, Option<usize>) {

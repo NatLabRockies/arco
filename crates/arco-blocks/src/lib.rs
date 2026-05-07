@@ -3,19 +3,27 @@
 mod dag;
 mod decorator;
 mod error;
+mod execution_plan;
+mod input_validation;
+mod link_view;
 mod once_map;
 mod resolve;
+mod retention;
 mod schema;
 mod spec;
 mod transform;
 mod util;
 
-use crate::dag::BlockDag;
 use crate::decorator::block;
+use crate::error::BlockError;
+use crate::execution_plan::build_execution_plan;
+use crate::input_validation::first_missing_required_input;
+use crate::link_view::{dependency_edges, linked_input_keys};
 use crate::resolve::{
     block_spec, build_model_from_spec, extract_outputs, inspect_model, resolve_links,
     schemas_compatible, specs_are_swappable,
 };
+use crate::retention::retention_for_policy;
 use crate::schema::{coerce_inputs, coerce_outputs, outputs_schema_dict};
 use crate::spec::{
     BlockSpec, get_spec_attr, make_spec_builder, make_spec_extractor, validate_spec,
@@ -23,8 +31,8 @@ use crate::spec::{
 use crate::transform::Transform;
 use crate::util::{log_block_error, log_block_phase, model_type, rss_bytes};
 pub use arco_ops as ops;
-pub use arco_ops::solver::{Solution, SolutionView, SolverConfig, SolverError, SolverStatus};
-pub use arco_ops::{expr, model, solver};
+pub use arco_ops::solve::{Solution, SolutionView, SolverConfig, SolverError, SolverStatus};
+pub use arco_ops::{expression, modeling as model, solve};
 use arco_tools::rss_delta;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
@@ -597,23 +605,19 @@ impl BlockModel {
             } else {
                 HashSet::new()
             };
-            let linked: HashSet<String> = self
-                .links
-                .iter()
-                .filter(|link| link.target.block_name == name)
-                .map(|link| link.target.key.clone())
-                .collect();
+            let linked = linked_input_keys(&self.links, &name);
+            let mut required = HashSet::new();
             for key in block.borrow(py).inputs.bind(py).keys().iter() {
                 let key = key
                     .extract::<String>()
                     .map_err(|_| key_type_error("Input schema key"))?;
-                if !provided.contains(&key) && !linked.contains(&key) {
-                    let msg = format!(
-                        "ARCO_BLOCK_502: Input '{}' not provided for block '{}'",
-                        key, name
-                    );
-                    return Err(block_runtime_error("validate", msg));
-                }
+                required.insert(key);
+            }
+            if let Some(key) = first_missing_required_input(&required, &provided, &linked) {
+                return Err(log_block_error(BlockError::MissingRequiredInput {
+                    block: name,
+                    input: key,
+                }));
             }
         }
 
@@ -639,36 +643,24 @@ impl BlockModel {
             .map(|b| b.borrow(py).name.clone())
             .collect();
 
-        let links: Vec<(String, String)> = self
-            .links
-            .iter()
-            .map(|link| {
-                (
-                    link.source.block_name.clone(),
-                    link.target.block_name.clone(),
-                )
-            })
-            .collect();
+        let links = dependency_edges(&self.links);
 
-        let dag = BlockDag::from_links(&block_names, &links).map_err(log_block_error)?;
-
-        // Compute execution levels (validates acyclicity internally)
-        let execution_levels = dag.execution_levels().map_err(log_block_error)?;
+        let execution_plan = build_execution_plan(&block_names, &links).map_err(log_block_error)?;
 
         tracing::info!(
             component = "block",
             operation = "solve",
             status = "success",
-            num_levels = execution_levels.len(),
+            num_levels = execution_plan.num_levels(),
             num_blocks = block_names.len(),
             "Block DAG analysis: {} execution levels found",
-            execution_levels.len()
+            execution_plan.num_levels()
         );
 
         let mut runs: Vec<Py<BlockRun>> = Vec::new();
 
         // Execute levels in topological order; blocks within a level run sequentially.
-        for (level_idx, level_blocks) in execution_levels.iter().enumerate() {
+        for (level_idx, level_blocks) in execution_plan.execution_levels.iter().enumerate() {
             tracing::debug!(
                 component = "block",
                 operation = "solve",
@@ -808,12 +800,16 @@ impl BlockModel {
                     "Block solved"
                 );
 
-                let (model_to_keep, solution_to_keep) = match block_ref.drop_policy {
-                    DropPolicy::KeepModel => {
-                        (Some(model.unbind()), Some(solution_obj.clone_ref(py)))
-                    }
-                    DropPolicy::KeepSummary => (None, Some(solution_obj.clone_ref(py))),
-                    DropPolicy::DropAll => (None, None),
+                let retention = retention_for_policy(block_ref.drop_policy);
+                let model_to_keep = if retention.keep_model {
+                    Some(model.unbind())
+                } else {
+                    None
+                };
+                let solution_to_keep = if retention.keep_solution {
+                    Some(solution_obj.clone_ref(py))
+                } else {
+                    None
                 };
 
                 let run = BlockRun {

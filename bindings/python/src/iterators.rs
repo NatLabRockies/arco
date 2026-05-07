@@ -1,6 +1,6 @@
 //! Python iterators for model constraints and variables.
 
-use arco_ops::expr::{ConstraintId, VariableId};
+use arco_ops::expression::{ConstraintId, VariableId};
 use pyo3::prelude::*;
 
 use crate::PyModel;

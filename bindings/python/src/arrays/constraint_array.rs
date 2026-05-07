@@ -1,5 +1,5 @@
-use arco_ops::expr::ComparisonSense;
-use arco_ops::model::types::Bounds;
+use arco_ops::expression::ComparisonSense;
+use arco_ops::modeling::types::Bounds;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 

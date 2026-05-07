@@ -1,7 +1,7 @@
 //! Python wrapper for solver solutions.
 
 use crate::py_modules::errors::SolverIndexError;
-use arco_ops::solver::{Solution, SolverStatus};
+use arco_ops::solve::{Solution, SolverStatus};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;

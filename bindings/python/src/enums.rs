@@ -1,7 +1,7 @@
 //! Python enum wrappers for Arco types.
 
-use arco_ops::expr::ComparisonSense;
-use arco_ops::model::{Sense, SimplifyLevel};
+use arco_ops::expression::ComparisonSense;
+use arco_ops::modeling::{Sense, SimplifyLevel};
 use pyo3::prelude::*;
 
 /// Python enum for optimization sense

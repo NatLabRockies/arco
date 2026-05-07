@@ -2,7 +2,7 @@
 
 use crate::PyObject;
 use crate::py_modules::errors::BoundsInvalidError;
-use arco_ops::model::types::Bounds;
+use arco_ops::modeling::types::Bounds;
 use pyo3::Borrowed;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
