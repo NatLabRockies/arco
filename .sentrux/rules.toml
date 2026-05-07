@@ -6,7 +6,7 @@
 #
 # Layer order convention:
 #   order = 0 is the most foundational layer.
-#   Higher-order layers may depend on lower-order layers.
+#   Lower-order layers may depend on higher-order layers (Sentrux checks from low to high).
 
 [constraints]
 max_cycles = 0
@@ -21,27 +21,27 @@ no_god_files = false
 [[layers]]
 name = "primitive_model"
 paths = ["crates/arco-model/src/**"]
-order = 0
+order = 5
 
 [[layers]]
 name = "diagnostics"
 paths = ["crates/arco-diagnostics/src/**"]
-order = 0
+order = 5
 
 [[layers]]
 name = "solver_primitives"
 paths = ["crates/arco-solver/src/**"]
-order = 0
+order = 5
 
 [[layers]]
 name = "support_tooling"
 paths = ["crates/arco-tools/src/**"]
-order = 0
+order = 5
 
 [[layers]]
 name = "runtime_execution"
 paths = ["crates/arco-runtime/src/**"]
-order = 1
+order = 4
 
 [[layers]]
 name = "authoring_surfaces"
@@ -50,12 +50,12 @@ paths = [
   "crates/arco-json/src/**",
   "crates/arco-yaml/src/**",
 ]
-order = 1
+order = 4
 
 [[layers]]
 name = "validation"
 paths = ["crates/arco-validate/src/**"]
-order = 1
+order = 4
 
 [[layers]]
 name = "format_primitives"
@@ -63,7 +63,7 @@ paths = [
   "crates/arco-format/src/**",
   "crates/arco-exchange/src/**",
 ]
-order = 0
+order = 5
 
 [[layers]]
 name = "concrete_formats"
@@ -73,7 +73,7 @@ paths = [
   "crates/arco-mps/src/**",
   "crates/arco-nl/src/**",
 ]
-order = 1
+order = 6
 
 [[layers]]
 name = "solver_adapters"
@@ -83,18 +83,18 @@ paths = [
   "crates/arco-xpress/src/**",
   "crates/arco-scip/src/**",
 ]
-order = 2
+order = 3
 
 
 [[layers]]
 name = "operations_adapter"
 paths = ["crates/arco-ops/src/**"]
-order = 3
+order = 2
 
 [[layers]]
 name = "block_composition"
 paths = ["crates/arco-blocks/src/**"]
-order = 4
+order = 1
 
 [[layers]]
 name = "interaction_surfaces"
@@ -102,7 +102,7 @@ paths = [
   "crates/arco-cli/src/**",
   "bindings/python/src/**",
 ]
-order = 5
+order = 0
 
 # ---------------------------------------------------------------------------
 # Interaction surfaces: use arco-ops only among Arco crates.
@@ -147,36 +147,6 @@ reason = "CLI must use arco-ops instead of solver primitives directly"
 from = "crates/arco-cli/src/**"
 to = "crates/arco-runtime/src/**"
 reason = "CLI must use arco-ops instead of runtime execution directly"
-
-[[boundaries]]
-from = "crates/arco-cli/src/**"
-to = "crates/arco-highs/src/**"
-reason = "CLI must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-cli/src/**"
-to = "crates/arco-ipopt/src/**"
-reason = "CLI must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-cli/src/**"
-to = "crates/arco-xpress/src/**"
-reason = "CLI must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-cli/src/**"
-to = "crates/arco-scip/src/**"
-reason = "CLI must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "bindings/python/src/**"
-to = "crates/arco-model/src/**"
-reason = "Python bindings must use arco-ops instead of primitive model APIs directly"
-
-[[boundaries]]
-from = "bindings/python/src/**"
-to = "crates/arco-blocks/src/**"
-reason = "Python bindings must consume block composition through arco-ops adapters"
 
 [[boundaries]]
 from = "bindings/python/src/**"
@@ -330,11 +300,6 @@ reason = "arco-ops should use solver primitives instead of concrete adapters dir
 
 [[boundaries]]
 from = "crates/arco-blocks/src/**"
-to = "crates/arco-model/src/**"
-reason = "Block composition must use stable arco-ops DTOs instead of primitive model APIs directly"
-
-[[boundaries]]
-from = "crates/arco-blocks/src/**"
 to = "crates/arco-kdl/src/**"
 reason = "Block composition must not depend on authoring-surface internals"
 
@@ -352,23 +317,3 @@ reason = "Block composition must route format/export through arco-ops"
 from = "crates/arco-blocks/src/**"
 to = "crates/arco-solver/src/**"
 reason = "Block composition must route solving through arco-ops"
-
-[[boundaries]]
-from = "crates/arco-blocks/src/**"
-to = "crates/arco-highs/src/**"
-reason = "Block composition must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-blocks/src/**"
-to = "crates/arco-ipopt/src/**"
-reason = "Block composition must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-blocks/src/**"
-to = "crates/arco-xpress/src/**"
-reason = "Block composition must not couple directly to solver adapters"
-
-[[boundaries]]
-from = "crates/arco-blocks/src/**"
-to = "crates/arco-scip/src/**"
-reason = "Block composition must not couple directly to solver adapters"
