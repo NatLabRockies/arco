@@ -1,7 +1,7 @@
 [package]
-name = "arco-exchange"
+name = "arco-format"
 version = { workspace = true }
-description = "Portable IR exchange helpers for Arco"
+description = "Format-neutral model view and portable IR helpers for Arco"
 edition = { workspace = true }
 rust-version = { workspace = true }
 homepage = { workspace = true }
@@ -16,3 +16,4 @@ workspace = true
 [dependencies]
 arco-export = { workspace = true }
 arco-ir = { workspace = true }
+arco-model = { workspace = true }

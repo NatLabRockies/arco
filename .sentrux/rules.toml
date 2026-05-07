@@ -61,7 +61,6 @@ order = 4
 name = "format_primitives"
 paths = [
   "crates/arco-format/src/**",
-  "crates/arco-exchange/src/**",
 ]
 order = 5
 
@@ -130,7 +129,7 @@ reason = "CLI must use arco-ops instead of validation directly"
 
 [[boundaries]]
 from = "crates/arco-cli/src/**"
-to = "crates/arco-exchange/src/**"
+to = "crates/arco-format/src/**"
 reason = "CLI must use arco-ops instead of format primitives directly"
 
 [[boundaries]]
@@ -160,7 +159,7 @@ reason = "Python bindings must use arco-ops instead of validation directly"
 
 [[boundaries]]
 from = "bindings/python/src/**"
-to = "crates/arco-exchange/src/**"
+to = "crates/arco-format/src/**"
 reason = "Python bindings must use arco-ops instead of format primitives directly"
 
 [[boundaries]]
@@ -210,7 +209,7 @@ reason = "KDL must not own runtime execution mechanics"
 
 [[boundaries]]
 from = "crates/arco-kdl/src/**"
-to = "crates/arco-exchange/src/**"
+to = "crates/arco-format/src/**"
 reason = "KDL must not own format/export behavior"
 
 [[boundaries]]
@@ -244,12 +243,12 @@ to = "crates/arco-kdl/src/**"
 reason = "Validation must run over primitive model views, not KDL internals"
 
 [[boundaries]]
-from = "crates/arco-exchange/src/**"
+from = "crates/arco-format/src/**"
 to = "crates/arco-kdl/src/**"
 reason = "Format primitives must not depend on authoring-surface internals"
 
 [[boundaries]]
-from = "crates/arco-exchange/src/**"
+from = "crates/arco-format/src/**"
 to = "crates/arco-solver/src/**"
 reason = "Format primitives/concrete formats must not own solver selection policy"
 
@@ -310,7 +309,7 @@ reason = "Block composition must route validation through arco-ops"
 
 [[boundaries]]
 from = "crates/arco-blocks/src/**"
-to = "crates/arco-exchange/src/**"
+to = "crates/arco-format/src/**"
 reason = "Block composition must route format/export through arco-ops"
 
 [[boundaries]]

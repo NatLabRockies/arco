@@ -6,8 +6,7 @@ use arco_model::indexed::{
     DuplicateReducer, IndexKey, IndexValue, IndexedData, ParameterTable, Set,
 };
 use arco_model::{
-    Bounds, Constraint, ConstraintId, Model, ModelBuilder, ModelView, Objective, Sense, Variable,
-    VariableId,
+    Bounds, Constraint, Model, ModelBuilder, ModelView, Objective, Sense, Variable, VariableId,
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -94,6 +93,12 @@ pub fn build_model(parsed: &ParsedSource) -> Result<Model, PrimitiveBuildError> 
                 expr: error.to_string(),
             }
         })?;
+        builder
+            .set_variable_name(variable_id, control.name.clone())
+            .map_err(|error| PrimitiveBuildError::UnsupportedExpression {
+                context: format!("control `{}`", control.name),
+                expr: error.to_string(),
+            })?;
         variable_ids.insert(control.name.clone(), variable_id);
     }
 
@@ -104,6 +109,12 @@ pub fn build_model(parsed: &ParsedSource) -> Result<Model, PrimitiveBuildError> 
 
         let constraint_id = builder
             .add_constraint(Constraint { bounds })
+            .map_err(|error| PrimitiveBuildError::UnsupportedExpression {
+                context: context.clone(),
+                expr: error.to_string(),
+            })?;
+        builder
+            .set_constraint_name(constraint_id, constraint.name.clone())
             .map_err(|error| PrimitiveBuildError::UnsupportedExpression {
                 context: context.clone(),
                 expr: error.to_string(),
@@ -119,27 +130,6 @@ pub fn build_model(parsed: &ParsedSource) -> Result<Model, PrimitiveBuildError> 
                     })?;
             }
         }
-    }
-
-    let mut model = builder.finish();
-
-    for (control_name, variable_id) in &variable_ids {
-        model
-            .set_variable_name(*variable_id, control_name.clone())
-            .map_err(|error| PrimitiveBuildError::UnsupportedExpression {
-                context: format!("control `{control_name}`"),
-                expr: error.to_string(),
-            })?;
-    }
-
-    for (index, constraint) in model_decl.constraints.iter().enumerate() {
-        let constraint_id = ConstraintId::new(index as u32);
-        model
-            .set_constraint_name(constraint_id, constraint.name.clone())
-            .map_err(|error| PrimitiveBuildError::UnsupportedExpression {
-                context: format!("constraint `{}`", constraint.name),
-                expr: error.to_string(),
-            })?;
     }
 
     let objective_linear = lower_linear_expression(
@@ -159,7 +149,7 @@ pub fn build_model(parsed: &ParsedSource) -> Result<Model, PrimitiveBuildError> 
         .filter(|(_, coefficient)| *coefficient != 0.0)
         .collect();
 
-    model
+    builder
         .set_objective(Objective {
             sense: Some(sense),
             terms: objective_terms,
@@ -169,14 +159,14 @@ pub fn build_model(parsed: &ParsedSource) -> Result<Model, PrimitiveBuildError> 
             expr: error.to_string(),
         })?;
 
-    model
+    builder
         .set_objective_name(Some(model_decl.optimize.name.clone()))
         .map_err(|error| PrimitiveBuildError::UnsupportedExpression {
             context: format!("objective `{}`", model_decl.optimize.name),
             expr: error.to_string(),
         })?;
 
-    Ok(model)
+    Ok(builder.finish())
 }
 
 pub fn build_indexed_data(parsed: &ParsedSource) -> Result<IndexedData<f64>, PrimitiveBuildError> {

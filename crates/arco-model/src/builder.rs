@@ -5,7 +5,7 @@
 //! builders convert explicitly at finish time.
 
 use crate::ids::{ConstraintId, VariableId};
-use crate::{Constraint, Model, ModelError, Variable};
+use crate::{Constraint, Model, ModelError, Objective, Variable};
 use std::marker::PhantomData;
 
 /// Scalar-generic model builder facade.
@@ -51,6 +51,30 @@ impl<S> ModelBuilder<S> {
     ) -> Result<(), ModelError> {
         self.model
             .set_coefficient(variable_id, constraint_id, coefficient)
+    }
+
+    pub fn set_variable_name(
+        &mut self,
+        variable_id: VariableId,
+        name: impl Into<String>,
+    ) -> Result<(), ModelError> {
+        self.model.set_variable_name(variable_id, name.into())
+    }
+
+    pub fn set_constraint_name(
+        &mut self,
+        constraint_id: ConstraintId,
+        name: impl Into<String>,
+    ) -> Result<(), ModelError> {
+        self.model.set_constraint_name(constraint_id, name.into())
+    }
+
+    pub fn set_objective(&mut self, objective: Objective) -> Result<(), ModelError> {
+        self.model.set_objective(objective)
+    }
+
+    pub fn set_objective_name(&mut self, name: Option<String>) -> Result<(), ModelError> {
+        self.model.set_objective_name(name)
     }
 
     pub fn finish(self) -> Model {

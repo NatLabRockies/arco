@@ -5,7 +5,9 @@ use crate::solution::Solution;
 use crate::status::{highs_has_solution, highs_to_core_status};
 use arco_contracts::SolverError as GenericSolverError;
 use arco_contracts::{Solve, SolverConfig};
-use arco_targets::{AlgebraicProblem, ConstraintSense, VariableKind};
+use arco_model::{ConstraintId, ModelView, Sense, VariableId};
+use arco_solver::ModelViewSolveResult;
+use arco_targets::{AlgebraicProblem, ConstraintSense, ObjectiveSense, VariableKind};
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -251,6 +253,98 @@ fn add_constraints_to_highs(
     Ok(())
 }
 
+/// Solve a primitive model view directly with HiGHS.
+pub fn solve_model_view(
+    model: &impl ModelView,
+    config: &SolverConfig,
+) -> Result<ModelViewSolveResult, SolverError> {
+    if model.num_variables() == 0 {
+        return Err(SolverError::EmptyModel);
+    }
+
+    let mut highs_model = HighsModel::new();
+    apply_solver_config(&mut highs_model, config)?;
+    highs_model.set_objective_sense(match model.objective().sense.unwrap_or(Sense::Minimize) {
+        Sense::Minimize => ObjectiveSense::Minimize,
+        Sense::Maximize => ObjectiveSense::Maximize,
+    });
+
+    let objective_terms = model
+        .objective()
+        .terms
+        .iter()
+        .copied()
+        .collect::<BTreeMap<VariableId, f64>>();
+    for index in 0..model.num_variables() {
+        let variable_id = VariableId::new(index as u32);
+        let variable = model
+            .variable(variable_id)
+            .ok_or(SolverError::InvalidVariableId(index as u32))?;
+        let objective = objective_terms.get(&variable_id).copied().unwrap_or(0.0);
+        if variable.is_integer {
+            highs_model.add_integer_col(variable.bounds.lower, variable.bounds.upper, objective);
+        } else {
+            highs_model.add_col(variable.bounds.lower, variable.bounds.upper, objective);
+        }
+    }
+
+    let mut rows: Vec<(Vec<usize>, Vec<f64>)> =
+        vec![(Vec::new(), Vec::new()); model.num_constraints()];
+    for index in 0..model.num_variables() {
+        let variable_id = VariableId::new(index as u32);
+        let Some(column) = model.column(variable_id) else {
+            continue;
+        };
+        for (constraint_id, coefficient) in column {
+            let row_index = constraint_id.inner() as usize;
+            if row_index >= rows.len() {
+                return Err(SolverError::SolverSpecific(format!(
+                    "constraint ID {row_index} does not exist"
+                )));
+            }
+            rows[row_index].0.push(index);
+            rows[row_index].1.push(*coefficient);
+        }
+    }
+
+    for (index, (columns, coefficients)) in rows.iter().enumerate() {
+        let constraint = model
+            .constraint(ConstraintId::new(index as u32))
+            .ok_or_else(|| {
+                SolverError::SolverSpecific(format!("constraint ID {index} does not exist"))
+            })?;
+        highs_model
+            .add_row(
+                constraint.bounds.lower,
+                constraint.bounds.upper,
+                columns,
+                coefficients,
+            )
+            .map_err(highs_model_error_to_solver_error)?;
+    }
+
+    let status = highs_model.solve();
+    if !highs_has_solution(status) {
+        return Err(SolverError::SolveFailure {
+            status: highs_to_core_status(status),
+        });
+    }
+    let snapshot = highs_model
+        .solution_snapshot()
+        .map_err(highs_model_error_to_solver_error)?;
+    let objective_value = highs_model
+        .objective_value()
+        .map_err(highs_model_error_to_solver_error)?;
+    let (primal_values, _, _, _) = snapshot.into_vecs();
+
+    Ok(ModelViewSolveResult {
+        fingerprint: model.fingerprint(),
+        status: highs_to_core_status(status),
+        objective_value,
+        primal_values,
+    })
+}
+
 fn solve_problem(
     problem: &AlgebraicProblem,
     config: &SolverConfig,
@@ -365,6 +459,7 @@ fn solve_problem(
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
+    use arco_model::{Bounds, Constraint, Model, ModelView, Objective, Sense, Variable};
     use arco_targets::{
         LinearConstraint, LinearObjective, LinearTerm, ObjectiveSense, VariableInstance,
     };
@@ -414,5 +509,31 @@ mod tests {
         assert!(solution.is_feasible());
         assert_eq!(solution.get_primal(0), Some(1.0));
         assert_eq!(solution.objective_value(), 2.0);
+    }
+
+    #[test]
+    fn model_view_problem_solves_directly() {
+        let mut model = Model::new();
+        let x = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
+            .expect("variable");
+        let demand = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(1.0, f64::INFINITY),
+            })
+            .expect("constraint");
+        model.set_coefficient(x, demand, 1.0).expect("coefficient");
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(x, 2.0)],
+            })
+            .expect("objective");
+
+        let result = solve_model_view(&model, &SolverConfig::new()).expect("solve succeeds");
+        assert!(result.status.is_feasible());
+        assert_eq!(result.primal_values, vec![1.0]);
+        assert_eq!(result.objective_value, 2.0);
+        assert_eq!(result.fingerprint, model.fingerprint());
     }
 }

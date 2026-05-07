@@ -18,7 +18,7 @@ arco-ops (transitional facade)
         ├── arco-model    primitive model + indexed data + document DTOs
         ├── arco-validate model-view validation/reporting
         ├── arco-solver   solver selection/preflight/contracts
-        ├── arco-export / arco-exchange (transitional format path)
+        ├── arco-format / arco-export (format-neutral view + concrete exports)
         └── concrete solver adapters (transitional direct wiring)
 ```
 

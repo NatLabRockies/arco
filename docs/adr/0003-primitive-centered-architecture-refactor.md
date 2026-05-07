@@ -434,7 +434,7 @@ just ci
 
 **Files:**
 
-- Modify/Rename: `crates/arco-exchange/**` toward `crates/arco-format/**`
+- Modify: `crates/arco-format/**`
 - Modify: `crates/arco-export/**`
 - Possibly create: concrete format crates such as `arco-lp`, `arco-mps`, or
   `arco-nl` when split out of legacy export code
