@@ -498,11 +498,13 @@ just ci
 - [x] Absorb `arco-contracts` where practical. It is excluded from active
       workspace membership after active adapters migrated to `arco-solver`.
 - [ ] Make solver adapters consume model views plus solver contracts directly.
-- [ ] Keep `arco-solver` adapter-neutral; concrete adapters must not register
+      HiGHS has a primitive `ModelViewBackend`; remaining optional adapters still
+      need direct `ModelView` entry points.
+- [x] Keep `arco-solver` adapter-neutral; concrete adapters must not register
       themselves by depending back into the primitive crate.
-- [ ] Store result values keyed by stable model IDs and carry model fingerprints.
-      Model fingerprints exist; solver results do not yet carry them.
-- [ ] Allocate solver-native buffers only inside adapters and only when required.
+- [x] Store result values keyed by stable model IDs and carry model fingerprints.
+- [x] Allocate solver-native buffers only inside adapters and only when required
+      for the primitive HiGHS solve path.
 
 **Acceptance criteria:**
 
@@ -537,11 +539,11 @@ approved
 - [ ] Define stable wrappers/DTOs for primitive model, indexed data, documents,
       validation, format/export, solve, errors, reports, and results.
 - [ ] Remove primary raw re-exports of primitive/internal crates.
-- [ ] Provide explicit operations needed by CLI, Python, and block composition.
+- [x] Provide explicit operations needed by CLI, Python, and block composition.
 - [ ] Avoid v1 workflow bundles such as `load_validate_solve`, scenario sweeps,
       or multi-objective orchestration unless they already exist as stable
       operations that cannot be removed without a public decision.
-- [ ] Keep concrete solver adapter wiring out of `arco-ops`; use solver
+- [x] Keep concrete solver adapter wiring out of `arco-ops`; use solver
       primitives and registries instead.
 
 **Acceptance criteria:**
@@ -611,12 +613,12 @@ just ci
 
 **Steps:**
 
-- [ ] Replace direct imports of `arco-model`, KDL, validation, format/export,
+- [x] Replace direct imports of `arco-model`, KDL, validation, format/export,
       solver primitives, runtime, and concrete solver adapters with `arco-ops`
       calls.
 - [ ] Keep CLI ownership limited to command parsing, process behavior, I/O,
       logging, and error presentation.
-- [ ] Add regression coverage for the currently reported CLI -> solver adapter
+- [x] Add regression coverage for the currently reported CLI -> solver adapter
       Sentrux violation.
 - [ ] Update CLI docs only where user-visible behavior changes.
 

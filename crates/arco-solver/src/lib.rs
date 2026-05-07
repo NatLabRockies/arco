@@ -5,6 +5,7 @@
 
 mod backend;
 mod config;
+mod model_view_backend;
 mod preflight;
 mod profile;
 mod registry;
@@ -15,6 +16,7 @@ mod types;
 
 pub use backend::SolverBackend as GenericSolverBackend;
 pub use config::SolverConfig;
+pub use model_view_backend::{ModelViewBackend, ModelViewBackendRegistry};
 pub use preflight::{
     PreflightError, SolverRequirements, preflight_model_view, preflight_selection,
 };

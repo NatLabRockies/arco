@@ -30,7 +30,6 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
-arco-model = { workspace = true }
 arco-ops = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 miette = { version = "7", features = ["fancy"] }

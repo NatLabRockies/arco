@@ -20,8 +20,9 @@ pub use arco_model::expr;
 pub use arco_scip as scip;
 pub use arco_solver as solver;
 use arco_solver::{
-    PreflightError, ResolvedSelection, SelectionError, Solution, SolutionView, Solve, SolveRequest,
-    SolverConfig, SolverError, SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
+    ModelViewBackendRegistry, ModelViewSolveResult, PreflightError, ResolvedSelection,
+    SelectionError, Solution, SolutionView, Solve, SolveRequest, SolverConfig, SolverError,
+    SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
 };
 pub use arco_targets as targets;
 use arco_targets::{AlgebraicProblem, SolveTarget};
@@ -137,6 +138,16 @@ impl ArcoOps {
         backend.solve(model, config, primal_start)
     }
 
+    /// Solve a primitive model view through an adapter-neutral backend registry.
+    pub fn solve_model_view(
+        registry: &ModelViewBackendRegistry<'_>,
+        family: &str,
+        model: &dyn arco_model::ModelView,
+        config: &SolverConfig,
+    ) -> Result<ModelViewSolveResult, SolverError> {
+        registry.solve(family, model, config)
+    }
+
     /// Build a minimal solve request from an optional solver selection.
     pub fn build_solve_request(selection: Option<SolverSelection>) -> SolveRequest {
         selection.map_or_else(SolveRequest::new, |value| {
@@ -166,9 +177,11 @@ impl ArcoOps {
 #[cfg(test)]
 mod tests {
     use super::{ArcoOps, OpsExportFormat};
+    use arco_model::ModelView;
     use arco_solver::{
-        SolutionView, Solve, SolverConfig, SolverError, SolverRegistry, SolverRequirements,
-        SolverSelection, SolverStatus, SolverTransport,
+        ModelViewBackend, ModelViewBackendRegistry, ModelViewSolveResult, SolutionView, Solve,
+        SolverConfig, SolverError, SolverRegistry, SolverRequirements, SolverSelection,
+        SolverStatus, SolverTransport,
     };
     use arco_targets::SolveTarget;
     use std::path::PathBuf;
@@ -223,6 +236,27 @@ mod tests {
         fn solve(&mut self, _config: &SolverConfig) -> Result<Self::Solution, SolverError> {
             Ok(FixtureSolution {
                 objective_value: 42.0,
+            })
+        }
+    }
+
+    struct FixtureModelViewBackend;
+
+    impl ModelViewBackend for FixtureModelViewBackend {
+        fn family(&self) -> &'static str {
+            "fixture"
+        }
+
+        fn solve_model_view(
+            &self,
+            model: &dyn arco_model::ModelView,
+            _config: &SolverConfig,
+        ) -> Result<ModelViewSolveResult, SolverError> {
+            Ok(ModelViewSolveResult {
+                fingerprint: model.fingerprint(),
+                status: SolverStatus::Optimal,
+                objective_value: 7.0,
+                primal_values: Vec::new(),
             })
         }
     }
@@ -292,6 +326,21 @@ mod tests {
 
         assert!((solution.objective_value() - 42.0).abs() < f64::EPSILON);
         assert!(solution.is_optimal());
+    }
+
+    #[test]
+    fn solve_model_view_uses_adapter_neutral_registry() {
+        let backend = FixtureModelViewBackend;
+        let mut registry = ModelViewBackendRegistry::new();
+        registry.register(&backend);
+        let model = arco_model::Model::new();
+
+        let solution =
+            ArcoOps::solve_model_view(&registry, "fixture", &model, &SolverConfig::default())
+                .expect("registered backend should solve");
+
+        assert_eq!(solution.status, SolverStatus::Optimal);
+        assert_eq!(solution.fingerprint, model.fingerprint());
     }
 
     #[test]

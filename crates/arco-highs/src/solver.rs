@@ -6,7 +6,7 @@ use crate::status::{highs_has_solution, highs_to_core_status};
 use arco_model::{ConstraintId, ModelView, Sense, VariableId};
 use arco_solver::ModelViewSolveResult;
 use arco_solver::SolverError as GenericSolverError;
-use arco_solver::{Solve, SolverConfig};
+use arco_solver::{ModelViewBackend, Solve, SolverConfig};
 use arco_targets::{AlgebraicProblem, ConstraintSense, ObjectiveSense, VariableKind};
 use arco_tools::memory::capture_rss_bytes;
 use std::collections::BTreeMap;
@@ -253,9 +253,27 @@ fn add_constraints_to_highs(
     Ok(())
 }
 
+/// Adapter implementation for primitive model-view solves through HiGHS.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct HighsModelViewBackend;
+
+impl ModelViewBackend for HighsModelViewBackend {
+    fn family(&self) -> &'static str {
+        "highs"
+    }
+
+    fn solve_model_view(
+        &self,
+        model: &dyn ModelView,
+        config: &SolverConfig,
+    ) -> Result<ModelViewSolveResult, SolverError> {
+        solve_model_view(model, config)
+    }
+}
+
 /// Solve a primitive model view directly with HiGHS.
 pub fn solve_model_view(
-    model: &impl ModelView,
+    model: &(impl ModelView + ?Sized),
     config: &SolverConfig,
 ) -> Result<ModelViewSolveResult, SolverError> {
     if model.num_variables() == 0 {
