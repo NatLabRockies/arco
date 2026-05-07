@@ -1,16 +1,16 @@
 //! Operations facade seam for Arco interaction surfaces.
 
 pub mod benchmark;
+pub mod compile;
 pub mod execution;
 mod execution_backends;
 pub mod inspect;
 
-pub use arco_compile as compile;
-use arco_compile::compile::{
+use crate::compile::compile::{
     AlgebraicProblem, ConstraintSense, LinearTerm as TargetLinearTerm, SolveTarget,
     TargetObjectiveSense, VariableKind,
 };
-use arco_compile::pipeline::{
+use crate::compile::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
 };
 pub use arco_format::ExportError;
@@ -266,7 +266,7 @@ fn portable_terms(terms: &[TargetLinearTerm]) -> Vec<PortableLinearTerm> {
 #[cfg(test)]
 mod tests {
     use super::{ArcoOps, OpsExportFormat};
-    use arco_compile::compile::SolveTarget;
+    use crate::compile::compile::SolveTarget;
     use arco_model::ModelView;
     use arco_solver::{
         ModelViewBackend, ModelViewBackendRegistry, ModelViewSolveResult, SolutionView, Solve,

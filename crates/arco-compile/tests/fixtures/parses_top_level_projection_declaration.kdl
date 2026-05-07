@@ -1,5 +1,0 @@
-
-projection "ai" {
-  from "feasible_links"
-  to "a" "i"
-}

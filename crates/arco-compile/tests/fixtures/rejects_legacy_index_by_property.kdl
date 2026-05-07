@@ -1,7 +1,0 @@
-
-model "Dispatch" {
-  param "demand" index_by="t"
-  control "x" index="t"
-  minimize "Obj" { x[t] }
-}
-scenario "Base" { use "Dispatch" }

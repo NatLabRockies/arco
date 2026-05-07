@@ -39,30 +39,26 @@ arco-ops (transitional facade)
 
 ## Transitional seams still present
 
-The workspace still contains migration-debt crates and couplings from the older
-compile/target architecture (`arco-compile` and `arco-targets`). `arco-expr` and
-`arco-contracts` are excluded from active workspace membership after their APIs
-were absorbed into `arco-model` and `arco-solver`. `arco-algebra`, `arco-ir`, and
-`arco-export` have been removed after expression and portable export APIs moved
-into active primitive/model-view seams. Remaining seams are being removed
-chunk-by-chunk per the ARD/plan and `.sentrux` rules.
+The old compile/target handoff crates are retired from the active workspace.
+`arco-expr` and `arco-contracts` are excluded from active workspace membership
+after their APIs were absorbed into `arco-model` and `arco-solver`.
+`arco-algebra`, `arco-ir`, `arco-export`, `arco-compile`, and `arco-targets`
+have been removed after expression, portable export, and legacy lowering APIs
+moved into active primitive/model-view seams.
 
 ## Legacy crate retirement boundary (2026-05-06)
 
 Active-workspace dependency snapshot from `cargo metadata --no-deps`:
 
-| Crate                               | Active workspace dependents | Retirement status                                                  |
-| ----------------------------------- | --------------------------- | ------------------------------------------------------------------ |
-| `arco-expr` (excluded on disk)      | none                        | Safe boundary: no active dependents.                               |
-| `arco-contracts` (excluded on disk) | none                        | Safe boundary: no active dependents.                               |
-| `arco-algebra` (deleted)            | none                        | Removed; expression APIs live in `arco-model`.                     |
-| `arco-compile`                      | `arco-ops`                  | **Blocked**: cannot retire until `arco-ops` drops this dependency. |
-| `arco-ir` (deleted)                 | none                        | Removed; portable export DTOs live in `arco-format`.               |
-| `arco-targets`                      | `arco-compile`              | **Blocked**: still behind the legacy compile seam.                 |
-| `arco-export` (deleted)             | none                        | Removed; LP/MPS writers live in `arco-format`.                     |
-
-This is why destructive crate deletion is not yet safe for `arco-compile` or
-`arco-targets`.
+| Crate                               | Active workspace dependents | Retirement status                                             |
+| ----------------------------------- | --------------------------- | ------------------------------------------------------------- |
+| `arco-expr` (excluded on disk)      | none                        | Safe boundary: no active dependents.                          |
+| `arco-contracts` (excluded on disk) | none                        | Safe boundary: no active dependents.                          |
+| `arco-algebra` (deleted)            | none                        | Removed; expression APIs live in `arco-model`.                |
+| `arco-compile` (deleted)            | none                        | Removed; legacy lowering internals now live under `arco-ops`. |
+| `arco-ir` (deleted)                 | none                        | Removed; portable export DTOs live in `arco-format`.          |
+| `arco-targets` (deleted)            | none                        | Removed; target DTOs are no longer a standalone crate seam.   |
+| `arco-export` (deleted)             | none                        | Removed; LP/MPS writers live in `arco-format`.                |
 
 ## KDL boundary status
 

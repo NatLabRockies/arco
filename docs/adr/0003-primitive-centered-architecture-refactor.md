@@ -684,9 +684,9 @@ just ci
 
 - Delete: retired crates only after no active dependents remain
   - `crates/arco-expr/**`
-  - `crates/arco-compile/**` if no reusable helpers remain
+  - `crates/arco-compile/**` (deleted after useful lowering internals moved under `arco-ops`)
   - `crates/arco-ir/**` (deleted after portable DTOs moved to `arco-format`)
-  - `crates/arco-targets/**`
+  - `crates/arco-targets/**` (deleted after target DTOs stopped being a standalone crate seam)
   - `crates/arco-contracts/**` after absorption
   - `crates/arco-export/**` (deleted after LP/MPS writers moved to `arco-format`)
 - Modify: `Cargo.toml`
@@ -696,15 +696,13 @@ just ci
 
 **Steps:**
 
-- [ ] Remove retired crates from the workspace and workspace dependencies.
-- [ ] Delete compatibility modules, duplicated result/error/status contracts,
+- [x] Remove retired crates from the workspace and workspace dependencies.
+- [x] Delete compatibility modules, duplicated result/error/status contracts,
       direct adapter solve APIs over models, and stale tests/examples.
-- [ ] Move any still-useful tests to model-view, format, solver, ops, or optional
+- [x] Move any still-useful tests to model-view, format, solver, ops, or optional
       transformation-helper coverage before deleting their old crates.
-- [ ] Update user and contributor docs to describe the actual final architecture.
-      Current docs now include the exact legacy-crate retirement blockers; final
-      shipped docs still need updating after remaining active seams are removed.
-- [ ] Make sure the root architecture plan and Sentrux rules no longer describe a
+- [x] Update user and contributor docs to describe the actual final architecture.
+- [x] Make sure the root architecture plan and Sentrux rules no longer describe a
       future state that differs from the repository state.
 
 **Acceptance criteria:**

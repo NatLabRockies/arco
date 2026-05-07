@@ -1,4 +1,0 @@
-
-data "D" source="file.csv" {
-  alias "X" column="name"
-}

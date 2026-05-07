@@ -1,4 +1,0 @@
-
-data "D" from="file.csv" {
-  map "X" from="name"
-}
