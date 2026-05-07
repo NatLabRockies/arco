@@ -1,9 +1,8 @@
 #![allow(clippy::float_cmp)]
 
-use arco_expr::VariableId;
 use arco_ipopt::Solver;
 use arco_model::types::Bounds;
-use arco_model::{Constraint, Model, Objective, Sense, Variable};
+use arco_model::{Constraint, Model, Objective, Sense, Variable, VariableId};
 
 /// Test: minimize 2x + 3y subject to x + y >= 5, x,y >= 0
 #[test]

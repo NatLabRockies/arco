@@ -481,8 +481,8 @@ graph TB
     end
 
     subgraph Core["Rust Workspace"]
-        F[arco-core<br/>Model Builder]
-        G[arco-expr<br/>Expression Engine]
+        F[arco-model<br/>Primitive Model]
+        G[arco-ops<br/>Operations Facade]
         H[arco-solver<br/>Solver Abstractions]
         I[arco-blocks<br/>Block Composition]
         J[arco-tools<br/>Memory Diagnostics]
@@ -512,8 +512,8 @@ graph TB
 | :------------ | :------------------------------------------------------ |
 | `arco-cli`    | CLI compiler and solver for KDL optimization models     |
 | `arco-kdl`    | KDL parser, semantic validation, and algebraic lowering |
-| `arco-core`   | Model construction, variables, constraints, objectives  |
-| `arco-expr`   | Expression trees and constraint generation              |
+| `arco-model`  | Primitive model construction, IDs, views, and documents |
+| `arco-ops`    | Stable operations facade for interaction surfaces       |
 | `arco-solver` | Solver-agnostic abstractions and solution handling      |
 | `arco-highs`  | HiGHS solver integration (embedded)                     |
 | `arco-blocks` | DAG-based block composition and orchestration           |

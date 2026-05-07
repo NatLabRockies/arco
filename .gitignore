@@ -573,8 +573,10 @@ bindings/python/licenses/
 # Local agent scratch space
 .opencode/
 
-# Hiding LLM plan
+# Local one-off plan notes (keep repo plans tracked)
 docs/plan*
+!docs/plans/
+!docs/plans/**/*.md
 
 #
 artifacts/

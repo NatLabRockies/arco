@@ -204,9 +204,8 @@ fn export_model(
     format: ExportFormat,
     output: Option<PathBuf>,
 ) -> miette::Result<()> {
-    let compiled = ArcoOps::compile_file(&path)?;
-    let buffer = ArcoOps::export_problem(
-        &compiled.compiled_problem.algebra,
+    let buffer = ArcoOps::export_model_file(
+        &path,
         match format {
             ExportFormat::Lp => OpsExportFormat::Lp,
             ExportFormat::Mps => OpsExportFormat::Mps,

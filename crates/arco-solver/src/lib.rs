@@ -1,7 +1,7 @@
 //! Solver platform orchestration for Arco.
 //!
-//! Contract types (selection, config, status, traits) live in `arco-contracts`.
-//! This crate focuses on platform behavior such as preflight.
+//! Solver contracts (selection, config, status, traits) and platform behavior
+//! live in this crate.
 
 mod backend;
 mod config;
@@ -48,9 +48,9 @@ pub struct ModelViewSolveResult {
 
 /// Platform-facing backend trait for Arco's core model type.
 ///
-/// Solver adapters implement the generic `arco_contracts::SolverBackend`
-/// contract directly; this alias trait keeps orchestration callers on the
-/// concrete Arco model signature.
+/// Solver adapters implement the generic `backend::SolverBackend` contract
+/// directly; this alias trait keeps orchestration callers on the concrete Arco
+/// model signature.
 pub trait SolverBackend: backend::SolverBackend<arco_model::Model, arco_model::VariableId> {}
 
 impl<T> SolverBackend for T where

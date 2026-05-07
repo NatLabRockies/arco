@@ -189,6 +189,7 @@ pub struct ResolvedParameters {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[allow(clippy::struct_field_names)]
 pub struct ResolvedChronology {
     pub initial_boundary: Option<String>,
     pub terminal_boundary: Option<String>,

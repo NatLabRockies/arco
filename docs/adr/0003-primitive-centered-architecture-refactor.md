@@ -159,15 +159,15 @@ only
 
 **Steps:**
 
-- [ ] Verify Sentrux layer-order semantics against the intended target:
+- [x] Verify Sentrux layer-order semantics against the intended target:
       interaction surfaces may depend on `arco-ops`, and `arco-ops` may depend on
       lower primitive/service crates, but direct forbidden edges remain blocked.
-- [ ] Fix any rule-order or boundary mismatch that makes a desired target edge
+- [x] Fix any rule-order or boundary mismatch that makes a desired target edge
       fail.
-- [ ] Remove or fix the current direct Python -> `arco-model` and CLI -> solver
+- [x] Remove or fix the current direct Python -> `arco-model` and CLI -> solver
       adapter violations, or split them into the first mergeable surface chunks if
       the rules can stay green between chunks.
-- [ ] Add a short comment in `.sentrux/rules.toml` only if it explains a target
+- [x] Add a short comment in `.sentrux/rules.toml` only if it explains a target
       invariant that is not obvious from the rule itself.
 
 **Acceptance criteria:**
@@ -369,9 +369,9 @@ primitive documents are stable
       diagnostics in `arco-kdl`.
 - [ ] Replace target/IR output paths with builders for `Model`, `IndexedData`,
       and primitive documents.
-- [ ] Remove KDL dependencies on solver, runtime, export, concrete solver
+- [x] Remove KDL dependencies on solver, runtime, export, concrete solver
       adapters, and retired handoff crates.
-- [ ] Add regression fixtures for each removed coupling.
+- [x] Add regression fixtures for each removed coupling.
 - [ ] Preserve language-specific authoring conveniences without moving workflow
       policy into KDL.
 
