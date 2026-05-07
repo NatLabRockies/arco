@@ -1,6 +1,6 @@
 //! Logging and diagnostics functions.
 
-use arco_highs::highs_version;
+use arco_ops::highs::highs_version;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;

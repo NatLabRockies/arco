@@ -63,14 +63,13 @@ Arco will standardize on these crate ownership rules:
 7. `arco-solver` owns solver-side contracts, preflight, capability models,
    selections, statuses, and result envelopes. Concrete solver adapters are
    siblings that consume model views and solver contracts.
-8. `arco-ops` is the stable adapter for CLI, Julia, and block-facing
+8. `arco-ops` is the stable adapter for CLI, Python, Julia, and block-facing
    interaction APIs. It exposes wrappers/DTOs rather than making raw primitive
    re-exports the primary public contract.
-9. `arco-blocks` is a language-neutral composition layer over `arco-ops` and is
-   the only Arco crate imported directly by Python bindings.
-10. CLI depends on `arco-ops` only among Arco crates. Python bindings depend on
-    `arco-blocks` only among Arco crates. They own I/O, language ergonomics, and
-    error presentation.
+9. `arco-blocks` is a language-neutral composition layer over `arco-ops`.
+10. CLI and Python bindings depend on `arco-ops` for core operations among Arco
+    crates. Python may also depend on `arco-blocks` for block composition APIs.
+    They own I/O, language ergonomics, and error presentation.
 
 ## QA/QC contract
 
@@ -635,7 +634,7 @@ sentrux check .
 just ci
 ```
 
-## Chunk 12: Rewrite Python bindings to use `arco-blocks` only
+## Chunk 12: Rewrite Python bindings to use `arco-ops` for core operations
 
 **Type:** AFK after Python/block DTO contracts are approved
 **Blocked by:** Chunks 9 and 10
@@ -651,24 +650,24 @@ just ci
 **Steps:**
 
 - [x] Remove direct Cargo dependencies on `arco-model`, KDL, validation,
-      format/export, solver primitives, runtime, concrete solver adapters, and
-      `arco-ops`. Python now depends directly on `arco-blocks` only among Arco
-      crates.
-- [ ] Replace source-level lower-crate access with real `arco-blocks` DTO/wrapper
-      APIs. Current code still uses transitional aliases/re-exports to keep the
-      existing PyO3 implementation compiling.
+      format/export, solver primitives, runtime, and concrete solver adapters.
+      Python now depends directly on `arco-ops` for core operations and
+      `arco-blocks` for block composition.
+- [x] Replace source-level lower-crate access with direct `arco-ops` imports for
+      core model, expression, solver, target, and HiGHS-facing APIs.
 - [ ] Keep Python ownership limited to language ergonomics, PyO3 conversion,
       Python errors, type stubs, and documentation examples.
 - [ ] Move any remaining block-specific Python schema/callback mechanics out of
       `arco-blocks` core. Current `arco-blocks` remains PyO3-first.
-- [ ] Add regression coverage for the currently reported Python -> `arco-model`
+- [x] Add regression coverage for the currently reported Python -> `arco-model`
       Sentrux violations.
 
 **Acceptance criteria:**
 
-- Python bindings depend on `arco-blocks` only among Arco crates.
+- Python bindings depend on `arco-ops` for core operations and `arco-blocks`
+  only for block composition among Arco crates.
 - Python type stubs and docs describe the same stable concepts exposed by
-  `arco-blocks`.
+  `arco-ops` and `arco-blocks`.
 - `sentrux check .` reports no Python boundary violations.
 
 **Validation:**
@@ -706,6 +705,8 @@ just ci
 - [ ] Move any still-useful tests to model-view, format, solver, ops, or optional
       transformation-helper coverage before deleting their old crates.
 - [ ] Update user and contributor docs to describe the actual final architecture.
+      Current docs now include the exact legacy-crate retirement blockers; final
+      shipped docs still need updating after remaining active seams are removed.
 - [ ] Make sure the root architecture plan and Sentrux rules no longer describe a
       future state that differs from the repository state.
 

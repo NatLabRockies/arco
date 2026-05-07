@@ -310,18 +310,18 @@ pub fn model_error_to_py(e: arco_ops::model::model::ModelError) -> PyErr {
     }
 }
 
-/// Convert a `arco_solver::SolverError` into the appropriate ArcoError subclass.
-pub fn generic_solver_error_to_py(e: arco_solver::SolverError) -> PyErr {
+/// Convert a `arco_ops::solver::SolverError` into the appropriate ArcoError subclass.
+pub fn generic_solver_error_to_py(e: arco_ops::solver::SolverError) -> PyErr {
     let msg = e.to_string();
     match e {
-        arco_solver::SolverError::EmptyModel => ModelEmptyError::new_err(msg),
-        arco_solver::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
-        arco_solver::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
-        arco_solver::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
-        arco_solver::SolverError::SolverNotAvailable(_) => SolverInternalError::new_err(msg),
-        arco_solver::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
-        arco_solver::SolverError::SolveFailure { status } => {
-            use arco_solver::SolverStatus;
+        arco_ops::solver::SolverError::EmptyModel => ModelEmptyError::new_err(msg),
+        arco_ops::solver::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
+        arco_ops::solver::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
+        arco_ops::solver::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
+        arco_ops::solver::SolverError::SolverNotAvailable(_) => SolverInternalError::new_err(msg),
+        arco_ops::solver::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
+        arco_ops::solver::SolverError::SolveFailure { status } => {
+            use arco_ops::solver::SolverStatus;
             match status {
                 SolverStatus::Infeasible => SolverInfeasibleError::new_err(msg),
                 SolverStatus::Unbounded => SolverUnboundedError::new_err(msg),
