@@ -1,9 +1,8 @@
 //! Operations facade seam for Arco interaction surfaces.
 
 pub mod benchmark;
-mod compile;
+pub mod compile;
 pub mod execution;
-mod execution_backends;
 pub mod inspect;
 
 use crate::compile::compile::{LinearTerm as TargetLinearTerm, SolveTarget};
@@ -198,9 +197,9 @@ impl ArcoOps {
         solver.solve(config)
     }
 
-    /// Build the solver registry with all families wired below interaction surfaces.
+    /// Build solver registry with builtin abstract families from solver contracts.
     pub fn solver_registry_with_builtin_families() -> SolverRegistry {
-        execution_backends::solver_registry_with_builtin_families()
+        SolverRegistry::with_builtin_families()
     }
 
     /// Resolve a solver selection against the available registry and profiles.
@@ -242,18 +241,20 @@ impl ArcoOps {
         registry.solve(family, model, config)
     }
 
-    /// Solve a primitive model view through built-in backends registered below interaction surfaces.
+    /// Compatibility shim: arco-ops no longer embeds concrete model-view backends.
     pub fn solve_model_view_with_builtin_backend(
         family: &str,
-        model: &dyn arco_model::ModelView,
-        config: &SolverConfig,
+        _model: &dyn arco_model::ModelView,
+        _config: &SolverConfig,
     ) -> Result<ModelViewSolveResult, SolverError> {
-        execution_backends::solve_model_view_with_builtin_backend(family, model, config)
+        Err(SolverError::SolverNotAvailable(format!(
+            "no builtin model-view backend embedded in arco-ops for '{family}'"
+        )))
     }
 
-    /// Report a built-in solver backend version when available.
-    pub fn builtin_solver_version(family: &str) -> Option<String> {
-        execution_backends::builtin_solver_version(family)
+    /// arco-ops is adapter-neutral and reports no concrete backend version.
+    pub fn builtin_solver_version(_family: &str) -> Option<String> {
+        None
     }
 
     /// Build a minimal solve request from an optional solver selection.
@@ -291,7 +292,7 @@ pub fn source_error_span(error: &OpsSourceError) -> Option<miette::SourceSpan> {
     }
 }
 
-pub(crate) fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
+pub fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
     PortableProblem {
         variable_instances: problem
             .variable_instances

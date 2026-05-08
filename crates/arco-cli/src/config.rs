@@ -143,7 +143,8 @@ pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {
         .or_else(|| project.default_selection.clone())
         .unwrap_or_else(|| "highs".to_string());
 
-    let registry = ArcoOps::solver_registry_with_builtin_families();
+    let mut registry = ArcoOps::solver_registry_with_builtin_families();
+    arco_builtin_solvers::register_builtin_solver_families(&mut registry);
     let resolved = resolve_selection(&registry, &merged_profiles, &selection)
         .map_err(|source| ConfigError::InvalidSelection { source })?;
 

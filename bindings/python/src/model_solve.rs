@@ -44,7 +44,11 @@ pub(crate) fn solve_model(
         .with_overrides(overrides)?
         .to_solver_config();
 
-    let result = match arco_ops::ArcoOps::solve_model_view_with_builtin_backend(
+    let mut registry = arco_ops::solve::ModelViewBackendRegistry::new();
+    arco_builtin_solvers::register_builtin_model_view_backends(&mut registry);
+
+    let result = match arco_ops::ArcoOps::solve_model_view(
+        &registry,
         &selected_backend,
         &model.inner,
         &config,

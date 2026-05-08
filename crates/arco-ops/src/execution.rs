@@ -112,11 +112,13 @@ pub trait OptimizationAdapter {
 #[derive(Debug, Default)]
 pub struct MockArcoAdapter;
 
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct RustArcoAdapter {
     pub(crate) log_to_console: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct ScipArcoAdapter {
     pub(crate) log_to_console: bool,
@@ -248,29 +250,13 @@ impl RustArcoAdapter {
 
 pub fn builtin_adapter_for_selection(
     selection: &crate::solve::ResolvedSelection,
-    log_to_console: bool,
-    profile: Option<&crate::solve::SolverProfile>,
+    _log_to_console: bool,
+    _profile: Option<&crate::solve::SolverProfile>,
 ) -> Result<Box<dyn OptimizationAdapter>, String> {
-    match selection.transport {
-        crate::solve::SolverTransport::Embedded => match selection.family.as_str() {
-            "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
-            "xpress" => Err("Xpress solver backend is not available through arco-ops; register/use a solver adapter outside the ops facade".to_string()),
-            family => Err(format!(
-                "embedded solver family '{family}' is not available in this build"
-            )),
-        },
-        crate::solve::SolverTransport::ExternalProcess => match selection.family.as_str() {
-            "scip" => Ok(Box::new(ScipArcoAdapter::with_external_process_profile(
-                log_to_console,
-                profile.and_then(|value| value.executable.clone()),
-                profile.map_or_else(Vec::new, |value| value.arguments.clone()),
-                profile.map_or_else(Default::default, |value| value.environment.clone()),
-            ))),
-            family => Err(format!(
-                "external-process solver family '{family}' is not available in this build"
-            )),
-        },
-    }
+    Err(format!(
+        "arco-ops is adapter-neutral and cannot construct builtin adapter '{}' directly",
+        selection.family
+    ))
 }
 
 impl ScipArcoAdapter {
@@ -505,14 +491,13 @@ pub fn render_problem_model(problem: &CompiledProblem) -> Result<String, Executi
     Ok(built.model.format_ascii(PrettyPrintOptions::full()))
 }
 
-pub(crate) struct BuiltModel {
-    pub(crate) model: Model,
-    pub(crate) variable_indices: BTreeMap<String, usize>,
-    pub(crate) constraint_indices: BTreeMap<String, usize>,
+pub struct BuiltModel {
+    pub model: Model,
+    pub variable_indices: BTreeMap<String, usize>,
+    pub constraint_indices: BTreeMap<String, usize>,
 }
 
-#[allow(dead_code)]
-pub(crate) fn adapter_output_from_model_view_solution(
+pub fn adapter_output_from_model_view_solution(
     problem: &CompiledProblem,
     include_variable_values: bool,
     backend: &str,
@@ -609,10 +594,7 @@ pub(crate) fn adapter_output_from_model_view_solution(
     })
 }
 
-pub(crate) fn build_model(
-    problem: &CompiledProblem,
-    backend: &str,
-) -> Result<BuiltModel, ExecutionError> {
+pub fn build_model(problem: &CompiledProblem, backend: &str) -> Result<BuiltModel, ExecutionError> {
     let mut model = Model::with_capacities(
         problem.algebra.variable_instances.len(),
         problem.algebra.constraints.len(),

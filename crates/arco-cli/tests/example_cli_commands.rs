@@ -20,6 +20,15 @@ fn run_cli(args: &[&str]) -> std::process::Output {
         .expect("failed to execute arco binary")
 }
 
+fn run_cli_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_arco"));
+    command.args(args);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    command.output().expect("failed to execute arco binary")
+}
+
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -500,6 +509,97 @@ scenario S1 {
         .collect();
 
     assert_eq!(alias_values, vec!["i", "j"]);
+}
+
+#[test]
+fn run_fails_for_unsupported_embedded_family_selection() {
+    let model_path = example_path("examples/dense-lp/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let user_config_dir = unique_temp_dir("solver-config-user-xpress");
+    let project_config_dir = unique_temp_dir("solver-config-project-xpress");
+    fs::create_dir_all(&user_config_dir).expect("create user config dir");
+    fs::create_dir_all(&project_config_dir).expect("create project config dir");
+
+    fs::write(
+        user_config_dir.join("solver.toml"),
+        "version = 1\ndefault_selection = \"xpress\"\n",
+    )
+    .expect("write user solver config");
+
+    let user_config_dir_str = user_config_dir.to_string_lossy().into_owned();
+    let project_config_dir_str = project_config_dir.to_string_lossy().into_owned();
+
+    let output = run_cli_with_env(
+        &["run", model, "--compact"],
+        &[
+            ("ARCO_CONFIG_DIR", user_config_dir_str.as_str()),
+            ("ARCO_PROJECT_CONFIG_DIR", project_config_dir_str.as_str()),
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "xpress embedded selection should fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("embedded solver family 'xpress' is not available"));
+
+    let _ = fs::remove_dir_all(user_config_dir);
+    let _ = fs::remove_dir_all(project_config_dir);
+}
+
+#[test]
+fn run_external_scip_profile_with_missing_executable_reports_io_error() {
+    let model_path = example_path("examples/dense-lp/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let user_config_dir = unique_temp_dir("solver-config-user-scip");
+    let project_config_dir = unique_temp_dir("solver-config-project-scip");
+    fs::create_dir_all(&user_config_dir).expect("create user config dir");
+    fs::create_dir_all(&project_config_dir).expect("create project config dir");
+
+    fs::write(
+        user_config_dir.join("solver.toml"),
+        "version = 1\ndefault_selection = \"scip-missing\"\n\n[profiles.scip-missing]\nname = \"scip-missing\"\nfamily = \"scip\"\ntransport = \"external_process\"\nexecutable = \"/definitely/missing/scip\"\n",
+    )
+    .expect("write user solver config");
+
+    let user_config_dir_str = user_config_dir.to_string_lossy().into_owned();
+    let project_config_dir_str = project_config_dir.to_string_lossy().into_owned();
+
+    let output = run_cli_with_env(
+        &["run", model, "--compact"],
+        &[
+            ("ARCO_CONFIG_DIR", user_config_dir_str.as_str()),
+            ("ARCO_PROJECT_CONFIG_DIR", project_config_dir_str.as_str()),
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "missing scip executable should fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("failed during external solver I/O"),
+        "expected external solver io failure\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+
+    let _ = fs::remove_dir_all(user_config_dir);
+    let _ = fs::remove_dir_all(project_config_dir);
 }
 
 #[test]
