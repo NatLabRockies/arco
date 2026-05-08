@@ -12,12 +12,6 @@ pub(crate) struct ExecutionPlan {
     pub(crate) execution_levels: Vec<Vec<usize>>,
 }
 
-impl ExecutionPlan {
-    pub(crate) fn num_levels(&self) -> usize {
-        self.execution_levels.len()
-    }
-}
-
 /// Build an execution plan from block names and directed links.
 ///
 /// Each link `(source, target)` means target depends on source.
@@ -53,7 +47,7 @@ mod tests {
         )
         .expect("plan should build");
 
-        assert_eq!(plan.num_levels(), 3);
+        assert_eq!(plan.execution_levels.len(), 3);
         assert_eq!(plan.execution_levels[0], vec![0]);
         assert_eq!(plan.execution_levels[2], vec![3]);
     }

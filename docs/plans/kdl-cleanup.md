@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED: Use `superpowers:subagent-driven-development` if subagents are available, or `superpowers:executing-plans` otherwise. Steps use checkbox syntax for tracking.
 
-**Goal:** Replace Arco's mixed KDL surface with the low-level profile in `docs/reference/kdl-syntax-summary.md`, remove the legacy high-level DSL entirely, and leave code, tests, docs, examples, and tooling aligned to that single language.
+**Goal:** Replace Arco's mixed KDL surface with the low-level profile in `docs/arco-spec.md#11-grammar-low-level-profile`, remove the legacy high-level DSL entirely, and leave code, tests, docs, examples, and tooling aligned to that single language.
 
 **Architecture:** Keep only KDL surface normalization needed for math-block sugar. Remove direct-wiring and all high-level declarations. Rebuild the compiler flow around low-level AST parsing, section 9 semantic validation, and generic set/data lowering. Enforce a temporary repo rule of one `scenario` per file with an explicit diagnostic, not implicit first-scenario behavior.
 
@@ -234,7 +234,7 @@ cargo test -p arco-kdl --test algebra_parser
 - [ ] Rewrite or remove `docs/tutorials/single-zone-storage.md`, since it currently teaches the removed DSL.
 - [ ] Update `examples/README.md` so only supported examples are advertised.
 - [ ] Delete or rewrite `notes.md`, because it contains stale syntax like `index_by=[plant_id,unit_id]` that does not match the reference spec.
-- [ ] Do not weaken `docs/reference/kdl-syntax-summary.md` to match temporary implementation shortcuts. If the single-scenario limitation needs documentation, put it in README or contributor docs as an implementation note.
+- [ ] Do not weaken `docs/arco-spec.md#11-grammar-low-level-profile` to match temporary implementation shortcuts. If the single-scenario limitation needs documentation, put it in README or contributor docs as an implementation note.
 
 **Run:**
 

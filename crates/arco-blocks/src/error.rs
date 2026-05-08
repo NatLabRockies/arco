@@ -2,7 +2,7 @@
 
 /// Error type for block graph construction and execution planning.
 #[derive(Debug, Clone)]
-pub(crate) enum BlockError {
+pub enum BlockError {
     /// A block name appears more than once in an input collection.
     DuplicateBlock(String),
     /// A link references a block name that is not present.

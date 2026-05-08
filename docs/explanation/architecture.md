@@ -14,14 +14,14 @@ Interaction surfaces
         │              │
         └──────┬───────┘
                ▼
-arco-ops (transitional facade)
+arco-ops (stable interaction facade)
         │
         ├── arco-kdl      KDL parsing + source AST + primitive documents
         ├── arco-model    primitive model + indexed data + document DTOs
         ├── arco-validate model-view validation/reporting
         ├── arco-solver   solver selection/preflight/contracts
         ├── arco-format  portable DTOs + LP/MPS exports over model views
-        └── concrete solver adapters (transitional direct wiring)
+        └── concrete solver adapters (adapter-neutral registry wiring)
 ```
 
 ## Crate responsibilities (current)
@@ -34,9 +34,9 @@ arco-ops (transitional facade)
   solve-ready models.
 - `arco-validate`: user-facing validation over model views.
 - `arco-solver`: solver-facing contracts, selection, and preflight.
-- `arco-ops`: transitional interaction facade used by CLI, Python core APIs,
-  and block composition. LP/MPS problem export uses active format seams; KDL
-  document construction remains in `arco-kdl`.
+- `arco-ops`: stable interaction facade used by CLI, Python core APIs,
+  and block composition. LP/MPS problem export uses stable ops DTO boundaries;
+  KDL document construction remains in `arco-kdl`.
 - `arco-blocks`: block composition layer over `arco-ops`; Python imports it only
   for block-specific APIs.
 

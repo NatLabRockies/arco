@@ -1,8 +1,9 @@
 use crate::{BlockPort, PyModel, PyObject, PySolveResult};
+use arco_blocks::build_execution_levels;
 use arco_ops::solve::SolverStatus;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyType};
+use pyo3::types::{PyDict, PyType};
 use std::collections::HashSet;
 
 const ARCO_BLOCK_MARKER_ATTR: &str = "__arco_block_marker__";
@@ -288,82 +289,89 @@ impl PyModel {
             ));
         }
 
-        let blocks_module = py.import("arco.blocks")?;
-        let block_model_class = blocks_module.getattr("BlockModel")?;
+        let block_names = self
+            .block_defs
+            .iter()
+            .map(|block| block.name.clone())
+            .collect::<Vec<_>>();
+        let links = self
+            .link_defs
+            .iter()
+            .map(|link| {
+                (
+                    link.source.block_name.clone(),
+                    link.target.block_name.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let execution_levels = build_execution_levels(&block_names, &links)
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
 
-        // Create a BlockModel
-        let kwargs = PyDict::new(py);
-        kwargs.set_item("name", "Model")?;
-        let block_model = block_model_class.call((), Some(&kwargs))?;
+        let mut block_results: Vec<(String, Py<PySolveResult>)> = Vec::new();
+        let block_outputs = PyDict::new(py);
 
-        // Add each block to the BlockModel
-        for block_def in &self.block_defs {
-            let add_kwargs = PyDict::new(py);
-            add_kwargs.set_item("name", &block_def.name)?;
-            add_kwargs.set_item("outputs", block_def.output_fields.bind(py))?;
-            add_kwargs.set_item("extract", block_def.extract_adapter.bind(py))?;
-            add_kwargs.set_item("inputs", block_def.provided_inputs.bind(py))?;
-            add_kwargs.set_item("inputs_schema", block_def.input_fields.bind(py))?;
+        for level in execution_levels {
+            for block_idx in level {
+                let block_def = &self.block_defs[block_idx];
+                let inputs = block_def.provided_inputs.bind(py).copy()?;
 
-            block_model.call_method(
-                "add_block",
-                (block_def.build_adapter.bind(py),),
-                Some(&add_kwargs),
-            )?;
-        }
+                for link in self
+                    .link_defs
+                    .iter()
+                    .filter(|link| link.target.block_name == block_def.name)
+                {
+                    let source_outputs_any = block_outputs
+                        .get_item(&link.source.block_name)?
+                        .ok_or_else(|| {
+                            PyRuntimeError::new_err(format!(
+                                "link: source block '{}' output not available",
+                                link.source.block_name
+                            ))
+                        })?;
+                    let source_outputs = source_outputs_any.cast::<PyDict>()?;
+                    let value = source_outputs.get_item(&link.source.key)?.ok_or_else(|| {
+                        PyRuntimeError::new_err(format!(
+                            "link: unknown source port '{}.{}'",
+                            link.source.block_name, link.source.key
+                        ))
+                    })?;
+                    inputs.set_item(&link.target.key, value)?;
+                }
 
-        // Add links
-        for link_def in &self.link_defs {
-            block_model.call_method1("link", (link_def.source.clone(), link_def.target.clone()))?;
-        }
+                let ctx = PyDict::new(py);
+                ctx.set_item("inputs", &inputs)?;
+                let model = block_def.build_adapter.bind(py).call1((ctx.clone(),))?;
 
-        // Solve the block model
-        let runs = if solver.is_some()
-            || log_to_console.is_some()
-            || time_limit.is_some()
-            || mip_gap.is_some()
-            || verbosity.is_some()
-        {
-            let solve_kwargs = PyDict::new(py);
-            if let Some(solver) = solver {
-                solve_kwargs.set_item("solver", solver)?;
-            }
-            if let Some(enabled) = log_to_console {
-                solve_kwargs.set_item("log_to_console", enabled)?;
-            }
-            if let Some(limit) = time_limit {
-                solve_kwargs.set_item("time_limit", limit)?;
-            }
-            if let Some(gap) = mip_gap {
-                solve_kwargs.set_item("mip_gap", gap)?;
-            }
-            if let Some(level) = verbosity {
-                solve_kwargs.set_item("verbosity", level)?;
-            }
-            block_model.call_method("solve", (), Some(&solve_kwargs))?
-        } else {
-            block_model.call_method0("solve")?
-        };
-        let runs_list = runs.cast::<PyList>()?;
+                let solve_kwargs = PyDict::new(py);
+                if let Some(solver) = solver {
+                    solve_kwargs.set_item("solver", solver)?;
+                }
+                if let Some(enabled) = log_to_console {
+                    solve_kwargs.set_item("log_to_console", enabled)?;
+                }
+                if let Some(limit) = time_limit {
+                    solve_kwargs.set_item("time_limit", limit)?;
+                }
+                if let Some(gap) = mip_gap {
+                    solve_kwargs.set_item("mip_gap", gap)?;
+                }
+                if let Some(level) = verbosity {
+                    solve_kwargs.set_item("verbosity", level)?;
+                }
 
-        // Build per-block results
-        let mut block_results = Vec::new();
+                let solution_any = if solve_kwargs.is_empty() {
+                    model.call_method0("solve")?
+                } else {
+                    model.call_method("solve", (), Some(&solve_kwargs))?
+                };
+                let solution: Py<PySolveResult> = solution_any.extract()?;
 
-        for run in runs_list.iter() {
-            let name: String = run.getattr("name")?.extract()?;
-            let solution_opt = run.getattr("solution")?;
-
-            if solution_opt.is_none() {
-                // Block was dropped — create a minimal error result
-                let result = PySolveResult::new(crate::py_modules::solver::solve_failure_solution(
-                    arco_ops::solve::SolverStatus::Unknown,
-                ));
-                let py_result = Py::new(py, result)?;
-                block_results.push((name, py_result));
-            } else {
-                // The solution is a PySolveResult from the sub-model's solve()
-                let result: Py<PySolveResult> = solution_opt.extract()?;
-                block_results.push((name, result));
+                let outputs_any = block_def
+                    .extract_adapter
+                    .bind(py)
+                    .call1((solution.clone_ref(py), ctx.clone()))?;
+                block_outputs.set_item(&block_def.name, outputs_any)?;
+                block_results.push((block_def.name.clone(), solution));
             }
         }
 

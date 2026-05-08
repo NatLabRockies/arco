@@ -542,10 +542,11 @@ contracts, direct adapter solve APIs over models, and stale tests/examples.
 
 ### Phase 10: document and verify
 
-In progress for the migration completion sweep. The dependency-boundary tests now
-assert ops-only Arco dependencies for both CLI and Python bindings. Before
-shipping, run formatting, targeted dependency-boundary tests, and the full
-workspace clippy/test sweep documented in `AGENTS.md`.
+Completed for the migration completion sweep. Dependency-boundary tests now
+assert ops-only Arco dependencies for CLI/Python and explicit blocks/ops seam
+constraints, plus DTO-boundary contract coverage under `arco-ops` integration
+tests. Keep running formatting, targeted dependency-boundary tests, and the full
+workspace clippy/test sweep documented in `AGENTS.md` before release.
 
 ## Decision checklist for future contributors
 

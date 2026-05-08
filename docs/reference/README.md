@@ -18,4 +18,4 @@ future release, once docstrings are added to the Rust source via PyO3.
 
 ---
 
-[Back to docs home](../)
+[Back to docs home](../README.md)
