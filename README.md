@@ -524,16 +524,25 @@ graph LR
 
 ### Crate Overview
 
-| Crate         | Purpose                                                 |
-| :------------ | :------------------------------------------------------ |
-| `arco-cli`    | CLI compiler and solver for KDL optimization models     |
-| `arco-kdl`    | KDL parser and authoring surface for primitive builds   |
-| `arco-model`  | Primitive model construction, IDs, views, and documents |
-| `arco-ops`    | Stable operations facade for interaction surfaces       |
-| `arco-solver` | Solver-agnostic abstractions and solution handling      |
-| `arco-highs`  | HiGHS solver integration (embedded)                     |
-| `arco-blocks` | Language-neutral block composition core                 |
-| `arco-tools`  | Memory instrumentation and diagnostics                  |
+| Crate                  | Purpose                                                       |
+| :--------------------- | :------------------------------------------------------------ |
+| `arco-cli`             | CLI surface for validate/inspect/run/export workflows         |
+| `arco-python`          | Python extension module crate (`bindings/python`)             |
+| `arco-ops`             | Stable operations facade for interaction surfaces             |
+| `arco-blocks`          | Language-neutral block composition core                       |
+| `arco-kdl`             | KDL parser and authoring surface for primitive builds         |
+| `arco-validate`        | Validation and diagnostics reporting over model views         |
+| `arco-runtime`         | Runtime execution support utilities                           |
+| `arco-model`           | Primitive model construction, IDs, views, and documents       |
+| `arco-solver`          | Solver-agnostic abstractions, registry, selection, preflight  |
+| `arco-format`          | Portable format/export primitives and LP/MPS writer contracts |
+| `arco-diagnostics`     | Shared diagnostics/provenance vocabulary                      |
+| `arco-tools`           | Memory instrumentation and diagnostics helpers                |
+| `arco-highs`           | Embedded HiGHS adapter                                        |
+| `arco-scip`            | SCIP adapter (external-process flow)                          |
+| `arco-ipopt`           | IPOPT adapter crate                                           |
+| `arco-xpress`          | Xpress adapter crate                                          |
+| `arco-builtin-solvers` | Builtin solver-family wiring utilities                        |
 
 ## Developer Guide
 
