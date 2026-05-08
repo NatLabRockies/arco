@@ -3,12 +3,12 @@
 #![allow(unused_assignments)]
 
 use arco_format::{PortableLinearReport, PortableProblem, write_mps};
-use arco_runtime::RuntimeWorkspace;
 use arco_solver::{SolverCapabilityModel, SolverFamily, SolverRegistry};
 use miette::Diagnostic;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const FAMILY_NAME: &str = "scip";
@@ -122,7 +122,7 @@ pub fn solve_problem_with_options(
     options: &ExternalProcessOptions,
 ) -> Result<SolveOutput, Error> {
     let backend = BACKEND_NAME.to_string();
-    let workspace = RuntimeWorkspace::create("scip").map_err(|source| Error::Io { source })?;
+    let workspace = ScipWorkspace::create().map_err(|source| Error::Io { source })?;
     let mps_path = workspace.path().join("problem.mps");
     let sol_path = workspace.path().join("solution.sol");
 
@@ -173,6 +173,33 @@ pub fn solve_problem_with_options(
     }
 
     build_scip_solve_output(problem, include_variable_values, &backend, &sol_path)
+}
+
+#[derive(Debug)]
+struct ScipWorkspace {
+    path: PathBuf,
+}
+
+impl ScipWorkspace {
+    fn create() -> Result<Self, std::io::Error> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let path = std::env::temp_dir().join(format!("arco-scip-{}-{now}", std::process::id()));
+        std::fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for ScipWorkspace {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
 }
 
 #[derive(Debug)]

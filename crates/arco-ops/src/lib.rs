@@ -74,8 +74,6 @@ use arco_solver::{
     SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
 };
 use arco_validate::{ValidationIssue, ValidationReport, ValidationSeverity, validate_solve_target};
-#[cfg(feature = "xpress")]
-pub use arco_xpress as xpress;
 use std::collections::BTreeMap;
 use std::path::Path;
 use thiserror::Error;
@@ -270,17 +268,13 @@ impl ArcoOps {
         validate_solve_target(target.has_variables())
     }
 
-    /// Execute a compiled problem using a built-in solver selected by the solver platform.
-    pub fn execute_compiled_problem(
+    /// Execute a compiled problem using a caller-supplied adapter.
+    pub fn execute_compiled_problem_with_adapter(
         problem: &compile::compile::CompiledProblem,
-        selection: &ResolvedSelection,
-        log_to_console: bool,
-        profile: Option<&SolverProfile>,
+        adapter: &dyn execution::OptimizationAdapter,
         include_variable_values: bool,
     ) -> Result<execution::ExecutionResult, execution::ExecutionError> {
-        let adapter = execution::builtin_adapter_for_selection(selection, log_to_console, profile)
-            .map_err(|message| execution::ExecutionError::BackendNotAvailable { message })?;
-        execution::execute_problem_with_options(problem, adapter.as_ref(), include_variable_values)
+        execution::execute_problem_with_options(problem, adapter, include_variable_values)
     }
 }
 

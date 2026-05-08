@@ -1,7 +1,7 @@
 [package]
-name = "arco-scip"
+name = "arco-builtin-solvers"
 version = { workspace = true }
-description = "SCIP external-process solver integration for Arco"
+description = "Builtin solver registration for Arco distributions"
 edition = { workspace = true }
 rust-version = { workspace = true }
 homepage = { workspace = true }
@@ -14,8 +14,7 @@ publish = false
 workspace = true
 
 [dependencies]
+arco-highs = { workspace = true }
+arco-ops = { workspace = true }
+arco-scip = { workspace = true }
 arco-solver = { workspace = true }
-arco-format = { workspace = true }
-miette = { version = "7", features = ["fancy"] }
-thiserror = "2.0"
-tracing = { workspace = true }

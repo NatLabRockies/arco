@@ -196,11 +196,12 @@ fn run_file_with_options_and_profile(
         selection.transport,
         include_variable_values
     );
-    let execution_result = ArcoOps::execute_compiled_problem(
+    let adapter =
+        arco_builtin_solvers::adapter_for_selection(selection, options.solver_log, profile)
+            .map_err(|message| DriverError::BackendNotAvailable { message })?;
+    let execution_result = ArcoOps::execute_compiled_problem_with_adapter(
         &compiled.compiled_problem,
-        selection,
-        options.solver_log,
-        profile,
+        adapter.as_ref(),
         include_variable_values,
     )?;
     let solve = solve_start.elapsed();

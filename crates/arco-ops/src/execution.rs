@@ -2,7 +2,9 @@ use crate::compile::compile::CompiledProblem;
 use crate::compile::compile::{
     ConstraintSense, LinearReport, LinearTerm, TargetObjectiveSense as ObjectiveSense, VariableKind,
 };
-use crate::solve::{SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus};
+use crate::solve::{
+    ModelViewSolveResult, SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus,
+};
 use arco_model::{
     Bounds, Constraint, Model, ModelError as ArcoModelError, Objective, PrettyPrintOptions, Sense,
     Variable,
@@ -121,12 +123,6 @@ pub struct ScipArcoAdapter {
     pub(crate) executable: Option<String>,
     pub(crate) arguments: Vec<String>,
     pub(crate) environment: std::collections::BTreeMap<String, String>,
-}
-
-#[cfg(feature = "xpress")]
-#[derive(Debug, Default)]
-pub struct XpressArcoAdapter {
-    pub(crate) log_to_console: bool,
 }
 
 #[derive(Debug, Error)]
@@ -258,12 +254,7 @@ pub fn builtin_adapter_for_selection(
     match selection.transport {
         crate::solve::SolverTransport::Embedded => match selection.family.as_str() {
             "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
-            #[cfg(feature = "xpress")]
-            "xpress" => Ok(Box::new(XpressArcoAdapter::with_console_log(
-                log_to_console,
-            ))),
-            #[cfg(not(feature = "xpress"))]
-            "xpress" => Err("Xpress solver backend is not available in this build".to_string()),
+            "xpress" => Err("Xpress solver backend is not available through arco-ops; register/use a solver adapter outside the ops facade".to_string()),
             family => Err(format!(
                 "embedded solver family '{family}' is not available in this build"
             )),
@@ -514,11 +505,108 @@ pub fn render_problem_model(problem: &CompiledProblem) -> Result<String, Executi
     Ok(built.model.format_ascii(PrettyPrintOptions::full()))
 }
 
-#[allow(dead_code)]
 pub(crate) struct BuiltModel {
     pub(crate) model: Model,
     pub(crate) variable_indices: BTreeMap<String, usize>,
     pub(crate) constraint_indices: BTreeMap<String, usize>,
+}
+
+#[allow(dead_code)]
+pub(crate) fn adapter_output_from_model_view_solution(
+    problem: &CompiledProblem,
+    include_variable_values: bool,
+    backend: &str,
+    variable_indices: BTreeMap<String, usize>,
+    constraint_indices: BTreeMap<String, usize>,
+    solution: ModelViewSolveResult,
+) -> Result<AdapterSolveOutput, ExecutionError> {
+    if !solution.status.is_feasible() {
+        return Err(ExecutionError::NoFeasibleSolution {
+            backend: backend.to_string(),
+            status: solution.status.to_string(),
+        });
+    }
+
+    let objective_value = problem.algebra.objective.constant + solution.objective_value;
+    let report_values = problem
+        .algebra
+        .reports
+        .iter()
+        .map(|report| {
+            Ok(ScalarArtifactValue {
+                compiled_name: report.name.clone(),
+                value: evaluate_linear_report(
+                    backend,
+                    report,
+                    &variable_indices,
+                    &solution.primal_values,
+                )?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let variable_values = problem
+        .variables
+        .iter()
+        .map(|variable| {
+            let representative_value = problem
+                .algebra
+                .variable_instances
+                .iter()
+                .find(|instance| instance.family == variable.family)
+                .map(|instance| {
+                    lookup_primal_value(
+                        backend,
+                        &instance.name,
+                        &variable_indices,
+                        &solution.primal_values,
+                    )
+                })
+                .transpose()?
+                .unwrap_or(0.0);
+            let values = if include_variable_values {
+                problem
+                    .algebra
+                    .variable_instances
+                    .iter()
+                    .filter(|instance| instance.family == variable.family)
+                    .map(|instance| {
+                        Ok(VariableInstanceArtifactValue {
+                            compiled_name: instance.name.clone(),
+                            value: lookup_primal_value(
+                                backend,
+                                &instance.name,
+                                &variable_indices,
+                                &solution.primal_values,
+                            )?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                Vec::new()
+            };
+
+            Ok(VariableArtifactValue {
+                compiled_name: variable.family.clone(),
+                representative_value,
+                values,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let dual_report_values =
+        extract_dual_report_values(problem, &constraint_indices, &solution.constraint_duals);
+
+    Ok(AdapterSolveOutput {
+        status: map_solver_status(solution.status),
+        objective_value: ScalarArtifactValue {
+            compiled_name: problem.objective.name.clone(),
+            value: objective_value,
+        },
+        report_values,
+        variable_values,
+        dual_report_values,
+    })
 }
 
 pub(crate) fn build_model(
