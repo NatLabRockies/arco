@@ -1,0 +1,11 @@
+Parameter,Value
+FCR_VRE,0
+LifeTimeVRE,30
+FCR_GasCC,0
+LifeTimeGasCC,30
+GenMix_Target,0
+AlphaNuclear,12
+AlphaLargeHy,1
+AlphaOtherRe,1
+r,0.06
+EUE_max,0

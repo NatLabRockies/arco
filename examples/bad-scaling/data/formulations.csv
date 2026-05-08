@@ -1,0 +1,5 @@
+Component,Formulation,Description
+Thermal,NoRampsDispatchFormulation,Thermal aggregations are dispatched without ramping constraints.
+Hydro,DailyBudgetFormulation,There are 2 formulations "MonthlyBudgetFormulation" or "RunOfRiverFormulation". The "RunOfRiverFormulation" dispatches the hydro according the time series provided. The Monthly hydro formulation creates an energy Budget over periods of 730 Hours of the hourly time series provided by the user Constraining the Upper and Lower Bounds using hourly time series.
+Imports,CapacityPriceNetLoadFormulation,Imports are fixed according to the input time series.
+Exports,CapacityPriceNetLoadFormulation,Exports are fixed according to the input time series.

@@ -5,7 +5,10 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 export UV_CACHE_DIR := justfile_directory() / ".uv-cache"
 
 alias t := test
-alias qc := step-quality
+alias tp := test-pkg
+alias to := test-one
+alias cp := clippy-pkg
+alias kp := check-pkg
 
 # Rust package group (all workspace crates except python and ipopt bindings)
 rust-packages := "--workspace --exclude arco-python --exclude arco-ipopt"
@@ -17,12 +20,8 @@ clippy-packages := "--workspace --exclude arco-python --exclude arco-ipopt --exc
 check:
     cargo check {{ rust-packages }} --all-features --tests --benches --examples
 
-[group: 'rust']
-check-dev:
-    cargo check --all-features --tests --benches --examples
-
 [group: 'ci']
-ci: fmt-check clippy-all test-core docs-test sentrux-check
+ci: fmt-check clippy-all test docs-test arch-check
 
 [group: 'rust']
 clippy:
@@ -30,10 +29,6 @@ clippy:
 
 [group: 'ci']
 clippy-all:
-    cargo clippy {{ clippy-packages }} --benches --tests --examples -- -D warnings
-
-[group: 'ci']
-clippy-core:
     cargo clippy {{ clippy-packages }} --benches --tests --examples -- -D warnings
 
 [group: 'ci']
@@ -48,8 +43,8 @@ doc:
     cargo doc --workspace --no-deps
 
 [group: 'ci']
-sentrux-check:
-    sentrux check .
+arch-check:
+    uv run python scripts/check_architecture.py
 
 [group: 'ci']
 docs-test: py-dev
@@ -91,10 +86,6 @@ py-check:
 [group: 'python']
 py-dev: py-licenses py-sync
     cd bindings/python && uv run --with maturin maturin develop
-
-[group: 'python']
-py-doctest-ci:
-    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py
 
 [group: 'python']
 py-fmt:
@@ -145,40 +136,40 @@ py-validate-wheel artifact_glob="dist/*.whl":
 setup:
     ./scripts/setup-dev-env.sh
 
-[group: 'steps']
-step-fmt:
-    just fmt
-    just py-fmt
-
-[group: 'steps']
-step-lint:
-    just clippy
+[group: 'ci']
+lint:
+    just fmt-check
+    just clippy-all
     just py-lint-check
     just py-type
 
-[group: 'steps']
-step-quality:
-    just step-fmt
-    just step-lint
-    just step-test
-    just check-dev
+[group: 'ci']
+lint-fix:
+    just fmt
+    just py-fmt
+    just py-lint
 
-[group: 'steps']
-step-test: test
+[group: 'rust']
+test-pkg package:
+    cargo test -p {{ package }} --all-features
 
-[group: 'tdd']
-tdd-green package test_filter:
+[group: 'rust']
+test-one package test_filter:
     cargo test -p {{ package }} {{ test_filter }} --all-features
 
-[group: 'tdd']
-tdd-red package test_filter:
-    ! cargo test -p {{ package }} {{ test_filter }} --all-features
+[group: 'rust']
+check-pkg package:
+    cargo check -p {{ package }} --all-features --tests --benches --examples
 
-[group: 'tdd']
-tdd-refactor package:
-    cargo fmt --all
+[group: 'rust']
+clippy-pkg package:
     cargo clippy -p {{ package }} --benches --tests --examples --all-features -- -D warnings
-    cargo test -p {{ package }} --all-features
+
+[group: 'rust']
+verify-pkg package:
+    just check-pkg {{ package }}
+    just test-pkg {{ package }}
+    just clippy-pkg {{ package }}
 
 [group: 'rust']
 test:
@@ -188,10 +179,6 @@ test:
 test-example-formulations args="":
     cargo build -p arco-cli
     uv run python -c "from scripts.test_example_formulations import run_example_formulations_smoke; raise SystemExit(run_example_formulations_smoke())" {{ args }}
-[group: 'ci']
-test-core:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
-
 [group: 'ci']
 test-solver package:
     cargo test -p {{ package }} --all-features -- --test-threads=1
