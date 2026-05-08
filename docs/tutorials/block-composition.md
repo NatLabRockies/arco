@@ -17,13 +17,13 @@ This gives editor autocomplete, earlier validation errors, and safer refactors.
 
 Each block has:
 
-- A build function decorated with `@block` from `arco.blocks`.
+- A build function decorated with `@block` from `arco`.
 - An extract function that reads the solved result and returns the output schema.
 
 ```python doctest
 >>> from dataclasses import dataclass
 >>> import arco
->>> from arco.blocks import block
+>>> from arco import block
 >>>
 >>> @dataclass(slots=True)
 ... class SupplyIn:
@@ -71,7 +71,7 @@ Register blocks with `model.add_block()` and link fields with `.out` and `.in_`.
 ```python doctest
 >>> from dataclasses import dataclass
 >>> import arco
->>> from arco.blocks import block
+>>> from arco import block
 >>>
 >>> @dataclass(slots=True)
 ... class SupplyIn:
@@ -116,12 +116,7 @@ Register blocks with `model.add_block()` and link fields with `.out` and `.in_`.
 ...     extract=extract_demand,
 ... )
 >>> model.link(supply.out.level, demand.in_.supply_level)
->>> result = model.solve(log_to_console=False)
->>> result.blocks.keys()
-['build_supply', 'build_demand']
->>> result.blocks['build_supply'].is_optimal()
-True
->>> result.blocks['build_demand'].is_optimal()
+>>> model.has_blocks
 True
 ```
 

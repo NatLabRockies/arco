@@ -16,7 +16,9 @@ workspace = true
 [dependencies]
 arco-model = { workspace = true }
 arco-format = { workspace = true }
+arco-highs = { workspace = true }
 arco-kdl = { workspace = true }
+arco-scip = { workspace = true }
 arco-solver = { workspace = true }
 arco-validate = { workspace = true }
 csv = "1.4"
@@ -30,3 +32,4 @@ tracing = { workspace = true }
 
 [features]
 default = []
+xpress = []

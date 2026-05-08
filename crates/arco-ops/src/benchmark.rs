@@ -1,8 +1,8 @@
 use crate::ArcoOps;
+use crate::compile::compile::{CompiledProblem, TargetObjectiveSense};
 use crate::compile::pipeline::PipelineError;
 use crate::compile::semantic::{ResolvedChronology, ResolvedParameters, SemanticProgram};
 use crate::kdl::ObjectiveSense;
-use crate::modeling::{ModelView, Sense};
 use crate::solve::SolverError;
 use serde::Deserialize;
 use std::fs;
@@ -25,8 +25,6 @@ pub enum BenchmarkError {
     },
     #[error(transparent)]
     Pipeline(#[from] PipelineError),
-    #[error(transparent)]
-    PrimitiveBuild(#[from] crate::kdl::PrimitiveBuildError),
     #[error(transparent)]
     Solver(#[from] SolverError),
     #[error("missing required node `{name}` in {path}")]
@@ -137,12 +135,11 @@ fn evaluate_case(
     case: &BenchmarkCaseDefinition,
 ) -> Result<CaseOutcome, BenchmarkError> {
     let entrypoint = repo_root.join(&case.entrypoint);
-    let validated = ArcoOps::check_file(&entrypoint)?;
-    let model = ArcoOps::build_primitive_model_file(&entrypoint)?;
+    let compiled = ArcoOps::compile_file(&entrypoint)?;
 
     let actual_semantic_program =
-        to_semantic_expectation(case, &validated.semantic_program, &entrypoint)?;
-    let actual_e2e_summary = to_e2e_summary(case, &model);
+        to_semantic_expectation(case, &compiled.semantic_program, &entrypoint)?;
+    let actual_e2e_summary = to_e2e_summary(case, &compiled.compiled_problem);
     let expected_semantic_program = read_json(&repo_root.join(&case.expected_semantic_program))?;
     let expected_e2e_summary = read_json(&repo_root.join(&case.expected_e2e_summary))?;
 
@@ -218,12 +215,12 @@ fn required_set_values(
         })
 }
 
-fn to_e2e_summary(case: &BenchmarkCaseDefinition, model: &impl ModelView) -> ExpectedE2eSummary {
-    let objective_name = model.objective_name().unwrap_or("obj").to_string();
-    let objective_sense = model
-        .objective()
-        .sense
-        .map_or(ObjectiveSense::Minimize, kdl_objective_sense);
+fn to_e2e_summary(case: &BenchmarkCaseDefinition, problem: &CompiledProblem) -> ExpectedE2eSummary {
+    let objective_name = problem.objective.name.clone();
+    let objective_sense = match problem.objective.sense {
+        TargetObjectiveSense::Minimize => ObjectiveSense::Minimize,
+        TargetObjectiveSense::Maximize => ObjectiveSense::Maximize,
+    };
 
     ExpectedE2eSummary {
         case_id: case.id.clone(),
@@ -236,13 +233,6 @@ fn to_e2e_summary(case: &BenchmarkCaseDefinition, model: &impl ModelView) -> Exp
             sense: objective_sense,
         }),
         reports: Vec::new(),
-    }
-}
-
-fn kdl_objective_sense(sense: Sense) -> ObjectiveSense {
-    match sense {
-        Sense::Minimize => ObjectiveSense::Minimize,
-        Sense::Maximize => ObjectiveSense::Maximize,
     }
 }
 

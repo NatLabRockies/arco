@@ -2,8 +2,14 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
-use arco_format::{PortableLinearReport, PortableProblem, write_mps};
-use arco_solver::{SolverCapabilityModel, SolverFamily, SolverRegistry};
+use arco_format::{
+    PortableLinearReport, PortableProblem, portable_problem_from_model_view, write_mps,
+};
+use arco_model::{ModelView, VariableId};
+use arco_solver::{
+    ModelViewBackend, ModelViewSolveResult, SolverCapabilityModel, SolverConfig, SolverError,
+    SolverFamily, SolverRegistry, SolverStatus,
+};
 use miette::Diagnostic;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,6 +19,102 @@ use thiserror::Error;
 
 pub const FAMILY_NAME: &str = "scip";
 pub const BACKEND_NAME: &str = "arco-external-scip";
+
+/// External-process SCIP backend for primitive model views.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ScipModelViewBackend;
+
+impl ModelViewBackend for ScipModelViewBackend {
+    fn family(&self) -> &'static str {
+        FAMILY_NAME
+    }
+
+    fn solve_model_view(
+        &self,
+        model: &dyn ModelView,
+        config: &SolverConfig,
+    ) -> Result<ModelViewSolveResult, SolverError> {
+        solve_model_view(model, config)
+    }
+}
+
+/// Solve a primitive model view by rendering the concrete MPS interchange that SCIP requires.
+pub fn solve_model_view(
+    model: &(impl ModelView + ?Sized),
+    config: &SolverConfig,
+) -> Result<ModelViewSolveResult, SolverError> {
+    solve_model_view_with_options(model, config, &ExternalProcessOptions::default())
+}
+
+/// Solve a primitive model view with explicit external-process options.
+pub fn solve_model_view_with_options(
+    model: &(impl ModelView + ?Sized),
+    config: &SolverConfig,
+    options: &ExternalProcessOptions,
+) -> Result<ModelViewSolveResult, SolverError> {
+    if model.num_variables() == 0 {
+        return Err(SolverError::EmptyModel);
+    }
+
+    let portable = portable_problem_from_model_view(model);
+    let variable_families = portable
+        .variable_instances
+        .iter()
+        .map(|variable| variable.family.clone())
+        .collect::<Vec<_>>();
+    let output = solve_problem_with_options(
+        ScipProblem {
+            portable: &portable,
+            variable_families: &variable_families,
+        },
+        true,
+        config.log_to_console.unwrap_or(false),
+        options,
+    )
+    .map_err(|error| SolverError::SolverSpecific(error.to_string()))?;
+
+    let solution_values = output
+        .variable_values
+        .iter()
+        .flat_map(|variable| variable.values.iter())
+        .map(|value| (value.compiled_name.as_str(), value.value))
+        .collect::<BTreeMap<_, _>>();
+    let primal_values = (0..model.num_variables())
+        .map(|idx| {
+            let variable_id = VariableId::new(idx as u32);
+            let name = model
+                .variable_name(variable_id)
+                .map_or_else(|| format!("x{idx}"), str::to_string);
+            solution_values.get(name.as_str()).copied().unwrap_or(0.0)
+        })
+        .collect::<Vec<_>>();
+    let mut row_values = vec![0.0; model.num_constraints()];
+    for (var_idx, primal_value) in primal_values.iter().copied().enumerate() {
+        let variable_id = VariableId::new(var_idx as u32);
+        let Some(column) = model.column(variable_id) else {
+            continue;
+        };
+        for (constraint_id, coefficient) in column {
+            if let Some(row_value) = row_values.get_mut(constraint_id.inner() as usize) {
+                *row_value += coefficient * primal_value;
+            }
+        }
+    }
+
+    Ok(ModelViewSolveResult {
+        fingerprint: model.fingerprint(),
+        status: match output.status {
+            SolveStatus::Optimal => SolverStatus::Optimal,
+            SolveStatus::Infeasible => SolverStatus::Infeasible,
+            SolveStatus::Failed => SolverStatus::Unknown,
+        },
+        objective_value: output.objective_value,
+        primal_values,
+        variable_duals: Vec::new(),
+        row_values,
+        constraint_duals: Vec::new(),
+    })
+}
 
 pub fn register_solver_family(registry: &mut SolverRegistry) {
     registry.add_family(SolverFamily::external_process(
@@ -433,6 +535,18 @@ mod tests {
 
         let value = evaluate_scip_linear_report(&report, &variable_values);
         assert!((value - 11.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn model_view_backend_rejects_empty_problem_before_process_spawn() {
+        let backend = ScipModelViewBackend;
+        let model = arco_model::Model::new();
+
+        let error = backend
+            .solve_model_view(&model, &SolverConfig::default())
+            .expect_err("empty model should fail before spawning SCIP");
+
+        assert!(matches!(error, SolverError::EmptyModel));
     }
 
     #[test]

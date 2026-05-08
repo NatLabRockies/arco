@@ -4,10 +4,30 @@ use crate::problem::ArcoProblem;
 use crate::solution::Solution;
 use arco_model::ModelView;
 use arco_solver::SolverError as CoreSolverError;
-use arco_solver::{Solve, SolverConfig, SolverError as GenericSolverError};
+use arco_solver::{
+    ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverError as GenericSolverError,
+};
 use tracing::debug;
 
 pub type SolverError = CoreSolverError;
+
+/// IPOPT backend registration object for primitive model views.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct IpoptModelViewBackend;
+
+impl ModelViewBackend for IpoptModelViewBackend {
+    fn family(&self) -> &'static str {
+        "ipopt"
+    }
+
+    fn solve_model_view(
+        &self,
+        model: &dyn ModelView,
+        config: &SolverConfig,
+    ) -> Result<ModelViewSolveResult, SolverError> {
+        solve_model_view(model, config)
+    }
+}
 
 pub struct Solver {
     config: SolverConfig,
@@ -75,8 +95,19 @@ impl Solve for Solver {
     }
 }
 
+/// Attempt to solve a primitive model view with IPOPT.
+pub fn solve_model_view(
+    model: &(impl ModelView + ?Sized),
+    _config: &SolverConfig,
+) -> Result<ModelViewSolveResult, SolverError> {
+    ArcoProblem::validate_supported_model(model)?;
+    Err(SolverError::SolverNotAvailable(
+        "IPOPT model-view solve execution is not linked in this build".to_string(),
+    ))
+}
+
 fn solve_problem(_config: &SolverConfig) -> Result<Solution, SolverError> {
     Err(SolverError::SolverNotAvailable(
-        "IPOPT model-view adapter is not implemented yet".to_string(),
+        "IPOPT model-view solve execution is not linked in this build".to_string(),
     ))
 }

@@ -9,4 +9,4 @@ pub mod solver;
 mod status;
 
 pub use solution::Solution;
-pub use solver::Solver;
+pub use solver::{Solver, XpressModelViewBackend, solve_model_view};

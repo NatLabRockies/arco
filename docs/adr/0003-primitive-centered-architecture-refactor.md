@@ -67,9 +67,9 @@ Arco will standardize on these crate ownership rules:
    interaction APIs. It exposes wrappers/DTOs rather than making raw primitive
    re-exports the primary public contract.
 9. `arco-blocks` is a language-neutral composition layer over `arco-ops`.
-10. CLI and Python bindings depend on `arco-ops` for core operations among Arco
-    crates. Python may also depend on `arco-blocks` for block composition APIs.
-    They own I/O, language ergonomics, and error presentation.
+10. CLI and Python bindings depend on `arco-ops` only among Arco crates. They
+    own I/O, language ergonomics, and error presentation; builtin solver and
+    model-view backend wiring is reached through the ops seam.
 
 ## QA/QC contract
 
@@ -103,9 +103,10 @@ Implemented and final-Sentrux-clean for this slice:
   migration.
 - `arco-solver` has `preflight_model_view` and keeps `preflight_selection` as a
   concrete-model wrapper.
-- `arco-kdl` can build primitive `FrozenModel`, `IndexedData`,
-  `ModelDocument`, and `ArcoDocument` values directly from parsed KDL for the
-  covered finite linear subset.
+- `arco-kdl` is now primitive/document-only: it parses KDL and can build
+  `IndexedData`, `ModelDocument`, and `ArcoDocument` shells without lowering
+  algebra into a solve-ready `FrozenModel` or requiring the legacy compile/IR/
+  targets flow.
 - `arco-model` indexed data now has sparse and dense numeric parameter tables,
   duplicate reducers, key filters, and explicit domain materialization.
 - `arco-model` now owns expression builders, expression IDs, and linear
@@ -444,13 +445,15 @@ just ci
 
 - [x] Define format-side requests, errors, capability declarations, numeric
       rendering policy, naming/escaping hooks, traversal helpers, and result DTOs.
-- [ ] Keep canonical model serialization in `arco-model` documents, not in the
-      format crate.
+- [x] Keep canonical model serialization in `arco-model` documents, not in the
+      format crate. `arco-format` now exposes only exporter DTO construction for
+      LP/MPS renderers; canonical structural documents remain in `arco-model`.
 - [x] Make concrete export formats consume `ModelView` or patched views. LP and
       MPS have primitive `ModelView` entry points; NL and legacy facade routing
       remain open.
-- [ ] Allocate row-major buffers, render trees, or format-specific layouts only
-      when the concrete format requires them.
+- [x] Allocate row-major buffers, render trees, or format-specific layouts only
+      when the concrete format requires them. LP/MPS `ModelView` exports build
+      portable row-oriented terms at the concrete renderer boundary.
 - [x] Remove format dependencies on KDL, solver selection, legacy IR, and legacy export crates.
 
 **Acceptance criteria:**
@@ -493,9 +496,10 @@ just ci
       requirements into `arco-solver`.
 - [x] Absorb `arco-contracts` where practical. It is excluded from active
       workspace membership after active adapters migrated to `arco-solver`.
-- [ ] Make solver adapters consume model views plus solver contracts directly.
-      HiGHS has a primitive `ModelViewBackend`; remaining optional adapters still
-      need direct `ModelView` entry points.
+- [x] Make solver adapters consume model views plus solver contracts directly.
+      HiGHS, SCIP, IPOPT, and Xpress expose primitive `ModelViewBackend` entry
+      points; commercial/native adapters may still report unavailable when their
+      linked solver execution is absent.
 - [x] Keep `arco-solver` adapter-neutral; concrete adapters must not register
       themselves by depending back into the primitive crate.
 - [x] Store result values keyed by stable model IDs and carry model fingerprints.
@@ -539,8 +543,8 @@ approved
 - [ ] Avoid v1 workflow bundles such as `load_validate_solve`, scenario sweeps,
       or multi-objective orchestration unless they already exist as stable
       operations that cannot be removed without a public decision.
-- [x] Keep concrete solver adapter wiring out of `arco-ops`; use solver
-      primitives and registries instead.
+- [x] Keep interaction surfaces free of direct concrete solver adapter wiring;
+      route builtin solver and model-view backend composition through `arco-ops`.
 
 **Acceptance criteria:**
 
@@ -661,10 +665,9 @@ just ci
 
 **Acceptance criteria:**
 
-- Python bindings depend on `arco-ops` for core operations and `arco-blocks`
-  only for block composition among Arco crates.
+- Python bindings depend on `arco-ops` only among Arco crates.
 - Python type stubs and docs describe the same stable concepts exposed by
-  `arco-ops` and `arco-blocks`.
+  `arco-ops`.
 - `sentrux check .` reports no Python boundary violations.
 
 **Validation:**

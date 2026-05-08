@@ -4,10 +4,10 @@ use arco_ops::execution::{
     VariableArtifactValue, VariableInstanceArtifactValue, adapter_output_from_model_view_solution,
     build_model,
 };
-use arco_ops::portable_problem_from_algebraic;
 use arco_ops::solve::{
     ModelViewBackend, ResolvedSelection, SolverConfig, SolverProfile, SolverTransport,
 };
+use arco_ops::{ops_problem_from_algebraic, portable_problem_from_ops};
 use arco_solver::{ModelViewBackendRegistry, SolverRegistry};
 use std::collections::BTreeMap;
 
@@ -108,7 +108,8 @@ impl OptimizationAdapter for ScipExternalAdapter {
             .iter()
             .map(|variable| variable.family.clone())
             .collect::<Vec<_>>();
-        let portable = portable_problem_from_algebraic(&problem.algebra);
+        let ops_problem = ops_problem_from_algebraic(&problem.algebra);
+        let portable = portable_problem_from_ops(&ops_problem);
         let scip_problem = arco_scip::ScipProblem {
             portable: &portable,
             variable_families: &variable_families,

@@ -196,9 +196,8 @@ fn run_file_with_options_and_profile(
         selection.transport,
         include_variable_values
     );
-    let adapter =
-        arco_builtin_solvers::adapter_for_selection(selection, options.solver_log, profile)
-            .map_err(|message| DriverError::BackendNotAvailable { message })?;
+    let adapter = ArcoOps::builtin_adapter_for_selection(selection, options.solver_log, profile)
+        .map_err(|message| DriverError::BackendNotAvailable { message })?;
     let execution_result = ArcoOps::execute_compiled_problem_with_adapter(
         &compiled.compiled_problem,
         adapter.as_ref(),
@@ -220,7 +219,7 @@ fn run_file_with_options_and_profile(
         active_scenario: compiled.semantic_program.active_scenario,
         objective: ObjectiveSummary {
             name: execution_result.objective.dsl_name,
-            sense: execution_result.objective_sense,
+            sense: format!("{:?}", execution_result.objective_sense),
             value: execution_result.objective.value,
         },
         reports: execution_result

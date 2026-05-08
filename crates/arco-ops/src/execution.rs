@@ -250,13 +250,10 @@ impl RustArcoAdapter {
 
 pub fn builtin_adapter_for_selection(
     selection: &crate::solve::ResolvedSelection,
-    _log_to_console: bool,
-    _profile: Option<&crate::solve::SolverProfile>,
+    log_to_console: bool,
+    profile: Option<&crate::solve::SolverProfile>,
 ) -> Result<Box<dyn OptimizationAdapter>, String> {
-    Err(format!(
-        "arco-ops is adapter-neutral and cannot construct builtin adapter '{}' directly",
-        selection.family
-    ))
+    crate::execution_backends::adapter_for_selection(selection, log_to_console, profile)
 }
 
 impl ScipArcoAdapter {

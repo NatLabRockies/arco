@@ -16,7 +16,7 @@ Interaction surfaces
                ▼
 arco-ops (transitional facade)
         │
-        ├── arco-kdl      KDL parsing + source AST + primitive builders
+        ├── arco-kdl      KDL parsing + source AST + primitive documents
         ├── arco-model    primitive model + indexed data + document DTOs
         ├── arco-validate model-view validation/reporting
         ├── arco-solver   solver selection/preflight/contracts
@@ -29,13 +29,14 @@ arco-ops (transitional facade)
 - `arco-model`: canonical primitive model APIs (`ModelBuilder`, `FrozenModel`,
   `ModelView`, `ModelPatch`), indexed-data primitives, and primitive document
   DTOs.
-- `arco-kdl`: KDL parser/AST/diagnostics plus direct primitive builders for
-  `FrozenModel`, `IndexedData`, and primitive documents.
+- `arco-kdl`: KDL parser/AST/diagnostics plus document-only primitive builders
+  for `IndexedData` and primitive document shells; it does not lower algebra to
+  solve-ready models.
 - `arco-validate`: user-facing validation over model views.
 - `arco-solver`: solver-facing contracts, selection, and preflight.
 - `arco-ops`: transitional interaction facade used by CLI, Python core APIs,
-  and block composition. LP/MPS file export now uses a direct
-  KDL -> primitive frozen-model -> format path.
+  and block composition. LP/MPS problem export uses active format seams; KDL
+  document construction remains in `arco-kdl`.
 - `arco-blocks`: block composition layer over `arco-ops`; Python imports it only
   for block-specific APIs.
 
@@ -64,5 +65,7 @@ Active-workspace dependency snapshot from `cargo metadata --no-deps`:
 
 ## KDL boundary status
 
-`arco-kdl` now builds primitive artifacts directly and does not depend on solver,
-runtime, export, concrete adapter, or retired handoff crates.
+`arco-kdl` now builds primitive document artifacts directly and does not depend
+on solver, runtime, export, concrete adapter, or retired handoff crates. Its
+primitive path is document/indexed-data only and does not compile KDL algebra to
+a `FrozenModel`.

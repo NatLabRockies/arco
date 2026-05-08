@@ -290,7 +290,12 @@ pub fn export_model_view_mps(model: &impl ModelView) -> Result<FormatResult, Exp
     })
 }
 
-fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
+/// Build the portable format DTO used by concrete text exporters from a model view.
+///
+/// This is an exporter DTO, not Arco's canonical model serialization. Canonical
+/// structural documents remain owned by `arco-model`; this helper only allocates
+/// the row-oriented names and terms required by LP/MPS style renderers.
+pub fn portable_problem_from_model_view(model: &(impl ModelView + ?Sized)) -> PortableProblem {
     let variable_instances = (0..model.num_variables())
         .filter_map(|idx| {
             let variable_id = VariableId::new(idx as u32);
@@ -401,13 +406,13 @@ fn portable_problem_from_model_view(model: &impl ModelView) -> PortableProblem {
     }
 }
 
-fn variable_name(model: &impl ModelView, id: VariableId, index: usize) -> String {
+fn variable_name(model: &(impl ModelView + ?Sized), id: VariableId, index: usize) -> String {
     model
         .variable_name(id)
         .map_or_else(|| format!("x{index}"), str::to_string)
 }
 
-fn constraint_name(model: &impl ModelView, id: ConstraintId, index: usize) -> String {
+fn constraint_name(model: &(impl ModelView + ?Sized), id: ConstraintId, index: usize) -> String {
     model
         .constraint_name(id)
         .map_or_else(|| format!("c{index}"), str::to_string)

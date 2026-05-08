@@ -1,5 +1,4 @@
-use crate::{PyModel, PyObject, PySolveResult};
-use arco_blocks::BlockPort;
+use crate::{BlockPort, PyModel, PyObject, PySolveResult};
 use arco_ops::solve::SolverStatus;
 use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;

@@ -6,7 +6,6 @@
 mod py_modules;
 
 use crate::py_modules as pym;
-use arco_blocks::{BlockPort, add_blocks_submodule};
 use arco_ops::expression::{ComparisonSense, ConstraintId, VariableId};
 use arco_ops::modeling::model::PrettyPrintOptions;
 use arco_ops::modeling::types::Bounds;
@@ -17,6 +16,35 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple, PyType};
 
 pub(crate) type PyObject = Py<PyAny>;
+
+#[pyclass(name = "BlockPort", from_py_object)]
+#[derive(Clone)]
+pub struct BlockPort {
+    #[pyo3(get)]
+    pub block_name: String,
+    #[pyo3(get)]
+    pub key: String,
+    #[pyo3(get)]
+    pub kind: String,
+}
+
+impl BlockPort {
+    pub fn new_input(block_name: String, key: String) -> Self {
+        Self {
+            block_name,
+            key,
+            kind: "input".to_string(),
+        }
+    }
+
+    pub fn new_output(block_name: String, key: String) -> Self {
+        Self {
+            block_name,
+            key,
+            kind: "output".to_string(),
+        }
+    }
+}
 
 fn sparse_export_dict<F>(py: Python<'_>, shape: (usize, usize), fill: F) -> PyResult<PyObject>
 where
@@ -1099,7 +1127,6 @@ fn arco(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pym::logging::register(m)?;
     pym::iterators::register(m)?;
     pym::bounds::export_bound_constants(m)?;
-    add_blocks_submodule(m.py(), m)?;
     m.setattr("block", typed_block_fn)?;
 
     Ok(())

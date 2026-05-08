@@ -2,7 +2,9 @@
 
 pub mod benchmark;
 pub mod compile;
+pub mod dto;
 pub mod execution;
+mod execution_backends;
 pub mod inspect;
 
 use crate::compile::compile::{LinearTerm as TargetLinearTerm, SolveTarget};
@@ -10,19 +12,17 @@ use crate::compile::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
 };
 use crate::compile::targets::{
-    AlgebraicProblem, ConstraintSense, LinearConstraint, LinearObjective, LinearTerm,
-    ObjectiveSense as TargetObjectiveSense, VariableInstance, VariableKind,
+    AlgebraicProblem, ConstraintSense, ObjectiveSense as TargetObjectiveSense, VariableKind,
 };
 pub use arco_format::ExportError;
 use arco_format::{
     PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective,
     PortableLinearReport, PortableLinearTerm, PortableObjectiveSense, PortableProblem,
-    PortableVariableInstance, PortableVariableKind, export_model_view_lp, export_model_view_mps,
-    write_lp, write_mps,
+    PortableVariableInstance, PortableVariableKind, write_lp, write_mps,
 };
 use arco_kdl as kdl;
+use arco_kdl::PrimitiveBuildError;
 use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
-use arco_kdl::{PrimitiveBuildError, build_model};
 /// Stable model-facing vocabulary exposed through the ops seam.
 pub mod modeling {
     pub use arco_model::{
@@ -92,24 +92,20 @@ pub type OpsValidationReport = ValidationReport;
 /// Compile/check error exposed by the operations facade.
 pub type OpsCompileError = PipelineError;
 
-/// Facade DTO aliases that hide compile-internal module paths.
-pub type OpsAlgebraicProblem = AlgebraicProblem;
-pub type OpsConstraintSense = ConstraintSense;
-pub type OpsLinearConstraint = LinearConstraint;
-pub type OpsLinearObjective = LinearObjective;
-pub type OpsLinearReport = crate::compile::targets::LinearReport;
-pub type OpsLinearTerm = LinearTerm;
-pub type OpsObjectiveSense = TargetObjectiveSense;
-pub type OpsVariableInstance = VariableInstance;
-pub type OpsVariableKind = VariableKind;
+pub use crate::dto::{
+    OpsAlgebraicProblem, OpsConstraintSense, OpsLinearConstraint, OpsLinearObjective,
+    OpsLinearReport, OpsLinearTerm, OpsObjectiveSense, OpsVariableInstance, OpsVariableKind,
+};
 
-/// Errors emitted when exporting a model file through primitive paths.
+/// Errors emitted when exporting a model file.
 #[derive(Debug, Error, miette::Diagnostic)]
 pub enum OpsExportFileError {
     #[error(transparent)]
     PrimitiveBuild(#[from] PrimitiveBuildError),
     #[error(transparent)]
     Export(#[from] ExportError),
+    #[error(transparent)]
+    Compile(Box<PipelineError>),
 }
 
 /// Export format supported by the operations facade.
@@ -146,18 +142,6 @@ impl ArcoOps {
         compile_file(path)
     }
 
-    /// Build a primitive frozen model directly from a KDL model file.
-    pub fn build_primitive_model_file(
-        path: &Path,
-    ) -> Result<arco_model::Model64, PrimitiveBuildError> {
-        let parsed =
-            Self::load_file(path).map_err(|error| PrimitiveBuildError::UnsupportedExpression {
-                context: "source parse".to_string(),
-                expr: error.to_string(),
-            })?;
-        build_model(&parsed)
-    }
-
     /// Export an algebraic problem to a text interchange format.
     pub fn export_problem(
         problem: &OpsAlgebraicProblem,
@@ -166,26 +150,24 @@ impl ArcoOps {
         let mut buffer = Vec::new();
         match format {
             OpsExportFormat::Lp => {
-                write_lp(&portable_problem_from_algebraic(problem), &mut buffer)?;
+                write_lp(&portable_problem_from_ops(problem), &mut buffer)?;
             }
             OpsExportFormat::Mps => {
-                write_mps(&portable_problem_from_algebraic(problem), &mut buffer)?;
+                write_mps(&portable_problem_from_ops(problem), &mut buffer)?;
             }
         }
         Ok(buffer)
     }
 
-    /// Export a KDL model file directly from the primitive frozen model path.
+    /// Export a KDL model file through the legacy algebraic export path.
     pub fn export_model_file(
         path: &Path,
         format: OpsExportFormat,
     ) -> Result<Vec<u8>, OpsExportFileError> {
-        let model = Self::build_primitive_model_file(path)?;
-        let result = match format {
-            OpsExportFormat::Lp => export_model_view_lp(&model)?,
-            OpsExportFormat::Mps => export_model_view_mps(&model)?,
-        };
-        Ok(result.bytes)
+        let compiled = Self::compile_file(path)
+            .map_err(|error| OpsExportFileError::Compile(Box::new(error)))?;
+        let problem = ops_problem_from_algebraic(&compiled.compiled_problem.algebra);
+        Self::export_problem(&problem, format).map_err(OpsExportFileError::Export)
     }
 
     /// Solve through a solver implementation using the shared solver contract.
@@ -199,7 +181,7 @@ impl ArcoOps {
 
     /// Build solver registry with builtin abstract families from solver contracts.
     pub fn solver_registry_with_builtin_families() -> SolverRegistry {
-        SolverRegistry::with_builtin_families()
+        crate::execution_backends::solver_registry_with_builtin_families()
     }
 
     /// Resolve a solver selection against the available registry and profiles.
@@ -241,20 +223,27 @@ impl ArcoOps {
         registry.solve(family, model, config)
     }
 
+    /// Construct a builtin execution adapter for a resolved solver selection.
+    pub fn builtin_adapter_for_selection(
+        selection: &ResolvedSelection,
+        log_to_console: bool,
+        profile: Option<&SolverProfile>,
+    ) -> Result<Box<dyn execution::OptimizationAdapter>, String> {
+        execution::builtin_adapter_for_selection(selection, log_to_console, profile)
+    }
+
     /// Compatibility shim: arco-ops no longer embeds concrete model-view backends.
     pub fn solve_model_view_with_builtin_backend(
         family: &str,
-        _model: &dyn arco_model::ModelView,
-        _config: &SolverConfig,
+        model: &dyn arco_model::ModelView,
+        config: &SolverConfig,
     ) -> Result<ModelViewSolveResult, SolverError> {
-        Err(SolverError::SolverNotAvailable(format!(
-            "no builtin model-view backend embedded in arco-ops for '{family}'"
-        )))
+        crate::execution_backends::solve_model_view_with_builtin_backend(family, model, config)
     }
 
-    /// arco-ops is adapter-neutral and reports no concrete backend version.
-    pub fn builtin_solver_version(_family: &str) -> Option<String> {
-        None
+    /// Return the version for a builtin backend family when available.
+    pub fn builtin_solver_version(family: &str) -> Option<String> {
+        crate::execution_backends::builtin_solver_version(family)
     }
 
     /// Build a minimal solve request from an optional solver selection.
@@ -292,7 +281,60 @@ pub fn source_error_span(error: &OpsSourceError) -> Option<miette::SourceSpan> {
     }
 }
 
-pub fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortableProblem {
+/// Copy a compile-internal algebraic problem into the stable ops DTO.
+pub fn ops_problem_from_algebraic(problem: &AlgebraicProblem) -> OpsAlgebraicProblem {
+    OpsAlgebraicProblem {
+        variable_instances: problem
+            .variable_instances
+            .iter()
+            .map(|variable| OpsVariableInstance {
+                name: variable.name.clone(),
+                family: variable.family.clone(),
+                lower: variable.lower,
+                upper: variable.upper,
+                kind: match variable.kind {
+                    VariableKind::Continuous => OpsVariableKind::Continuous,
+                    VariableKind::Integer => OpsVariableKind::Integer,
+                    VariableKind::Binary => OpsVariableKind::Binary,
+                },
+            })
+            .collect(),
+        constraints: problem
+            .constraints
+            .iter()
+            .map(|constraint| OpsLinearConstraint {
+                name: constraint.name.clone(),
+                sense: match constraint.sense {
+                    ConstraintSense::GreaterEqual => OpsConstraintSense::GreaterEqual,
+                    ConstraintSense::LessEqual => OpsConstraintSense::LessEqual,
+                    ConstraintSense::Equal => OpsConstraintSense::Equal,
+                },
+                rhs: constraint.rhs,
+                terms: ops_terms(&constraint.terms),
+            })
+            .collect(),
+        objective: OpsLinearObjective {
+            name: problem.objective.name.clone(),
+            sense: match problem.objective.sense {
+                TargetObjectiveSense::Minimize => OpsObjectiveSense::Minimize,
+                TargetObjectiveSense::Maximize => OpsObjectiveSense::Maximize,
+            },
+            constant: problem.objective.constant,
+            terms: ops_terms(&problem.objective.terms),
+        },
+        reports: problem
+            .reports
+            .iter()
+            .map(|report| OpsLinearReport {
+                name: report.name.clone(),
+                constant: report.constant,
+                terms: ops_terms(&report.terms),
+            })
+            .collect(),
+    }
+}
+
+pub fn portable_problem_from_ops(problem: &OpsAlgebraicProblem) -> PortableProblem {
     PortableProblem {
         variable_instances: problem
             .variable_instances
@@ -303,9 +345,9 @@ pub fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortablePr
                 lower: variable.lower,
                 upper: variable.upper,
                 kind: match variable.kind {
-                    VariableKind::Continuous => PortableVariableKind::Continuous,
-                    VariableKind::Integer => PortableVariableKind::Integer,
-                    VariableKind::Binary => PortableVariableKind::Binary,
+                    OpsVariableKind::Continuous => PortableVariableKind::Continuous,
+                    OpsVariableKind::Integer => PortableVariableKind::Integer,
+                    OpsVariableKind::Binary => PortableVariableKind::Binary,
                 },
             })
             .collect(),
@@ -315,9 +357,9 @@ pub fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortablePr
             .map(|constraint| PortableLinearConstraint {
                 name: constraint.name.clone(),
                 sense: match constraint.sense {
-                    ConstraintSense::GreaterEqual => PortableConstraintSense::GreaterEqual,
-                    ConstraintSense::LessEqual => PortableConstraintSense::LessEqual,
-                    ConstraintSense::Equal => PortableConstraintSense::Equal,
+                    OpsConstraintSense::GreaterEqual => PortableConstraintSense::GreaterEqual,
+                    OpsConstraintSense::LessEqual => PortableConstraintSense::LessEqual,
+                    OpsConstraintSense::Equal => PortableConstraintSense::Equal,
                 },
                 rhs: constraint.rhs,
                 terms: portable_terms(&constraint.terms),
@@ -326,8 +368,8 @@ pub fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortablePr
         objective: PortableLinearObjective {
             name: problem.objective.name.clone(),
             sense: match problem.objective.sense {
-                TargetObjectiveSense::Minimize => PortableObjectiveSense::Minimize,
-                TargetObjectiveSense::Maximize => PortableObjectiveSense::Maximize,
+                OpsObjectiveSense::Minimize => PortableObjectiveSense::Minimize,
+                OpsObjectiveSense::Maximize => PortableObjectiveSense::Maximize,
             },
             constant: problem.objective.constant,
             terms: portable_terms(&problem.objective.terms),
@@ -344,7 +386,17 @@ pub fn portable_problem_from_algebraic(problem: &AlgebraicProblem) -> PortablePr
     }
 }
 
-fn portable_terms(terms: &[TargetLinearTerm]) -> Vec<PortableLinearTerm> {
+fn ops_terms(terms: &[TargetLinearTerm]) -> Vec<OpsLinearTerm> {
+    terms
+        .iter()
+        .map(|term| OpsLinearTerm {
+            variable_name: term.variable_name.clone(),
+            coefficient: term.coefficient,
+        })
+        .collect()
+}
+
+fn portable_terms(terms: &[OpsLinearTerm]) -> Vec<PortableLinearTerm> {
     terms
         .iter()
         .map(|term| PortableLinearTerm {
@@ -451,11 +503,6 @@ mod tests {
             .join("examples/dense-lp/input.kdl")
     }
 
-    fn primitive_fixture_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../arco-kdl/tests/fixtures/primitives_builds_simple_model_and_docs.kdl")
-    }
-
     #[test]
     fn load_file_parses_kdl_source() {
         let loaded = ArcoOps::load_file(&fixture_path()).expect("fixture should load");
@@ -484,28 +531,19 @@ mod tests {
     }
 
     #[test]
-    fn build_primitive_model_file_uses_direct_kdl_builder() {
-        let model = ArcoOps::build_primitive_model_file(&primitive_fixture_path())
-            .expect("primitive fixture should build");
-
-        assert_eq!(model.num_variables(), 2);
-        assert_eq!(model.num_constraints(), 1);
-    }
-
-    #[test]
     fn export_problem_writes_lp_bytes() {
         let compiled = ArcoOps::compile_file(&fixture_path()).expect("fixture should compile");
+        let problem = crate::ops_problem_from_algebraic(&compiled.compiled_problem.algebra);
         let exported =
-            ArcoOps::export_problem(&compiled.compiled_problem.algebra, OpsExportFormat::Lp)
-                .expect("fixture should export");
+            ArcoOps::export_problem(&problem, OpsExportFormat::Lp).expect("fixture should export");
 
         assert!(String::from_utf8_lossy(&exported).starts_with("\\ Problem name: MODEL"));
     }
 
     #[test]
-    fn export_model_file_uses_primitive_path() {
-        let exported = ArcoOps::export_model_file(&primitive_fixture_path(), OpsExportFormat::Lp)
-            .expect("primitive fixture should export");
+    fn export_model_file_uses_legacy_algebraic_path() {
+        let exported = ArcoOps::export_model_file(&fixture_path(), OpsExportFormat::Lp)
+            .expect("fixture should export");
 
         assert!(String::from_utf8_lossy(&exported).starts_with("\\ Problem name: MODEL"));
     }

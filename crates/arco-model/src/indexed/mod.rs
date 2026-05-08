@@ -1,10 +1,12 @@
 //! Primitive indexed data: sets, domains, parameter tables, and attributes.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::Hash;
 
 /// Atomic index values supported by primitive documents v1.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IndexValue {
     String(String),
     Integer(i64),
@@ -13,7 +15,8 @@ pub enum IndexValue {
 }
 
 /// Ordered key into a domain or table.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct IndexKey(pub Vec<IndexValue>);
 
 /// Ordered unique scalar set.
@@ -67,6 +70,14 @@ impl TupleSet {
         } else {
             false
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn arity(&self) -> usize {
+        self.arity
     }
 
     pub fn keys(&self) -> impl Iterator<Item = &IndexKey> {
@@ -333,6 +344,21 @@ impl AttributeTable {
 
     pub fn insert(&mut self, key: IndexKey, value: impl Into<String>) {
         self.values.insert(key, value.into());
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn get(&self, key: &IndexKey) -> Option<&str> {
+        self.values.get(key).map(String::as_str)
+    }
+
+    pub fn rows(&self) -> Vec<(IndexKey, &String)> {
+        self.values
+            .iter()
+            .map(|(key, value)| (key.clone(), value))
+            .collect()
     }
 }
 

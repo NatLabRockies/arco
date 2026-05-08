@@ -18,21 +18,18 @@ fn arco_dependencies_for(manifest_path: &PathBuf) -> Vec<String> {
 }
 
 #[test]
-fn arco_cli_depends_on_ops_and_builtin_solver_composition_only_among_arco_crates() {
+fn arco_cli_depends_on_ops_only_among_arco_crates() {
     let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let arco_deps = arco_dependencies_for(&manifest_path);
 
-    assert_eq!(arco_deps, vec!["arco-builtin-solvers", "arco-ops"]);
+    assert_eq!(arco_deps, vec!["arco-ops"]);
 }
 
 #[test]
-fn python_bindings_depend_on_ops_blocks_and_builtin_solver_composition_only_among_arco_crates() {
+fn python_bindings_depend_on_ops_only_among_arco_crates() {
     let manifest_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../bindings/python/Cargo.toml");
     let arco_deps = arco_dependencies_for(&manifest_path);
 
-    assert_eq!(
-        arco_deps,
-        vec!["arco-blocks", "arco-builtin-solvers", "arco-ops"]
-    );
+    assert_eq!(arco_deps, vec!["arco-ops"]);
 }

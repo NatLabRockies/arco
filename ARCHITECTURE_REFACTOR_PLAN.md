@@ -55,7 +55,8 @@ top of Arco without core-developer intervention.
     sets, domains, index keys, numeric parameter tables, attribute tables,
     projection/filter primitives, and `IndexedData`
   - stable primitive documents: `ModelDocument`, `IndexedDataDocument`, and a
-    combined `ArcoDocument`
+    combined `ArcoDocument`; v1 DTOs carry the full finite linear model and
+    primitive indexed-data rows needed for JSON roundtrips
 
   It does **not** own:
   - KDL/JSON/YAML syntax
@@ -159,7 +160,9 @@ and values keyed by stable model IDs. Joined ergonomic result views belong in
 - `arco-ops` — stability adapter for interaction surfaces. It exposes stable
   wrapper/DTO types over primitive model, indexed data, document, validation,
   format/export, and solve concepts. It should not primarily re-export
-  primitive crates.
+  primitive crates. Algebraic export boundaries use `OpsAlgebraicProblem` and
+  related DTOs copied from internal compile targets via
+  `ops_problem_from_algebraic`, so callers do not bind to compile-internal paths.
 - `arco-blocks` — high-level run-container composition layer over `arco-ops`.
   It models multiple optimization containers, typed ports, feedforward links,
   block DAG execution, block runs, diagnostics, and extracted outputs.
@@ -349,7 +352,10 @@ serialization.
 Documents have one shared primitive `schema_version` and a `document_kind`.
 Scalar precision is preserved by a document-level `scalar_type`, and scalar
 values serialize as canonical strings to preserve infinities and roundtrip
-intent.
+intent. In v1, `ModelDocument::from_model` / `to_model` and
+`IndexedDataDocument::from_indexed_data` / `to_indexed_data` are the contract
+roundtrip entry points; DTOs are `serde`-serializable and internal storage
+remains private.
 
 Example shape:
 
@@ -450,7 +456,9 @@ graphs, but the first target is model/data authoring.
   structures that duplicate the primitive API.
 - Add `arco_model::indexed` inside `arco-model` for in-memory indexed data
   primitives.
-- Add stable primitive document DTOs in `arco-model`.
+- Add stable primitive document DTOs in `arco-model`. ✅ Issue 1-2 freezes the
+  current `ModelView` + primitive document contract with JSON roundtrip coverage
+  for finite linear models and indexed-data primitives.
 - Keep `arco-kdl` as a KDL parser/semantic layer that builds primitives.
 - Keep `arco-validate` as a user-facing validation/reporting layer over model
   views.
@@ -521,8 +529,11 @@ callback mechanics out of the core block layer.
 
 ### Phase 8: rewrite interaction surfaces
 
-Rewrite CLI and Python bindings to use `arco-ops` only among Arco crates. They
-own user I/O and language ergonomics, not architecture policy.
+Completed for the migration sweep: `arco-cli` and `bindings/python` now depend on
+`arco-ops` only among Arco crates. Builtin solver family registration,
+model-view backend dispatch, external SCIP adapter construction, and Python
+model-view solving are routed through the ops seam so interaction surfaces own
+only user I/O and language ergonomics.
 
 ### Phase 9: delete legacy structure
 
@@ -531,9 +542,10 @@ contracts, direct adapter solve APIs over models, and stale tests/examples.
 
 ### Phase 10: document and verify
 
-Update user and contributor documentation to describe the actual final state.
-Run the relevant checks for changed areas, then full workspace checks before
-shipping the refactor.
+In progress for the migration completion sweep. The dependency-boundary tests now
+assert ops-only Arco dependencies for both CLI and Python bindings. Before
+shipping, run formatting, targeted dependency-boundary tests, and the full
+workspace clippy/test sweep documented in `AGENTS.md`.
 
 ## Decision checklist for future contributors
 

@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use arco_ops::OpsObjectiveSense as ObjectiveSense;
 use serde::Serialize;
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -22,7 +21,7 @@ pub struct RunSummary {
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ObjectiveSummary {
     pub name: String,
-    pub sense: ObjectiveSense,
+    pub sense: String,
     pub value: f64,
 }
 

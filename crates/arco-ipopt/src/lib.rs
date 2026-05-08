@@ -9,4 +9,4 @@ pub mod solver;
 mod status;
 
 pub use solution::Solution;
-pub use solver::{Solver, SolverError};
+pub use solver::{IpoptModelViewBackend, Solver, SolverError, solve_model_view};

@@ -1,6 +1,7 @@
 use arco_ops::{
     ArcoOps, OpsAlgebraicProblem as AlgebraicProblem, OpsConstraintSense as ConstraintSense,
     OpsObjectiveSense as ObjectiveSense, OpsVariableKind as VariableKind,
+    ops_problem_from_algebraic,
 };
 use miette::{IntoDiagnostic, Result, miette};
 use std::collections::BTreeMap;
@@ -14,7 +15,8 @@ const ARCO_PYTHON_BINDINGS_SPEC: &str = "arco";
 
 pub fn launch_ipython(path: &Path) -> Result<()> {
     let compiled = ArcoOps::compile_file(path)?;
-    let model_data = build_python_model_data(&compiled.compiled_problem.algebra)?;
+    let problem = ops_problem_from_algebraic(&compiled.compiled_problem.algebra);
+    let model_data = build_python_model_data(&problem)?;
     let script = build_ipython_script(path, &model_data);
     let bootstrap = DebugBootstrapScript::create(&script)?;
 

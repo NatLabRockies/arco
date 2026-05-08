@@ -7,13 +7,14 @@ use crate::execution::{
     build_model, evaluate_linear_report, extract_dual_report_values, lookup_primal_value,
     map_solver_status,
 };
-use crate::portable_problem_from_algebraic;
 #[cfg(feature = "xpress")]
 use crate::xpress::Solver as XpressSolver;
+use crate::{ops_problem_from_algebraic, portable_problem_from_ops};
 use arco_highs::{HighsModelViewBackend, highs_version};
 use arco_scip as scip;
 use arco_solver::{
-    ModelViewBackendRegistry, ModelViewSolveResult, SolverConfig, SolverError, SolverRegistry,
+    ModelViewBackendRegistry, ModelViewSolveResult, ResolvedSelection, SolverConfig, SolverError,
+    SolverProfile, SolverRegistry, SolverTransport,
 };
 use std::time::Instant;
 use tracing::info;
@@ -67,6 +68,32 @@ fn normalize_model_view_backend_family(family: &str) -> &str {
         "arco-rust-xpress" => "xpress",
         "arco-rust-scip" => "scip",
         other => other,
+    }
+}
+
+pub(crate) fn adapter_for_selection(
+    selection: &ResolvedSelection,
+    log_to_console: bool,
+    profile: Option<&SolverProfile>,
+) -> Result<Box<dyn OptimizationAdapter>, String> {
+    match selection.transport {
+        SolverTransport::Embedded => match selection.family.as_str() {
+            "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
+            family => Err(format!(
+                "embedded solver family '{family}' is not available"
+            )),
+        },
+        SolverTransport::ExternalProcess => match selection.family.as_str() {
+            "scip" => Ok(Box::new(ScipArcoAdapter::with_external_process_profile(
+                log_to_console,
+                profile.and_then(|value| value.executable.clone()),
+                profile.map_or_else(Vec::new, |value| value.arguments.clone()),
+                profile.map_or_else(Default::default, |value| value.environment.clone()),
+            ))),
+            family => Err(format!(
+                "external-process solver family '{family}' is not available"
+            )),
+        },
     }
 }
 
@@ -217,7 +244,8 @@ impl OptimizationAdapter for ScipArcoAdapter {
             .iter()
             .map(|variable| variable.family.clone())
             .collect::<Vec<_>>();
-        let portable = portable_problem_from_algebraic(&problem.algebra);
+        let ops_problem = ops_problem_from_algebraic(&problem.algebra);
+        let portable = portable_problem_from_ops(&ops_problem);
         let scip_problem = scip::ScipProblem {
             portable: &portable,
             variable_families: &variable_families,

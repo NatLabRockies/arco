@@ -2,10 +2,30 @@
 
 use crate::solution::Solution;
 use arco_model::ModelView;
-use arco_solver::{Solve, SolverConfig, SolverError as CoreSolverError};
+use arco_solver::{
+    ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverError as CoreSolverError,
+};
 use tracing::debug;
 
 pub type SolverError = CoreSolverError;
+
+/// Xpress backend registration object for primitive model views.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct XpressModelViewBackend;
+
+impl ModelViewBackend for XpressModelViewBackend {
+    fn family(&self) -> &'static str {
+        "xpress"
+    }
+
+    fn solve_model_view(
+        &self,
+        model: &dyn ModelView,
+        config: &SolverConfig,
+    ) -> Result<ModelViewSolveResult, SolverError> {
+        solve_model_view(model, config)
+    }
+}
 
 pub struct Solver {
     config: SolverConfig,
@@ -87,8 +107,21 @@ impl Solve for Solver {
     }
 }
 
+/// Attempt to solve a primitive model view with Xpress.
+pub fn solve_model_view(
+    model: &(impl ModelView + ?Sized),
+    _config: &SolverConfig,
+) -> Result<ModelViewSolveResult, SolverError> {
+    if model.num_variables() == 0 {
+        return Err(SolverError::EmptyModel);
+    }
+    Err(SolverError::SolverNotAvailable(
+        "Xpress model-view solve execution is not linked in this build".to_string(),
+    ))
+}
+
 fn solve_problem(_config: &SolverConfig) -> Result<Solution, SolverError> {
     Err(SolverError::SolverNotAvailable(
-        "Xpress model-view adapter is not implemented yet".to_string(),
+        "Xpress model-view solve execution is not linked in this build".to_string(),
     ))
 }
