@@ -248,4 +248,4 @@ jobs:
 
       - name: Run docs doctests
         if: matrix.python-version == '3.12'
-        run: just py-doctest-ci
+        run: just docs-test

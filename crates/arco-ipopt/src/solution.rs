@@ -1,6 +1,5 @@
 //! IPOPT solution type and trait implementations.
 
-use crate::problem::ArcoProblem;
 use crate::status::{
     ipopt_has_solution, ipopt_status_string, ipopt_to_core_status, ipopt_to_generic_status,
 };
@@ -22,50 +21,6 @@ pub struct Solution {
 }
 
 impl Solution {
-    /// Build a `Solution` from IPOPT's raw output.
-    ///
-    /// `obj_sign` is +1 for minimize, -1 for maximize. When maximizing, we
-    /// negate the objective and duals back to the user's convention.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn from_ipopt(
-        primal: &[f64],
-        lower_bound_mult: &[f64],
-        upper_bound_mult: &[f64],
-        constraint_mult: &[f64],
-        constraint_values: &[f64],
-        raw_objective: f64,
-        status: SolveStatus,
-        solve_time: f64,
-        problem: &ArcoProblem,
-    ) -> Self {
-        let obj_sign = problem.obj_sign;
-
-        // Variable duals = lower_bound_mult - upper_bound_mult
-        // For maximize, negate to match user convention.
-        let variable_duals: Vec<f64> = lower_bound_mult
-            .iter()
-            .zip(upper_bound_mult.iter())
-            .map(|(lo, hi)| obj_sign * (lo - hi))
-            .collect();
-
-        // Constraint duals: IPOPT gives multipliers for the Lagrangian.
-        // For maximize, negate to match user convention.
-        let constraint_duals: Vec<f64> = constraint_mult.iter().map(|&m| obj_sign * m).collect();
-
-        // Negate objective back for maximize
-        let objective_value = obj_sign * raw_objective;
-
-        Solution {
-            primal_values: primal.to_vec(),
-            variable_duals,
-            constraint_duals,
-            row_values: constraint_values.to_vec(),
-            objective_value,
-            status,
-            solve_time_seconds: solve_time,
-        }
-    }
-
     /// Get the primal value of a variable at the given index.
     pub fn get_primal(&self, index: usize) -> Option<f64> {
         self.primal_values.get(index).copied()
