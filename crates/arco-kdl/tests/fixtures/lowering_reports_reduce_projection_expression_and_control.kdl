@@ -1,0 +1,40 @@
+
+set "area" { "north" }
+set "tech" { "solar" }
+set "gen" { "g1" }
+set "bus" { "b1" }
+
+set "feasible_links" {
+  index "a" { in "area" }
+  index "i" { in "tech" }
+  index "g" { in "gen" }
+  index "b" { in "bus" }
+}
+
+projection "ai" {
+  from "feasible_links"
+  to "a" "i"
+}
+
+model "NodalAllocation" {
+  control "capacity_nodal_site" lower=0 {
+    index "a" { in "feasible_links" }
+    index "i" { in "feasible_links" }
+    index "g" { in "feasible_links" }
+    index "b" { in "feasible_links" }
+  }
+
+  expression "allocated_capacity" {
+    reduce "ai" {
+      sum "capacity_nodal_site"
+    }
+  }
+
+  minimize "Obj" { 0 }
+}
+
+scenario "NodalAllocationDay" {
+  use "NodalAllocation"
+  report "capacity_nodal_site"
+  report "allocated_capacity"
+}

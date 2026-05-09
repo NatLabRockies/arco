@@ -20,6 +20,15 @@ fn run_cli(args: &[&str]) -> std::process::Output {
         .expect("failed to execute arco binary")
 }
 
+fn run_cli_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_arco"));
+    command.args(args);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    command.output().expect("failed to execute arco binary")
+}
+
 fn unique_temp_dir(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -298,11 +307,13 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
     let variables = inspect_payload["variable"]
         .as_array()
         .expect("variable array");
-    let investment = variables
+    let capacity = variables
         .iter()
-        .find(|record| record["name"] == "investment")
-        .expect("investment variable record");
-    let sets = investment["set"].as_array().expect("investment set array");
+        .find(|record| record["name"] == "capacity_nodal_site")
+        .expect("capacity_nodal_site variable record");
+    let sets = capacity["set"]
+        .as_array()
+        .expect("capacity_nodal_site set array");
     assert_eq!(
         sets.len(),
         4,
@@ -498,6 +509,146 @@ scenario S1 {
         .collect();
 
     assert_eq!(alias_values, vec!["i", "j"]);
+}
+
+#[test]
+fn run_fails_for_unsupported_embedded_family_selection() {
+    let model_path = example_path("examples/dense-lp/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let user_config_dir = unique_temp_dir("solver-config-user-xpress");
+    let project_config_dir = unique_temp_dir("solver-config-project-xpress");
+    fs::create_dir_all(&user_config_dir).expect("create user config dir");
+    fs::create_dir_all(&project_config_dir).expect("create project config dir");
+
+    fs::write(
+        user_config_dir.join("solver.toml"),
+        "version = 1\ndefault_selection = \"xpress\"\n",
+    )
+    .expect("write user solver config");
+
+    let user_config_dir_str = user_config_dir.to_string_lossy().into_owned();
+    let project_config_dir_str = project_config_dir.to_string_lossy().into_owned();
+
+    let output = run_cli_with_env(
+        &["run", model, "--compact"],
+        &[
+            ("ARCO_CONFIG_DIR", user_config_dir_str.as_str()),
+            ("ARCO_PROJECT_CONFIG_DIR", project_config_dir_str.as_str()),
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "xpress embedded selection should fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("embedded solver family 'xpress' is not available"));
+
+    let _ = fs::remove_dir_all(user_config_dir);
+    let _ = fs::remove_dir_all(project_config_dir);
+}
+
+#[test]
+fn run_external_scip_profile_with_missing_executable_reports_io_error() {
+    let model_path = example_path("examples/dense-lp/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let user_config_dir = unique_temp_dir("solver-config-user-scip");
+    let project_config_dir = unique_temp_dir("solver-config-project-scip");
+    fs::create_dir_all(&user_config_dir).expect("create user config dir");
+    fs::create_dir_all(&project_config_dir).expect("create project config dir");
+
+    fs::write(
+        user_config_dir.join("solver.toml"),
+        "version = 1\ndefault_selection = \"scip-missing\"\n\n[profiles.scip-missing]\nname = \"scip-missing\"\nfamily = \"scip\"\ntransport = \"external_process\"\nexecutable = \"/definitely/missing/scip\"\n",
+    )
+    .expect("write user solver config");
+
+    let user_config_dir_str = user_config_dir.to_string_lossy().into_owned();
+    let project_config_dir_str = project_config_dir.to_string_lossy().into_owned();
+
+    let output = run_cli_with_env(
+        &["run", model, "--compact"],
+        &[
+            ("ARCO_CONFIG_DIR", user_config_dir_str.as_str()),
+            ("ARCO_PROJECT_CONFIG_DIR", project_config_dir_str.as_str()),
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "missing scip executable should fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("failed during external solver I/O"),
+        "expected external solver io failure\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+
+    let _ = fs::remove_dir_all(user_config_dir);
+    let _ = fs::remove_dir_all(project_config_dir);
+}
+
+#[test]
+fn run_reports_parameter_variable_and_expression() {
+    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("report-kinds")
+        .join("input.kdl");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["run", model]);
+
+    assert!(
+        output.status.success(),
+        "run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid run json");
+    let reports = payload["reports"].as_array().expect("reports array");
+
+    let variable_report = reports
+        .iter()
+        .find(|report| report["name"] == "x")
+        .expect("variable report x");
+    assert_eq!(variable_report["index"], Value::from(vec!["t"]));
+    assert_eq!(
+        variable_report["values"]
+            .as_array()
+            .expect("x values")
+            .len(),
+        2
+    );
+
+    let expression_report = reports
+        .iter()
+        .find(|report| report["name"] == "total_x")
+        .expect("expression report total_x");
+    assert_eq!(expression_report["values"][0]["value"], Value::from(5.0));
+
+    let parameter_report = reports
+        .iter()
+        .find(|report| report["name"] == "total_cap")
+        .expect("parameter-derived report total_cap");
+    assert_eq!(parameter_report["values"][0]["value"], Value::from(5.0));
 }
 
 #[test]

@@ -1,0 +1,13 @@
+,Li-Ion,CAES,PHS,H2
+P_Capex,737,1242,1746,2250
+E_Capex,0,0,0,0
+Eff,0.85,0.85,0.85,0.85
+Min_Duration,2,4,6,8
+Max_Duration,2,4,6,8
+Max_P,20000,20000,20000,20000
+MaxCycles,5000,100000,100000,100000
+Coupled,1,0,1,0
+FOM,18,31,44,70
+VOM,0,0,0,0
+Lifetime,16,16,16,16
+CostRatio,0.5,0.5,0.5,0.5

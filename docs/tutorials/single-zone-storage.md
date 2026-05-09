@@ -35,6 +35,6 @@ cargo run -p arco-cli -- validate examples/simple-electricity-market-storage/inp
 
 - CSV-backed `data` namespaces (`units`, `availability_data`, `load_data`)
 - Model-level indexing via `index` child nodes
-- Horizon-bound time domain via `set time from=horizon`
+- Explicit model time alias via `set time alias="t"`
 - Algebra reductions over named sets (`sum(... for a in asset_id for t in time)`)
 - Scenario-level report requests (`report DispatchCost`)

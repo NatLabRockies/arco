@@ -1,7 +1,7 @@
 //! Solution extraction from Xpress solver results.
 
+use arco_solver::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use arco_solver::{SolutionView, SolverStatus};
-use arco_solver_types::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use std::collections::BTreeMap;
 
 /// Solution obtained from the Xpress solver.
@@ -96,7 +96,7 @@ impl Solution {
         matches!(self.core_status, CoreSolverStatus::Unbounded)
     }
 
-    /// Convert this Xpress-specific solution into a solver-agnostic `arco_core::Solution`.
+    /// Convert this Xpress-specific solution into a solver-agnostic `arco_model::Solution`.
     pub fn into_core_solution(self) -> CoreSolution {
         CoreSolution {
             primal_values: self.primal_values,

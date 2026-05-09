@@ -2,13 +2,13 @@ use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
 use crate::PyObject;
-use crate::bounds::BoundsSpec;
-use crate::errors::{ArrayDimensionError, ArrayIndexError};
-use crate::expr::PyExpr;
-use crate::index_set::PyIndexSet;
-use crate::variable::PyVariable;
+use crate::py_modules::bounds::BoundsSpec;
+use crate::py_modules::errors::{ArrayDimensionError, ArrayIndexError};
+use crate::py_modules::expr::PyExpr;
+use crate::py_modules::index_set::PyIndexSet;
+use crate::py_modules::variable::PyVariable;
 
-use arco_expr::{Expr, VariableId};
+use arco_ops::expression::{Expr, VariableId};
 
 use super::LinearArrayCore;
 use super::indexing::{
@@ -415,7 +415,7 @@ impl PyVariableArray {
     }
     fn __truediv__(&self, other: f64) -> PyResult<PyExprArray> {
         if other == 0.0 {
-            return Err(crate::errors::ExprDivisionByZeroError::new_err(
+            return Err(crate::py_modules::errors::ExprDivisionByZeroError::new_err(
                 "division by zero",
             ));
         }

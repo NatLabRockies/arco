@@ -1,7 +1,16 @@
 pub mod algebra;
-pub mod compile;
-pub mod pipeline;
-pub mod semantic;
+pub mod primitives;
 pub mod source;
 
-pub use arco_core::Sense as ObjectiveSense;
+pub use primitives::{
+    PrimitiveBuildError, build_arco_document, build_indexed_data, build_model_document,
+};
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ObjectiveSense {
+    Minimize,
+    Maximize,
+}

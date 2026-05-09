@@ -1,7 +1,7 @@
 //! Python wrapper for index sets.
 
 use crate::PyObject;
-use crate::errors::{IndexSetArgumentError, IndexSetEmptyError, IndexSetTypeError};
+use crate::py_modules::errors::{IndexSetArgumentError, IndexSetEmptyError, IndexSetTypeError};
 use pyo3::IntoPyObject;
 use pyo3::prelude::*;
 

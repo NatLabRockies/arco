@@ -1,248 +1,16 @@
-//! HiGHS solver implementation.
+//! HiGHS solver implementation over solver-facing targets.
 
-use crate::async_matrix::{AsyncCrsBuilder, ConstraintEntries};
-use crate::ffi::{HighsModel, HighsModelError, HighsOption, HighsStatus, ObjectiveSense};
-use crate::solution::Solution;
+use crate::ffi::{HighsModel, HighsModelError, HighsOption, ObjectiveSense};
 use crate::status::{highs_has_solution, highs_to_core_status};
-use arco_core::{Model, Sense};
-use arco_expr::{ConstraintId, VariableId};
-use arco_solver::{Solve, SolverBackend, SolverConfig};
-use arco_solver_types::SolverError as GenericSolverError;
-use arco_tools::memory::capture_rss_bytes;
+use arco_model::{ConstraintId, ModelView, Sense, VariableId};
+use arco_solver::{ModelViewBackend, ModelViewSolveResult, SolverConfig};
 use std::collections::BTreeMap;
-use std::time::Instant;
-use tracing::{debug, trace, warn};
 
-/// Re-export of arco_solver_types::SolverError for backward compatibility.
-pub type SolverError = arco_solver_types::SolverError;
+/// Re-export of contract solver error for backward compatibility.
+pub type SolverError = arco_solver::SolverError;
 
-/// Convert a HighsModelError into a SolverError.
 fn highs_model_error_to_solver_error(err: HighsModelError) -> SolverError {
     SolverError::SolverSpecific(err.to_string())
-}
-
-/// Zero-copy bridge from arco-core::Model to HiGHS
-pub struct Solver {
-    model: Model,
-    config: SolverConfig,
-    /// Warm-start primal hints (stored but not yet forwarded to HiGHS)
-    primal_start: Option<Vec<(VariableId, f64)>>,
-    /// Use async CRS matrix building
-    use_async_crs: bool,
-}
-
-impl Solver {
-    /// Create a new solver from a Model.
-    pub fn new(model: Model) -> Result<Self, SolverError> {
-        validate_model(&model)?;
-
-        debug!(
-            component = "solver",
-            operation = "init",
-            status = "success",
-            variables = model.num_variables() as u64,
-            constraints = model.num_constraints() as u64,
-            nnz = model.num_coefficients() as u64,
-            "Creating solver from model"
-        );
-
-        Ok(Solver {
-            model,
-            config: SolverConfig::new(),
-            primal_start: None,
-            use_async_crs: false,
-        })
-    }
-
-    fn update_config(&mut self, update: impl FnOnce(SolverConfig) -> SolverConfig) {
-        self.config = update(std::mem::take(&mut self.config));
-    }
-
-    /// Enable or disable HiGHS logging to console for the next solve.
-    pub fn set_log_to_console(&mut self, enabled: bool) {
-        self.update_config(|config| config.with_log_to_console(enabled));
-    }
-
-    /// Set a time limit in seconds for the next solve.
-    pub fn set_time_limit(&mut self, seconds: f64) {
-        self.update_config(|config| config.with_time_limit(seconds));
-    }
-
-    /// Set a relative MIP gap for the next solve.
-    pub fn set_mip_gap(&mut self, gap: f64) {
-        self.update_config(|config| config.with_mip_gap(gap));
-    }
-
-    /// Set verbosity level for the next solve.
-    pub fn set_verbosity(&mut self, level: u32) {
-        self.update_config(|config| config.with_verbosity(level));
-    }
-
-    /// Enable or disable presolve for the next solve.
-    pub fn set_presolve(&mut self, enabled: bool) {
-        self.update_config(|config| config.with_presolve(enabled));
-    }
-
-    /// Set thread count for the next solve.
-    pub fn set_threads(&mut self, threads: u32) {
-        self.update_config(|config| config.with_threads(threads));
-    }
-
-    /// Set feasibility tolerance for the next solve.
-    pub fn set_tolerance(&mut self, tolerance: f64) {
-        self.update_config(|config| config.with_tolerance(tolerance));
-    }
-
-    /// Set primal start values (warm-start hints).
-    ///
-    /// Hints are forwarded to HiGHS as an initial solution.
-    pub fn set_primal_start(&mut self, hints: &[(VariableId, f64)]) -> Result<(), SolverError> {
-        // Validate that all variable IDs exist in model
-        for (var_id, _) in hints {
-            if self.model.get_variable(*var_id).is_err() {
-                return Err(SolverError::InvalidVariableId(var_id.inner()));
-            }
-        }
-        self.primal_start = Some(hints.to_vec());
-        debug!(
-            component = "solver",
-            operation = "set_primal_start",
-            status = "success",
-            num_hints = hints.len(),
-            "Stored warm-start hints"
-        );
-        Ok(())
-    }
-
-    /// Clear primal start hints.
-    pub fn clear_primal_start(&mut self) {
-        self.primal_start = None;
-    }
-
-    /// Get current primal start hints.
-    pub fn get_primal_start(&self) -> Option<&[(VariableId, f64)]> {
-        self.primal_start.as_deref()
-    }
-
-    /// Enable async CRS matrix building for the next solve.
-    ///
-    /// When enabled, the solver uses an async-aware partitioned approach to build
-    /// the coefficient matrix, which can improve performance on large models.
-    pub fn set_async_crs(&mut self, enabled: bool) {
-        self.use_async_crs = enabled;
-        if enabled {
-            debug!(
-                component = "solver",
-                operation = "config",
-                status = "success",
-                feature = "async_crs",
-                "Enabled async CRS matrix building"
-            );
-        }
-    }
-
-    /// Get access to the current solver configuration.
-    pub fn config(&self) -> &SolverConfig {
-        &self.config
-    }
-
-    /// Set the solver configuration.
-    pub fn set_config(&mut self, config: SolverConfig) {
-        self.config = config;
-    }
-
-    /// Solve the model and return the solution
-    pub fn solve(&mut self) -> Result<Solution, SolverError> {
-        solve_model(
-            &self.model,
-            &self.config,
-            self.primal_start.as_deref(),
-            self.use_async_crs,
-        )
-    }
-
-    /// Solve the model with a specific configuration
-    pub fn solve_with_config(&mut self, config: &SolverConfig) -> Result<Solution, SolverError> {
-        solve_model(
-            &self.model,
-            config,
-            self.primal_start.as_deref(),
-            self.use_async_crs,
-        )
-    }
-}
-
-// Implement the arco_core::Solver trait
-impl arco_core::solver::Solver for Solver {
-    fn solve(
-        &mut self,
-        model: &Model,
-    ) -> Result<arco_solver_types::Solution, arco_solver_types::SolverError> {
-        let highs_solution = solve_model(
-            model,
-            &self.config,
-            self.primal_start.as_deref(),
-            self.use_async_crs,
-        )?;
-        Ok(highs_solution.into_core_solution())
-    }
-}
-
-// Implement the Solve trait from arco-solver
-impl Solve for Solver {
-    type Solution = Solution;
-
-    fn solve(&mut self, config: &SolverConfig) -> Result<Self::Solution, GenericSolverError> {
-        self.solve_with_config(config)
-    }
-}
-
-/// Zero-sized backend for trait-based dispatch from the Python bindings.
-pub struct HiGHSBackend;
-
-impl SolverBackend for HiGHSBackend {
-    fn solve(
-        &self,
-        model: &Model,
-        config: &SolverConfig,
-        primal_start: Option<&[(VariableId, f64)]>,
-    ) -> Result<arco_solver_types::Solution, GenericSolverError> {
-        solve_model(model, config, primal_start, false).map(|s| s.into_core_solution())
-    }
-
-    fn name(&self) -> &'static str {
-        "HiGHS"
-    }
-}
-
-/// Validate that a model is ready for solving.
-fn validate_model(model: &Model) -> Result<(), SolverError> {
-    if model.num_variables() == 0 {
-        return Err(SolverError::EmptyModel);
-    }
-    Ok(())
-}
-
-fn collect_objective_coefficients(
-    model: &Model,
-) -> Result<(Sense, BTreeMap<VariableId, f64>), SolverError> {
-    let objective = model.objective();
-    let Some(sense) = objective.sense else {
-        return Err(SolverError::NoObjective);
-    };
-
-    let mut objective_coeffs: BTreeMap<VariableId, f64> = BTreeMap::new();
-    for (var_id, coeff) in &objective.terms {
-        let var = model
-            .get_variable(*var_id)
-            .map_err(|_| SolverError::InvalidVariableId(var_id.inner()))?;
-        if !var.is_active {
-            continue;
-        }
-        *objective_coeffs.entry(*var_id).or_insert(0.0) += *coeff;
-    }
-
-    Ok((sense, objective_coeffs))
 }
 
 fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
@@ -294,8 +62,10 @@ fn apply_solver_config(
         highs_model.set_verbosity(level);
     }
     if let Some(presolve) = config.presolve {
-        let presolve_str = if presolve { "on" } else { "off" };
-        highs_model.set_option("presolve", HighsOption::Str(presolve_str.to_string()));
+        highs_model.set_option(
+            "presolve",
+            HighsOption::Str(if presolve { "on" } else { "off" }.to_string()),
+        );
     }
     if let Some(threads) = config.threads {
         highs_model.set_option("threads", HighsOption::Int(threads as i32));
@@ -310,376 +80,100 @@ fn apply_solver_config(
     Ok(())
 }
 
-fn add_variables_to_highs(
-    model: &Model,
-    highs_model: &mut HighsModel,
-    objective_coeffs: &BTreeMap<VariableId, f64>,
-) -> BTreeMap<VariableId, usize> {
-    let mut var_id_to_col = BTreeMap::new();
+/// Adapter implementation for primitive model-view solves through HiGHS.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct HighsModelViewBackend;
 
-    for index in 0..model.num_variables() {
-        let var_id = VariableId::new(index as u32);
-
-        if let Ok(var) = model.get_variable(var_id) {
-            let obj_coeff = objective_coeffs.get(&var_id).copied().unwrap_or(0.0);
-
-            let (lower, upper, objective_coeff) = if var.is_active {
-                (var.bounds.lower, var.bounds.upper, obj_coeff)
-            } else {
-                (0.0, 0.0, 0.0)
-            };
-
-            let col_idx = if var.is_integer {
-                highs_model.add_integer_col(lower, upper, objective_coeff)
-            } else {
-                highs_model.add_col(lower, upper, objective_coeff)
-            };
-            var_id_to_col.insert(var_id, col_idx);
-
-            trace!(
-                component = "solver",
-                operation = "add_variable",
-                status = "success",
-                var_id = var_id.inner(),
-                col_idx,
-                lower = var.bounds.lower,
-                upper = var.bounds.upper,
-                obj_coeff,
-                is_integer = var.is_integer,
-                "Added variable to HiGHS"
-            );
-        }
+impl ModelViewBackend for HighsModelViewBackend {
+    fn family(&self) -> &'static str {
+        "highs"
     }
 
-    debug!(
-        component = "solver",
-        operation = "add_variables",
-        status = "success",
-        num_vars = model.num_variables(),
-        "Added all variables to HiGHS"
-    );
-
-    var_id_to_col
-}
-
-fn prepare_warm_start_columns(
-    model: &Model,
-    var_id_to_col: &BTreeMap<VariableId, usize>,
-    hints: &[(VariableId, f64)],
-) -> Result<Vec<f64>, SolverError> {
-    let mut cols = Vec::with_capacity(model.num_variables());
-    for index in 0..model.num_variables() {
-        let var_id = VariableId::new(index as u32);
-        let var = model
-            .get_variable(var_id)
-            .map_err(|_| SolverError::InvalidVariableId(var_id.inner()))?;
-        cols.push(default_primal_value(var.bounds.lower, var.bounds.upper));
-    }
-
-    for (var_id, value) in hints {
-        let Some(&col_idx) = var_id_to_col.get(var_id) else {
-            return Err(SolverError::InvalidVariableId(var_id.inner()));
-        };
-        if let Some(slot) = cols.get_mut(col_idx) {
-            *slot = *value;
-        }
-    }
-
-    debug!(
-        component = "solver",
-        operation = "prepare_warm_start",
-        status = "success",
-        num_hints = hints.len(),
-        "Prepared warm-start solution"
-    );
-
-    Ok(cols)
-}
-
-fn build_constraint_entries(
-    model: &Model,
-    var_id_to_col: &BTreeMap<VariableId, usize>,
-    use_async_crs: bool,
-) -> ConstraintEntries {
-    if use_async_crs {
-        let builder = AsyncCrsBuilder::new();
-        let result = builder.build_blocking(model, var_id_to_col);
-        let num_active = result
-            .constraint_entries
-            .iter()
-            .filter(|e| e.is_some())
-            .count();
-
-        debug!(
-            component = "solver",
-            operation = "build_rows",
-            status = "success",
-            method = "async",
-            num_constraints = result.constraint_entries.len(),
-            num_active = num_active,
-            duration_ms = result.duration_ms,
-            "Built constraint matrix asynchronously"
-        );
-
-        result.constraint_entries
-    } else {
-        build_constraint_entries_sequential(model, var_id_to_col)
+    fn solve_model_view(
+        &self,
+        model: &dyn ModelView,
+        config: &SolverConfig,
+    ) -> Result<ModelViewSolveResult, SolverError> {
+        solve_model_view(model, config)
     }
 }
 
-fn build_constraint_entries_sequential(
-    model: &Model,
-    var_id_to_col: &BTreeMap<VariableId, usize>,
-) -> ConstraintEntries {
-    let matrix_build_started = Instant::now();
-    let num_constraints = model.num_constraints();
-    let mut constraint_entries: ConstraintEntries = vec![None; num_constraints];
-
-    for (var_id, column) in model.columns() {
-        let var = if let Ok(var) = model.get_variable(var_id) {
-            var
-        } else {
-            warn!(
-                component = "solver",
-                operation = "build_rows",
-                status = "warn",
-                var_id = var_id.inner(),
-                "Variable missing from model; skipping coefficients"
-            );
-            continue;
-        };
-        if !var.is_active {
-            continue;
-        }
-
-        let Some(&col_idx) = var_id_to_col.get(&var_id) else {
-            warn!(
-                component = "solver",
-                operation = "build_rows",
-                status = "warn",
-                var_id = var_id.inner(),
-                "Variable missing HiGHS column index; skipping coefficients"
-            );
-            continue;
-        };
-
-        for (constraint_id, coeff) in column {
-            let row_idx = constraint_id.inner() as usize;
-            if let Some(entry) = constraint_entries[row_idx].as_mut() {
-                entry.0.push(col_idx);
-                entry.1.push(*coeff);
-            } else {
-                constraint_entries[row_idx] = Some((vec![col_idx], vec![*coeff]));
-            }
-        }
-    }
-
-    let duration_ms = matrix_build_started.elapsed().as_secs_f64() * 1000.0;
-    let num_active = constraint_entries.iter().filter(|e| e.is_some()).count();
-    debug!(
-        component = "solver",
-        operation = "build_rows",
-        status = "success",
-        method = "sequential",
-        num_constraints = constraint_entries.len(),
-        num_active = num_active,
-        duration_ms = duration_ms,
-        "Built constraint matrix sequentially"
-    );
-
-    constraint_entries
-}
-
-fn add_constraints_to_highs(
-    model: &Model,
-    highs_model: &mut HighsModel,
-    constraint_entries: &mut ConstraintEntries,
-) -> Result<(), SolverError> {
-    for (index, entry) in constraint_entries.iter_mut().enumerate() {
-        let constraint_id = ConstraintId::new(index as u32);
-
-        if let Ok(constraint) = model.get_constraint(constraint_id) {
-            let (col_indices, coefficients) =
-                entry.take().unwrap_or_else(|| (Vec::new(), Vec::new()));
-
-            highs_model
-                .add_row(
-                    constraint.bounds.lower,
-                    constraint.bounds.upper,
-                    &col_indices,
-                    &coefficients,
-                )
-                .map_err(highs_model_error_to_solver_error)?;
-
-            trace!(
-                component = "solver",
-                operation = "add_constraint",
-                status = "success",
-                constraint_id = constraint_id.inner(),
-                lower = constraint.bounds.lower,
-                upper = constraint.bounds.upper,
-                num_coeffs = col_indices.len(),
-                "Added constraint to HiGHS"
-            );
-        }
-    }
-
-    debug!(
-        component = "solver",
-        operation = "add_constraints",
-        status = "success",
-        num_constraints = model.num_constraints(),
-        "Added all constraints to HiGHS"
-    );
-
-    Ok(())
-}
-
-/// Solve a model with the given config. This is the shared implementation used by
-/// both the `arco_core::Solver` trait and the internal `solve_with_config` method.
-fn solve_model(
-    model: &Model,
+/// Solve a primitive model view directly with HiGHS.
+pub fn solve_model_view(
+    model: &(impl ModelView + ?Sized),
     config: &SolverConfig,
-    primal_start: Option<&[(VariableId, f64)]>,
-    use_async_crs: bool,
-) -> Result<Solution, SolverError> {
-    validate_model(model)?;
+) -> Result<ModelViewSolveResult, SolverError> {
+    if model.num_variables() == 0 {
+        return Err(SolverError::EmptyModel);
+    }
 
-    let solver_version = crate::ffi::highs_version().unwrap_or_else(|| "unknown".to_string());
-    let rss_before = capture_rss_bytes("solve_start");
-    let solve_started = Instant::now();
-
-    debug!(
-        component = "solver",
-        operation = "solve",
-        status = "success",
-        solver = "highs",
-        solver_version = %solver_version,
-        rss_bytes = ?rss_before,
-        "Starting solve process"
-    );
-
-    let (sense, objective_coeffs) = collect_objective_coefficients(model)?;
-
-    // Create HiGHS model
     let mut highs_model = HighsModel::new();
     apply_solver_config(&mut highs_model, config)?;
-    trace!(
-        component = "solver",
-        operation = "init_highs",
-        status = "success",
-        "Created HiGHS model"
-    );
-
-    // Set objective sense
-    let highs_sense = match sense {
+    highs_model.set_objective_sense(match model.objective().sense.unwrap_or(Sense::Minimize) {
         Sense::Minimize => ObjectiveSense::Minimize,
         Sense::Maximize => ObjectiveSense::Maximize,
-    };
-    highs_model.set_objective_sense(highs_sense);
-    debug!(
-        component = "solver",
-        operation = "set_objective_sense",
-        status = "success",
-        sense = ?sense,
-        "Set objective sense"
-    );
+    });
 
-    let var_id_to_col = add_variables_to_highs(model, &mut highs_model, &objective_coeffs);
+    let objective_terms = model
+        .objective()
+        .terms
+        .iter()
+        .copied()
+        .collect::<BTreeMap<VariableId, f64>>();
+    for index in 0..model.num_variables() {
+        let variable_id = VariableId::new(index as u32);
+        let variable = model
+            .variable(variable_id)
+            .ok_or(SolverError::InvalidVariableId(index as u32))?;
+        let objective = objective_terms.get(&variable_id).copied().unwrap_or(0.0);
+        if variable.is_integer {
+            highs_model.add_integer_col(variable.bounds.lower, variable.bounds.upper, objective);
+        } else {
+            highs_model.add_col(variable.bounds.lower, variable.bounds.upper, objective);
+        }
+    }
 
-    let warm_start_cols = primal_start
-        .map(|hints| prepare_warm_start_columns(model, &var_id_to_col, hints))
-        .transpose()?;
+    let mut rows: Vec<(Vec<usize>, Vec<f64>)> =
+        vec![(Vec::new(), Vec::new()); model.num_constraints()];
+    for index in 0..model.num_variables() {
+        let variable_id = VariableId::new(index as u32);
+        let Some(column) = model.column(variable_id) else {
+            continue;
+        };
+        for (constraint_id, coefficient) in column {
+            let row_index = constraint_id.inner() as usize;
+            if row_index >= rows.len() {
+                return Err(SolverError::SolverSpecific(format!(
+                    "constraint ID {row_index} does not exist"
+                )));
+            }
+            rows[row_index].0.push(index);
+            rows[row_index].1.push(*coefficient);
+        }
+    }
 
-    let mut constraint_entries = build_constraint_entries(model, &var_id_to_col, use_async_crs);
-    add_constraints_to_highs(model, &mut highs_model, &mut constraint_entries)?;
-
-    if let Some(cols) = warm_start_cols {
+    for (index, (columns, coefficients)) in rows.iter().enumerate() {
+        let constraint = model
+            .constraint(ConstraintId::new(index as u32))
+            .ok_or_else(|| {
+                SolverError::SolverSpecific(format!("constraint ID {index} does not exist"))
+            })?;
         highs_model
-            .set_primal_start(cols)
+            .add_row(
+                constraint.bounds.lower,
+                constraint.bounds.upper,
+                columns,
+                coefficients,
+            )
             .map_err(highs_model_error_to_solver_error)?;
     }
 
-    // Solve
     let status = highs_model.solve();
-    let solve_ms = solve_started.elapsed().as_secs_f64() * 1000.0;
-    let rss_after = capture_rss_bytes("solve_end");
-    let rss_delta = match (rss_before, rss_after) {
-        (Some(before), Some(after)) => Some(after as i64 - before as i64),
-        _ => None,
-    };
-    let simplex_iterations = highs_model.simplex_iteration_count();
-    let barrier_iterations = highs_model.barrier_iteration_count();
-    let optimality_gap = highs_model.mip_gap();
-    let objective_value_log = highs_model.objective_value().unwrap_or(f64::NAN);
-    let heap_bytes: Option<u64> = None;
-
-    debug!(
-        component = "solver",
-        operation = "solve",
-        status = "success",
-        solver = "highs",
-        solver_version = %solver_version,
-        solver_status = ?status,
-        simplex_iterations,
-        barrier_iterations,
-        total_iterations = simplex_iterations + barrier_iterations,
-        objective_value = objective_value_log,
-        optimality_gap,
-        duration_ms = solve_ms,
-        rss_bytes = ?rss_after,
-        rss_delta_bytes = ?rss_delta,
-        heap_bytes = ?heap_bytes,
-        "HiGHS solve completed"
-    );
-
-    // Check status - allow time/iteration limits as they may have feasible solutions
-    let is_acceptable = highs_has_solution(status);
-
-    if !is_acceptable {
-        warn!(
-            component = "solver",
-            operation = "solve",
-            status = "warn",
-            solver = "highs",
-            solver_version = %solver_version,
-            solver_status = ?status,
-            simplex_iterations,
-            barrier_iterations,
-            total_iterations = simplex_iterations + barrier_iterations,
-            objective_value = objective_value_log,
-            optimality_gap,
-            duration_ms = solve_ms,
-            rss_bytes = ?rss_after,
-            rss_delta_bytes = ?rss_delta,
-            heap_bytes = ?heap_bytes,
-            "Solver did not find optimal solution"
-        );
+    if !highs_has_solution(status) {
         return Err(SolverError::SolveFailure {
             status: highs_to_core_status(status),
         });
     }
-
-    // Log if we hit a limit but still have a solution
-    if status != HighsStatus::Optimal {
-        warn!(
-            component = "solver",
-            operation = "solve",
-            status = "warn",
-            solver = "highs",
-            solver_version = %solver_version,
-            solver_status = ?status,
-            simplex_iterations,
-            barrier_iterations,
-            total_iterations = simplex_iterations + barrier_iterations,
-            objective_value = objective_value_log,
-            optimality_gap,
-            duration_ms = solve_ms,
-            "Solver hit limit but returning best solution found"
-        );
-    }
-
-    // Extract solution
     let snapshot = highs_model
         .solution_snapshot()
         .map_err(highs_model_error_to_solver_error)?;
@@ -688,197 +182,55 @@ fn solve_model(
         .map_err(highs_model_error_to_solver_error)?;
     let (primal_values, variable_duals, row_values, constraint_duals) = snapshot.into_vecs();
 
-    // Extract additional solution metadata
-    let mip_gap = highs_model.mip_gap();
-    let primal_feasibility_tolerance = highs_model.primal_feasibility_tolerance();
-    let dual_feasibility_tolerance = highs_model.dual_feasibility_tolerance();
-    let presolved_rows = highs_model.presolved_num_rows();
-    let presolved_cols = highs_model.presolved_num_cols();
-    let presolved_nnz = highs_model.presolved_num_nz();
-
-    debug!(
-        component = "solver",
-        operation = "extract_solution",
-        status = "success",
+    Ok(ModelViewSolveResult {
+        fingerprint: model.fingerprint(),
+        status: highs_to_core_status(status),
         objective_value,
-        num_primal_values = primal_values.len(),
-        num_variable_duals = variable_duals.len(),
-        num_constraint_duals = constraint_duals.len(),
-        ?mip_gap,
-        ?primal_feasibility_tolerance,
-        ?dual_feasibility_tolerance,
-        ?presolved_rows,
-        ?presolved_cols,
-        ?presolved_nnz,
-        "Solution extracted"
-    );
-
-    Ok(Solution {
         primal_values,
         variable_duals,
-        constraint_duals,
         row_values,
-        objective_value,
-        status,
-        solve_time_seconds: solve_started.elapsed().as_secs_f64(),
-        simplex_iterations,
-        barrier_iterations,
-        mip_gap,
-        primal_feasibility_tolerance,
-        dual_feasibility_tolerance,
-        presolved_rows: presolved_rows.unwrap_or(0),
-        presolved_cols: presolved_cols.unwrap_or(0),
+        constraint_duals,
     })
-}
-
-fn default_primal_value(lower: f64, upper: f64) -> f64 {
-    if lower.is_finite() && upper.is_finite() {
-        if lower <= 0.0 && 0.0 <= upper {
-            0.0
-        } else if 0.0 < lower {
-            lower
-        } else {
-            upper
-        }
-    } else if lower.is_finite() {
-        if 0.0 < lower { lower } else { 0.0 }
-    } else if upper.is_finite() {
-        if 0.0 > upper { upper } else { 0.0 }
-    } else {
-        0.0
-    }
 }
 
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
-    use arco_core::types::Bounds;
-    use arco_core::{Objective, Variable};
-    use arco_solver_types::SolverStatus as CoreSolverStatus;
-    use std::panic::{AssertUnwindSafe, catch_unwind};
+    use arco_model::{Bounds, Constraint, Model, ModelView, Objective, Sense, Variable};
 
     #[test]
-    fn test_solver_error_display_empty_model() {
-        let err = SolverError::EmptyModel;
-        assert!(err.to_string().contains("no variables"));
-    }
-
-    #[test]
-    fn test_solver_error_display_no_objective() {
-        let err = SolverError::NoObjective;
-        assert!(err.to_string().contains("no objective"));
-    }
-
-    #[test]
-    fn test_solver_error_display_solve_failure() {
-        let err = SolverError::SolveFailure {
-            status: CoreSolverStatus::Infeasible,
-        };
-        assert!(err.to_string().contains("infeasible"));
-
-        let err = SolverError::SolveFailure {
-            status: CoreSolverStatus::Unbounded,
-        };
-        assert!(err.to_string().contains("unbounded"));
-    }
-
-    #[test]
-    fn test_solver_new_rejects_empty_model() {
+    fn model_view_solver_rejects_empty_problem() {
         let model = Model::new();
-        let result = Solver::new(model);
-        assert!(result.is_err());
-        if let Err(SolverError::EmptyModel) = result {
-            // Expected
-        } else {
-            panic!("Expected EmptyModel error");
-        }
+        assert!(matches!(
+            solve_model_view(&model, &SolverConfig::new()),
+            Err(SolverError::EmptyModel)
+        ));
     }
 
     #[test]
-    fn test_default_primal_value() {
-        // Bounded with 0 in range
-        assert_eq!(default_primal_value(-10.0, 10.0), 0.0);
-        assert_eq!(default_primal_value(0.0, 10.0), 0.0);
-        assert_eq!(default_primal_value(-10.0, 0.0), 0.0);
-
-        // Bounded positive
-        assert_eq!(default_primal_value(1.0, 10.0), 1.0);
-
-        // Bounded negative
-        assert_eq!(default_primal_value(-10.0, -1.0), -1.0);
-
-        // Lower bound only
-        assert_eq!(default_primal_value(5.0, f64::INFINITY), 5.0);
-        assert_eq!(default_primal_value(-5.0, f64::INFINITY), 0.0);
-
-        // Upper bound only
-        assert_eq!(default_primal_value(f64::NEG_INFINITY, -5.0), -5.0);
-        assert_eq!(default_primal_value(f64::NEG_INFINITY, 5.0), 0.0);
-
-        // Unbounded
-        assert_eq!(default_primal_value(f64::NEG_INFINITY, f64::INFINITY), 0.0);
-    }
-
-    fn build_single_variable_model() -> Model {
+    fn model_view_problem_solves_directly() {
         let mut model = Model::new();
         let x = model
             .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
             .expect("variable");
+        let demand = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(1.0, f64::INFINITY),
+            })
+            .expect("constraint");
+        model.set_coefficient(x, demand, 1.0).expect("coefficient");
         model
             .set_objective(Objective {
                 sense: Some(Sense::Minimize),
-                terms: vec![(x, 1.0)],
+                terms: vec![(x, 2.0)],
             })
             .expect("objective");
-        model
-    }
 
-    #[test]
-    fn test_solve_with_negative_time_limit_does_not_panic() {
-        let model = build_single_variable_model();
-        let mut solver = Solver::new(model).expect("solver");
-        let config = SolverConfig::new().with_time_limit(-1.0);
-
-        let outcome = catch_unwind(AssertUnwindSafe(|| solver.solve_with_config(&config)));
-        assert!(outcome.is_ok(), "solve_with_config must not panic");
-        let result = outcome.expect("caught panic");
-        assert!(result.is_err(), "invalid time limit should return error");
-    }
-
-    #[test]
-    fn test_solve_with_negative_mip_gap_does_not_panic() {
-        let model = build_single_variable_model();
-        let mut solver = Solver::new(model).expect("solver");
-        let config = SolverConfig::new().with_mip_gap(-0.1);
-
-        let outcome = catch_unwind(AssertUnwindSafe(|| solver.solve_with_config(&config)));
-        assert!(outcome.is_ok(), "solve_with_config must not panic");
-        let result = outcome.expect("caught panic");
-        assert!(result.is_err(), "invalid mip gap should return error");
-    }
-
-    #[test]
-    fn test_solve_with_negative_tolerance_does_not_panic() {
-        let model = build_single_variable_model();
-        let mut solver = Solver::new(model).expect("solver");
-        let config = SolverConfig::new().with_tolerance(-1e-9);
-
-        let outcome = catch_unwind(AssertUnwindSafe(|| solver.solve_with_config(&config)));
-        assert!(outcome.is_ok(), "solve_with_config must not panic");
-        let result = outcome.expect("caught panic");
-        assert!(result.is_err(), "invalid tolerance should return error");
-    }
-
-    #[test]
-    fn test_solve_with_zero_threads_does_not_panic() {
-        let model = build_single_variable_model();
-        let mut solver = Solver::new(model).expect("solver");
-        let config = SolverConfig::new().with_threads(0);
-
-        let outcome = catch_unwind(AssertUnwindSafe(|| solver.solve_with_config(&config)));
-        assert!(outcome.is_ok(), "solve_with_config must not panic");
-        let result = outcome.expect("caught panic");
-        assert!(result.is_err(), "zero threads should return error");
+        let result = solve_model_view(&model, &SolverConfig::new()).expect("solve succeeds");
+        assert!(result.status.is_feasible());
+        assert_eq!(result.primal_values, vec![1.0]);
+        assert_eq!(result.objective_value, 2.0);
+        assert_eq!(result.fingerprint, model.fingerprint());
     }
 }

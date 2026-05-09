@@ -1,9 +1,9 @@
 //! Python wrappers for model snapshot types.
 
-use arco_core::Sense;
+use arco_ops::modeling::Sense;
 use pyo3::prelude::*;
 
-use crate::views::{
+use crate::py_modules::views::{
     PyCoefficientView, PyConstraintView, PyObjectiveView, PySlackView, PyVariableView,
 };
 
@@ -80,7 +80,10 @@ impl PyModelSnapshot {
 }
 
 impl PyModelSnapshot {
-    pub fn from_snapshot(_py: Python<'_>, snapshot: arco_core::ModelSnapshot) -> PyResult<Self> {
+    pub fn from_snapshot(
+        _py: Python<'_>,
+        snapshot: arco_ops::modeling::ModelSnapshot,
+    ) -> PyResult<Self> {
         let variables = snapshot
             .variables
             .into_iter()

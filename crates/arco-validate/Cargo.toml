@@ -1,0 +1,18 @@
+[package]
+name = "arco-validate"
+version = { workspace = true }
+description = "Canonical model validation seam for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+authors = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-diagnostics = { path = "../arco-diagnostics" }
+arco-model = { workspace = true }

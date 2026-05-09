@@ -1,8 +1,7 @@
 #![allow(clippy::float_cmp)]
 
-use arco_core::types::Bounds;
-use arco_core::{Constraint, Model, Objective, Sense, Variable};
-use arco_expr::VariableId;
+use arco_model::types::Bounds;
+use arco_model::{Constraint, Model, Objective, Sense, Variable, VariableId};
 use arco_xpress::Solver;
 
 /// Helper to build a simple model used by multiple tests:

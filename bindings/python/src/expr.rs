@@ -1,14 +1,14 @@
 //! Python wrappers for expressions.
 
-use arco_expr::{ComparisonSense, ConstraintExpr, Expr, VariableId};
+use arco_ops::expression::{ComparisonSense, ConstraintExpr, Expr, VariableId};
 use pyo3::Borrowed;
 use pyo3::prelude::*;
 
-use crate::errors::{
+use crate::py_modules::errors::{
     ExprCoefficientError, ExprConstantOffsetError, ExprDivisionByZeroError,
     ExprNotSingleVariableError,
 };
-use crate::variable::PyVariable;
+use crate::py_modules::variable::PyVariable;
 
 /// A Python object coercible to an expression.
 ///

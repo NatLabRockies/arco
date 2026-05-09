@@ -231,7 +231,7 @@ Use `solution.get_dual()` for the shadow price of a constraint and
 
 ### Warm start
 
-Supply an initial feasible point via `primal_start` to give the solver a head start.
+`primal_start` is planned for model-view solve paths but is not yet supported.
 
 ```python doctest
 >>> import arco
@@ -239,10 +239,7 @@ Supply an initial feasible point via `primal_start` to give the solver a head st
 >>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> y = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> model.minimize(x + 2.0 * y)
->>> solution = model.solve(
-...     log_to_console=False,
-...     primal_start=[(int(x), 2.0), (int(y), 1.0)],
-... )
+>>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
 ```

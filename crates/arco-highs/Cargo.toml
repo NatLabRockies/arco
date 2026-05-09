@@ -1,7 +1,7 @@
 [package]
 name = "arco-highs"
 version = { workspace = true }
-description = "Zero-copy bridge from Arco model to HiGHS solver"
+description = "HiGHS solver adapter for Arco model views"
 edition = { workspace = true }
 rust-version = { workspace = true }
 homepage = { workspace = true }
@@ -14,22 +14,11 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-core = { workspace = true }
-arco-expr = { workspace = true }
 arco-solver = { workspace = true }
-arco-solver-types = { workspace = true }
-arco-tools = { workspace = true }
+arco-model = { workspace = true }
 highs = "1.8"
 highs-sys = "1.12.1"
 tracing = { workspace = true }
-tokio = { version = "1.35", features = ["sync", "rt"], optional = true }
-rayon = { version = "1.8", optional = true }
-num_cpus = "1.16"
-
-[features]
-async = ["tokio"]
-parallel = ["rayon"]
-all-optimizations = ["async", "parallel"]
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }

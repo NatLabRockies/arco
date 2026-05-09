@@ -14,10 +14,8 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-core = { workspace = true }
-arco-expr = { workspace = true }
+arco-model = { workspace = true }
 arco-solver = { workspace = true }
-arco-solver-types = { workspace = true }
 ipopt = "0.5"
 tracing = { workspace = true }
 

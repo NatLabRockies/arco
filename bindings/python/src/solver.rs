@@ -1,6 +1,6 @@
 //! Python wrappers for solver configuration and instances.
 
-use crate::errors::SolverInvalidSettingError;
+use crate::py_modules::errors::SolverInvalidSettingError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -81,33 +81,9 @@ impl SolverSettings {
         )
     }
 
-    pub fn apply_highs(&self, solver: &mut arco_highs::Solver) {
-        if let Some(enabled) = self.log_to_console {
-            solver.set_log_to_console(enabled);
-        }
-        if let Some(limit) = self.time_limit {
-            solver.set_time_limit(limit);
-        }
-        if let Some(gap) = self.mip_gap {
-            solver.set_mip_gap(gap);
-        }
-        if let Some(level) = self.verbosity {
-            solver.set_verbosity(level);
-        }
-        if let Some(presolve) = self.presolve {
-            solver.set_presolve(presolve);
-        }
-        if let Some(threads) = self.threads {
-            solver.set_threads(threads);
-        }
-        if let Some(tolerance) = self.tolerance {
-            solver.set_tolerance(tolerance);
-        }
-    }
-
     /// Convert these settings into a generic `SolverConfig`.
-    pub fn to_solver_config(&self) -> arco_solver::SolverConfig {
-        let mut config = arco_solver::SolverConfig::new();
+    pub fn to_solver_config(&self) -> arco_ops::solve::SolverConfig {
+        let mut config = arco_ops::solve::SolverConfig::new();
         if let Some(presolve) = self.presolve {
             config = config.with_presolve(presolve);
         }
@@ -195,6 +171,95 @@ fn solver_repr(label: &str, settings: &SolverSettings) -> String {
 #[derive(Debug, Clone)]
 pub struct PySolver {
     pub settings: SolverSettings,
+}
+
+#[pyclass(from_py_object, name = "SolverSelection")]
+#[derive(Debug, Clone)]
+pub struct PySolverSelection {
+    pub token: String,
+    pub family_hint: Option<String>,
+}
+
+#[pymethods]
+impl PySolverSelection {
+    #[new]
+    fn new(token: String) -> Self {
+        Self {
+            token,
+            family_hint: None,
+        }
+    }
+
+    #[staticmethod]
+    fn family(name: String) -> Self {
+        Self {
+            token: name,
+            family_hint: None,
+        }
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (name, *, family=None))]
+    fn profile(name: String, family: Option<String>) -> Self {
+        Self {
+            token: name,
+            family_hint: family,
+        }
+    }
+
+    #[getter]
+    fn token(&self) -> String {
+        self.token.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SolverSelection(token={:?}, family_hint={:?})",
+            self.token, self.family_hint
+        )
+    }
+}
+
+#[pyclass(from_py_object, name = "SolverProfile")]
+#[derive(Debug, Clone)]
+pub struct PySolverProfile {
+    pub name: String,
+    pub family: String,
+    pub transport: String,
+}
+
+#[pymethods]
+impl PySolverProfile {
+    #[new]
+    fn new(name: String, family: String, transport: Option<String>) -> Self {
+        Self {
+            name,
+            family,
+            transport: transport.unwrap_or_else(|| "embedded".to_string()),
+        }
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    #[getter]
+    fn family(&self) -> String {
+        self.family.clone()
+    }
+
+    #[getter]
+    fn transport(&self) -> String {
+        self.transport.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SolverProfile(name={:?}, family={:?}, transport={:?})",
+            self.name, self.family, self.transport
+        )
+    }
 }
 
 #[pymethods]
@@ -419,9 +484,83 @@ impl PyIpopt {
 /// Register solver classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySolver>()?;
+    m.add_class::<PySolverSelection>()?;
+    m.add_class::<PySolverProfile>()?;
     m.add_class::<PyHiGHS>()?;
     m.add_class::<PyXpress>()?;
     #[cfg(feature = "ipopt")]
     m.add_class::<PyIpopt>()?;
     Ok(())
+}
+
+/// Create a Solution for a solve failure (infeasible, unbounded, etc.).
+pub(crate) fn solve_failure_solution(
+    status: arco_ops::solve::SolverStatus,
+) -> arco_ops::solve::Solution {
+    arco_ops::solve::Solution {
+        primal_values: Vec::new(),
+        variable_duals: Vec::new(),
+        constraint_duals: Vec::new(),
+        row_values: Vec::new(),
+        objective_value: f64::NAN,
+        status,
+        solve_time_seconds: 0.0,
+        metadata: std::collections::BTreeMap::new(),
+    }
+}
+
+fn detect_default_backend_from_selection(selection: &PySolverSelection) -> String {
+    selection.family_hint.as_ref().map_or_else(
+        || selection.token.to_lowercase(),
+        |family| family.to_lowercase(),
+    )
+}
+
+/// Detect which backend name a solver object represents.
+pub(crate) fn detect_default_backend(solver: Option<&Bound<'_, PyAny>>) -> String {
+    let Some(solver) = solver else {
+        return "highs".to_string();
+    };
+    if let Ok(selection) = solver.cast::<PySolverSelection>() {
+        return detect_default_backend_from_selection(&selection.borrow());
+    }
+    if let Ok(profile) = solver.cast::<PySolverProfile>() {
+        return profile.borrow().family.to_lowercase();
+    }
+    #[cfg(feature = "ipopt")]
+    if solver.cast::<PyIpopt>().is_ok() {
+        return "ipopt".to_string();
+    }
+    if solver.cast::<PyXpress>().is_ok() {
+        return "xpress".to_string();
+    }
+    "highs".to_string()
+}
+
+/// Extract `SolverSettings` from an optional Python solver object (`HiGHS`, `Ipopt`, `Xpress`, or `Solver`).
+pub(crate) fn extract_solver_settings(
+    solver: Option<&Bound<'_, PyAny>>,
+) -> PyResult<SolverSettings> {
+    let Some(solver) = solver else {
+        return Ok(SolverSettings::default());
+    };
+    if solver.cast::<PySolverSelection>().is_ok() || solver.cast::<PySolverProfile>().is_ok() {
+        return Ok(SolverSettings::default());
+    }
+    if let Ok(highs) = solver.cast::<PyHiGHS>() {
+        return Ok(highs.borrow().into_super().settings.clone());
+    }
+    #[cfg(feature = "ipopt")]
+    if let Ok(ipopt) = solver.cast::<PyIpopt>() {
+        return Ok(ipopt.borrow().into_super().settings.clone());
+    }
+    if let Ok(xpress) = solver.cast::<PyXpress>() {
+        return Ok(xpress.borrow().into_super().settings.clone());
+    }
+    if let Ok(base) = solver.cast::<PySolver>() {
+        return Ok(base.borrow().settings.clone());
+    }
+    Err(crate::py_modules::errors::SolverTypeError::new_err(
+        "solver must be a SolverSelection, SolverProfile, Solver, HiGHS, Ipopt, or Xpress instance",
+    ))
 }

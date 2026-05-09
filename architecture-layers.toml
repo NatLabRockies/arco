@@ -1,0 +1,30 @@
+[rules]
+# Lower number = more foundational
+allow_same_layer = true
+
+[layers]
+primitives = [
+  "arco-model",
+  "arco-diagnostics",
+  "arco-solver",
+  "arco-format",
+  "arco-tools",
+]
+application = ["arco-runtime", "arco-kdl", "arco-validate"]
+wrappers = [
+  "arco-highs",
+  "arco-ipopt",
+  "arco-xpress",
+  "arco-scip",
+  "arco-ops",
+  "arco-blocks",
+  "arco-builtin-solvers",
+]
+surfaces = ["arco-cli", "arco-python"]
+
+# Explicit edge overrides for transitional or intentional exceptions.
+# Format: "from" = ["to1", "to2"]
+[overrides.allow]
+arco-ops = ["arco-kdl", "arco-validate"]
+arco-kdl = ["arco-model"]
+arco-validate = ["arco-diagnostics"]

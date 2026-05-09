@@ -1,0 +1,19 @@
+[package]
+name = "arco-format"
+version = { workspace = true }
+description = "Format-neutral model view and portable IR helpers for Arco"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-model = { workspace = true }
+miette = "7"
+thiserror = "2.0"

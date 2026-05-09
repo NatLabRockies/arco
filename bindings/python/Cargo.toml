@@ -7,7 +7,7 @@ rust-version = { workspace = true }
 homepage = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
-license-file = "licenses/BSD-3-Clause.txt"
+license-file = { workspace = true }
 publish = false
 
 [lib]
@@ -17,22 +17,16 @@ test = false
 
 [dependencies]
 pyo3 = { workspace = true, features = ["extension-module"] }
-arco-core = { workspace = true }
-arco-expr = { workspace = true }
-arco-highs = { workspace = true }
-arco-solver = { workspace = true }
-arco-solver-types = { workspace = true }
 arco-blocks = { workspace = true }
-arco-ipopt = { workspace = true, optional = true }
-arco-xpress = { workspace = true, optional = true }
+arco-ops = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [features]
 default = []
-ipopt = ["arco-ipopt"]
-xpress = ["arco-xpress"]
+ipopt = []
+xpress = []
 
 [lints]
 workspace = true
