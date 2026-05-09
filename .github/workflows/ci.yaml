@@ -95,7 +95,7 @@ jobs:
       matrix:
         target:
           - name: core
-            command: just clippy-core
+            command: just clippy-all
             apt-deps: ""
             fflags: ""
           - name: arco-ipopt
@@ -140,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$MATRIX_TARGET_NAME" in
-            core) just clippy-core ;;
+            core) just clippy-all ;;
             arco-ipopt) just clippy-solver arco-ipopt ;;
             *)
               echo "::error::Unknown clippy target: $MATRIX_TARGET_NAME"
@@ -158,7 +158,7 @@ jobs:
       matrix:
         target:
           - name: core
-            command: just test-core
+            command: just test
             apt-deps: ""
             fflags: ""
           - name: arco-ipopt
@@ -204,7 +204,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$MATRIX_TARGET_NAME" in
-            core) just test-core ;;
+            core) just test ;;
             arco-ipopt) just test-solver arco-ipopt ;;
             *)
               echo "::error::Unknown test target: $MATRIX_TARGET_NAME"
