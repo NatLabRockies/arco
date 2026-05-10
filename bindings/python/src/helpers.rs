@@ -30,7 +30,24 @@ where
 
 /// Extract indices (i32 -> usize) from a numpy buffer.
 pub fn extract_indices(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
-    let values = extract_buffer_1d::<i32>(obj, name, "int32")?;
+    let values = match extract_buffer_1d::<i32>(obj, name, "int32") {
+        Ok(values) => values,
+        Err(_) => {
+            let sequence: Vec<i64> = obj.extract().map_err(|_| {
+                CscDtypeError::new_err(format!(
+                    "{name} must be a 1D int sequence or a numpy array with dtype int32"
+                ))
+            })?;
+            let mut converted = Vec::with_capacity(sequence.len());
+            for value in sequence {
+                let value = i32::try_from(value).map_err(|_| {
+                    CscDtypeError::new_err(format!("{name} entries must fit within int32 range"))
+                })?;
+                converted.push(value);
+            }
+            converted
+        }
+    };
     let mut indices = Vec::with_capacity(values.len());
     for value in values {
         if value < 0 {
@@ -45,7 +62,17 @@ pub fn extract_indices(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize
 
 /// Extract f32 values from a numpy buffer.
 pub fn extract_f32(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f32>> {
-    extract_buffer_1d::<f32>(obj, name, "float32")
+    match extract_buffer_1d::<f32>(obj, name, "float32") {
+        Ok(values) => Ok(values),
+        Err(_) => {
+            let sequence: Vec<f64> = obj.extract().map_err(|_| {
+                CscDtypeError::new_err(format!(
+                    "{name} must be a 1D float sequence or a numpy array with dtype float32"
+                ))
+            })?;
+            Ok(sequence.into_iter().map(|value| value as f32).collect())
+        }
+    }
 }
 
 /// Extract boolean values from a Python object.

@@ -158,6 +158,10 @@ fn validate_model(model: &Model) -> Result<(), SolverError> {
 fn apply_ipopt_config<P: ipopt::ConstrainedProblem>(ipopt: &mut Ipopt<P>, config: &SolverConfig) {
     // Always use limited-memory BFGS for LP (zero Hessian)
     ipopt.set_option("hessian_approximation", "limited-memory");
+    ipopt.set_option("mu_strategy", "adaptive");
+    ipopt.set_option("max_iter", 300);
+    ipopt.set_option("acceptable_tol", 1e-4);
+    ipopt.set_option("acceptable_iter", 8);
 
     // Suppress output by default; use level 5 when console logging is enabled
     let log_enabled = config.log_to_console.unwrap_or(false);
