@@ -1,0 +1,503 @@
+// Multi-period AC-OPF (NLP) for IEEE 24-bus with wind, curtailment, and load shedding.
+// Translated from Soroudi Gcode6.7 structure into Arco KDL.
+
+data bus_data source="data/buses.csv" {
+  map bus from="bus"
+
+  set bus alias="i"
+
+  param pd_mw index="bus"
+  param qd_mvar index="bus"
+  param is_slack index="bus"
+  param wcap_mw index="bus"
+}
+
+data generator_data source="data/generators.csv" {
+  map generators from="generator"
+
+  set generators alias="g"
+
+  param pmax index="generators"
+  param pmin index="generators"
+  param b index="generators"
+  param qmax index="generators"
+  param qmin index="generators"
+  param vg index="generators"
+  param ru index="generators"
+  param rd index="generators"
+}
+
+data gen_bus_data source="data/gen_bus.csv" {
+  map generators from="generator"
+
+  set bus
+  set generators
+
+  param connected {
+    index bus
+    index generators
+  }
+}
+
+data line_data source="data/lines.csv" {
+  map lines from="line"
+
+  set lines alias="l"
+
+  param r index="lines"
+  param x index="lines"
+  param b_line from="b" index="lines"
+  param limit_mw index="lines"
+}
+
+data line_endpoint_data source="data/line_endpoints.csv" {
+  map lines from="line"
+  map bus from="bus"
+
+  set lines
+  set bus
+
+  param from_w {
+    index lines
+    index bus
+  }
+
+  param to_w {
+    index lines
+    index bus
+  }
+}
+
+data temporal_sets source="data/temporal_sets.csv" {
+  set t
+  set taf { in t }
+  param t_next from="taf" index="t"
+}
+
+data profile_data source="data/profiles.csv" {
+  param wind_cf from="w" index="t"
+  param demand_scale from="d" index="t"
+}
+
+model MultiPeriod24BusACOPF {
+  param sbase 100
+  param voll 10000
+  param volw 50
+
+  control pg {
+    index g
+    index t
+    bounds {
+      lower { pmin[g] / sbase }
+      upper { pmax[g] / sbase }
+    }
+  }
+
+  control qg {
+    index g
+    index t
+    bounds {
+      lower { qmin[g] / sbase }
+      upper { qmax[g] / sbase }
+    }
+  }
+
+  control v {
+    index i
+    index t
+    bounds {
+      lower { 0.9 }
+      upper { 1.1 }
+    }
+  }
+
+  control va {
+    index i
+    index t
+    bounds {
+      lower { -1.5707963268 * (1 - is_slack[i]) }
+      upper {  1.5707963268 * (1 - is_slack[i]) }
+    }
+  }
+
+  control pw {
+    index i
+    index t
+    bounds {
+      lower { 0 }
+      upper { wind_cf[t] * wcap_mw[i] / sbase }
+    }
+  }
+
+  control pc {
+    index i
+    index t
+    bounds {
+      lower { 0 }
+      upper { wind_cf[t] * wcap_mw[i] / sbase }
+    }
+  }
+
+  control lsh {
+    index i
+    index t
+    bounds {
+      lower { 0 }
+      upper { demand_scale[t] * pd_mw[i] / sbase }
+    }
+  }
+
+  // Directed arc flows Pij(i,j,t), Qij(i,j,t) as in GAMS.
+  // For non-connected pairs bounds collapse to 0, effectively fixing them.
+  control pij {
+    index i { in bus }
+    index j { in bus }
+    index tt { in t }
+    bounds {
+      lower {
+        -sum(
+          (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * limit_mw[l]
+          for l in lines
+        ) / sbase
+      }
+      upper {
+        sum(
+          (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * limit_mw[l]
+          for l in lines
+        ) / sbase
+      }
+    }
+  }
+
+  control qij {
+    index i { in bus }
+    index j { in bus }
+    index tt { in t }
+    bounds {
+      lower {
+        -sum(
+          (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * limit_mw[l]
+          for l in lines
+        ) / sbase
+      }
+      upper {
+        sum(
+          (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * limit_mw[l]
+          for l in lines
+        ) / sbase
+      }
+    }
+  }
+
+  // Eq1 / Eq2: AC branch flows over connected bus pairs cx(i,j).
+  constraint active_flow_definition {
+    index i { in bus }
+    index j { in bus }
+    index tt { in t }
+    if {
+      sum(from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i] for l in lines) == 1
+    }
+    expression {
+      pij[i,j,tt]
+      = (
+        v[i,tt] * v[i,tt]
+          * cos(sum(
+            (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * atan(x[l] / r[l])
+            for l in lines
+          ))
+        - v[i,tt] * v[j,tt]
+          * cos(
+            va[i,tt] - va[j,tt]
+            + sum(
+              (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * atan(x[l] / r[l])
+              for l in lines
+            )
+          )
+      ) / sum(
+        (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i])
+          * sqrt(x[l] * x[l] + r[l] * r[l])
+        for l in lines
+      )
+    }
+  }
+
+  constraint reactive_flow_definition {
+    index i { in bus }
+    index j { in bus }
+    index tt { in t }
+    if {
+      sum(from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i] for l in lines) == 1
+    }
+    expression {
+      qij[i,j,tt]
+      = (
+        v[i,tt] * v[i,tt]
+          * sin(sum(
+            (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * atan(x[l] / r[l])
+            for l in lines
+          ))
+        - v[i,tt] * v[j,tt]
+          * sin(
+            va[i,tt] - va[j,tt]
+            + sum(
+              (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * atan(x[l] / r[l])
+              for l in lines
+            )
+          )
+      ) / sum(
+        (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i])
+          * sqrt(x[l] * x[l] + r[l] * r[l])
+        for l in lines
+      )
+      - (
+          sum(
+            (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * b_line[l]
+            for l in lines
+          )
+        ) * v[i,tt] * v[i,tt] / 2
+    }
+  }
+
+  // Eq3 active balance with generation, wind, shedding.
+  constraint power_balance {
+    index i { in bus }
+    index tt { in t }
+    expression {
+      sum(connected[i,g] * pg[g,tt] for g in generators)
+      + pw[i,tt]
+      + lsh[i,tt]
+      - demand_scale[tt] * pd_mw[i] / sbase
+      = sum(
+          pij[i,j,tt]
+          for j in bus
+          if sum(from_w[l,j] * to_w[l,i] + from_w[l,i] * to_w[l,j] for l in lines) == 1
+        )
+    }
+  }
+
+  // Eq4 reactive balance.
+  constraint reactive_power_balance {
+    index i { in bus }
+    index tt { in t }
+    expression {
+      sum(connected[i,g] * qg[g,tt] for g in generators)
+      - demand_scale[tt] * qd_mvar[i] / sbase
+      = sum(
+          qij[i,j,tt]
+          for j in bus
+          if sum(from_w[l,j] * to_w[l,i] + from_w[l,i] * to_w[l,j] for l in lines) == 1
+        )
+    }
+  }
+
+  // Eq6 / Eq7 ramping with temporal successor map.
+  constraint ramp_up {
+    index g { in generators }
+    index tp { in t }
+    index tt { in t }
+    if { t_next[tp] == tt }
+    expression {
+      pg[g,tt] - pg[g,tp] <= ru[g] / sbase
+    }
+  }
+
+  constraint ramp_down {
+    index g { in generators }
+    index tp { in t }
+    index tt { in t }
+    if { t_next[tp] == tt }
+    expression {
+      pg[g,tp] - pg[g,tt] <= rd[g] / sbase
+    }
+  }
+
+  // Eq8 curtailment definition.
+  constraint curtailment_definition {
+    index i { in bus }
+    index tt { in t }
+    expression {
+      pc[i,tt] = wind_cf[tt] * wcap_mw[i] / sbase - pw[i,tt]
+    }
+  }
+
+  // Expression-based control bounds are enforced here explicitly for parity.
+  constraint pg_lower_bound {
+    index g { in generators }
+    index tt { in t }
+    expression {
+      pg[g,tt] >= pmin[g] / sbase
+    }
+  }
+
+  constraint pg_upper_bound {
+    index g { in generators }
+    index tt { in t }
+    expression {
+      pg[g,tt] <= pmax[g] / sbase
+    }
+  }
+
+  constraint qg_lower_bound {
+    index g { in generators }
+    index tt { in t }
+    expression {
+      qg[g,tt] >= qmin[g] / sbase
+    }
+  }
+
+  constraint qg_upper_bound {
+    index g { in generators }
+    index tt { in t }
+    expression {
+      qg[g,tt] <= qmax[g] / sbase
+    }
+  }
+
+  constraint va_lower_bound {
+    index i { in bus }
+    index tt { in t }
+    expression {
+      va[i,tt] >= -1.5707963268 * (1 - is_slack[i])
+    }
+  }
+
+  constraint va_upper_bound {
+    index i { in bus }
+    index tt { in t }
+    expression {
+      va[i,tt] <= 1.5707963268 * (1 - is_slack[i])
+    }
+  }
+
+  constraint pij_lower_bound {
+    index i { in bus }
+    index j { in bus }
+    index tt { in t }
+    if {
+      sum(from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i] for l in lines) == 1
+    }
+    expression {
+      pij[i,j,tt]
+      >= -sum(
+           (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * limit_mw[l]
+           for l in lines
+         ) / sbase
+    }
+  }
+
+  constraint pij_upper_bound {
+    index i { in bus }
+    index j { in bus }
+    index tt { in t }
+    if {
+      sum(from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i] for l in lines) == 1
+    }
+    expression {
+      pij[i,j,tt]
+      <= sum(
+           (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * limit_mw[l]
+           for l in lines
+         ) / sbase
+    }
+  }
+
+  constraint qij_lower_bound {
+    index i { in bus }
+    index j { in bus }
+    index tt { in t }
+    if {
+      sum(from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i] for l in lines) == 1
+    }
+    expression {
+      qij[i,j,tt]
+      >= -sum(
+           (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * limit_mw[l]
+           for l in lines
+         ) / sbase
+    }
+  }
+
+  constraint qij_upper_bound {
+    index i { in bus }
+    index j { in bus }
+    index tt { in t }
+    if {
+      sum(from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i] for l in lines) == 1
+    }
+    expression {
+      qij[i,j,tt]
+      <= sum(
+           (from_w[l,i] * to_w[l,j] + from_w[l,j] * to_w[l,i]) * limit_mw[l]
+           for l in lines
+         ) / sbase
+    }
+  }
+
+  constraint wind_upper {
+    index i { in bus }
+    index tt { in t }
+    expression {
+      pw[i,tt] <= wind_cf[tt] * wcap_mw[i] / sbase
+    }
+  }
+
+  constraint curtailment_upper {
+    index i { in bus }
+    index tt { in t }
+    expression {
+      pc[i,tt] <= wind_cf[tt] * wcap_mw[i] / sbase
+    }
+  }
+
+  constraint load_shedding_upper {
+    index i { in bus }
+    index tt { in t }
+    expression {
+      lsh[i,tt] <= demand_scale[tt] * pd_mw[i] / sbase
+    }
+  }
+
+  // Objective equivalent to GAMS eq5.
+  expression GenerationCost {
+    sum(pg[g,tt] * b[g] * sbase for g in generators for tt in t)
+  }
+
+  expression SheddingPenalty {
+    sum(voll * lsh[i,tt] * sbase for i in bus for tt in t)
+  }
+
+  expression CurtailmentPenalty {
+    sum(volw * pc[i,tt] * sbase for i in bus for tt in t)
+  }
+
+  expression TotalCost {
+    GenerationCost + SheddingPenalty + CurtailmentPenalty
+  }
+
+  minimize OF {
+    TotalCost
+  }
+}
+
+scenario MultiPeriod24BusACOPFCase {
+  use MultiPeriod24BusACOPF
+
+  report OF
+  report TotalCost
+  report GenerationCost
+  report SheddingPenalty
+  report CurtailmentPenalty
+
+  report v
+  report va
+  report pg
+  report qg
+  report pw
+  report pc
+  report lsh
+  report pij
+  report qij
+
+  report dual power_balance
+  report dual reactive_power_balance
+}
