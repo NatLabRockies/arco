@@ -1,0 +1,2 @@
+asset,power_mw,energy_mwh,charge_efficiency,discharge_efficiency,initial_soc_mwh,terminal_soc_mwh
+ess1,60,300,0.95,0.9,100,100

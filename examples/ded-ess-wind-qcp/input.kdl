@@ -1,7 +1,8 @@
-// Linearized Arco version of GAMS DEDESScostbased (Soroudi, 2017, Gcode7.2).
-// Note: original GAMS objective is QCP with a[g] * p[g,t]^2.
-// Arco KDL lowering is currently linear, so this example keeps b[g] * p[g,t] + c[g]
-// and wind-curtailment penalty, and retains ramping + ESS dynamics.
+// Cost-based dynamic economic dispatch with energy storage and wind
+// (Soroudi, 2017, Gcode7.2). QCP: thermal cost is quadratic in p[g,t],
+// plus a wind-curtailment penalty. Solves with the IPOPT NLP backend.
+//   minimize  sum_t  VWC * p_wind_curtail[t]
+//           + sum_{g,t} a[g]*p[g,t]^2 + b[g]*p[g,t] + c[g]
 
 data gendata source="data/gendata.csv" {
   map generators from="g"
@@ -72,16 +73,19 @@ model DEDESSWindLinearized {
     index time
   }
 
-  expression ThermalCostLinear {
-    sum(b[g] * p[g,t] + c[g] for g in generators for t in time)
+  expression ThermalCost {
+    sum(
+      a[g] * p[g,t] * p[g,t] + b[g] * p[g,t] + c[g]
+      for g in generators for t in time
+    )
   }
 
   expression WindCurtailmentPenalty {
     sum(50 * p_wind_curtail[t] for t in time)
   }
 
-  expression TotalCostProxy {
-    ThermalCostLinear + WindCurtailmentPenalty
+  expression TotalCost {
+    ThermalCost + WindCurtailmentPenalty
   }
 
   constraint thermal_output_bounds {
@@ -173,14 +177,23 @@ model DEDESSWindLinearized {
     }
   }
 
-  minimize TotalCost {
-    TotalCostProxy
+  minimize OF {
+    TotalCost
   }
 }
 
 scenario DEDESSWindLinearizedDay {
   use DEDESSWindLinearized
-  report ThermalCostLinear
+
+  report OF
+  report TotalCost
+  report ThermalCost
   report WindCurtailmentPenalty
-  report TotalCostProxy
+
+  report p
+  report soc
+  report p_charge
+  report p_discharge
+  report p_wind
+  report p_wind_curtail
 }
