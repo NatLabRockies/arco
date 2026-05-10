@@ -588,6 +588,7 @@ benchmarks/output/
 !crates/arco-kdl/tests/e2e/**/*.csv
 
 # Keep root workspace KDL example data in repo
+!examples/multi-period-optimal-power-flow/dc-opf-24bus-wind-load-shedding/data/*.csv
 !examples/multi-period-optimal-power-flow/ac-opf-24bus-wind-load-shedding/data/*.csv
 !examples/capacity-expansion/data/*.csv
 !examples/price-taker-battery/data/*.csv
