@@ -19,35 +19,9 @@ fn compile_algebra(
     let instantiated_names: BTreeSet<String> =
         variable_instances.iter().map(|i| i.name.clone()).collect();
 
-    let nonlinear = compile_nonlinear_problem(
-        program,
-        inputs,
-        &named_expressions,
-        &variable_signatures,
-        &instantiated_names,
-        entrypoint,
-    )?;
-
-    if nonlinear_problem_requires_nlp(&nonlinear) {
-        variable_instances.sort_by(|a, b| a.name.cmp(&b.name));
-        return Ok(AlgebraicProblem {
-            linearized: false,
-            variable_instances,
-            constraints: Vec::new(),
-            objective: LinearObjective {
-                name: program.active_objective.name.clone(),
-                sense: match program.active_objective.sense {
-                    arco_kdl::ObjectiveSense::Minimize => TargetObjectiveSense::Minimize,
-                    arco_kdl::ObjectiveSense::Maximize => TargetObjectiveSense::Maximize,
-                },
-                constant: 0.0,
-                terms: Vec::new(),
-            },
-            reports: Vec::new(),
-            nonlinear: Some(nonlinear),
-        });
-    }
-
+    // Try the linearization path first. The expensive nonlinear lowering is
+    // only built when the program actually requires it, which keeps pure-LP
+    // compile cost on its previous fast path.
     let linearized_sections = (|| {
         let mut constraints = compile_constraint_instances(
             program,
@@ -103,8 +77,13 @@ fn compile_algebra(
         ))
     })();
 
-    let (linearized, mut constraints, objective, reports) = match linearized_sections {
-        Ok((constraints, objective, reports)) => (true, constraints, objective, reports),
+    // On a successful linearization, skip the nonlinear lowering entirely.
+    // On a fallback-eligible failure, build the nonlinear problem and decide
+    // whether the program actually needs the NLP path.
+    let (linearized, mut constraints, objective, reports, nonlinear) = match linearized_sections {
+        Ok((constraints, objective, reports)) => {
+            (true, constraints, objective, reports, None)
+        }
         Err(CompileError::InvalidFormulation { message, .. }) => {
             if !nonlinear_fallback_required(&message) {
                 return Err(CompileError::InvalidFormulation {
@@ -113,11 +92,41 @@ fn compile_algebra(
                 });
             }
 
+            let nonlinear = compile_nonlinear_problem(
+                program,
+                inputs,
+                &named_expressions,
+                &variable_signatures,
+                &instantiated_names,
+                entrypoint,
+            )?;
+
+            if nonlinear_problem_requires_nlp(&nonlinear) {
+                variable_instances.sort_by(|a, b| a.name.cmp(&b.name));
+                return Ok(AlgebraicProblem {
+                    linearized: false,
+                    variable_instances,
+                    constraints: Vec::new(),
+                    objective: LinearObjective {
+                        name: program.active_objective.name.clone(),
+                        sense: match program.active_objective.sense {
+                            arco_kdl::ObjectiveSense::Minimize => TargetObjectiveSense::Minimize,
+                            arco_kdl::ObjectiveSense::Maximize => TargetObjectiveSense::Maximize,
+                        },
+                        constant: 0.0,
+                        terms: Vec::new(),
+                    },
+                    reports: Vec::new(),
+                    nonlinear: Some(nonlinear),
+                });
+            }
+
             (
                 false,
                 Vec::<LinearConstraint>::new(),
                 AffineExpr::constant(0.0),
                 Vec::<LinearReport>::new(),
+                Some(nonlinear),
             )
         }
         Err(error) => return Err(error),
@@ -140,7 +149,7 @@ fn compile_algebra(
             terms: objective.into_terms(),
         },
         reports,
-        nonlinear: Some(nonlinear),
+        nonlinear,
     })
 }
 
