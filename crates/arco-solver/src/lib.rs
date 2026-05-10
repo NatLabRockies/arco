@@ -1,31 +1,59 @@
-//! Shared solver abstractions for Arco optimization.
+//! Solver platform orchestration for Arco.
 //!
-//! This crate provides common traits that solver implementations
-//! (like `arco-highs`) use to integrate with the Arco ecosystem.
-//!
-//! # Architecture
-//!
-//! - [`SolverConfig`]: Configuration options for solver behavior
-//! - [`SolverStatus`]: Common status values across solvers (from `arco-solver-types`)
-//! - [`SolverError`]: Error types for solver operations (from `arco-solver-types`)
-//! - [`Solve`]: Trait for solver implementations
-//! - [`SolutionView`]: Trait for accessing solution data
-//! - [`SolverBackend`]: Trait for dispatching solves through a unified interface
-//!
-//! # Dependency Structure
-//!
-//! This crate depends on:
-//! - `arco-solver-types`: Base solver types (Solution, SolverError, SolverStatus)
-//! - `arco-core`: Model types for the SolverBackend trait
-//! - `arco-expr`: Expression types
+//! Solver contracts (selection, config, status, traits) and platform behavior
+//! live in this crate.
 
 mod backend;
 mod config;
+mod model_view_backend;
+mod preflight;
+mod profile;
+mod registry;
+mod request;
+mod selection;
 mod traits;
+mod types;
 
-pub use backend::SolverBackend;
+pub use backend::SolverBackend as GenericSolverBackend;
 pub use config::SolverConfig;
+pub use model_view_backend::{ModelViewBackend, ModelViewBackendRegistry};
+pub use preflight::{
+    PreflightError, SolverRequirements, preflight_model_view, preflight_selection,
+};
+pub use profile::{SolverConfigDocument, SolverProfile, merged_profiles};
+pub use registry::{SolverCapabilityModel, SolverFamily, SolverRegistry, SolverTransport};
+pub use request::SolveRequest;
+pub use selection::{ResolvedSelection, SelectionError, SolverSelection, resolve_selection};
 pub use traits::{SolutionView, Solve};
+pub use types::{Solution, SolverError, SolverStatus};
 
-// Re-export solver types from arco-solver-types for convenience
-pub use arco_solver_types::{Solution, SolverError, SolverStatus};
+/// Minimal result envelope for direct solves over primitive model views.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModelViewSolveResult {
+    /// Fingerprint of the model view used for the solve.
+    pub fingerprint: arco_model::ModelFingerprint,
+    /// Solver status mapped to the shared solver status contract.
+    pub status: SolverStatus,
+    /// Objective value reported by the solver.
+    pub objective_value: f64,
+    /// Primal values in model variable-id order.
+    pub primal_values: Vec<f64>,
+    /// Reduced costs in model variable-id order when the backend reports them.
+    pub variable_duals: Vec<f64>,
+    /// Row activities in model constraint-id order when the backend reports them.
+    pub row_values: Vec<f64>,
+    /// Constraint duals in model constraint-id order when the backend reports them.
+    pub constraint_duals: Vec<f64>,
+}
+
+/// Platform-facing backend trait for Arco's core model type.
+///
+/// Solver adapters implement the generic `backend::SolverBackend` contract
+/// directly; this alias trait keeps orchestration callers on the concrete Arco
+/// model signature.
+pub trait SolverBackend: backend::SolverBackend<arco_model::Model, arco_model::VariableId> {}
+
+impl<T> SolverBackend for T where
+    T: backend::SolverBackend<arco_model::Model, arco_model::VariableId>
+{
+}

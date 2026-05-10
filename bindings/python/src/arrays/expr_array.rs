@@ -2,14 +2,14 @@ use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
 use crate::PyObject;
-use crate::errors::{ArrayDimensionError, ArrayIndexError, ExprDivisionByZeroError};
-use crate::expr::PyExpr;
-use crate::index_set::PyIndexSet;
+use crate::py_modules::errors::{ArrayDimensionError, ArrayIndexError, ExprDivisionByZeroError};
+use crate::py_modules::expr::PyExpr;
+use crate::py_modules::index_set::PyIndexSet;
 
 use super::indexing::{
     AxisIndex, maybe_boolean_mask_indices, resolve_axis_index, slice_indices, sliced_2d_index_sets,
 };
-use crate::arrays::{
+use crate::py_modules::arrays::{
     CompactExprStorage, ComparisonSense, ExprArrayStorage, LinearArrayCore, PyConstraintArray,
     compare_with_compact_fallback, try_extract_compact,
 };

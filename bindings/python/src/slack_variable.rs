@@ -1,10 +1,10 @@
 //! Python wrapper for SlackVariable objects returned by add_slack/add_slacks.
 
-use arco_core::slack::SlackVariables;
+use arco_ops::modeling::slack::SlackVariables;
 use pyo3::prelude::*;
 
 use crate::PyObject;
-use crate::constraint::PyConstraint;
+use crate::py_modules::constraint::PyConstraint;
 
 /// A slack variable returned by `add_slack()`.
 ///

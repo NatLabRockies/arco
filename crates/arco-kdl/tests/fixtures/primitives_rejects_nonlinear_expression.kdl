@@ -1,0 +1,12 @@
+model "Nonlinear" {
+  control "x" lower=0
+  control "y" lower=0
+
+  constraint "bilinear" {
+    x * y <= 1
+  }
+
+  minimize "Cost" {
+    x + y
+  }
+}

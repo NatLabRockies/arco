@@ -1,6 +1,8 @@
 //! Helper functions for buffer extraction and type conversion.
 
-use crate::errors::{CscContiguityError, CscDimensionError, CscDtypeError, CscNegativeIndexError};
+use crate::py_modules::errors::{
+    CscContiguityError, CscDimensionError, CscDtypeError, CscNegativeIndexError,
+};
 use pyo3::buffer::PyBuffer;
 use pyo3::prelude::*;
 

@@ -558,8 +558,12 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
-# npm
-package*
+# npm (ignore package archives/manifests except tracked parser package)
+package-lock.json
+package-lock.yaml
+pnpm-lock.yaml
+yarn.lock
+package.json
 !tools/tree-sitter-arco-kdl/package.json
 !tools/tree-sitter-arco-kdl/package-lock.json
 
@@ -574,10 +578,12 @@ bindings/python/licenses/
 # Local agent scratch space
 .opencode/
 
-# Hiding LLM plan
+# Local one-off plan notes (keep repo plans tracked)
 docs/plan*
+!docs/plans/
+!docs/plans/**/*.md
 
-#
+# Local generated artifacts
 artifacts/
 benchmarks/plots/
 benchmarks/results/
@@ -587,13 +593,9 @@ benchmarks/output/
 !crates/arco-cli/tests/e2e/**/*.csv
 !crates/arco-kdl/tests/e2e/**/*.csv
 
-# Keep root workspace KDL example data in repo
-!examples/multi-period-optimal-power-flow/dc-opf-24bus-wind-load-shedding/data/*.csv
-!examples/multi-period-optimal-power-flow/ac-opf-24bus-wind-load-shedding/data/*.csv
-!examples/capacity-expansion/data/*.csv
-!examples/price-taker-battery/data/*.csv
-!examples/simple-electricity-market-storage/data/*.csv
-!examples/dense-lp/data/*.csv
+# Keep example CSV datasets in repo
+!examples/**/data/**/*.csv
+
 .plans/
 
 # Local generated docs and parser artifacts

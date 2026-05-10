@@ -1,0 +1,20 @@
+[package]
+name = "arco-builtin-solvers"
+version = { workspace = true }
+description = "Builtin solver registration for Arco distributions"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+arco-highs = { workspace = true }
+arco-ops = { workspace = true }
+arco-scip = { workspace = true }
+arco-solver = { workspace = true }

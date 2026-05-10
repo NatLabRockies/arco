@@ -8,8 +8,12 @@ use std::ffi::{CStr, CString};
 use std::fmt;
 use tracing::{debug, trace, warn};
 
-/// Objective sense for optimization (re-exported from arco_core).
-pub use arco_core::Sense as ObjectiveSense;
+/// Objective sense for optimization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectiveSense {
+    Minimize,
+    Maximize,
+}
 
 /// Status of the solver
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,12 +1,12 @@
-use arco_core::types::Bounds;
-use arco_expr::ComparisonSense;
+use arco_ops::expression::ComparisonSense;
+use arco_ops::modeling::types::Bounds;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
 use crate::PyExpr;
 use crate::PyObject;
-use crate::constraint::PyConstraint;
-use crate::index_set::PyIndexSet;
+use crate::py_modules::constraint::PyConstraint;
+use crate::py_modules::index_set::PyIndexSet;
 
 use super::CompactTerm;
 

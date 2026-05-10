@@ -183,7 +183,7 @@ param name=capacity_mw from=cap_mw index=gen
 This applies to all named declarations: `set`, `data`, `model`, `scenario`,
 `control`, `expression`, `constraint`, `minimize`, and `maximize`. (`use_data`
 is not a named declaration; it takes data block references as arguments. See
-[Appendix A.2](#a2-use_data-model-imports).) The positional form is RECOMMENDED
+[Appendix A.2](appendix-a-ergonomic-profile.md#a2-use_data-model-imports).) The positional form is RECOMMENDED
 for brevity.
 
 ### 1.3 Alias rules
@@ -230,7 +230,7 @@ This specification uses the following terms consistently:
 | `set`                    | A named domain of indices.                                                                                                                                                                                                                                                  |
 | `index` (constraint)     | Row-generation index in a generated constraint. Written as `index <var> { in <set> }` or `index <set>` when variable name matches the set.                                                                                                                                  |
 | `bounds`                 | Child block inside `control` that contains formula-based `lower` and `upper` bound expressions. See [§6.3](#63-control).                                                                                                                                                    |
-| `use_data` _(ergonomic)_ | Model import of sets/params from `data` blocks. Ergonomic profile only (see [Appendix A.2](#a2-use_data-model-imports)).                                                                                                                                                    |
+| `use_data` _(ergonomic)_ | Model import of sets/params from `data` blocks. Ergonomic profile only (see [Appendix A.2](appendix-a-ergonomic-profile.md#a2-use_data-model-imports)).                                                                                                                     |
 | `map`                    | Binds a logical name to a CSV header inside a [`data`](#5-data-declaration) block.                                                                                                                                                                                          |
 | `index` (data-block)     | Default indexing declaration for all `param` nodes in a [`data`](#53-index-inside-data) block.                                                                                                                                                                              |
 | `index` (param/control)  | Per-declaration index child specifying which set(s) a `param` or `control` is indexed over. Written as `index <set>` or `index <var> { in <set> }`.                                                                                                                         |
@@ -860,9 +860,9 @@ model <name> { ... }
 
 Allowed children:
 
-- [`use_data`](#a2-use_data-model-imports) - ergonomic profile only (import
+- [`use_data`](appendix-a-ergonomic-profile.md#a2-use_data-model-imports) - ergonomic profile only (import
   sets/params from `data` blocks; defined in
-  [Appendix A.2](#a2-use_data-model-imports), not part of the canonical
+  [Appendix A.2](appendix-a-ergonomic-profile.md#a2-use_data-model-imports), not part of the canonical
   low-level grammar)
 - [`set`](#61-set-inside-model)
 - [`param`](#62-param-inside-model)

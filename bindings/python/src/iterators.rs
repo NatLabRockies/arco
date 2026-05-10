@@ -1,11 +1,11 @@
 //! Python iterators for model constraints and variables.
 
-use arco_expr::{ConstraintId, VariableId};
+use arco_ops::expression::{ConstraintId, VariableId};
 use pyo3::prelude::*;
 
 use crate::PyModel;
-use crate::constraint::PyConstraint;
-use crate::variable::PyVariable;
+use crate::py_modules::constraint::PyConstraint;
+use crate::py_modules::variable::PyVariable;
 
 /// Iterator over constraints in a model.
 #[pyclass(name = "ConstraintIterator")]

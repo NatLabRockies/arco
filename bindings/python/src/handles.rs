@@ -1,6 +1,6 @@
 //! Python wrappers for slack and elastic handles.
 
-use arco_core::{ElasticHandle, SlackHandle};
+use arco_ops::modeling::{ElasticHandle, SlackHandle};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 

@@ -1,24 +1,20 @@
-//! Solver backend trait for dispatching solves through a unified interface.
+//! Shared solver backend adapter contract.
 
-use arco_core::Model;
-use arco_expr::VariableId;
-use arco_solver_types::Solution as CoreSolution;
-
-use crate::{SolverConfig, SolverError};
+use crate::{Solution, SolverConfig, SolverError};
 
 /// A solver backend that can solve a model with a given configuration.
 ///
-/// Each solver crate (e.g., `arco-highs`, `arco-ipopt`) exports a zero-sized
-/// struct implementing this trait. The Python bindings dispatch through
-/// `&dyn SolverBackend` instead of per-solver match arms.
-pub trait SolverBackend {
+/// Solver adapter crates export zero-sized structs implementing this trait so
+/// platform orchestration can dispatch through `&dyn SolverBackend` without
+/// forcing contract types to depend on a concrete model representation.
+pub trait SolverBackend<Model, VariableId> {
     /// Solve the model and return a solver-agnostic solution.
     fn solve(
         &self,
         model: &Model,
         config: &SolverConfig,
         primal_start: Option<&[(VariableId, f64)]>,
-    ) -> Result<CoreSolution, SolverError>;
+    ) -> Result<Solution, SolverError>;
 
     /// Human-readable solver name (e.g., `"HiGHS"`, `"IPOPT"`).
     fn name(&self) -> &'static str;

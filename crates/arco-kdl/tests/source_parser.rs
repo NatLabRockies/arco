@@ -232,16 +232,3 @@ fn rejects_legacy_index_by_property() {
     );
     assert!(error.to_string().contains("index_by"));
 }
-
-#[test]
-fn rejects_unsupported_scenario_horizon_and_set_binding() {
-    let error = parse_fixture_error(
-        "rejects_unsupported_scenario_horizon_and_set_binding.kdl",
-        "scenario-level horizon should be rejected at parse time",
-    );
-
-    match error {
-        SourceError::UnsupportedDeclaration { name, .. } => assert_eq!(name, "horizon"),
-        other => panic!("expected UnsupportedDeclaration, got {other:?}"),
-    }
-}

@@ -42,7 +42,7 @@ relentless about minimizing memory usage so more systems can run real workloads.
   <a href="#features">Features</a> ·
   <a href="#roadmap">Roadmap</a> ·
   <a href="#architecture">Architecture</a> ·
-  <a href="#benchmarking">Benchmarking</a> ·
+  <a href="#developer-guide">Developer Guide</a> ·
   <a href="#contributing">Contributing</a> ·
   <a href="#license">License</a> ·
   <a href="#disclaimer">Disclaimer</a>
@@ -183,15 +183,14 @@ cargo install just --locked --version 1.43.0
 # Verify your just version
 just --version
 
-# Build CLI
-just build
+# Install hooks first (recommended)
+just install-hooks
 
 # Build and install Python extension in development mode
 just py-dev
 
-# Run tests
-just test
-uv run pytest
+# Run full local CI-equivalent checks
+just ci
 ```
 
 ## KDL Language
@@ -464,57 +463,102 @@ Curious about what we're working on? Check out the roadmap:
 Arco is organized as a Rust workspace. The KDL DSL and CLI are the primary
 interface. Language bindings provide programmatic access to the same core.
 
+For current architecture constraints and dependency policy, see
+[`architecture-layers.toml`](./architecture-layers.toml) and run `just arch-check`.
+
 ```mermaid
-graph TB
-    subgraph DSL["KDL DSL + CLI"]
-        A[".kdl Model Files"]
-        B["arco CLI"]
-        C[arco-kdl<br/>Parser & Compiler]
+graph LR
+    subgraph Surfaces["Interaction Surfaces"]
+        CLI["arco-cli"]
+        PY["bindings/python"]
     end
 
-    subgraph Bindings["Language Bindings"]
-        D[Python<br/>arco-bindings-python]
-        E["Future Bindings<br/>(planned)"]
+    subgraph Wrappers["Wrappers & Composition"]
+        OPS["arco-ops\n(stable facade)"]
+        BLOCKS["arco-blocks\n(language-neutral composition)"]
     end
 
-    subgraph Core["Rust Workspace"]
-        F[arco-core<br/>Model Builder]
-        G[arco-expr<br/>Expression Engine]
-        H[arco-solver<br/>Solver Abstractions]
-        I[arco-blocks<br/>Block Composition]
-        J[arco-tools<br/>Memory Diagnostics]
+    subgraph App["Application Layers"]
+        KDL["arco-kdl\n(authoring surface)"]
+        VALIDATE["arco-validate"]
+        RUNTIME["arco-runtime"]
     end
 
-    subgraph Solvers["Solver Backends"]
-        K[HiGHS<br/>Embedded]
-        L[Xpress<br/>Optional]
+    subgraph Primitives["Primitives"]
+        MODEL["arco-model"]
+        SOLVER["arco-solver"]
+        FORMAT["arco-format"]
+        DIAG["arco-diagnostics"]
+        TOOLS["arco-tools"]
     end
 
-    A --> B
-    B --> C
-    C --> F
-    D --> F
-    E -.-> F
-    F --> G
-    F --> J
-    H --> K
-    H --> L
-    F --> H
-    I --> F
+    subgraph Adapters["Solver Adapters"]
+        HIGHS["arco-highs"]
+        SCIP["arco-scip"]
+        IPOPT["arco-ipopt"]
+        XPRESS["arco-xpress"]
+    end
+
+    CLI --> OPS
+    PY --> OPS
+    PY --> BLOCKS
+    BLOCKS --> OPS
+
+    OPS --> KDL
+    OPS --> VALIDATE
+    OPS --> MODEL
+    OPS --> SOLVER
+    OPS --> FORMAT
+
+    KDL --> MODEL
+    VALIDATE --> MODEL
+    VALIDATE --> DIAG
+    RUNTIME --> TOOLS
+
+    SOLVER --> MODEL
+    SOLVER --> HIGHS
+    SOLVER --> SCIP
+    SOLVER --> IPOPT
+    SOLVER --> XPRESS
 ```
 
 ### Crate Overview
 
-| Crate         | Purpose                                                 |
-| :------------ | :------------------------------------------------------ |
-| `arco-cli`    | CLI compiler and solver for KDL optimization models     |
-| `arco-kdl`    | KDL parser, semantic validation, and algebraic lowering |
-| `arco-core`   | Model construction, variables, constraints, objectives  |
-| `arco-expr`   | Expression trees and constraint generation              |
-| `arco-solver` | Solver-agnostic abstractions and solution handling      |
-| `arco-highs`  | HiGHS solver integration (embedded)                     |
-| `arco-blocks` | DAG-based block composition and orchestration           |
-| `arco-tools`  | Memory instrumentation and diagnostics                  |
+| Crate                  | Purpose                                                       |
+| :--------------------- | :------------------------------------------------------------ |
+| `arco-cli`             | CLI surface for validate/inspect/run/export workflows         |
+| `arco-python`          | Python extension module crate (`bindings/python`)             |
+| `arco-ops`             | Stable operations facade for interaction surfaces             |
+| `arco-blocks`          | Language-neutral block composition core                       |
+| `arco-kdl`             | KDL parser and authoring surface for primitive builds         |
+| `arco-validate`        | Validation and diagnostics reporting over model views         |
+| `arco-runtime`         | Runtime execution support utilities                           |
+| `arco-model`           | Primitive model construction, IDs, views, and documents       |
+| `arco-solver`          | Solver-agnostic abstractions, registry, selection, preflight  |
+| `arco-format`          | Portable format/export primitives and LP/MPS writer contracts |
+| `arco-diagnostics`     | Shared diagnostics/provenance vocabulary                      |
+| `arco-tools`           | Memory instrumentation and diagnostics helpers                |
+| `arco-highs`           | Embedded HiGHS adapter                                        |
+| `arco-scip`            | SCIP adapter (external-process flow)                          |
+| `arco-ipopt`           | IPOPT adapter crate                                           |
+| `arco-xpress`          | Xpress adapter crate                                          |
+| `arco-builtin-solvers` | Builtin solver-family wiring utilities                        |
+
+## Developer Guide
+
+Local CLI build/install:
+
+```bash
+cargo install --path ~/dev/arco/crates/arco-cli --force --locked
+```
+
+Run directly without install:
+
+```bash
+cargo run -p arco-cli -- --help
+```
+
+Also see [`docs/developer_guide.md`](./docs/developer_guide.md).
 
 ## Contributing
 
@@ -533,7 +577,7 @@ just check    # Type-check workspace
 just test                         # Run Rust tests
 just test-example-formulations    # Run curated CLI example smoke checks (acceptance e2e)
 just test-example-formulations "--examples dense-lp --commands run --fail-fast"  # Debug a single workflow
-just py-test  # Run Python doctests
+just py-test  # Run Python tests
 # Full CI gate
 just ci
 ```

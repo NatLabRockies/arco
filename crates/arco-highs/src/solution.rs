@@ -5,7 +5,7 @@ use crate::status::{
     highs_has_solution, highs_status_string, highs_to_core_status, highs_to_generic_status,
 };
 use arco_solver::SolutionView;
-use arco_solver_types::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
+use arco_solver::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use std::collections::BTreeMap;
 
 // Re-export SolverStatus from arco-solver for the trait implementation
@@ -155,12 +155,12 @@ impl Solution {
         highs_status_string(self.status)
     }
 
-    /// Convert the HiGHS status to a arco_core::SolverStatus.
+    /// Convert the HiGHS status to a arco_model::SolverStatus.
     pub fn core_status(&self) -> CoreSolverStatus {
         highs_to_core_status(self.status)
     }
 
-    /// Convert this HiGHS-specific solution into a solver-agnostic `arco_core::Solution`.
+    /// Convert this HiGHS-specific solution into a solver-agnostic `arco_model::Solution`.
     pub fn into_core_solution(self) -> CoreSolution {
         let mut metadata = BTreeMap::new();
         metadata.insert(

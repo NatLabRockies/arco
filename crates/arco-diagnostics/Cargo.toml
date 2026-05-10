@@ -1,0 +1,16 @@
+[package]
+name = "arco-diagnostics"
+version = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+authors = { workspace = true }
+description = "Format-neutral diagnostics primitives for Arco"
+homepage = { workspace = true }
+repository = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

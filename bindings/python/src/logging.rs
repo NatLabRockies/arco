@@ -1,6 +1,6 @@
 //! Logging and diagnostics functions.
 
-use arco_highs::highs_version;
+use arco_ops::ArcoOps;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -99,7 +99,7 @@ pub fn enable_logging(level: Option<String>) -> PyResult<bool> {
 pub fn solver_info(py: Python<'_>) -> PyResult<PyObject> {
     let dict = PyDict::new(py);
     dict.set_item("solver", "HiGHS")?;
-    match highs_version() {
+    match ArcoOps::builtin_solver_version("highs") {
         Some(version) => dict.set_item("version", version)?,
         None => dict.set_item("version", py.None())?,
     }

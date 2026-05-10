@@ -1,15 +1,15 @@
 //! Python wrapper for solver solutions.
 
-use crate::errors::SolverIndexError;
-use arco_core::solver::{Solution, SolverStatus};
+use crate::py_modules::errors::SolverIndexError;
+use arco_ops::solve::{Solution, SolverStatus};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
 use crate::PyObject;
-use crate::arrays::PyVariableArray;
-use crate::constraint::PyConstraint;
-use crate::variable::PyVariable;
+use crate::py_modules::arrays::PyVariableArray;
+use crate::py_modules::constraint::PyConstraint;
+use crate::py_modules::variable::PyVariable;
 
 /// Python enum for solution status.
 #[pyclass(from_py_object, name = "SolutionStatus", eq, eq_int)]

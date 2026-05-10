@@ -1,8 +1,10 @@
 use crate::{PyIndexSet, PyModel};
-use arco_core::Model;
-use arco_core::model::{PrettyBoundGroup, PrettyPrintAdapter, PrettySection, format_ascii_number};
-use arco_core::types::Bounds;
-use arco_expr::VariableId;
+use arco_ops::expression::VariableId;
+use arco_ops::modeling::Model;
+use arco_ops::modeling::model::{
+    PrettyBoundGroup, PrettyPrintAdapter, PrettySection, format_ascii_number,
+};
+use arco_ops::modeling::types::Bounds;
 use pyo3::prelude::*;
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -278,11 +280,11 @@ fn format_variable_bounds_line(label: &str, bounds: Bounds) -> Option<String> {
     Some(format!("{label} <= {}", format_ascii_number(bounds.upper)))
 }
 
-fn format_index_member(member: &crate::index_set::IndexMember) -> String {
+fn format_index_member(member: &crate::py_modules::index_set::IndexMember) -> String {
     match member {
-        crate::index_set::IndexMember::Int(value) => value.to_string(),
-        crate::index_set::IndexMember::Float(value) => format_ascii_number(*value),
-        crate::index_set::IndexMember::Str(value) => value.clone(),
+        crate::py_modules::index_set::IndexMember::Int(value) => value.to_string(),
+        crate::py_modules::index_set::IndexMember::Float(value) => format_ascii_number(*value),
+        crate::py_modules::index_set::IndexMember::Str(value) => value.clone(),
     }
 }
 

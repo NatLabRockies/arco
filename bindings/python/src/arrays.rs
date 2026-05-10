@@ -1,20 +1,24 @@
 //! Python wrappers for variable, expression, and constraint arrays.
 
-use arco_expr::{ComparisonSense, Expr, VariableId};
+use arco_ops::expression::{ComparisonSense, Expr, VariableId};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
 use crate::PyObject;
-use crate::errors::{
+use crate::py_modules::errors::{
     ArrayDimensionError, ArrayIndexError, ArrayShapeMismatchError, ArrayTypeError,
     ExprDivisionByZeroError,
 };
-use crate::expr::PyExpr;
-use crate::index_set::PyIndexSet;
+use crate::py_modules::expr::PyExpr;
+use crate::py_modules::index_set::PyIndexSet;
 
+#[path = "arrays/constraint_array.rs"]
 mod constraint_array;
+#[path = "arrays/expr_array.rs"]
 mod expr_array;
+#[path = "arrays/indexing.rs"]
 mod indexing;
+#[path = "arrays/variable_array.rs"]
 mod variable_array;
 
 pub use constraint_array::PyConstraintArray;
@@ -899,7 +903,7 @@ fn numpy_diag(py: Python<'_>, core: &LinearArrayCore, k: i64) -> PyResult<PyObje
     let diag_index_set = PyIndexSet {
         name: format!("diag_{}", k),
         members: (0..diag_len)
-            .map(|i| crate::index_set::IndexMember::Int(i as i64))
+            .map(|i| crate::py_modules::index_set::IndexMember::Int(i as i64))
             .collect(),
     };
     let diag_index_set_py = Py::new(py, diag_index_set)?;

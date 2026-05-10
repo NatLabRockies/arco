@@ -4,13 +4,16 @@ exclude = ["scripts"]
 default-members = [
     "crates/arco-blocks",
     "crates/arco-cli",
-    "crates/arco-core",
-    "crates/arco-expr",
+    "crates/arco-format",
     "crates/arco-highs",
     "crates/arco-kdl",
+    "crates/arco-model",
+    "crates/arco-ops",
+    "crates/arco-runtime",
+    "crates/arco-scip",
     "crates/arco-solver",
-    "crates/arco-solver-types",
     "crates/arco-tools",
+    "crates/arco-validate",
     "crates/arco-xpress",
 ]
 resolver = "3"
@@ -23,17 +26,21 @@ sysinfo = "0.33"
 pyo3 = "0.28"
 tracing-subscriber = "0.3"
 smallvec = "1"
-arco-core = { path = "crates/arco-core" }
-arco-expr = { path = "crates/arco-expr" }
 arco-solver = { path = "crates/arco-solver" }
 arco-highs = { path = "crates/arco-highs" }
 arco-ipopt = { path = "crates/arco-ipopt" }
 arco-xpress = { path = "crates/arco-xpress" }
 arco-tools = { path = "crates/arco-tools" }
 arco-blocks = { path = "crates/arco-blocks" }
+arco-builtin-solvers = { path = "crates/arco-builtin-solvers" }
 arco-kdl = { path = "crates/arco-kdl" }
 arco-cli = { path = "crates/arco-cli" }
-arco-solver-types = { path = "crates/arco-solver-types" }
+arco-model = { path = "crates/arco-model" }
+arco-format = { path = "crates/arco-format" }
+arco-ops = { path = "crates/arco-ops" }
+arco-runtime = { path = "crates/arco-runtime" }
+arco-scip = { path = "crates/arco-scip" }
+arco-validate = { path = "crates/arco-validate" }
 
 [workspace.package]
 version = "0.5.0"

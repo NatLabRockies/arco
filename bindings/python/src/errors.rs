@@ -277,45 +277,51 @@ pyo3::create_exception!(
     "Variable index out of range for objective."
 );
 
-/// Convert a `arco_core::model::ModelError` into the appropriate ArcoError subclass.
-pub fn model_error_to_py(e: arco_core::model::ModelError) -> PyErr {
+/// Convert a `arco_ops::modeling::model::ModelError` into the appropriate ArcoError subclass.
+pub fn model_error_to_py(e: arco_ops::modeling::model::ModelError) -> PyErr {
     let msg = e.to_string();
     match e {
-        arco_core::model::ModelError::EmptyModel => ModelEmptyError::new_err(msg),
-        arco_core::model::ModelError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
-        arco_core::model::ModelError::InvalidVariableBounds { .. } => {
+        arco_ops::modeling::model::ModelError::EmptyModel => ModelEmptyError::new_err(msg),
+        arco_ops::modeling::model::ModelError::InvalidVariableId(_) => {
+            VariableInvalidIdError::new_err(msg)
+        }
+        arco_ops::modeling::model::ModelError::InvalidVariableBounds { .. } => {
             VariableInvalidBoundsError::new_err(msg)
         }
-        arco_core::model::ModelError::InvalidConstraintId(_) => {
+        arco_ops::modeling::model::ModelError::InvalidConstraintId(_) => {
             ConstraintInvalidIdError::new_err(msg)
         }
-        arco_core::model::ModelError::InvalidConstraintBounds { .. } => {
+        arco_ops::modeling::model::ModelError::InvalidConstraintBounds { .. } => {
             ConstraintInvalidBoundsError::new_err(msg)
         }
-        arco_core::model::ModelError::NoObjective => ObjectiveMissingError::new_err(msg),
-        arco_core::model::ModelError::MultipleObjectives => ObjectiveAlreadySetError::new_err(msg),
-        arco_core::model::ModelError::InvalidSlackPenalty { .. } => {
+        arco_ops::modeling::model::ModelError::NoObjective => ObjectiveMissingError::new_err(msg),
+        arco_ops::modeling::model::ModelError::MultipleObjectives => {
+            ObjectiveAlreadySetError::new_err(msg)
+        }
+        arco_ops::modeling::model::ModelError::InvalidSlackPenalty { .. } => {
             SlackInvalidPenaltyError::new_err(msg)
         }
-        arco_core::model::ModelError::InvalidCscData { .. } => CscInvalidDataError::new_err(msg),
-        arco_core::model::ModelError::InvalidCoefficient { .. } => {
+        arco_ops::modeling::model::ModelError::InvalidCscData { .. } => {
+            CscInvalidDataError::new_err(msg)
+        }
+        arco_ops::modeling::model::ModelError::InvalidCoefficient { .. } => {
             ExprCoefficientError::new_err(msg)
         }
     }
 }
 
-/// Convert a `arco_solver::SolverError` into the appropriate ArcoError subclass.
-pub fn generic_solver_error_to_py(e: arco_solver::SolverError) -> PyErr {
+/// Convert a `arco_ops::solve::SolverError` into the appropriate ArcoError subclass.
+pub fn generic_solver_error_to_py(e: arco_ops::solve::SolverError) -> PyErr {
     let msg = e.to_string();
     match e {
-        arco_solver::SolverError::EmptyModel => ModelEmptyError::new_err(msg),
-        arco_solver::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
-        arco_solver::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
-        arco_solver::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
-        arco_solver::SolverError::SolverNotAvailable(_) => SolverInternalError::new_err(msg),
-        arco_solver::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
-        arco_solver::SolverError::SolveFailure { status } => {
-            use arco_solver::SolverStatus;
+        arco_ops::solve::SolverError::EmptyModel => ModelEmptyError::new_err(msg),
+        arco_ops::solve::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
+        arco_ops::solve::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
+        arco_ops::solve::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
+        arco_ops::solve::SolverError::SolverNotAvailable(_) => SolverInternalError::new_err(msg),
+        arco_ops::solve::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
+        arco_ops::solve::SolverError::SolveFailure { status } => {
+            use arco_ops::solve::SolverStatus;
             match status {
                 SolverStatus::Infeasible => SolverInfeasibleError::new_err(msg),
                 SolverStatus::Unbounded => SolverUnboundedError::new_err(msg),

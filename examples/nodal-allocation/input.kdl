@@ -57,34 +57,34 @@ projection "ai" {
 }
 
 model NodalAllocation {
-  control investment lower=0 {
+  control capacity_nodal_site lower=0 {
     index feasible_links
   }
 
-  expression investment_by_area_tech {
+  expression allocated_capacity {
     reduce "ai" {
-      sum "investment"
+      sum "capacity_nodal_site"
     }
   }
 
   constraint investment_capacity {
     index feasible_links
     expression {
-      investment[feasible_links] <= capacity_mw[feasible_links]
+      capacity_nodal_site[feasible_links] <= capacity_mw[feasible_links]
     }
   }
 
   constraint priority_floor {
     index priority_links
     expression {
-      investment[priority_links] >= priority_floor_mw[priority_links]
+      capacity_nodal_site[priority_links] >= priority_floor_mw[priority_links]
     }
   }
 
   constraint enforce_mw_target {
     index feasible_ai
     expression {
-      investment_by_area_tech[feasible_ai] >= mw_target[feasible_ai]
+      allocated_capacity[feasible_ai] >= mw_target[feasible_ai]
     }
   }
 
@@ -93,4 +93,6 @@ model NodalAllocation {
 
 scenario NodalAllocationDay {
   use NodalAllocation
+  report capacity_nodal_site
+  report allocated_capacity
 }

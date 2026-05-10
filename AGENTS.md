@@ -22,6 +22,12 @@ is a README-level guide, not full system documentation.
 - Never revert or overwrite work you did not author.
 - If a command hangs for more than 5 minutes, stop, capture context, and report.
 - Use `just` targets when available for build, lint, and test workflows.
+- Prefer these repository-standard commands:
+  - `just ci` for full CI-equivalent validation
+  - `just arch-check` for architecture dependency policy
+  - `just test` / `just test-pkg <crate>` for Rust tests
+  - `just clippy-all` / `just clippy-solver <crate>` for linting
+  - `just py-check`, `just py-test`, and `just docs-test` for Python/docs checks
 - Before pushing, run the relevant CI-equivalent checks locally for changed areas (for example, clippy/tests/docs) to catch failures early.
 
 ## Engineering Workflow
@@ -105,6 +111,11 @@ Rust validation checklist:
 ## Commit Style
 
 - Use Conventional Commits (for example, `feat:`, `fix:`, `docs:`).
+
+## Tooling Policy
+
+- Never use bare Arc or Arc-hosted paid tooling in this repository workflow.
+- Use repository-local open/free tooling via `just`, `cargo`, and `uv` commands.
 
 ## Dependency Policy
 

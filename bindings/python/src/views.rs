@@ -1,11 +1,11 @@
 //! Python wrappers for model view types.
 
-use arco_core::types::Bounds;
+use arco_ops::modeling::types::Bounds;
 use pyo3::prelude::*;
 
 use crate::PyObject;
-use crate::bounds::PyBounds;
-use crate::serde_bridge;
+use crate::py_modules::bounds::PyBounds;
+use crate::py_modules::serde_bridge;
 
 fn pythonize_metadata(
     py: Python<'_>,
