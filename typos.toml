@@ -2,6 +2,9 @@
 # Energy-sector abbreviations
 FOM = "FOM"    # Fixed Operations & Maintenance
 CAES = "CAES"  # Compressed Air Energy Storage
+OPF = "OPF"    # Optimal Power Flow
+ACOPF = "ACOPF"  # AC Optimal Power Flow
+DCOPF = "DCOPF"  # DC Optimal Power Flow
 # Code identifiers
 arange = "arange"  # numpy.arange
 
