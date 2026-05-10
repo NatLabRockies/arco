@@ -940,6 +940,8 @@ mod tests {
                     terms: Vec::new(),
                 },
                 reports: Vec::new(),
+                linearized: true,
+                nonlinear: None,
             },
         };
 

@@ -8,8 +8,7 @@
 
 The formulation is adapted from:
 
-> Soroudi, Alireza. _Power System Optimization Modeling in GAMS_. Springer,
-> 2017. Chapter 6, Gcode6.7.
+> Soroudi, Alireza. _Power System Optimization Modeling in GAMS_. Springer, 2017. Chapter 6, Gcode6.7.
 > [doi:10.1007/978-3-319-62350-4](https://doi.org/10.1007/978-3-319-62350-4)
 
 The Arco implementation lives at
@@ -19,13 +18,13 @@ The Arco implementation lives at
 
 ## Sets
 
-| Notation                                | Index    | Description                                              |
-| --------------------------------------- | -------- | -------------------------------------------------------- |
-| $\mathcal{I}$                           | $i, j$   | Network buses (24)                                       |
-| $\mathcal{S} \subseteq \mathcal{I}$     | $i$      | Slack bus(es) (bus 13)                                   |
-| $\mathcal{G}$                           | $g$      | Thermal generators                                       |
-| $\mathcal{L}$                           | $\ell$   | Transmission lines (directed records)                    |
-| $\mathcal{T}$                           | $t$      | Hours (24)                                               |
+| Notation                            | Index  | Description                           |
+| ----------------------------------- | ------ | ------------------------------------- |
+| $\mathcal{I}$                       | $i, j$ | Network buses (24)                    |
+| $\mathcal{S} \subseteq \mathcal{I}$ | $i$    | Slack bus(es) (bus 13)                |
+| $\mathcal{G}$                       | $g$    | Thermal generators                    |
+| $\mathcal{L}$                       | $\ell$ | Transmission lines (directed records) |
+| $\mathcal{T}$                       | $t$    | Hours (24)                            |
 
 In Arco the bus pair-connectivity indicator $\mathit{cx}(i,j)$ is replaced by a
 line membership predicate built from the line endpoint maps `from_w[l,i]` and
@@ -45,53 +44,53 @@ Constraints over directed pairs $(i,j)$ are guarded by `if { cx(i,j) == 1 }`.
 
 ### System scalars
 
-| Notation        | Description                            | Value  |
-| --------------- | -------------------------------------- | ------ |
-| $S_{\text{base}}$ | Per-unit base power                  | $100$  |
-| $\text{VOLL}$   | Value of lost load                     | $10000$ |
-| $\text{VOLW}$   | Value of wind curtailment              | $50$   |
+| Notation          | Description               | Value   |
+| ----------------- | ------------------------- | ------- |
+| $S_{\text{base}}$ | Per-unit base power       | $100$   |
+| $\text{VOLL}$     | Value of lost load        | $10000$ |
+| $\text{VOLW}$     | Value of wind curtailment | $50$    |
 
 ### Buses ([data/buses.csv](data/buses.csv))
 
-| Notation       | Description                                       | Units    |
-| -------------- | ------------------------------------------------- | -------- |
-| $P^{d}_{i}$    | Active demand at bus $i$ (`pd_mw`)                | MW       |
-| $Q^{d}_{i}$    | Reactive demand at bus $i$ (`qd_mvar`)            | MVAr     |
-| $\text{slack}_i$ | Slack indicator (`is_slack`)                    | $\{0,1\}$ |
-| $W^{cap}_{i}$  | Installed wind capacity at bus $i$ (`wcap_mw`)    | MW       |
+| Notation         | Description                                    | Units     |
+| ---------------- | ---------------------------------------------- | --------- |
+| $P^{d}_{i}$      | Active demand at bus $i$ (`pd_mw`)             | MW        |
+| $Q^{d}_{i}$      | Reactive demand at bus $i$ (`qd_mvar`)         | MVAr      |
+| $\text{slack}_i$ | Slack indicator (`is_slack`)                   | $\{0,1\}$ |
+| $W^{cap}_{i}$    | Installed wind capacity at bus $i$ (`wcap_mw`) | MW        |
 
 ### Generators ([data/generators.csv](data/generators.csv))
 
-| Notation        | Description                            | Units   |
-| --------------- | -------------------------------------- | ------- |
-| $P^{\min}_g$, $P^{\max}_g$ | Active output bounds (`pmin`, `pmax`) | MW      |
-| $Q^{\min}_g$, $Q^{\max}_g$ | Reactive output bounds (`qmin`, `qmax`) | MVAr    |
-| $b_g$           | Linear marginal generation cost (`b`)  | \$/MWh  |
-| $V^{g}_g$       | Generator setpoint voltage (`vg`)      | p.u.    |
-| $RU_g$, $RD_g$  | Ramp-up / ramp-down limits (`ru`, `rd`) | MW/h    |
+| Notation                   | Description                             | Units  |
+| -------------------------- | --------------------------------------- | ------ |
+| $P^{\min}_g$, $P^{\max}_g$ | Active output bounds (`pmin`, `pmax`)   | MW     |
+| $Q^{\min}_g$, $Q^{\max}_g$ | Reactive output bounds (`qmin`, `qmax`) | MVAr   |
+| $b_g$                      | Linear marginal generation cost (`b`)   | \$/MWh |
+| $V^{g}_g$                  | Generator setpoint voltage (`vg`)       | p.u.   |
+| $RU_g$, $RD_g$             | Ramp-up / ramp-down limits (`ru`, `rd`) | MW/h   |
 
 ### Generator-bus connectivity ([data/gen_bus.csv](data/gen_bus.csv))
 
-| Notation            | Description                          | Domain     |
-| ------------------- | ------------------------------------ | ---------- |
-| $\chi_{i,g}$        | 1 if generator $g$ sits at bus $i$   | $\{0, 1\}$ |
+| Notation     | Description                        | Domain     |
+| ------------ | ---------------------------------- | ---------- |
+| $\chi_{i,g}$ | 1 if generator $g$ sits at bus $i$ | $\{0, 1\}$ |
 
 ### Lines and endpoints ([data/lines.csv](data/lines.csv), [data/line_endpoints.csv](data/line_endpoints.csv))
 
-| Notation                   | Description                              | Units |
-| -------------------------- | ---------------------------------------- | ----- |
-| $r_\ell$, $x_\ell$         | Line resistance, reactance               | p.u.  |
-| $b_\ell$                   | Total line susceptance (`b_line`)        | p.u.  |
-| $L_\ell$                   | Thermal limit (`limit_mw`)               | MW    |
-| $\mathit{from}_{\ell,i}$, $\mathit{to}_{\ell,i}$ | Endpoint indicators       | $\{0, 1\}$ |
+| Notation                                         | Description                       | Units      |
+| ------------------------------------------------ | --------------------------------- | ---------- |
+| $r_\ell$, $x_\ell$                               | Line resistance, reactance        | p.u.       |
+| $b_\ell$                                         | Total line susceptance (`b_line`) | p.u.       |
+| $L_\ell$                                         | Thermal limit (`limit_mw`)        | MW         |
+| $\mathit{from}_{\ell,i}$, $\mathit{to}_{\ell,i}$ | Endpoint indicators               | $\{0, 1\}$ |
 
 ### Time profiles ([data/profiles.csv](data/profiles.csv), [data/temporal_sets.csv](data/temporal_sets.csv))
 
-| Notation                  | Description                              | Domain         |
-| ------------------------- | ---------------------------------------- | -------------- |
-| $w_t$                     | Hourly wind capacity factor (`wind_cf`)  | $[0, 1]$       |
-| $d_t$                     | Hourly demand scaler (`demand_scale`)    | $[0, 1]$       |
-| $\text{next}(t)$          | Successor map (`t_next`)                 | $\mathcal{T}$  |
+| Notation         | Description                             | Domain        |
+| ---------------- | --------------------------------------- | ------------- |
+| $w_t$            | Hourly wind capacity factor (`wind_cf`) | $[0, 1]$      |
+| $d_t$            | Hourly demand scaler (`demand_scale`)   | $[0, 1]$      |
+| $\text{next}(t)$ | Successor map (`t_next`)                | $\mathcal{T}$ |
 
 ### Derived line quantities
 
@@ -118,17 +117,17 @@ fallback is not exercised here.
 
 ## Decision variables
 
-| Notation         | Symbol in KDL  | Description                                    | Units  |
-| ---------------- | -------------- | ---------------------------------------------- | ------ |
-| $P^{g}_{g,t}$    | `pg[g,t]`      | Thermal active dispatch                        | p.u.   |
-| $Q^{g}_{g,t}$    | `qg[g,t]`      | Thermal reactive dispatch                      | p.u.   |
-| $V_{i,t}$        | `v[i,t]`       | Bus voltage magnitude                          | p.u.   |
-| $\delta_{i,t}$   | `va[i,t]`      | Bus voltage angle                              | rad    |
-| $P^{w}_{i,t}$    | `pw[i,t]`      | Dispatched wind generation                     | p.u.   |
-| $P^{c}_{i,t}$    | `pc[i,t]`      | Wind curtailment                               | p.u.   |
-| $\text{lsh}_{i,t}$ | `lsh[i,t]`   | Load shedding                                  | p.u.   |
-| $P^{ij}_{i,j,t}$ | `pij[i,j,t]`   | Active power flow on directed pair $(i,j)$     | p.u.   |
-| $Q^{ij}_{i,j,t}$ | `qij[i,j,t]`   | Reactive power flow on directed pair $(i,j)$   | p.u.   |
+| Notation           | Symbol in KDL | Description                                  | Units |
+| ------------------ | ------------- | -------------------------------------------- | ----- |
+| $P^{g}_{g,t}$      | `pg[g,t]`     | Thermal active dispatch                      | p.u.  |
+| $Q^{g}_{g,t}$      | `qg[g,t]`     | Thermal reactive dispatch                    | p.u.  |
+| $V_{i,t}$          | `v[i,t]`      | Bus voltage magnitude                        | p.u.  |
+| $\delta_{i,t}$     | `va[i,t]`     | Bus voltage angle                            | rad   |
+| $P^{w}_{i,t}$      | `pw[i,t]`     | Dispatched wind generation                   | p.u.  |
+| $P^{c}_{i,t}$      | `pc[i,t]`     | Wind curtailment                             | p.u.  |
+| $\text{lsh}_{i,t}$ | `lsh[i,t]`    | Load shedding                                | p.u.  |
+| $P^{ij}_{i,j,t}$   | `pij[i,j,t]`  | Active power flow on directed pair $(i,j)$   | p.u.  |
+| $Q^{ij}_{i,j,t}$   | `qij[i,j,t]`  | Reactive power flow on directed pair $(i,j)$ | p.u.  |
 
 ### Variable bounds
 
