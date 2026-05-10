@@ -43,7 +43,6 @@ def main() -> None:
     wcap_mw = {int(r["bus"]): float(r["wcap_mw"]) for r in buses_rows}
 
     gens = [r["generator"] for r in gens_rows]
-    g_bus = {r["generator"]: int(r["bus"]) for r in gens_rows}
     pmax = {r["generator"]: float(r["pmax"]) for r in gens_rows}
     pmin = {r["generator"]: float(r["pmin"]) for r in gens_rows}
     b_gen = {r["generator"]: float(r["b"]) for r in gens_rows}
