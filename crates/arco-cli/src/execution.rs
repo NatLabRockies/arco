@@ -1196,6 +1196,11 @@ struct Tape {
     ops: Vec<TapeOp>,
     /// local index -> global variable index in the IPOPT `x` vector.
     local_to_global: Vec<usize>,
+    /// True if the tape contains any operation that produces a non-zero second
+    /// derivative (multiplication of two non-constant operands, division by a
+    /// non-constant denominator, transcendentals, etc.). Linear tapes can skip
+    /// the Hessian pass entirely.
+    is_nonlinear: bool,
 }
 
 #[cfg(feature = "ipopt")]
@@ -1283,9 +1288,25 @@ fn compile_tape(
         &mut local_to_global,
         var_positions,
     )?;
+    let is_nonlinear = ops.iter().any(|op| match op {
+        TapeOp::Const(_) | TapeOp::Var(_) | TapeOp::Negate(_) | TapeOp::Add(_, _)
+        | TapeOp::Sub(_, _) | TapeOp::Abs(_) => false,
+        TapeOp::Mul(a, b) | TapeOp::Pow(a, b) => {
+            !matches!(ops[*a as usize], TapeOp::Const(_))
+                && !matches!(ops[*b as usize], TapeOp::Const(_))
+        }
+        TapeOp::Div(_, b) => !matches!(ops[*b as usize], TapeOp::Const(_)),
+        TapeOp::Sqrt(_)
+        | TapeOp::Exp(_)
+        | TapeOp::Ln(_)
+        | TapeOp::Sin(_)
+        | TapeOp::Cos(_)
+        | TapeOp::Atan(_) => true,
+    });
     Ok(Tape {
         ops,
         local_to_global,
+        is_nonlinear,
     })
 }
 
@@ -1296,6 +1317,14 @@ struct TapeScratch {
     values: Vec<f64>,
     adj: Vec<f64>,
     var_grad: Vec<f64>,
+    /// Forward tangent buffer for second-order AD (one column at a time).
+    v_dot: Vec<f64>,
+    /// Adjoint tangent buffer for second-order AD.
+    adj_dot: Vec<f64>,
+    /// Per-local-variable Hessian column accumulator for second-order AD.
+    var_grad_dot: Vec<f64>,
+    /// Dense local Hessian (row-major, `local_n * local_n`) for one tape.
+    hess_local: Vec<f64>,
 }
 
 #[cfg(feature = "ipopt")]
@@ -1403,6 +1432,213 @@ fn tape_grad(tape: &Tape, values: &[f64], adj: &mut Vec<f64>, var_grad: &mut Vec
     }
 }
 
+/// Dense local Hessian for one tape via second-order reverse-mode AD
+/// (one forward tangent + reverse tangent pass per local variable).
+///
+/// `values` and `adj` must have been populated by `tape_eval`/`tape_grad` for the same `x`.
+/// Output `hess_local` is row-major, length `local_n * local_n`, symmetric.
+#[cfg(feature = "ipopt")]
+fn tape_hessian(
+    tape: &Tape,
+    values: &[f64],
+    adj: &[f64],
+    v_dot: &mut Vec<f64>,
+    adj_dot: &mut Vec<f64>,
+    var_grad_dot: &mut Vec<f64>,
+    hess_local: &mut Vec<f64>,
+) {
+    let local_n = tape.local_to_global.len();
+    let n_ops = tape.ops.len();
+    hess_local.clear();
+    hess_local.resize(local_n * local_n, 0.0);
+
+    for k in 0..local_n {
+        // Forward tangent pass (direction = e_k).
+        v_dot.clear();
+        v_dot.resize(n_ops, 0.0);
+        for i in 0..n_ops {
+            let dot = match tape.ops[i] {
+                TapeOp::Const(_) => 0.0,
+                TapeOp::Var(local) => {
+                    if local as usize == k {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                }
+                TapeOp::Negate(a) => -v_dot[a as usize],
+                TapeOp::Add(a, b) => v_dot[a as usize] + v_dot[b as usize],
+                TapeOp::Sub(a, b) => v_dot[a as usize] - v_dot[b as usize],
+                TapeOp::Mul(a, b) => {
+                    values[a as usize] * v_dot[b as usize]
+                        + values[b as usize] * v_dot[a as usize]
+                }
+                TapeOp::Div(a, b) => {
+                    let bv = values[b as usize];
+                    v_dot[a as usize] / bv
+                        - values[a as usize] * v_dot[b as usize] / (bv * bv)
+                }
+                TapeOp::Sqrt(a) => {
+                    let out = values[i];
+                    if out == 0.0 {
+                        0.0
+                    } else {
+                        0.5 / out * v_dot[a as usize]
+                    }
+                }
+                TapeOp::Abs(a) => {
+                    let av = values[a as usize];
+                    let s = if av > 0.0 {
+                        1.0
+                    } else if av < 0.0 {
+                        -1.0
+                    } else {
+                        0.0
+                    };
+                    s * v_dot[a as usize]
+                }
+                TapeOp::Exp(a) => values[i] * v_dot[a as usize],
+                TapeOp::Ln(a) => v_dot[a as usize] / values[a as usize],
+                TapeOp::Sin(a) => values[a as usize].cos() * v_dot[a as usize],
+                TapeOp::Cos(a) => -values[a as usize].sin() * v_dot[a as usize],
+                TapeOp::Atan(a) => {
+                    let av = values[a as usize];
+                    v_dot[a as usize] / (1.0 + av * av)
+                }
+                TapeOp::Pow(a, b) => {
+                    let av = values[a as usize];
+                    let out = values[i];
+                    let mut t = 0.0;
+                    if av != 0.0 {
+                        t += values[b as usize] * out / av * v_dot[a as usize];
+                    }
+                    if av > 0.0 {
+                        t += out * av.ln() * v_dot[b as usize];
+                    }
+                    t
+                }
+            };
+            v_dot[i] = dot;
+        }
+
+        // Reverse tangent pass: differentiate the gradient pass w.r.t. the
+        // perturbation in direction e_k. Boundary condition: adj[last] = 1
+        // is constant in `x`, so adj_dot[last] = 0.
+        adj_dot.clear();
+        adj_dot.resize(n_ops, 0.0);
+        var_grad_dot.clear();
+        var_grad_dot.resize(local_n, 0.0);
+
+        for i in (0..n_ops).rev() {
+            let a_self = adj[i];
+            let ad_self = adj_dot[i];
+            match tape.ops[i] {
+                TapeOp::Const(_) => {}
+                TapeOp::Var(local) => var_grad_dot[local as usize] += ad_self,
+                TapeOp::Negate(a) => adj_dot[a as usize] -= ad_self,
+                TapeOp::Add(a, b) => {
+                    adj_dot[a as usize] += ad_self;
+                    adj_dot[b as usize] += ad_self;
+                }
+                TapeOp::Sub(a, b) => {
+                    adj_dot[a as usize] += ad_self;
+                    adj_dot[b as usize] -= ad_self;
+                }
+                TapeOp::Mul(a, b) => {
+                    let av = values[a as usize];
+                    let bv = values[b as usize];
+                    adj_dot[a as usize] += bv * ad_self + v_dot[b as usize] * a_self;
+                    adj_dot[b as usize] += av * ad_self + v_dot[a as usize] * a_self;
+                }
+                TapeOp::Div(a, b) => {
+                    let av = values[a as usize];
+                    let bv = values[b as usize];
+                    let bv2 = bv * bv;
+                    adj_dot[a as usize] += ad_self / bv - v_dot[b as usize] / bv2 * a_self;
+                    adj_dot[b as usize] += -av / bv2 * ad_self
+                        - v_dot[a as usize] / bv2 * a_self
+                        + 2.0 * av * v_dot[b as usize] / (bv2 * bv) * a_self;
+                }
+                TapeOp::Sqrt(a) => {
+                    let av = values[a as usize];
+                    let out = values[i];
+                    if out != 0.0 {
+                        let coef = 0.5 / out;
+                        let coef_dd = if av > 0.0 { -0.25 / (av * out) } else { 0.0 };
+                        adj_dot[a as usize] +=
+                            coef * ad_self + coef_dd * v_dot[a as usize] * a_self;
+                    }
+                }
+                TapeOp::Abs(a) => {
+                    let av = values[a as usize];
+                    let s = if av > 0.0 {
+                        1.0
+                    } else if av < 0.0 {
+                        -1.0
+                    } else {
+                        0.0
+                    };
+                    adj_dot[a as usize] += s * ad_self;
+                }
+                TapeOp::Exp(a) => {
+                    let out = values[i];
+                    adj_dot[a as usize] +=
+                        out * ad_self + out * v_dot[a as usize] * a_self;
+                }
+                TapeOp::Ln(a) => {
+                    let av = values[a as usize];
+                    adj_dot[a as usize] +=
+                        ad_self / av - v_dot[a as usize] / (av * av) * a_self;
+                }
+                TapeOp::Sin(a) => {
+                    let av = values[a as usize];
+                    adj_dot[a as usize] +=
+                        av.cos() * ad_self - av.sin() * v_dot[a as usize] * a_self;
+                }
+                TapeOp::Cos(a) => {
+                    let av = values[a as usize];
+                    adj_dot[a as usize] +=
+                        -av.sin() * ad_self - av.cos() * v_dot[a as usize] * a_self;
+                }
+                TapeOp::Atan(a) => {
+                    let av = values[a as usize];
+                    let denom = 1.0 + av * av;
+                    adj_dot[a as usize] += ad_self / denom
+                        - 2.0 * av * v_dot[a as usize] / (denom * denom) * a_self;
+                }
+                TapeOp::Pow(a, b) => {
+                    let av = values[a as usize];
+                    let bv = values[b as usize];
+                    let out = values[i];
+                    if av != 0.0 {
+                        let coef_a = bv * out / av;
+                        let f_aa = bv * (bv - 1.0) * out / (av * av);
+                        adj_dot[a as usize] +=
+                            coef_a * ad_self + f_aa * v_dot[a as usize] * a_self;
+                        if av > 0.0 {
+                            let f_ab = (out / av) * (1.0 + bv * av.ln());
+                            adj_dot[a as usize] += f_ab * v_dot[b as usize] * a_self;
+                            adj_dot[b as usize] += f_ab * v_dot[a as usize] * a_self;
+                        }
+                    }
+                    if av > 0.0 {
+                        let lna = av.ln();
+                        let coef_b = out * lna;
+                        let f_bb = out * lna * lna;
+                        adj_dot[b as usize] +=
+                            coef_b * ad_self + f_bb * v_dot[b as usize] * a_self;
+                    }
+                }
+            }
+        }
+
+        // Column k of the local Hessian.
+        for j in 0..local_n {
+            hess_local[j * local_n + k] = var_grad_dot[j];
+        }
+    }
+}
+
 #[cfg(feature = "ipopt")]
 struct NonlinearIpoptProblem {
     x_lower: Vec<f64>,
@@ -1418,6 +1654,13 @@ struct NonlinearIpoptProblem {
     /// For each constraint, the position in `jac_rows`/`jac_cols`/`vals`
     /// corresponding to each local variable in `constraint_tapes[i].local_to_global`.
     jac_value_positions: Vec<Vec<usize>>,
+    hess_rows: Vec<Index>,
+    hess_cols: Vec<Index>,
+    /// `(local_j, local_k, value_position)` triples for the objective tape.
+    /// Empty if the objective is linear.
+    obj_hess_pairs: Vec<(u32, u32, u32)>,
+    /// Same per constraint tape; empty entry means the constraint is linear.
+    constraint_hess_pairs: Vec<Vec<(u32, u32, u32)>>,
     scratch: RefCell<TapeScratch>,
 }
 
@@ -1451,6 +1694,7 @@ impl BasicProblem for NonlinearIpoptProblem {
             values,
             adj,
             var_grad,
+            ..
         } = &mut *scratch;
         tape_eval(&self.objective_tape, x, values);
         tape_grad(&self.objective_tape, values, adj, var_grad);
@@ -1498,6 +1742,7 @@ impl ConstrainedProblem for NonlinearIpoptProblem {
             values,
             adj,
             var_grad,
+            ..
         } = &mut *scratch;
         for (i, tape) in self.constraint_tapes.iter().enumerate() {
             tape_eval(tape, x, values);
@@ -1511,20 +1756,77 @@ impl ConstrainedProblem for NonlinearIpoptProblem {
     }
 
     fn num_hessian_non_zeros(&self) -> usize {
-        0
+        self.hess_rows.len()
     }
 
-    fn hessian_indices(&self, _rows: &mut [Index], _cols: &mut [Index]) -> bool {
+    fn hessian_indices(&self, rows: &mut [Index], cols: &mut [Index]) -> bool {
+        rows.copy_from_slice(&self.hess_rows);
+        cols.copy_from_slice(&self.hess_cols);
         true
     }
 
     fn hessian_values(
         &self,
-        _x: &[Number],
-        _obj_factor: Number,
-        _lambda: &[Number],
-        _vals: &mut [Number],
+        x: &[Number],
+        obj_factor: Number,
+        lambda: &[Number],
+        vals: &mut [Number],
     ) -> bool {
+        vals.fill(0.0);
+        let mut scratch = self.scratch.borrow_mut();
+        let TapeScratch {
+            values,
+            adj,
+            var_grad,
+            v_dot,
+            adj_dot,
+            var_grad_dot,
+            hess_local,
+        } = &mut *scratch;
+
+        // Objective contribution.
+        if !self.obj_hess_pairs.is_empty() {
+            let weight = obj_factor * self.objective_sign;
+            tape_eval(&self.objective_tape, x, values);
+            tape_grad(&self.objective_tape, values, adj, var_grad);
+            tape_hessian(
+                &self.objective_tape,
+                values,
+                adj,
+                v_dot,
+                adj_dot,
+                var_grad_dot,
+                hess_local,
+            );
+            let local_n = self.objective_tape.local_to_global.len();
+            for &(lj, lk, pos) in &self.obj_hess_pairs {
+                vals[pos as usize] +=
+                    weight * hess_local[lj as usize * local_n + lk as usize];
+            }
+        }
+
+        // Constraint contributions.
+        for (i, tape) in self.constraint_tapes.iter().enumerate() {
+            let pairs = &self.constraint_hess_pairs[i];
+            if pairs.is_empty() {
+                continue;
+            }
+            let weight = lambda[i];
+            if weight == 0.0 {
+                continue;
+            }
+            tape_eval(tape, x, values);
+            tape_grad(tape, values, adj, var_grad);
+            tape_hessian(
+                tape, values, adj, v_dot, adj_dot, var_grad_dot, hess_local,
+            );
+            let local_n = tape.local_to_global.len();
+            for &(lj, lk, pos) in pairs {
+                vals[pos as usize] +=
+                    weight * hess_local[lj as usize * local_n + lk as usize];
+            }
+        }
+
         true
     }
 }
@@ -1609,6 +1911,47 @@ fn solve_with_nonlinear_ipopt(
         ObjectiveSense::Maximize => -1.0,
     };
 
+    // Build Hessian sparsity (lower-triangular in global coordinates).
+    // Each tape with `is_nonlinear == true` contributes upper-triangular pairs
+    // of its local variables; duplicate (row, col) entries are summed by IPOPT.
+    let mut hess_rows: Vec<Index> = Vec::new();
+    let mut hess_cols: Vec<Index> = Vec::new();
+    let mut obj_hess_pairs: Vec<(u32, u32, u32)> = Vec::new();
+    if objective_tape.is_nonlinear {
+        let local_n = objective_tape.local_to_global.len();
+        for lj in 0..local_n {
+            for lk in lj..local_n {
+                let g_j = objective_tape.local_to_global[lj];
+                let g_k = objective_tape.local_to_global[lk];
+                let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
+                let pos = hess_rows.len() as u32;
+                hess_rows.push(row as Index);
+                hess_cols.push(col as Index);
+                obj_hess_pairs.push((lj as u32, lk as u32, pos));
+            }
+        }
+    }
+    let mut constraint_hess_pairs: Vec<Vec<(u32, u32, u32)>> =
+        Vec::with_capacity(constraint_tapes.len());
+    for tape in &constraint_tapes {
+        let mut pairs: Vec<(u32, u32, u32)> = Vec::new();
+        if tape.is_nonlinear {
+            let local_n = tape.local_to_global.len();
+            for lj in 0..local_n {
+                for lk in lj..local_n {
+                    let g_j = tape.local_to_global[lj];
+                    let g_k = tape.local_to_global[lk];
+                    let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
+                    let pos = hess_rows.len() as u32;
+                    hess_rows.push(row as Index);
+                    hess_cols.push(col as Index);
+                    pairs.push((lj as u32, lk as u32, pos));
+                }
+            }
+        }
+        constraint_hess_pairs.push(pairs);
+    }
+
     let g_lower_diag = g_lower.clone();
     let g_upper_diag = g_upper.clone();
 
@@ -1624,6 +1967,10 @@ fn solve_with_nonlinear_ipopt(
         jac_rows,
         jac_cols,
         jac_value_positions,
+        hess_rows,
+        hess_cols,
+        obj_hess_pairs,
+        constraint_hess_pairs,
         scratch: RefCell::new(TapeScratch::default()),
     };
 
@@ -1635,7 +1982,6 @@ fn solve_with_nonlinear_ipopt(
             )),
         })?;
 
-    ipopt.set_option("hessian_approximation", "limited-memory");
     ipopt.set_option("mu_strategy", "adaptive");
     ipopt.set_option("max_iter", 300);
     ipopt.set_option("acceptable_tol", 1e-4);
