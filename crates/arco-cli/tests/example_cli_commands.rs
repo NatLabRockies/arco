@@ -394,7 +394,16 @@ fn run_accepts_solver_log_flag() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let summary: Value = serde_json::from_slice(&output.stdout).expect("valid run json");
+    // With `--solver-log`, the embedded HiGHS backend interleaves its log
+    // lines with the run summary on stdout. Pull the last line that starts
+    // with `{` and parse just that as the JSON summary.
+    let stdout = String::from_utf8(output.stdout).expect("stdout is valid utf-8");
+    let json_line = stdout
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with('{'))
+        .expect("run summary JSON line present in stdout");
+    let summary: Value = serde_json::from_str(json_line).expect("valid run json");
     assert_eq!(summary["active_scenario"], "NodalAllocationDay");
     assert_eq!(summary["solve_status"], "optimal");
 }
