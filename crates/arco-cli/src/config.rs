@@ -14,6 +14,7 @@ use thiserror::Error;
 pub enum SolverBackend {
     #[default]
     Highs,
+    Ipopt,
     Xpress,
 }
 
@@ -21,6 +22,7 @@ impl SolverBackend {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Highs => "highs",
+            Self::Ipopt => "ipopt",
             Self::Xpress => "xpress",
         }
     }

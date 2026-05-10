@@ -3,12 +3,20 @@ use arco_core::{
     SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus, Variable,
 };
 use arco_highs::Solver as HighsSolver;
+#[cfg(feature = "ipopt")]
+use arco_ipopt::Solver as IpoptSolver;
 use arco_kdl::compile::{
     CompiledProblem, ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind,
 };
+#[cfg(feature = "ipopt")]
+use arco_kdl::compile::{NonlinearConstraint, NonlinearExpr};
 #[cfg(feature = "xpress")]
 use arco_xpress::Solver as XpressSolver;
+#[cfg(feature = "ipopt")]
+use ipopt::{BasicProblem, ConstrainedProblem, Index, Ipopt, Number, SolveStatus as IpoptStatus};
 use std::collections::BTreeMap;
+#[cfg(feature = "ipopt")]
+use std::collections::BTreeSet;
 use std::time::Instant;
 use thiserror::Error;
 use tracing::info;
@@ -118,6 +126,12 @@ pub struct RustArcoAdapter {
     log_to_console: bool,
 }
 
+#[cfg(feature = "ipopt")]
+#[derive(Debug, Default)]
+pub struct IpoptArcoAdapter {
+    log_to_console: bool,
+}
+
 #[cfg(feature = "xpress")]
 #[derive(Debug, Default)]
 pub struct XpressArcoAdapter {
@@ -213,6 +227,10 @@ pub enum ExecutionError {
         backend: String,
         compiled_name: String,
     },
+    #[error("adapter backend `{backend}` only supports linearized models")]
+    UnsupportedNonlinearBackend { backend: String },
+    #[error("adapter backend `{backend}` failed to evaluate nonlinear expression: {message}")]
+    NonlinearEvaluation { backend: String, message: String },
 }
 
 impl MockArcoAdapter {
@@ -302,6 +320,8 @@ impl OptimizationAdapter for RustArcoAdapter {
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
+        ensure_linearized_problem(problem, &backend)?;
+
         info!("solving with {}", backend);
         info!("translating lowered algebra into solver model");
         let build_started = Instant::now();
@@ -424,6 +444,163 @@ impl OptimizationAdapter for RustArcoAdapter {
     }
 }
 
+#[cfg(feature = "ipopt")]
+impl IpoptArcoAdapter {
+    pub fn new() -> Self {
+        Self {
+            log_to_console: false,
+        }
+    }
+
+    pub fn with_console_log(log_to_console: bool) -> Self {
+        Self { log_to_console }
+    }
+}
+
+#[cfg(feature = "ipopt")]
+impl OptimizationAdapter for IpoptArcoAdapter {
+    fn backend_name(&self) -> &'static str {
+        "arco-rust-ipopt"
+    }
+
+    fn solve(
+        &self,
+        problem: &CompiledProblem,
+        include_variable_values: bool,
+    ) -> Result<AdapterSolveOutput, ExecutionError> {
+        let backend = self.backend_name().to_string();
+
+        if !problem.algebra.linearized {
+            return solve_with_nonlinear_ipopt(
+                problem,
+                include_variable_values,
+                &backend,
+                self.log_to_console,
+            );
+        }
+
+        info!("solving with {}", backend);
+        info!("translating lowered algebra into solver model");
+        let build_started = Instant::now();
+        let BuiltModel {
+            model,
+            variable_indices,
+            constraint_indices,
+        } = build_model(problem, &backend)?;
+        info!(
+            "solver model translation completed in {:.2} ms",
+            build_started.elapsed().as_secs_f64() * 1000.0
+        );
+        info!("initializing solver backend instance");
+        let mut solver =
+            IpoptSolver::new(model).map_err(|source| ExecutionError::SolverInitialization {
+                backend: backend.clone(),
+                source,
+            })?;
+        solver.set_log_to_console(self.log_to_console);
+
+        info!("starting solver backend run: {}", backend);
+        let solver_started = Instant::now();
+        let solution = solver.solve().map_err(|source| ExecutionError::Solve {
+            backend: backend.clone(),
+            source,
+        })?;
+        info!(
+            "solver backend run completed in {:.2} ms: {}",
+            solver_started.elapsed().as_secs_f64() * 1000.0,
+            backend
+        );
+        info!("solve status: {:?}", solution.core_status());
+        if !solution.is_feasible() {
+            return Err(ExecutionError::NoFeasibleSolution {
+                backend,
+                status: format!("{:?}", solution.core_status()),
+            });
+        }
+
+        let objective_value = problem.algebra.objective.constant + solution.objective_value();
+        let report_values = problem
+            .algebra
+            .reports
+            .iter()
+            .map(|report| {
+                Ok(ScalarArtifactValue {
+                    compiled_name: report.name.clone(),
+                    value: evaluate_linear_report(
+                        &backend,
+                        report,
+                        &variable_indices,
+                        solution.primal_values(),
+                    )?,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let variable_values = problem
+            .variables
+            .iter()
+            .map(|variable| {
+                let representative_value = problem
+                    .algebra
+                    .variable_instances
+                    .iter()
+                    .find(|instance| instance.family == variable.family)
+                    .map(|instance| {
+                        lookup_primal_value(
+                            &backend,
+                            &instance.name,
+                            &variable_indices,
+                            solution.primal_values(),
+                        )
+                    })
+                    .transpose()?
+                    .unwrap_or(0.0);
+                let values = if include_variable_values {
+                    problem
+                        .algebra
+                        .variable_instances
+                        .iter()
+                        .filter(|instance| instance.family == variable.family)
+                        .map(|instance| {
+                            Ok(VariableInstanceArtifactValue {
+                                compiled_name: instance.name.clone(),
+                                value: lookup_primal_value(
+                                    &backend,
+                                    &instance.name,
+                                    &variable_indices,
+                                    solution.primal_values(),
+                                )?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    Vec::new()
+                };
+
+                Ok(VariableArtifactValue {
+                    compiled_name: variable.family.clone(),
+                    representative_value,
+                    values,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let dual_report_values =
+            extract_dual_report_values(problem, &constraint_indices, solution.constraint_duals());
+
+        Ok(AdapterSolveOutput {
+            status: map_solver_status(solution.core_status()),
+            objective_value: ScalarArtifactValue {
+                compiled_name: problem.objective.name.clone(),
+                value: objective_value,
+            },
+            report_values,
+            variable_values,
+            dual_report_values,
+        })
+    }
+}
+
 #[cfg(feature = "xpress")]
 impl XpressArcoAdapter {
     pub fn new() -> Self {
@@ -449,6 +626,8 @@ impl OptimizationAdapter for XpressArcoAdapter {
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
+        ensure_linearized_problem(problem, &backend)?;
+
         info!("solving with {}", backend);
         info!("translating lowered algebra into solver model");
         let build_started = Instant::now();
@@ -725,7 +904,21 @@ struct BuiltModel {
     constraint_indices: BTreeMap<String, usize>,
 }
 
+fn ensure_linearized_problem(
+    problem: &CompiledProblem,
+    backend: &str,
+) -> Result<(), ExecutionError> {
+    if problem.algebra.linearized {
+        return Ok(());
+    }
+
+    Err(ExecutionError::UnsupportedNonlinearBackend {
+        backend: backend.to_string(),
+    })
+}
+
 fn build_model(problem: &CompiledProblem, backend: &str) -> Result<BuiltModel, ExecutionError> {
+    ensure_linearized_problem(problem, backend)?;
     let mut model = Model::with_capacities(
         problem.algebra.variable_instances.len(),
         problem.algebra.constraints.len(),
@@ -892,6 +1085,731 @@ fn lookup_primal_value(
         })
 }
 
+#[cfg(feature = "ipopt")]
+const IPOPT_INF: f64 = 1e19;
+
+#[cfg(feature = "ipopt")]
+fn clamp_bound(value: f64) -> f64 {
+    value.clamp(-IPOPT_INF, IPOPT_INF)
+}
+
+#[cfg(feature = "ipopt")]
+fn default_primal_value(lower: f64, upper: f64) -> f64 {
+    if lower.is_finite() && upper.is_finite() {
+        if (upper - lower).abs() <= f64::EPSILON {
+            return lower;
+        }
+
+        return 0.5 * (lower + upper);
+    }
+
+    if lower <= 0.0 && 0.0 <= upper {
+        0.0
+    } else if lower > 0.0 && lower.is_finite() {
+        lower + 1.0
+    } else if upper < 0.0 && upper.is_finite() {
+        upper - 1.0
+    } else {
+        0.0
+    }
+}
+
+#[cfg(feature = "ipopt")]
+fn collect_nonlinear_variables(expr: &NonlinearExpr, output: &mut BTreeSet<String>) {
+    match expr {
+        NonlinearExpr::Constant(_) => {}
+        NonlinearExpr::Variable(name) => {
+            output.insert(name.clone());
+        }
+        NonlinearExpr::Unary { expr, .. } => collect_nonlinear_variables(expr, output),
+        NonlinearExpr::Binary { left, right, .. } => {
+            collect_nonlinear_variables(left, output);
+            collect_nonlinear_variables(right, output);
+        }
+        NonlinearExpr::FunctionCall { args, .. } => {
+            for arg in args {
+                collect_nonlinear_variables(arg, output);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "ipopt")]
+fn eval_nonlinear_expr(
+    expr: &NonlinearExpr,
+    values: &[f64],
+    var_positions: &BTreeMap<String, usize>,
+) -> Result<f64, String> {
+    match expr {
+        NonlinearExpr::Constant(value) => Ok(*value),
+        NonlinearExpr::Variable(name) => {
+            let Some(position) = var_positions.get(name) else {
+                return Err(format!("unknown variable `{name}`"));
+            };
+            values
+                .get(*position)
+                .copied()
+                .ok_or_else(|| format!("variable index out of bounds for `{name}`"))
+        }
+        NonlinearExpr::Unary { op, expr } => {
+            let value = eval_nonlinear_expr(expr, values, var_positions)?;
+            match op {
+                arco_kdl::algebra::UnaryOp::Negate => Ok(-value),
+            }
+        }
+        NonlinearExpr::Binary { op, left, right } => {
+            let left = eval_nonlinear_expr(left, values, var_positions)?;
+            let right = eval_nonlinear_expr(right, values, var_positions)?;
+            match op {
+                arco_kdl::algebra::BinaryOp::Add => Ok(left + right),
+                arco_kdl::algebra::BinaryOp::Subtract => Ok(left - right),
+                arco_kdl::algebra::BinaryOp::Multiply => Ok(left * right),
+                arco_kdl::algebra::BinaryOp::Divide => Ok(left / right),
+            }
+        }
+        NonlinearExpr::FunctionCall { name, args } => {
+            let evaluated = args
+                .iter()
+                .map(|arg| eval_nonlinear_expr(arg, values, var_positions))
+                .collect::<Result<Vec<_>, _>>()?;
+            match (name.as_str(), evaluated.len()) {
+                ("sqrt", 1) => Ok(evaluated[0].sqrt()),
+                ("abs", 1) => Ok(evaluated[0].abs()),
+                ("exp", 1) => Ok(evaluated[0].exp()),
+                ("ln", 1) => Ok(evaluated[0].ln()),
+                ("sin", 1) => Ok(evaluated[0].sin()),
+                ("cos", 1) => Ok(evaluated[0].cos()),
+                ("atan", 1) => Ok(evaluated[0].atan()),
+                ("pow", 2) => Ok(evaluated[0].powf(evaluated[1])),
+                _ => Err(format!(
+                    "unsupported function `{}` with {} argument(s)",
+                    name,
+                    evaluated.len()
+                )),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "ipopt")]
+#[derive(Debug, Clone)]
+struct AutoDiffValue {
+    value: f64,
+    grad: BTreeMap<usize, f64>,
+}
+
+#[cfg(feature = "ipopt")]
+fn add_scaled_grad(target: &mut BTreeMap<usize, f64>, source: &BTreeMap<usize, f64>, scale: f64) {
+    for (idx, coeff) in source {
+        let entry = target.entry(*idx).or_insert(0.0);
+        *entry += coeff * scale;
+    }
+    target.retain(|_, coeff| coeff.abs() >= 1e-14);
+}
+
+#[cfg(feature = "ipopt")]
+fn eval_nonlinear_expr_autodiff(
+    expr: &NonlinearExpr,
+    values: &[f64],
+    var_positions: &BTreeMap<String, usize>,
+) -> Result<AutoDiffValue, String> {
+    match expr {
+        NonlinearExpr::Constant(value) => Ok(AutoDiffValue {
+            value: *value,
+            grad: BTreeMap::new(),
+        }),
+        NonlinearExpr::Variable(name) => {
+            let Some(position) = var_positions.get(name) else {
+                return Err(format!("unknown variable `{name}`"));
+            };
+            let value = values
+                .get(*position)
+                .copied()
+                .ok_or_else(|| format!("variable index out of bounds for `{name}`"))?;
+            let mut grad = BTreeMap::new();
+            grad.insert(*position, 1.0);
+            Ok(AutoDiffValue { value, grad })
+        }
+        NonlinearExpr::Unary { op, expr } => {
+            let inner = eval_nonlinear_expr_autodiff(expr, values, var_positions)?;
+            match op {
+                arco_kdl::algebra::UnaryOp::Negate => Ok(AutoDiffValue {
+                    value: -inner.value,
+                    grad: inner
+                        .grad
+                        .into_iter()
+                        .map(|(idx, val)| (idx, -val))
+                        .collect(),
+                }),
+            }
+        }
+        NonlinearExpr::Binary { op, left, right } => {
+            let left = eval_nonlinear_expr_autodiff(left, values, var_positions)?;
+            let right = eval_nonlinear_expr_autodiff(right, values, var_positions)?;
+            match op {
+                arco_kdl::algebra::BinaryOp::Add => {
+                    let mut grad = left.grad;
+                    add_scaled_grad(&mut grad, &right.grad, 1.0);
+                    Ok(AutoDiffValue {
+                        value: left.value + right.value,
+                        grad,
+                    })
+                }
+                arco_kdl::algebra::BinaryOp::Subtract => {
+                    let mut grad = left.grad;
+                    add_scaled_grad(&mut grad, &right.grad, -1.0);
+                    Ok(AutoDiffValue {
+                        value: left.value - right.value,
+                        grad,
+                    })
+                }
+                arco_kdl::algebra::BinaryOp::Multiply => {
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &left.grad, right.value);
+                    add_scaled_grad(&mut grad, &right.grad, left.value);
+                    Ok(AutoDiffValue {
+                        value: left.value * right.value,
+                        grad,
+                    })
+                }
+                arco_kdl::algebra::BinaryOp::Divide => {
+                    let denom = right.value;
+                    let denom_sq = denom * denom;
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &left.grad, 1.0 / denom);
+                    add_scaled_grad(&mut grad, &right.grad, -left.value / denom_sq);
+                    Ok(AutoDiffValue {
+                        value: left.value / denom,
+                        grad,
+                    })
+                }
+            }
+        }
+        NonlinearExpr::FunctionCall { name, args } => {
+            let evaluated = args
+                .iter()
+                .map(|arg| eval_nonlinear_expr_autodiff(arg, values, var_positions))
+                .collect::<Result<Vec<_>, _>>()?;
+            match (name.as_str(), evaluated.len()) {
+                ("sqrt", 1) => {
+                    let base = &evaluated[0];
+                    let out = base.value.sqrt();
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &base.grad, 0.5 / out);
+                    Ok(AutoDiffValue { value: out, grad })
+                }
+                ("abs", 1) => {
+                    let base = &evaluated[0];
+                    let factor = if base.value > 0.0 {
+                        1.0
+                    } else if base.value < 0.0 {
+                        -1.0
+                    } else {
+                        0.0
+                    };
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &base.grad, factor);
+                    Ok(AutoDiffValue {
+                        value: base.value.abs(),
+                        grad,
+                    })
+                }
+                ("exp", 1) => {
+                    let base = &evaluated[0];
+                    let out = base.value.exp();
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &base.grad, out);
+                    Ok(AutoDiffValue { value: out, grad })
+                }
+                ("ln", 1) => {
+                    let base = &evaluated[0];
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &base.grad, 1.0 / base.value);
+                    Ok(AutoDiffValue {
+                        value: base.value.ln(),
+                        grad,
+                    })
+                }
+                ("sin", 1) => {
+                    let base = &evaluated[0];
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &base.grad, base.value.cos());
+                    Ok(AutoDiffValue {
+                        value: base.value.sin(),
+                        grad,
+                    })
+                }
+                ("cos", 1) => {
+                    let base = &evaluated[0];
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &base.grad, -base.value.sin());
+                    Ok(AutoDiffValue {
+                        value: base.value.cos(),
+                        grad,
+                    })
+                }
+                ("atan", 1) => {
+                    let base = &evaluated[0];
+                    let mut grad = BTreeMap::new();
+                    add_scaled_grad(&mut grad, &base.grad, 1.0 / (1.0 + base.value * base.value));
+                    Ok(AutoDiffValue {
+                        value: base.value.atan(),
+                        grad,
+                    })
+                }
+                ("pow", 2) => {
+                    let base = &evaluated[0];
+                    let exponent = &evaluated[1];
+                    let out = base.value.powf(exponent.value);
+
+                    if !exponent.grad.is_empty() && base.value <= 0.0 {
+                        return Err(
+                            "pow(base, exp) with variable exponent requires base > 0".to_string()
+                        );
+                    }
+
+                    let mut grad = BTreeMap::new();
+                    if base.value != 0.0 {
+                        add_scaled_grad(&mut grad, &base.grad, exponent.value * out / base.value);
+                    }
+                    if !exponent.grad.is_empty() {
+                        add_scaled_grad(&mut grad, &exponent.grad, out * base.value.ln());
+                    }
+
+                    Ok(AutoDiffValue { value: out, grad })
+                }
+                _ => Err(format!(
+                    "unsupported function `{}` with {} argument(s)",
+                    name,
+                    evaluated.len()
+                )),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "ipopt")]
+struct NonlinearIpoptProblem {
+    x_lower: Vec<f64>,
+    x_upper: Vec<f64>,
+    x_init: Vec<f64>,
+    g_lower: Vec<f64>,
+    g_upper: Vec<f64>,
+    objective_expr: NonlinearExpr,
+    objective_sign: f64,
+    constraints: Vec<NonlinearConstraint>,
+    jac_rows: Vec<Index>,
+    jac_cols: Vec<Index>,
+    jac_positions_by_row: Vec<BTreeMap<usize, usize>>,
+    var_positions: BTreeMap<String, usize>,
+}
+
+#[cfg(feature = "ipopt")]
+impl BasicProblem for NonlinearIpoptProblem {
+    fn num_variables(&self) -> usize {
+        self.x_lower.len()
+    }
+
+    fn bounds(&self, x_l: &mut [Number], x_u: &mut [Number]) -> bool {
+        x_l.copy_from_slice(&self.x_lower);
+        x_u.copy_from_slice(&self.x_upper);
+        true
+    }
+
+    fn initial_point(&self, x: &mut [Number]) -> bool {
+        x.copy_from_slice(&self.x_init);
+        true
+    }
+
+    fn objective(&self, x: &[Number], obj: &mut Number) -> bool {
+        match eval_nonlinear_expr(&self.objective_expr, x, &self.var_positions) {
+            Ok(value) => {
+                *obj = self.objective_sign * value;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn objective_grad(&self, x: &[Number], grad_f: &mut [Number]) -> bool {
+        let objective =
+            match eval_nonlinear_expr_autodiff(&self.objective_expr, x, &self.var_positions) {
+                Ok(value) => value,
+                Err(_) => return false,
+            };
+
+        grad_f.fill(0.0);
+        for (idx, deriv) in objective.grad {
+            grad_f[idx] = self.objective_sign * deriv;
+        }
+
+        true
+    }
+}
+
+#[cfg(feature = "ipopt")]
+impl ConstrainedProblem for NonlinearIpoptProblem {
+    fn num_constraints(&self) -> usize {
+        self.constraints.len()
+    }
+
+    fn num_constraint_jacobian_non_zeros(&self) -> usize {
+        self.jac_rows.len()
+    }
+
+    fn constraint(&self, x: &[Number], g: &mut [Number]) -> bool {
+        for (row_index, row) in self.constraints.iter().enumerate() {
+            let Ok(value) = eval_nonlinear_expr(&row.expression, x, &self.var_positions) else {
+                return false;
+            };
+            g[row_index] = value;
+        }
+        true
+    }
+
+    fn constraint_bounds(&self, g_l: &mut [Number], g_u: &mut [Number]) -> bool {
+        g_l.copy_from_slice(&self.g_lower);
+        g_u.copy_from_slice(&self.g_upper);
+        true
+    }
+
+    fn constraint_jacobian_indices(&self, rows: &mut [Index], cols: &mut [Index]) -> bool {
+        rows.copy_from_slice(&self.jac_rows);
+        cols.copy_from_slice(&self.jac_cols);
+        true
+    }
+
+    fn constraint_jacobian_values(&self, x: &[Number], vals: &mut [Number]) -> bool {
+        vals.fill(0.0);
+        for (row_index, row) in self.constraints.iter().enumerate() {
+            let evaluated =
+                match eval_nonlinear_expr_autodiff(&row.expression, x, &self.var_positions) {
+                    Ok(value) => value,
+                    Err(_) => return false,
+                };
+
+            for (col_idx, deriv) in evaluated.grad {
+                if let Some(position) = self.jac_positions_by_row[row_index].get(&col_idx) {
+                    vals[*position] = deriv;
+                }
+            }
+        }
+
+        true
+    }
+
+    fn num_hessian_non_zeros(&self) -> usize {
+        0
+    }
+
+    fn hessian_indices(&self, _rows: &mut [Index], _cols: &mut [Index]) -> bool {
+        true
+    }
+
+    fn hessian_values(
+        &self,
+        _x: &[Number],
+        _obj_factor: Number,
+        _lambda: &[Number],
+        _vals: &mut [Number],
+    ) -> bool {
+        true
+    }
+}
+
+#[cfg(feature = "ipopt")]
+#[allow(clippy::too_many_arguments)]
+fn solve_with_nonlinear_ipopt(
+    problem: &CompiledProblem,
+    include_variable_values: bool,
+    backend: &str,
+    log_to_console: bool,
+) -> Result<AdapterSolveOutput, ExecutionError> {
+    let Some(nonlinear) = &problem.algebra.nonlinear else {
+        return Err(ExecutionError::UnsupportedNonlinearBackend {
+            backend: backend.to_string(),
+        });
+    };
+
+    let mut variable_positions = BTreeMap::new();
+    let mut x_lower = Vec::with_capacity(problem.algebra.variable_instances.len());
+    let mut x_upper = Vec::with_capacity(problem.algebra.variable_instances.len());
+    let mut x_init = Vec::with_capacity(problem.algebra.variable_instances.len());
+    for (index, variable) in problem.algebra.variable_instances.iter().enumerate() {
+        variable_positions.insert(variable.name.clone(), index);
+        let upper = variable.upper.unwrap_or(f64::INFINITY);
+        x_lower.push(clamp_bound(variable.lower));
+        x_upper.push(clamp_bound(upper));
+        x_init.push(default_primal_value(variable.lower, upper));
+    }
+
+    let mut g_lower = Vec::with_capacity(nonlinear.constraints.len());
+    let mut g_upper = Vec::with_capacity(nonlinear.constraints.len());
+    for row in &nonlinear.constraints {
+        match row.sense {
+            ConstraintSense::GreaterEqual => {
+                g_lower.push(clamp_bound(row.rhs));
+                g_upper.push(clamp_bound(f64::INFINITY));
+            }
+            ConstraintSense::LessEqual => {
+                g_lower.push(clamp_bound(f64::NEG_INFINITY));
+                g_upper.push(clamp_bound(row.rhs));
+            }
+            ConstraintSense::Equal => {
+                let bound = clamp_bound(row.rhs);
+                g_lower.push(bound);
+                g_upper.push(bound);
+            }
+        }
+    }
+
+    let mut jac_rows = Vec::new();
+    let mut jac_cols = Vec::new();
+    let mut jac_positions_by_row =
+        vec![BTreeMap::<usize, usize>::new(); nonlinear.constraints.len()];
+    for (row_index, row) in nonlinear.constraints.iter().enumerate() {
+        let mut vars = BTreeSet::new();
+        collect_nonlinear_variables(&row.expression, &mut vars);
+        for name in vars {
+            let Some(&col_index) = variable_positions.get(&name) else {
+                return Err(ExecutionError::UnknownCompiledVariable {
+                    backend: backend.to_string(),
+                    compiled_name: name,
+                });
+            };
+            let value_position = jac_rows.len();
+            jac_rows.push(row_index as Index);
+            jac_cols.push(col_index as Index);
+            jac_positions_by_row[row_index].insert(col_index, value_position);
+        }
+    }
+
+    let objective_sign = match nonlinear.objective.sense {
+        ObjectiveSense::Minimize => 1.0,
+        ObjectiveSense::Maximize => -1.0,
+    };
+
+    let g_lower_diag = g_lower.clone();
+    let g_upper_diag = g_upper.clone();
+
+    let nlp_problem = NonlinearIpoptProblem {
+        x_lower,
+        x_upper,
+        x_init,
+        g_lower,
+        g_upper,
+        objective_expr: nonlinear.objective.expression.clone(),
+        objective_sign,
+        constraints: nonlinear.constraints.clone(),
+        jac_rows,
+        jac_cols,
+        jac_positions_by_row,
+        var_positions: variable_positions.clone(),
+    };
+
+    let mut ipopt =
+        Ipopt::new(nlp_problem).map_err(|source| ExecutionError::SolverInitialization {
+            backend: backend.to_string(),
+            source: ArcoSolverError::SolverSpecific(format!(
+                "Failed to create IPOPT NLP: {source:?}"
+            )),
+        })?;
+
+    ipopt.set_option("hessian_approximation", "limited-memory");
+    ipopt.set_option("mu_strategy", "adaptive");
+    ipopt.set_option("max_iter", 300);
+    ipopt.set_option("acceptable_tol", 1e-4);
+    ipopt.set_option("acceptable_iter", 8);
+    ipopt.set_option("print_level", if log_to_console { 5 } else { 0 });
+
+    let result = ipopt.solve();
+    let status = result.status;
+    if !ipopt_has_solution(status) {
+        if log_to_console {
+            log_top_nonlinear_violations(
+                nonlinear,
+                &result.solver_data.solution.primal_variables,
+                &variable_positions,
+                &g_lower_diag,
+                &g_upper_diag,
+            );
+        }
+        return Err(ExecutionError::NoFeasibleSolution {
+            backend: backend.to_string(),
+            status: format!("{status:?}"),
+        });
+    }
+
+    let primal_values = &result.solver_data.solution.primal_variables;
+    let objective_value = objective_sign * result.objective_value;
+
+    let report_values = nonlinear
+        .reports
+        .iter()
+        .map(|report| {
+            let value = eval_nonlinear_expr(&report.expression, primal_values, &variable_positions)
+                .map_err(|message| ExecutionError::NonlinearEvaluation {
+                    backend: backend.to_string(),
+                    message,
+                })?;
+            Ok(ScalarArtifactValue {
+                compiled_name: report.name.clone(),
+                value,
+            })
+        })
+        .collect::<Result<Vec<_>, ExecutionError>>()?;
+
+    let variable_values = problem
+        .variables
+        .iter()
+        .map(|variable| {
+            let representative_value = problem
+                .algebra
+                .variable_instances
+                .iter()
+                .find(|instance| instance.family == variable.family)
+                .map(|instance| {
+                    lookup_primal_value(backend, &instance.name, &variable_positions, primal_values)
+                })
+                .transpose()?
+                .unwrap_or(0.0);
+            let values = if include_variable_values {
+                problem
+                    .algebra
+                    .variable_instances
+                    .iter()
+                    .filter(|instance| instance.family == variable.family)
+                    .map(|instance| {
+                        Ok(VariableInstanceArtifactValue {
+                            compiled_name: instance.name.clone(),
+                            value: lookup_primal_value(
+                                backend,
+                                &instance.name,
+                                &variable_positions,
+                                primal_values,
+                            )?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                Vec::new()
+            };
+
+            Ok(VariableArtifactValue {
+                compiled_name: variable.family.clone(),
+                representative_value,
+                values,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let constraint_indices = nonlinear
+        .constraints
+        .iter()
+        .enumerate()
+        .map(|(index, row)| (row.name.clone(), index))
+        .collect::<BTreeMap<_, _>>();
+    let dual_report_values = extract_dual_report_values(
+        problem,
+        &constraint_indices,
+        &result.solver_data.solution.constraint_multipliers,
+    );
+
+    Ok(AdapterSolveOutput {
+        status: map_ipopt_status(status),
+        objective_value: ScalarArtifactValue {
+            compiled_name: problem.objective.name.clone(),
+            value: objective_value,
+        },
+        report_values,
+        variable_values,
+        dual_report_values,
+    })
+}
+
+#[cfg(feature = "ipopt")]
+fn ipopt_has_solution(status: IpoptStatus) -> bool {
+    matches!(
+        status,
+        IpoptStatus::SolveSucceeded
+            | IpoptStatus::SolvedToAcceptableLevel
+            | IpoptStatus::MaximumIterationsExceeded
+            | IpoptStatus::MaximumCpuTimeExceeded
+            | IpoptStatus::FeasiblePointFound
+    )
+}
+
+#[cfg(feature = "ipopt")]
+fn constraint_violation(value: f64, lower: f64, upper: f64) -> f64 {
+    if value < lower {
+        lower - value
+    } else if value > upper {
+        value - upper
+    } else {
+        0.0
+    }
+}
+
+#[cfg(feature = "ipopt")]
+fn log_top_nonlinear_violations(
+    nonlinear: &arco_kdl::compile::NonlinearProblem,
+    primal_values: &[f64],
+    variable_positions: &BTreeMap<String, usize>,
+    g_lower: &[f64],
+    g_upper: &[f64],
+) {
+    if primal_values.is_empty() {
+        eprintln!(
+            "nonlinear IPOPT diagnostics: no primal values available for infeasibility analysis"
+        );
+        return;
+    }
+
+    let mut violations: Vec<(f64, String, f64, f64, f64)> = Vec::new();
+    for (idx, constraint) in nonlinear.constraints.iter().enumerate() {
+        let Ok(value) =
+            eval_nonlinear_expr(&constraint.expression, primal_values, variable_positions)
+        else {
+            continue;
+        };
+        let lower = g_lower.get(idx).copied().unwrap_or(f64::NEG_INFINITY);
+        let upper = g_upper.get(idx).copied().unwrap_or(f64::INFINITY);
+        let violation = constraint_violation(value, lower, upper);
+        if violation > 1e-8 {
+            violations.push((violation, constraint.name.clone(), value, lower, upper));
+        }
+    }
+
+    if violations.is_empty() {
+        eprintln!(
+            "nonlinear IPOPT diagnostics: no violated constraints identified at returned point"
+        );
+        return;
+    }
+
+    violations.sort_by(|a, b| b.0.total_cmp(&a.0));
+    eprintln!(
+        "nonlinear IPOPT diagnostics: top {} violated constraints:",
+        violations.len().min(12)
+    );
+    for (violation, name, value, lower, upper) in violations.into_iter().take(12) {
+        eprintln!(
+            "  {name}: violation={violation:.6e}, value={value:.6e}, bounds=[{lower:.6e}, {upper:.6e}]"
+        );
+    }
+}
+
+#[cfg(feature = "ipopt")]
+fn map_ipopt_status(status: IpoptStatus) -> SolveStatus {
+    match status {
+        IpoptStatus::SolveSucceeded | IpoptStatus::SolvedToAcceptableLevel => SolveStatus::Optimal,
+        IpoptStatus::InfeasibleProblemDetected | IpoptStatus::RestorationFailed => {
+            SolveStatus::Infeasible
+        }
+        _ => SolveStatus::Failed,
+    }
+}
+
 fn extract_dual_report_values(
     problem: &CompiledProblem,
     constraint_indices: &BTreeMap<String, usize>,
@@ -1054,6 +1972,7 @@ mod tests {
             dual_reports: Vec::new(),
             traceability: Vec::new(),
             algebra: AlgebraicProblem {
+                linearized: true,
                 variable_instances: vec![VariableInstance {
                     name: "x[A,1]".to_string(),
                     family: "x[a,t]".to_string(),
@@ -1069,6 +1988,7 @@ mod tests {
                     terms: Vec::new(),
                 },
                 reports: Vec::new(),
+                nonlinear: None,
             },
         };
 

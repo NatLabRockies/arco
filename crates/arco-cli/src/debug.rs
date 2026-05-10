@@ -323,6 +323,7 @@ mod tests {
     #[test]
     fn python_model_data_uses_csc_layout_and_bounds() {
         let problem = AlgebraicProblem {
+            linearized: true,
             variable_instances: vec![
                 VariableInstance {
                     name: "x".to_string(),
@@ -381,6 +382,7 @@ mod tests {
                 ],
             },
             reports: Vec::new(),
+            nonlinear: None,
         };
 
         let model = build_python_model_data(&problem).expect("model data should build");

@@ -1,5 +1,7 @@
 use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim};
 use crate::config::SolverBackend;
+#[cfg(feature = "ipopt")]
+use crate::execution::IpoptArcoAdapter;
 #[cfg(feature = "xpress")]
 use crate::execution::XpressArcoAdapter;
 use crate::execution::{
@@ -138,15 +140,13 @@ impl Diagnostic for DriverError {
                 "inspect the summary payload for non-finite values that cannot be serialized",
             )),
             Self::BackendNotAvailable { .. } => Some(Box::new(
-                "To enable Xpress support, rebuild arco with the xpress feature:\n\n\
-                 \x20   cargo install --path . --features xpress\n\n\
-                 This requires the FICO Xpress SDK installed and XPRESSDIR set.\n\n\
-                 On macOS (DMG install):\n\
-                 \x20   export XPRESSDIR=\"/Applications/FICO Xpress/xpressmp\"\n\n\
-                 On Linux:\n\
-                 \x20   export XPRESSDIR=\"/opt/xpressmp\"\n\n\
-                 To switch back to HiGHS (no extra dependencies):\n\
-                 \x20   arco solver set highs",
+                "Enable the requested backend feature and rebuild arco.\n\n\
+                  IPOPT backend:\n\
+                  \x20   cargo install --path crates/arco-cli --features ipopt\n\n\
+                  Xpress backend:\n\
+                  \x20   cargo install --path crates/arco-cli --features xpress\n\n\
+                  To switch back to HiGHS (no extra dependencies):\n\
+                  \x20   arco solver set highs",
             )),
             Self::InspectFormat { .. } | Self::Pipeline { .. } | Self::Execution { .. } => None,
         }
@@ -184,10 +184,18 @@ pub fn run_file_with_options_and_backend(
         compiled.timing.validate.as_secs_f64() * 1000.0,
         compiled.timing.compile.as_secs_f64() * 1000.0
     );
+    let nonlinear_constraints = compiled
+        .compiled_problem
+        .algebra
+        .nonlinear
+        .as_ref()
+        .map_or(0, |problem| problem.constraints.len());
     debug!(
-        "lowered problem size: {} variable instances, {} constraint rows",
+        "lowered problem size: {} variable instances, {} linear constraint rows, {} nonlinear constraint rows, linearized={}",
         compiled.compiled_problem.algebra.variable_instances.len(),
-        compiled.compiled_problem.algebra.constraints.len()
+        compiled.compiled_problem.algebra.constraints.len(),
+        nonlinear_constraints,
+        compiled.compiled_problem.algebra.linearized
     );
 
     let solve_start = Instant::now();
@@ -203,6 +211,18 @@ pub fn run_file_with_options_and_backend(
             &RustArcoAdapter::with_console_log(options.solver_log),
             include_variable_values,
         )?,
+        #[cfg(feature = "ipopt")]
+        SolverBackend::Ipopt => execute_problem_with_options(
+            &compiled.compiled_problem,
+            &IpoptArcoAdapter::with_console_log(options.solver_log),
+            include_variable_values,
+        )?,
+        #[cfg(not(feature = "ipopt"))]
+        SolverBackend::Ipopt => {
+            return Err(DriverError::BackendNotAvailable {
+                message: "IPOPT solver backend is not available in this build".to_string(),
+            });
+        }
         #[cfg(feature = "xpress")]
         SolverBackend::Xpress => execute_problem_with_options(
             &compiled.compiled_problem,

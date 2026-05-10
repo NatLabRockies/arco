@@ -42,6 +42,9 @@ enum Command {
         /// Filter output by asset name glob
         #[arg(long)]
         filter_asset: Option<String>,
+        /// Force printing solver iterations and diagnostics to stderr
+        #[arg(long)]
+        solver_log: bool,
         /// Omit full value arrays from the JSON summary
         #[arg(long)]
         compact: bool,
@@ -131,6 +134,7 @@ fn main() -> miette::Result<()> {
             path,
             filter_variable,
             filter_asset,
+            solver_log,
             compact,
         } => {
             let solver_config = load_solver_config()?;
@@ -140,10 +144,11 @@ fn main() -> miette::Result<()> {
                     compact,
                     filter_variable,
                     filter_asset,
-                    solver_log: should_log_solver_to_console(
-                        cli.verbose,
-                        std::io::stdout().is_terminal(),
-                    ),
+                    solver_log: solver_log
+                        || should_log_solver_to_console(
+                            cli.verbose,
+                            std::io::stdout().is_terminal(),
+                        ),
                 },
                 solver_config.backend,
             )?;
