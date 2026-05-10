@@ -2137,6 +2137,263 @@ fn solve_with_nonlinear_ipopt(
     })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Public NLP entry point (consumed by the Python bindings).
+//
+// This wraps the same tape + IPOPT machinery used by `solve_with_nonlinear_ipopt`
+// but accepts a free-standing `NonlinearProblem` plus per-variable bounds/init
+// values, instead of a full `CompiledProblem`. The function returns primal
+// values and constraint duals keyed by the variable / constraint names embedded
+// in the `NonlinearProblem`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Bounds and optional initial value for a variable in a free-standing NLP.
+#[cfg(feature = "ipopt")]
+#[derive(Debug, Clone)]
+pub struct NlpVariableSpec {
+    /// Variable name as it appears inside the `NonlinearExpr` tree.
+    pub name: String,
+    /// Lower bound (`f64::NEG_INFINITY` for unbounded below).
+    pub lower: f64,
+    /// Upper bound (`f64::INFINITY` for unbounded above).
+    pub upper: f64,
+    /// Initial primal value. If `None`, a midpoint or zero is used.
+    pub initial: Option<f64>,
+}
+
+/// IPOPT options exposed through the public NLP entry point.
+#[cfg(feature = "ipopt")]
+#[derive(Debug, Clone)]
+pub struct NlpOptions {
+    pub log_to_console: bool,
+    pub max_iter: u32,
+    pub tol: f64,
+    pub acceptable_tol: f64,
+    pub acceptable_iter: u32,
+}
+
+#[cfg(feature = "ipopt")]
+impl Default for NlpOptions {
+    fn default() -> Self {
+        Self {
+            log_to_console: false,
+            max_iter: 300,
+            tol: 1e-6,
+            acceptable_tol: 1e-4,
+            acceptable_iter: 8,
+        }
+    }
+}
+
+/// Result of a free-standing NLP solve.
+#[cfg(feature = "ipopt")]
+#[derive(Debug, Clone)]
+pub struct NlpSolution {
+    pub status: SolveStatus,
+    pub primal_values: BTreeMap<String, f64>,
+    pub objective_value: f64,
+    pub constraint_duals: BTreeMap<String, f64>,
+    pub report_values: BTreeMap<String, f64>,
+}
+
+/// Errors emitted by the public NLP entry point.
+#[cfg(feature = "ipopt")]
+#[derive(Debug, thiserror::Error)]
+pub enum NlpError {
+    #[error("nonlinear evaluation failed: {0}")]
+    Evaluation(String),
+    #[error("IPOPT solver setup failed: {0}")]
+    Setup(String),
+    #[error("IPOPT failed to find a feasible solution (status: {0})")]
+    Infeasible(String),
+}
+
+/// Solve a `NonlinearProblem` with IPOPT and return primal/dual values keyed by
+/// the variable/constraint names used inside the expression tree.
+#[cfg(feature = "ipopt")]
+pub fn solve_nonlinear_problem(
+    nonlinear: &crate::compile::compile::NonlinearProblem,
+    variables: &[NlpVariableSpec],
+    options: &NlpOptions,
+) -> Result<NlpSolution, NlpError> {
+    let mut variable_positions: BTreeMap<String, usize> = BTreeMap::new();
+    let mut x_lower = Vec::with_capacity(variables.len());
+    let mut x_upper = Vec::with_capacity(variables.len());
+    let mut x_init = Vec::with_capacity(variables.len());
+    for (index, var) in variables.iter().enumerate() {
+        variable_positions.insert(var.name.clone(), index);
+        x_lower.push(clamp_bound(var.lower));
+        x_upper.push(clamp_bound(var.upper));
+        let init = var
+            .initial
+            .unwrap_or_else(|| default_primal_value(var.lower, var.upper));
+        x_init.push(init);
+    }
+
+    let mut g_lower = Vec::with_capacity(nonlinear.constraints.len());
+    let mut g_upper = Vec::with_capacity(nonlinear.constraints.len());
+    for row in &nonlinear.constraints {
+        match row.sense {
+            ConstraintSense::GreaterEqual => {
+                g_lower.push(clamp_bound(row.rhs));
+                g_upper.push(clamp_bound(f64::INFINITY));
+            }
+            ConstraintSense::LessEqual => {
+                g_lower.push(clamp_bound(f64::NEG_INFINITY));
+                g_upper.push(clamp_bound(row.rhs));
+            }
+            ConstraintSense::Equal => {
+                let bound = clamp_bound(row.rhs);
+                g_lower.push(bound);
+                g_upper.push(bound);
+            }
+        }
+    }
+
+    let mut jac_rows: Vec<Index> = Vec::new();
+    let mut jac_cols: Vec<Index> = Vec::new();
+    let mut jac_value_positions: Vec<Vec<usize>> = Vec::with_capacity(nonlinear.constraints.len());
+    let mut constraint_tapes: Vec<Tape> = Vec::with_capacity(nonlinear.constraints.len());
+    for (row_index, row) in nonlinear.constraints.iter().enumerate() {
+        let tape =
+            compile_tape(&row.expression, &variable_positions).map_err(NlpError::Evaluation)?;
+        let mut positions = Vec::with_capacity(tape.local_to_global.len());
+        for &col_index in &tape.local_to_global {
+            let value_position = jac_rows.len();
+            jac_rows.push(row_index as Index);
+            jac_cols.push(col_index as Index);
+            positions.push(value_position);
+        }
+        jac_value_positions.push(positions);
+        constraint_tapes.push(tape);
+    }
+
+    let objective_tape = compile_tape(&nonlinear.objective.expression, &variable_positions)
+        .map_err(NlpError::Evaluation)?;
+
+    let objective_sign = match nonlinear.objective.sense {
+        arco_kdl::ObjectiveSense::Minimize => 1.0,
+        arco_kdl::ObjectiveSense::Maximize => -1.0,
+    };
+
+    let mut hess_rows: Vec<Index> = Vec::new();
+    let mut hess_cols: Vec<Index> = Vec::new();
+    let mut obj_hess_pairs: Vec<(u32, u32, u32)> = Vec::new();
+    if objective_tape.is_nonlinear {
+        let local_n = objective_tape.local_to_global.len();
+        for lj in 0..local_n {
+            for lk in lj..local_n {
+                let g_j = objective_tape.local_to_global[lj];
+                let g_k = objective_tape.local_to_global[lk];
+                let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
+                let pos = hess_rows.len() as u32;
+                hess_rows.push(row as Index);
+                hess_cols.push(col as Index);
+                obj_hess_pairs.push((lj as u32, lk as u32, pos));
+            }
+        }
+    }
+    let mut constraint_hess_pairs: Vec<Vec<(u32, u32, u32)>> =
+        Vec::with_capacity(constraint_tapes.len());
+    for tape in &constraint_tapes {
+        let mut pairs: Vec<(u32, u32, u32)> = Vec::new();
+        if tape.is_nonlinear {
+            let local_n = tape.local_to_global.len();
+            for lj in 0..local_n {
+                for lk in lj..local_n {
+                    let g_j = tape.local_to_global[lj];
+                    let g_k = tape.local_to_global[lk];
+                    let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
+                    let pos = hess_rows.len() as u32;
+                    hess_rows.push(row as Index);
+                    hess_cols.push(col as Index);
+                    pairs.push((lj as u32, lk as u32, pos));
+                }
+            }
+        }
+        constraint_hess_pairs.push(pairs);
+    }
+
+    let g_lower_diag = g_lower.clone();
+    let g_upper_diag = g_upper.clone();
+
+    let nlp_problem = NonlinearIpoptProblem {
+        x_lower,
+        x_upper,
+        x_init,
+        g_lower,
+        g_upper,
+        objective_tape,
+        objective_sign,
+        constraint_tapes,
+        jac_rows,
+        jac_cols,
+        jac_value_positions,
+        hess_rows,
+        hess_cols,
+        obj_hess_pairs,
+        constraint_hess_pairs,
+        scratch: RefCell::new(TapeScratch::default()),
+    };
+
+    let mut ipopt = Ipopt::new(nlp_problem)
+        .map_err(|source| NlpError::Setup(format!("Failed to create IPOPT NLP: {source:?}")))?;
+
+    ipopt.set_option("mu_strategy", "adaptive");
+    ipopt.set_option("max_iter", options.max_iter as i32);
+    ipopt.set_option("tol", options.tol);
+    ipopt.set_option("acceptable_tol", options.acceptable_tol);
+    ipopt.set_option("acceptable_iter", options.acceptable_iter as i32);
+    ipopt.set_option("print_level", if options.log_to_console { 5 } else { 0 });
+
+    let result = ipopt.solve();
+    let status = result.status;
+    if !ipopt_has_solution(status) {
+        if options.log_to_console {
+            log_top_nonlinear_violations(
+                nonlinear,
+                result.solver_data.solution.primal_variables,
+                &variable_positions,
+                &g_lower_diag,
+                &g_upper_diag,
+            );
+        }
+        return Err(NlpError::Infeasible(format!("{status:?}")));
+    }
+
+    let primal_array = &result.solver_data.solution.primal_variables;
+    let objective_value = objective_sign * result.objective_value;
+
+    let mut primal_values = BTreeMap::new();
+    for (name, &idx) in &variable_positions {
+        if let Some(&v) = primal_array.get(idx) {
+            primal_values.insert(name.clone(), v);
+        }
+    }
+
+    let mut constraint_duals = BTreeMap::new();
+    for (i, c) in nonlinear.constraints.iter().enumerate() {
+        if let Some(&v) = result.solver_data.solution.constraint_multipliers.get(i) {
+            constraint_duals.insert(c.name.clone(), v);
+        }
+    }
+
+    let mut report_values = BTreeMap::new();
+    for report in &nonlinear.reports {
+        let value = eval_nonlinear_expr(&report.expression, primal_array, &variable_positions)
+            .map_err(NlpError::Evaluation)?;
+        report_values.insert(report.name.clone(), value);
+    }
+
+    Ok(NlpSolution {
+        status: map_ipopt_status(status),
+        primal_values,
+        objective_value,
+        constraint_duals,
+        report_values,
+    })
+}
+
 #[cfg(feature = "ipopt")]
 fn ipopt_has_solution(status: IpoptStatus) -> bool {
     matches!(

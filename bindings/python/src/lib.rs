@@ -72,6 +72,11 @@ pub struct PyModel {
     link_defs: Vec<pym::model_blocks::LinkDef>,
     /// Compact metadata for arrays created via add_variables() for pretty-printing.
     array_print_specs: Vec<pym::model_pretty::ArrayPrintSpec>,
+    /// Nonlinear constraints and objective registered via `add_nonlinear_constraint`
+    /// and `minimize`/`maximize` with a `NonlinearExpr`. Only meaningful when the
+    /// `ipopt` feature is enabled.
+    #[cfg(feature = "ipopt")]
+    pub(crate) nonlinear_state: pym::nonlinear_state::NonlinearState,
 }
 
 impl PyModel {
@@ -88,6 +93,8 @@ impl PyModel {
             block_defs: Vec::new(),
             link_defs: Vec::new(),
             array_print_specs: Vec::new(),
+            #[cfg(feature = "ipopt")]
+            nonlinear_state: pym::nonlinear_state::NonlinearState::default(),
         }
     }
 }
@@ -537,13 +544,50 @@ impl PyModel {
     /// Minimize a linear expression.
     #[pyo3(signature = (expr, *, name=None))]
     fn minimize(&mut self, expr: &Bound<'_, PyAny>, name: Option<String>) -> PyResult<()> {
+        #[cfg(feature = "ipopt")]
+        {
+            if pym::model_nlp::try_set_nonlinear_objective(
+                self,
+                expr,
+                Sense::Minimize,
+                name.clone(),
+            )? {
+                return Ok(());
+            }
+        }
         self.set_objective_from_expr(expr, Sense::Minimize, name)
     }
 
     /// Maximize a linear expression.
     #[pyo3(signature = (expr, *, name=None))]
     fn maximize(&mut self, expr: &Bound<'_, PyAny>, name: Option<String>) -> PyResult<()> {
+        #[cfg(feature = "ipopt")]
+        {
+            if pym::model_nlp::try_set_nonlinear_objective(
+                self,
+                expr,
+                Sense::Maximize,
+                name.clone(),
+            )? {
+                return Ok(());
+            }
+        }
         self.set_objective_from_expr(expr, Sense::Maximize, name)
+    }
+
+    /// Add a nonlinear constraint to the model.
+    ///
+    /// Accepts a `NonlinearConstraintExpr` (the result of comparing a
+    /// `NonlinearExpr`) or a linear `ConstraintExpr` (auto-promoted). Only
+    /// honored when `solve(solver=arco.Ipopt(...))` is called.
+    #[cfg(feature = "ipopt")]
+    #[pyo3(signature = (expr, *, name=None))]
+    fn add_nonlinear_constraint(
+        &mut self,
+        expr: &Bound<'_, PyAny>,
+        name: Option<String>,
+    ) -> PyResult<()> {
+        pym::model_nlp::add_nonlinear_constraint(self, expr, name)
     }
 
     /// Set the objective name stored in model metadata.
@@ -604,6 +648,32 @@ impl PyModel {
                 mip_gap,
                 verbosity,
             );
+        }
+
+        // Nonlinear model: dispatch to IPOPT path when an Ipopt solver is selected.
+        #[cfg(feature = "ipopt")]
+        {
+            let backend = pym::solver::detect_default_backend(solver);
+            if backend == "ipopt" || self.nonlinear_state.has_any() {
+                let mut settings = if let Some(s) = solver {
+                    pym::solver::extract_solver_settings(Some(s))?
+                } else {
+                    self.solver_settings.clone()
+                };
+                if let Some(log) = log_to_console {
+                    settings.log_to_console = Some(log);
+                }
+                if let Some(v) = verbosity {
+                    settings.verbosity = Some(v);
+                }
+                let _ = primal_start; // not supported in NL path yet
+                let _ = time_limit;
+                let _ = mip_gap;
+                let solver_obj = pym::solver::PySolver { settings };
+                let py_result = pym::model_nlp::solve_with_ipopt(self, py, &solver_obj)?;
+                self.last_solution = Some(py_result.clone_ref(py));
+                return Ok(py_result);
+            }
         }
 
         let py_result = pym::model_solve::solve_model(
@@ -1126,6 +1196,8 @@ fn arco(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pym::snapshot::register(m)?;
     pym::logging::register(m)?;
     pym::iterators::register(m)?;
+    #[cfg(feature = "ipopt")]
+    pym::nonlinear::register(m)?;
     pym::bounds::export_bound_constants(m)?;
     m.setattr("block", typed_block_fn)?;
 
