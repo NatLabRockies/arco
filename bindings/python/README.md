@@ -12,6 +12,14 @@ uv sync --group dev
 uv run --with maturin maturin develop
 ```
 
+To enable the IPOPT nonlinear backend, build with the `ipopt` feature (requires
+a system IPOPT install):
+
+```bash
+cd bindings/python
+uv run --with maturin maturin develop --features ipopt
+```
+
 Run linting:
 
 ```bash
@@ -35,3 +43,30 @@ uv run --with ipython --with-editable ./bindings/python ipython -i examples/dens
 ```
 
 Inside IPython, use `model` to inspect the formulation and call `solve()` when ready.
+
+## Running example problems
+
+The `examples/` tree contains standalone Python scripts that build models
+directly through the bindings, covering different problem classes:
+
+- LP — linear programs (default HiGHS backend).
+- MILP — mixed-integer linear programs (HiGHS).
+- NLP — nonlinear programs (requires bindings built with `--features ipopt`).
+- QP / QCP — (quadratically constrained) quadratic programs, solved through
+  the appropriate backend for the problem class.
+
+Run from `bindings/python` so the locally built extension is on the import path:
+
+```bash
+cd bindings/python
+
+# LP — Multi-period DC-OPF (HiGHS)
+uv run python ../../examples/multi-period-optimal-power-flow/dc-opf-24bus-wind-load-shedding/problem.py
+
+# NLP — Multi-period AC-OPF (IPOPT)
+uv run python ../../examples/multi-period-optimal-power-flow/ac-opf-24bus-wind-load-shedding/problem.py
+```
+
+Each script prints the solver status and final objective value alongside the
+reference value from the original formulation. Substitute the path to any other
+`problem.py` (or `formulation.py`) under `examples/` to run a different model.
