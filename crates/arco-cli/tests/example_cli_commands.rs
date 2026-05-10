@@ -369,6 +369,26 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
 }
 
 #[test]
+fn run_accepts_solver_log_flag() {
+    let model_path = example_path("examples/nodal-allocation/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let output = run_cli(&["run", model, "--compact", "--solver-log"]);
+    assert!(
+        output.status.success(),
+        "run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let summary: Value = serde_json::from_slice(&output.stdout).expect("valid run json");
+    assert_eq!(summary["active_scenario"], "NodalAllocationDay");
+    assert_eq!(summary["solve_status"], "optimal");
+}
+
+#[test]
 fn inspect_uses_canonical_set_size_for_alias_collision_bindings() {
     let root = unique_temp_dir("inspect-alias-collision");
     let data_dir = root.join("data");

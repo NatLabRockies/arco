@@ -162,6 +162,9 @@ fn evaluate_builtin_function(
         ("abs", 1) => Ok(args[0].abs()),
         ("exp", 1) => Ok(args[0].exp()),
         ("ln", 1) => Ok(args[0].ln()),
+        ("sin", 1) => Ok(args[0].sin()),
+        ("cos", 1) => Ok(args[0].cos()),
+        ("atan", 1) => Ok(args[0].atan()),
         ("pow", 2) => Ok(args[0].powf(args[1])),
         (name, n) => Err(CompileError::InvalidFormulation {
             message: format!(

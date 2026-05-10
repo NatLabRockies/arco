@@ -215,7 +215,10 @@ pub(super) fn tokenize(text: &str) -> Result<Vec<Token>, ParseError> {
 }
 
 pub(super) fn is_builtin_function(name: &str) -> bool {
-    matches!(name, "sqrt" | "pow" | "exp" | "ln" | "abs")
+    matches!(
+        name,
+        "sqrt" | "pow" | "exp" | "ln" | "abs" | "sin" | "cos" | "atan"
+    )
 }
 
 fn is_identifier_start(character: char) -> bool {

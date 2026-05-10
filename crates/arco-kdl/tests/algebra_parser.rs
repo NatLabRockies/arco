@@ -152,3 +152,39 @@ fn parses_abs_function_call_with_indexed_argument() -> Result<(), Box<dyn std::e
 
     Ok(())
 }
+
+#[test]
+fn parses_nested_trig_function_calls() -> Result<(), Box<dyn std::error::Error>> {
+    let expression = parse_value_formula("cos(theta[i,t] + atan(x[l] / r[l]))")?;
+
+    let Expr::FunctionCall { ref name, ref args } = expression else {
+        return Err("expected FunctionCall".into());
+    };
+    assert_eq!(name, "cos");
+    assert_eq!(args.len(), 1);
+
+    let Expr::Binary {
+        op: BinaryOp::Add,
+        left,
+        right,
+    } = &args[0]
+    else {
+        return Err("expected additive argument".into());
+    };
+
+    assert!(matches!(
+        left.as_ref(),
+        Expr::Indexed { target, indices } if target == "theta" && indices.len() == 2
+    ));
+    assert!(matches!(
+        right.as_ref(),
+        Expr::FunctionCall { name, args } if name == "atan" && args.len() == 1
+    ));
+
+    assert_eq!(
+        expression.to_string(),
+        "cos(theta[i,t] + atan(x[l] / r[l]))"
+    );
+
+    Ok(())
+}

@@ -18,24 +18,8 @@ fn compile_algebra(
         instantiate_variable_instances(program, inputs, &variable_signatures, entrypoint)?;
     let instantiated_names: BTreeSet<String> =
         variable_instances.iter().map(|i| i.name.clone()).collect();
-    let mut constraints = compile_constraint_instances(
-        program,
-        inputs,
-        &named_expressions,
-        &variable_signatures,
-        &instantiated_names,
-        entrypoint,
-    )?;
-    constraints.extend(emit_terminal_boundary_constraints(
-        program,
-        inputs,
-        &variable_signatures,
-        entrypoint,
-    )?);
 
-    let objective = linearize_value_expr(
-        &program.active_objective.expression,
-        &LinearizationBindings::default(),
+    let nonlinear = compile_nonlinear_problem(
         program,
         inputs,
         &named_expressions,
@@ -43,32 +27,104 @@ fn compile_algebra(
         &instantiated_names,
         entrypoint,
     )?;
-    let reports = program
-        .active_reports
-        .iter()
-        .map(|report| {
-            linearize_value_expr(
-                &report.formula,
-                &LinearizationBindings::default(),
-                program,
-                inputs,
-                &named_expressions,
-                &variable_signatures,
-                &instantiated_names,
-                entrypoint,
-            )
-            .map(|linearized| LinearReport {
-                name: report.name.clone(),
-                constant: linearized.constant,
-                terms: linearized.into_terms(),
+
+    if nonlinear_problem_requires_nlp(&nonlinear) {
+        variable_instances.sort_by(|a, b| a.name.cmp(&b.name));
+        return Ok(AlgebraicProblem {
+            linearized: false,
+            variable_instances,
+            constraints: Vec::new(),
+            objective: LinearObjective {
+                name: program.active_objective.name.clone(),
+                sense: program.active_objective.sense,
+                constant: 0.0,
+                terms: Vec::new(),
+            },
+            reports: Vec::new(),
+            nonlinear: Some(nonlinear),
+        });
+    }
+
+    let linearized_sections = (|| {
+        let mut constraints = compile_constraint_instances(
+            program,
+            inputs,
+            &named_expressions,
+            &variable_signatures,
+            &instantiated_names,
+            entrypoint,
+        )?;
+        constraints.extend(emit_terminal_boundary_constraints(
+            program,
+            inputs,
+            &variable_signatures,
+            entrypoint,
+        )?);
+
+        let objective = linearize_value_expr(
+            &program.active_objective.expression,
+            &LinearizationBindings::default(),
+            program,
+            inputs,
+            &named_expressions,
+            &variable_signatures,
+            &instantiated_names,
+            entrypoint,
+        )?;
+        let reports = program
+            .active_reports
+            .iter()
+            .map(|report| {
+                linearize_value_expr(
+                    &report.formula,
+                    &LinearizationBindings::default(),
+                    program,
+                    inputs,
+                    &named_expressions,
+                    &variable_signatures,
+                    &instantiated_names,
+                    entrypoint,
+                )
+                .map(|linearized| LinearReport {
+                    name: report.name.clone(),
+                    constant: linearized.constant,
+                    terms: linearized.into_terms(),
+                })
             })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok::<(Vec<LinearConstraint>, AffineExpr, Vec<LinearReport>), CompileError>((
+            constraints,
+            objective,
+            reports,
+        ))
+    })();
+
+    let (linearized, mut constraints, objective, reports) = match linearized_sections {
+        Ok((constraints, objective, reports)) => (true, constraints, objective, reports),
+        Err(CompileError::InvalidFormulation { message, .. }) => {
+            if !nonlinear_fallback_required(&message) {
+                return Err(CompileError::InvalidFormulation {
+                    message,
+                    path: entrypoint.to_path_buf(),
+                });
+            }
+
+            (
+                false,
+                Vec::<LinearConstraint>::new(),
+                AffineExpr::constant(0.0),
+                Vec::<LinearReport>::new(),
+            )
+        }
+        Err(error) => return Err(error),
+    };
 
     variable_instances.sort_by(|a, b| a.name.cmp(&b.name));
     constraints.sort_by(|a, b| a.name.cmp(&b.name));
 
     Ok(AlgebraicProblem {
+        linearized,
         variable_instances,
         constraints,
         objective: LinearObjective {
@@ -78,6 +134,7 @@ fn compile_algebra(
             terms: objective.into_terms(),
         },
         reports,
+        nonlinear: Some(nonlinear),
     })
 }
 

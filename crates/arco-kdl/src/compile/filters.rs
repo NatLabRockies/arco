@@ -262,11 +262,13 @@ fn numeric_filter_value(
     match value {
         FilterValue::Number(value) => Ok(*value),
         FilterValue::Boolean(value) => Ok(if *value { 1.0 } else { 0.0 }),
-        FilterValue::String(_) => Err(invalid_constraint_filter(
-            constraint,
-            path,
-            "numeric operations in constraint filters require numeric or boolean values",
-        )),
+        FilterValue::String(value) => value.parse::<f64>().map_err(|_| {
+            invalid_constraint_filter(
+                constraint,
+                path,
+                "numeric operations in constraint filters require numeric or boolean values",
+            )
+        }),
     }
 }
 
