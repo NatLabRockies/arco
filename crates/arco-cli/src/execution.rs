@@ -9,14 +9,14 @@ use arco_kdl::compile::{
     CompiledProblem, ConstraintSense, LinearReport, LinearTerm, ObjectiveSense, VariableKind,
 };
 #[cfg(feature = "ipopt")]
-use arco_kdl::compile::{NonlinearConstraint, NonlinearExpr};
+use arco_kdl::compile::NonlinearExpr;
 #[cfg(feature = "xpress")]
 use arco_xpress::Solver as XpressSolver;
 #[cfg(feature = "ipopt")]
 use ipopt::{BasicProblem, ConstrainedProblem, Index, Ipopt, Number, SolveStatus as IpoptStatus};
-use std::collections::BTreeMap;
 #[cfg(feature = "ipopt")]
-use std::collections::BTreeSet;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::time::Instant;
 use thiserror::Error;
 use tracing::info;
@@ -1115,26 +1115,6 @@ fn default_primal_value(lower: f64, upper: f64) -> f64 {
 }
 
 #[cfg(feature = "ipopt")]
-fn collect_nonlinear_variables(expr: &NonlinearExpr, output: &mut BTreeSet<String>) {
-    match expr {
-        NonlinearExpr::Constant(_) => {}
-        NonlinearExpr::Variable(name) => {
-            output.insert(name.clone());
-        }
-        NonlinearExpr::Unary { expr, .. } => collect_nonlinear_variables(expr, output),
-        NonlinearExpr::Binary { left, right, .. } => {
-            collect_nonlinear_variables(left, output);
-            collect_nonlinear_variables(right, output);
-        }
-        NonlinearExpr::FunctionCall { args, .. } => {
-            for arg in args {
-                collect_nonlinear_variables(arg, output);
-            }
-        }
-    }
-}
-
-#[cfg(feature = "ipopt")]
 fn eval_nonlinear_expr(
     expr: &NonlinearExpr,
     values: &[f64],
@@ -1192,197 +1172,232 @@ fn eval_nonlinear_expr(
 }
 
 #[cfg(feature = "ipopt")]
-#[derive(Debug, Clone)]
-struct AutoDiffValue {
-    value: f64,
-    grad: BTreeMap<usize, f64>,
+#[derive(Clone, Copy)]
+enum TapeOp {
+    Const(f64),
+    Var(u32),
+    Negate(u32),
+    Add(u32, u32),
+    Sub(u32, u32),
+    Mul(u32, u32),
+    Div(u32, u32),
+    Sqrt(u32),
+    Abs(u32),
+    Exp(u32),
+    Ln(u32),
+    Sin(u32),
+    Cos(u32),
+    Atan(u32),
+    Pow(u32, u32),
 }
 
 #[cfg(feature = "ipopt")]
-fn add_scaled_grad(target: &mut BTreeMap<usize, f64>, source: &BTreeMap<usize, f64>, scale: f64) {
-    for (idx, coeff) in source {
-        let entry = target.entry(*idx).or_insert(0.0);
-        *entry += coeff * scale;
-    }
-    target.retain(|_, coeff| coeff.abs() >= 1e-14);
+struct Tape {
+    ops: Vec<TapeOp>,
+    /// local index -> global variable index in the IPOPT `x` vector.
+    local_to_global: Vec<usize>,
 }
 
 #[cfg(feature = "ipopt")]
-fn eval_nonlinear_expr_autodiff(
+fn compile_tape(
     expr: &NonlinearExpr,
-    values: &[f64],
     var_positions: &BTreeMap<String, usize>,
-) -> Result<AutoDiffValue, String> {
-    match expr {
-        NonlinearExpr::Constant(value) => Ok(AutoDiffValue {
-            value: *value,
-            grad: BTreeMap::new(),
-        }),
-        NonlinearExpr::Variable(name) => {
-            let Some(position) = var_positions.get(name) else {
-                return Err(format!("unknown variable `{name}`"));
-            };
-            let value = values
-                .get(*position)
-                .copied()
-                .ok_or_else(|| format!("variable index out of bounds for `{name}`"))?;
-            let mut grad = BTreeMap::new();
-            grad.insert(*position, 1.0);
-            Ok(AutoDiffValue { value, grad })
-        }
-        NonlinearExpr::Unary { op, expr } => {
-            let inner = eval_nonlinear_expr_autodiff(expr, values, var_positions)?;
-            match op {
-                arco_kdl::algebra::UnaryOp::Negate => Ok(AutoDiffValue {
-                    value: -inner.value,
-                    grad: inner
-                        .grad
-                        .into_iter()
-                        .map(|(idx, val)| (idx, -val))
-                        .collect(),
-                }),
+) -> Result<Tape, String> {
+    let mut ops: Vec<TapeOp> = Vec::new();
+    let mut local_for_global: BTreeMap<usize, u32> = BTreeMap::new();
+    let mut local_to_global: Vec<usize> = Vec::new();
+    fn visit(
+        expr: &NonlinearExpr,
+        ops: &mut Vec<TapeOp>,
+        local_for_global: &mut BTreeMap<usize, u32>,
+        local_to_global: &mut Vec<usize>,
+        var_positions: &BTreeMap<String, usize>,
+    ) -> Result<u32, String> {
+        let op = match expr {
+            NonlinearExpr::Constant(value) => TapeOp::Const(*value),
+            NonlinearExpr::Variable(name) => {
+                let global = *var_positions
+                    .get(name)
+                    .ok_or_else(|| format!("unknown variable `{name}`"))?;
+                let local = match local_for_global.get(&global) {
+                    Some(&l) => l,
+                    None => {
+                        let l = local_to_global.len() as u32;
+                        local_for_global.insert(global, l);
+                        local_to_global.push(global);
+                        l
+                    }
+                };
+                TapeOp::Var(local)
             }
-        }
-        NonlinearExpr::Binary { op, left, right } => {
-            let left = eval_nonlinear_expr_autodiff(left, values, var_positions)?;
-            let right = eval_nonlinear_expr_autodiff(right, values, var_positions)?;
-            match op {
-                arco_kdl::algebra::BinaryOp::Add => {
-                    let mut grad = left.grad;
-                    add_scaled_grad(&mut grad, &right.grad, 1.0);
-                    Ok(AutoDiffValue {
-                        value: left.value + right.value,
-                        grad,
-                    })
-                }
-                arco_kdl::algebra::BinaryOp::Subtract => {
-                    let mut grad = left.grad;
-                    add_scaled_grad(&mut grad, &right.grad, -1.0);
-                    Ok(AutoDiffValue {
-                        value: left.value - right.value,
-                        grad,
-                    })
-                }
-                arco_kdl::algebra::BinaryOp::Multiply => {
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &left.grad, right.value);
-                    add_scaled_grad(&mut grad, &right.grad, left.value);
-                    Ok(AutoDiffValue {
-                        value: left.value * right.value,
-                        grad,
-                    })
-                }
-                arco_kdl::algebra::BinaryOp::Divide => {
-                    let denom = right.value;
-                    let denom_sq = denom * denom;
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &left.grad, 1.0 / denom);
-                    add_scaled_grad(&mut grad, &right.grad, -left.value / denom_sq);
-                    Ok(AutoDiffValue {
-                        value: left.value / denom,
-                        grad,
-                    })
+            NonlinearExpr::Unary { op, expr } => {
+                let a = visit(expr, ops, local_for_global, local_to_global, var_positions)?;
+                match op {
+                    arco_kdl::algebra::UnaryOp::Negate => TapeOp::Negate(a),
                 }
             }
+            NonlinearExpr::Binary { op, left, right } => {
+                let a = visit(left, ops, local_for_global, local_to_global, var_positions)?;
+                let b = visit(right, ops, local_for_global, local_to_global, var_positions)?;
+                match op {
+                    arco_kdl::algebra::BinaryOp::Add => TapeOp::Add(a, b),
+                    arco_kdl::algebra::BinaryOp::Subtract => TapeOp::Sub(a, b),
+                    arco_kdl::algebra::BinaryOp::Multiply => TapeOp::Mul(a, b),
+                    arco_kdl::algebra::BinaryOp::Divide => TapeOp::Div(a, b),
+                }
+            }
+            NonlinearExpr::FunctionCall { name, args } => {
+                let arg_indices = args
+                    .iter()
+                    .map(|arg| {
+                        visit(arg, ops, local_for_global, local_to_global, var_positions)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                match (name.as_str(), arg_indices.len()) {
+                    ("sqrt", 1) => TapeOp::Sqrt(arg_indices[0]),
+                    ("abs", 1) => TapeOp::Abs(arg_indices[0]),
+                    ("exp", 1) => TapeOp::Exp(arg_indices[0]),
+                    ("ln", 1) => TapeOp::Ln(arg_indices[0]),
+                    ("sin", 1) => TapeOp::Sin(arg_indices[0]),
+                    ("cos", 1) => TapeOp::Cos(arg_indices[0]),
+                    ("atan", 1) => TapeOp::Atan(arg_indices[0]),
+                    ("pow", 2) => TapeOp::Pow(arg_indices[0], arg_indices[1]),
+                    _ => {
+                        return Err(format!(
+                            "unsupported function `{}` with {} argument(s)",
+                            name,
+                            arg_indices.len()
+                        ));
+                    }
+                }
+            }
+        };
+        ops.push(op);
+        Ok((ops.len() - 1) as u32)
+    }
+
+    visit(
+        expr,
+        &mut ops,
+        &mut local_for_global,
+        &mut local_to_global,
+        var_positions,
+    )?;
+    Ok(Tape {
+        ops,
+        local_to_global,
+    })
+}
+
+/// Reverse-mode AD scratch buffers reused across IPOPT callbacks.
+#[cfg(feature = "ipopt")]
+#[derive(Default)]
+struct TapeScratch {
+    values: Vec<f64>,
+    adj: Vec<f64>,
+    var_grad: Vec<f64>,
+}
+
+#[cfg(feature = "ipopt")]
+fn tape_eval(tape: &Tape, x: &[f64], values: &mut Vec<f64>) -> f64 {
+    values.clear();
+    values.reserve(tape.ops.len());
+    for op in &tape.ops {
+        let v = match *op {
+            TapeOp::Const(v) => v,
+            TapeOp::Var(local) => x[tape.local_to_global[local as usize]],
+            TapeOp::Negate(a) => -values[a as usize],
+            TapeOp::Add(a, b) => values[a as usize] + values[b as usize],
+            TapeOp::Sub(a, b) => values[a as usize] - values[b as usize],
+            TapeOp::Mul(a, b) => values[a as usize] * values[b as usize],
+            TapeOp::Div(a, b) => values[a as usize] / values[b as usize],
+            TapeOp::Sqrt(a) => values[a as usize].sqrt(),
+            TapeOp::Abs(a) => values[a as usize].abs(),
+            TapeOp::Exp(a) => values[a as usize].exp(),
+            TapeOp::Ln(a) => values[a as usize].ln(),
+            TapeOp::Sin(a) => values[a as usize].sin(),
+            TapeOp::Cos(a) => values[a as usize].cos(),
+            TapeOp::Atan(a) => values[a as usize].atan(),
+            TapeOp::Pow(a, b) => values[a as usize].powf(values[b as usize]),
+        };
+        values.push(v);
+    }
+    *values.last().expect("tape must produce a value")
+}
+
+/// Reverse pass: assumes `values` was populated by `tape_eval` for the same `x`.
+/// Writes per-local-variable gradient into `var_grad` (zeroed and resized).
+#[cfg(feature = "ipopt")]
+fn tape_grad(tape: &Tape, values: &[f64], adj: &mut Vec<f64>, var_grad: &mut Vec<f64>) {
+    adj.clear();
+    adj.resize(tape.ops.len(), 0.0);
+    if let Some(last) = adj.last_mut() {
+        *last = 1.0;
+    }
+    var_grad.clear();
+    var_grad.resize(tape.local_to_global.len(), 0.0);
+
+    for i in (0..tape.ops.len()).rev() {
+        let a_self = adj[i];
+        if a_self == 0.0 {
+            continue;
         }
-        NonlinearExpr::FunctionCall { name, args } => {
-            let evaluated = args
-                .iter()
-                .map(|arg| eval_nonlinear_expr_autodiff(arg, values, var_positions))
-                .collect::<Result<Vec<_>, _>>()?;
-            match (name.as_str(), evaluated.len()) {
-                ("sqrt", 1) => {
-                    let base = &evaluated[0];
-                    let out = base.value.sqrt();
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &base.grad, 0.5 / out);
-                    Ok(AutoDiffValue { value: out, grad })
+        match tape.ops[i] {
+            TapeOp::Const(_) => {}
+            TapeOp::Var(local) => var_grad[local as usize] += a_self,
+            TapeOp::Negate(a) => adj[a as usize] -= a_self,
+            TapeOp::Add(a, b) => {
+                adj[a as usize] += a_self;
+                adj[b as usize] += a_self;
+            }
+            TapeOp::Sub(a, b) => {
+                adj[a as usize] += a_self;
+                adj[b as usize] -= a_self;
+            }
+            TapeOp::Mul(a, b) => {
+                let av = values[a as usize];
+                let bv = values[b as usize];
+                adj[a as usize] += bv * a_self;
+                adj[b as usize] += av * a_self;
+            }
+            TapeOp::Div(a, b) => {
+                let av = values[a as usize];
+                let bv = values[b as usize];
+                adj[a as usize] += a_self / bv;
+                adj[b as usize] -= av / (bv * bv) * a_self;
+            }
+            TapeOp::Sqrt(a) => {
+                let out = values[i];
+                adj[a as usize] += 0.5 / out * a_self;
+            }
+            TapeOp::Abs(a) => {
+                let av = values[a as usize];
+                let s = if av > 0.0 {
+                    1.0
+                } else if av < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                };
+                adj[a as usize] += s * a_self;
+            }
+            TapeOp::Exp(a) => adj[a as usize] += values[i] * a_self,
+            TapeOp::Ln(a) => adj[a as usize] += a_self / values[a as usize],
+            TapeOp::Sin(a) => adj[a as usize] += values[a as usize].cos() * a_self,
+            TapeOp::Cos(a) => adj[a as usize] -= values[a as usize].sin() * a_self,
+            TapeOp::Atan(a) => {
+                let av = values[a as usize];
+                adj[a as usize] += a_self / (1.0 + av * av);
+            }
+            TapeOp::Pow(a, b) => {
+                let av = values[a as usize];
+                let out = values[i];
+                if av != 0.0 {
+                    adj[a as usize] += values[b as usize] * out / av * a_self;
                 }
-                ("abs", 1) => {
-                    let base = &evaluated[0];
-                    let factor = if base.value > 0.0 {
-                        1.0
-                    } else if base.value < 0.0 {
-                        -1.0
-                    } else {
-                        0.0
-                    };
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &base.grad, factor);
-                    Ok(AutoDiffValue {
-                        value: base.value.abs(),
-                        grad,
-                    })
+                if av > 0.0 {
+                    adj[b as usize] += out * av.ln() * a_self;
                 }
-                ("exp", 1) => {
-                    let base = &evaluated[0];
-                    let out = base.value.exp();
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &base.grad, out);
-                    Ok(AutoDiffValue { value: out, grad })
-                }
-                ("ln", 1) => {
-                    let base = &evaluated[0];
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &base.grad, 1.0 / base.value);
-                    Ok(AutoDiffValue {
-                        value: base.value.ln(),
-                        grad,
-                    })
-                }
-                ("sin", 1) => {
-                    let base = &evaluated[0];
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &base.grad, base.value.cos());
-                    Ok(AutoDiffValue {
-                        value: base.value.sin(),
-                        grad,
-                    })
-                }
-                ("cos", 1) => {
-                    let base = &evaluated[0];
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &base.grad, -base.value.sin());
-                    Ok(AutoDiffValue {
-                        value: base.value.cos(),
-                        grad,
-                    })
-                }
-                ("atan", 1) => {
-                    let base = &evaluated[0];
-                    let mut grad = BTreeMap::new();
-                    add_scaled_grad(&mut grad, &base.grad, 1.0 / (1.0 + base.value * base.value));
-                    Ok(AutoDiffValue {
-                        value: base.value.atan(),
-                        grad,
-                    })
-                }
-                ("pow", 2) => {
-                    let base = &evaluated[0];
-                    let exponent = &evaluated[1];
-                    let out = base.value.powf(exponent.value);
-
-                    if !exponent.grad.is_empty() && base.value <= 0.0 {
-                        return Err(
-                            "pow(base, exp) with variable exponent requires base > 0".to_string()
-                        );
-                    }
-
-                    let mut grad = BTreeMap::new();
-                    if base.value != 0.0 {
-                        add_scaled_grad(&mut grad, &base.grad, exponent.value * out / base.value);
-                    }
-                    if !exponent.grad.is_empty() {
-                        add_scaled_grad(&mut grad, &exponent.grad, out * base.value.ln());
-                    }
-
-                    Ok(AutoDiffValue { value: out, grad })
-                }
-                _ => Err(format!(
-                    "unsupported function `{}` with {} argument(s)",
-                    name,
-                    evaluated.len()
-                )),
             }
         }
     }
@@ -1395,13 +1410,15 @@ struct NonlinearIpoptProblem {
     x_init: Vec<f64>,
     g_lower: Vec<f64>,
     g_upper: Vec<f64>,
-    objective_expr: NonlinearExpr,
+    objective_tape: Tape,
     objective_sign: f64,
-    constraints: Vec<NonlinearConstraint>,
+    constraint_tapes: Vec<Tape>,
     jac_rows: Vec<Index>,
     jac_cols: Vec<Index>,
-    jac_positions_by_row: Vec<BTreeMap<usize, usize>>,
-    var_positions: BTreeMap<String, usize>,
+    /// For each constraint, the position in `jac_rows`/`jac_cols`/`vals`
+    /// corresponding to each local variable in `constraint_tapes[i].local_to_global`.
+    jac_value_positions: Vec<Vec<usize>>,
+    scratch: RefCell<TapeScratch>,
 }
 
 #[cfg(feature = "ipopt")]
@@ -1422,27 +1439,25 @@ impl BasicProblem for NonlinearIpoptProblem {
     }
 
     fn objective(&self, x: &[Number], obj: &mut Number) -> bool {
-        match eval_nonlinear_expr(&self.objective_expr, x, &self.var_positions) {
-            Ok(value) => {
-                *obj = self.objective_sign * value;
-                true
-            }
-            Err(_) => false,
-        }
+        let mut scratch = self.scratch.borrow_mut();
+        let value = tape_eval(&self.objective_tape, x, &mut scratch.values);
+        *obj = self.objective_sign * value;
+        true
     }
 
     fn objective_grad(&self, x: &[Number], grad_f: &mut [Number]) -> bool {
-        let objective =
-            match eval_nonlinear_expr_autodiff(&self.objective_expr, x, &self.var_positions) {
-                Ok(value) => value,
-                Err(_) => return false,
-            };
-
+        let mut scratch = self.scratch.borrow_mut();
+        let TapeScratch {
+            values,
+            adj,
+            var_grad,
+        } = &mut *scratch;
+        tape_eval(&self.objective_tape, x, values);
+        tape_grad(&self.objective_tape, values, adj, var_grad);
         grad_f.fill(0.0);
-        for (idx, deriv) in objective.grad {
-            grad_f[idx] = self.objective_sign * deriv;
+        for (local, &global) in self.objective_tape.local_to_global.iter().enumerate() {
+            grad_f[global] = self.objective_sign * var_grad[local];
         }
-
         true
     }
 }
@@ -1450,7 +1465,7 @@ impl BasicProblem for NonlinearIpoptProblem {
 #[cfg(feature = "ipopt")]
 impl ConstrainedProblem for NonlinearIpoptProblem {
     fn num_constraints(&self) -> usize {
-        self.constraints.len()
+        self.constraint_tapes.len()
     }
 
     fn num_constraint_jacobian_non_zeros(&self) -> usize {
@@ -1458,11 +1473,9 @@ impl ConstrainedProblem for NonlinearIpoptProblem {
     }
 
     fn constraint(&self, x: &[Number], g: &mut [Number]) -> bool {
-        for (row_index, row) in self.constraints.iter().enumerate() {
-            let Ok(value) = eval_nonlinear_expr(&row.expression, x, &self.var_positions) else {
-                return false;
-            };
-            g[row_index] = value;
+        let mut scratch = self.scratch.borrow_mut();
+        for (i, tape) in self.constraint_tapes.iter().enumerate() {
+            g[i] = tape_eval(tape, x, &mut scratch.values);
         }
         true
     }
@@ -1480,21 +1493,20 @@ impl ConstrainedProblem for NonlinearIpoptProblem {
     }
 
     fn constraint_jacobian_values(&self, x: &[Number], vals: &mut [Number]) -> bool {
-        vals.fill(0.0);
-        for (row_index, row) in self.constraints.iter().enumerate() {
-            let evaluated =
-                match eval_nonlinear_expr_autodiff(&row.expression, x, &self.var_positions) {
-                    Ok(value) => value,
-                    Err(_) => return false,
-                };
-
-            for (col_idx, deriv) in evaluated.grad {
-                if let Some(position) = self.jac_positions_by_row[row_index].get(&col_idx) {
-                    vals[*position] = deriv;
-                }
+        let mut scratch = self.scratch.borrow_mut();
+        let TapeScratch {
+            values,
+            adj,
+            var_grad,
+        } = &mut *scratch;
+        for (i, tape) in self.constraint_tapes.iter().enumerate() {
+            tape_eval(tape, x, values);
+            tape_grad(tape, values, adj, var_grad);
+            let positions = &self.jac_value_positions[i];
+            for (local, &pos) in positions.iter().enumerate() {
+                vals[pos] = var_grad[local];
             }
         }
-
         true
     }
 
@@ -1563,26 +1575,34 @@ fn solve_with_nonlinear_ipopt(
         }
     }
 
-    let mut jac_rows = Vec::new();
-    let mut jac_cols = Vec::new();
-    let mut jac_positions_by_row =
-        vec![BTreeMap::<usize, usize>::new(); nonlinear.constraints.len()];
+    let mut jac_rows: Vec<Index> = Vec::new();
+    let mut jac_cols: Vec<Index> = Vec::new();
+    let mut jac_value_positions: Vec<Vec<usize>> =
+        Vec::with_capacity(nonlinear.constraints.len());
+    let mut constraint_tapes: Vec<Tape> = Vec::with_capacity(nonlinear.constraints.len());
     for (row_index, row) in nonlinear.constraints.iter().enumerate() {
-        let mut vars = BTreeSet::new();
-        collect_nonlinear_variables(&row.expression, &mut vars);
-        for name in vars {
-            let Some(&col_index) = variable_positions.get(&name) else {
-                return Err(ExecutionError::UnknownCompiledVariable {
-                    backend: backend.to_string(),
-                    compiled_name: name,
-                });
-            };
+        let tape = compile_tape(&row.expression, &variable_positions).map_err(|message| {
+            ExecutionError::NonlinearEvaluation {
+                backend: backend.to_string(),
+                message,
+            }
+        })?;
+        let mut positions = Vec::with_capacity(tape.local_to_global.len());
+        for &col_index in &tape.local_to_global {
             let value_position = jac_rows.len();
             jac_rows.push(row_index as Index);
             jac_cols.push(col_index as Index);
-            jac_positions_by_row[row_index].insert(col_index, value_position);
+            positions.push(value_position);
         }
+        jac_value_positions.push(positions);
+        constraint_tapes.push(tape);
     }
+
+    let objective_tape = compile_tape(&nonlinear.objective.expression, &variable_positions)
+        .map_err(|message| ExecutionError::NonlinearEvaluation {
+            backend: backend.to_string(),
+            message,
+        })?;
 
     let objective_sign = match nonlinear.objective.sense {
         ObjectiveSense::Minimize => 1.0,
@@ -1598,13 +1618,13 @@ fn solve_with_nonlinear_ipopt(
         x_init,
         g_lower,
         g_upper,
-        objective_expr: nonlinear.objective.expression.clone(),
+        objective_tape,
         objective_sign,
-        constraints: nonlinear.constraints.clone(),
+        constraint_tapes,
         jac_rows,
         jac_cols,
-        jac_positions_by_row,
-        var_positions: variable_positions.clone(),
+        jac_value_positions,
+        scratch: RefCell::new(TapeScratch::default()),
     };
 
     let mut ipopt =
