@@ -1,0 +1,12 @@
+model "Dispatch" {
+  include "bad-model-data.kdl"
+
+  control "x" lower=0
+  minimize "TotalCost" {
+    x
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

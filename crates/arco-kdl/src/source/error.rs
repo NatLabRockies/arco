@@ -55,6 +55,13 @@ pub enum SourceError {
         source_text: Box<NamedSource<String>>,
         span: SourceSpan,
     },
+    #[error("invalid include in {path}: {reason}")]
+    InvalidInclude {
+        reason: String,
+        path: PathBuf,
+        source_text: Box<NamedSource<String>>,
+        span: SourceSpan,
+    },
     #[error("invalid algebra in `{node}` in {path}: {reason}")]
     InvalidAlgebra {
         node: String,
@@ -75,6 +82,7 @@ impl Diagnostic for SourceError {
             Self::MissingProperty { .. } => "arco::source::missing_property",
             Self::InvalidValue { .. } => "arco::source::invalid_value",
             Self::UnsupportedDeclaration { .. } => "arco::source::unsupported_declaration",
+            Self::InvalidInclude { .. } => "arco::source::invalid_include",
             Self::InvalidAlgebra { .. } => "arco::source::invalid_algebra",
         };
         Some(Box::new(code))
@@ -97,6 +105,9 @@ impl Diagnostic for SourceError {
             Self::UnsupportedDeclaration { .. } => Some(Box::new(
                 "remove the declaration or add parser support for it",
             )),
+            Self::InvalidInclude { .. } => Some(Box::new(
+                "use `include \"path.kdl\"` only in the entrypoint file at top level or inside a model block",
+            )),
             Self::InvalidAlgebra { .. } => Some(Box::new(
                 "fix the algebra syntax so the expression can be parsed into the DSL AST",
             )),
@@ -111,6 +122,7 @@ impl Diagnostic for SourceError {
             | Self::MissingProperty { source_text, .. }
             | Self::InvalidValue { source_text, .. }
             | Self::UnsupportedDeclaration { source_text, .. }
+            | Self::InvalidInclude { source_text, .. }
             | Self::InvalidAlgebra { source_text, .. } => Some(source_text.as_ref()),
             Self::Io { .. } | Self::Kdl { .. } => None,
         }
@@ -123,6 +135,7 @@ impl Diagnostic for SourceError {
             | Self::MissingProperty { span, .. }
             | Self::InvalidValue { span, .. }
             | Self::UnsupportedDeclaration { span, .. }
+            | Self::InvalidInclude { span, .. }
             | Self::InvalidAlgebra { span, .. } => Some(LabeledSpan::new_with_span(
                 Some("this declaration".to_string()),
                 *span,
@@ -141,6 +154,7 @@ impl Diagnostic for SourceError {
             | Self::MissingProperty { .. }
             | Self::InvalidValue { .. }
             | Self::UnsupportedDeclaration { .. }
+            | Self::InvalidInclude { .. }
             | Self::InvalidAlgebra { .. } => None,
         }
     }

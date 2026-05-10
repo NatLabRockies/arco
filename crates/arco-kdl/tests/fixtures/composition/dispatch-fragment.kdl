@@ -1,0 +1,14 @@
+control "x" lower=0 {
+  index "t" {
+    in "time"
+  }
+}
+
+constraint "limit" {
+  index "t" {
+    in "time"
+  }
+  expression {
+    x[t] <= 1
+  }
+}

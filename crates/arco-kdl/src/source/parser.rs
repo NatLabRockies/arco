@@ -1,12 +1,12 @@
 use crate::ObjectiveSense;
 use crate::algebra::parse_value_formula;
 use crate::source::ast::{
-    BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, IndexDecl, ModelDecl,
-    ParsedSource, ProjectionDecl, ReportDecl, ReportKind, ScenarioDecl, SetDecl, SourceProgram,
-    VariableKindDecl,
+    BoundExpr, DataBindingDecl, DataDecl, DataIndexDecl, ExpressionDecl, IncludeDecl, IndexDecl,
+    ModelDecl, ParsedSource, ProjectionDecl, ReportDecl, ReportKind, ScenarioDecl, SetDecl,
+    SourceProgram, VariableKindDecl,
 };
 use crate::source::error::SourceError;
-use crate::source::parser_constraints::parse_constraints;
+use crate::source::parser_constraints::{parse_constraint, parse_constraints};
 use crate::source::parser_helpers::{
     ParseContext, algebra_error, algebra_text_from_node, declaration_indices, first_arg_string,
     invalid_value_error, missing_node_error, optional_property_literal, optional_property_string,
@@ -17,16 +17,77 @@ use crate::source::surface::normalize_surface_syntax;
 use kdl::{KdlDocument, KdlNode, KdlValue};
 use miette::NamedSource;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::info;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Declaration {
+    Include,
+    Set,
+    Data,
+    Param,
+    Model,
+    Projection,
+    Scenario,
+    Map,
+    Alias,
+    Index,
+    In,
+    Filter,
+    Reduce,
+    Bounds,
+    Lower,
+    Upper,
+    From,
+    To,
+    Control,
+    Var,
+    Expression,
+    Constraint,
+    Minimize,
+    Maximize,
+    Use,
+    Report,
+}
+
+impl Declaration {
+    fn from_node(node: &KdlNode) -> Option<Self> {
+        match node.name().value() {
+            "include" => Some(Self::Include),
+            "set" => Some(Self::Set),
+            "data" => Some(Self::Data),
+            "param" => Some(Self::Param),
+            "model" => Some(Self::Model),
+            "projection" => Some(Self::Projection),
+            "scenario" => Some(Self::Scenario),
+            "map" => Some(Self::Map),
+            "alias" => Some(Self::Alias),
+            "index" => Some(Self::Index),
+            "in" => Some(Self::In),
+            "filter" => Some(Self::Filter),
+            "reduce" => Some(Self::Reduce),
+            "bounds" => Some(Self::Bounds),
+            "lower" => Some(Self::Lower),
+            "upper" => Some(Self::Upper),
+            "from" => Some(Self::From),
+            "to" => Some(Self::To),
+            "control" => Some(Self::Control),
+            "var" => Some(Self::Var),
+            "expression" => Some(Self::Expression),
+            "constraint" => Some(Self::Constraint),
+            "minimize" => Some(Self::Minimize),
+            "maximize" => Some(Self::Maximize),
+            "use" => Some(Self::Use),
+            "report" => Some(Self::Report),
+            _ => None,
+        }
+    }
+}
 
 pub fn parse_program_file(path: &Path) -> Result<ParsedSource, SourceError> {
     info!(path = %path.display(), status = "ok", "parsing source file");
-    let text = fs::read_to_string(path).map_err(|source| SourceError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    parse_program_text(&text, path)
+    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    parse_program_file_with_base(path, base_dir, true)
 }
 
 pub fn parse_program_text(text: &str, path: &Path) -> Result<ParsedSource, SourceError> {
@@ -49,6 +110,38 @@ pub fn parse_program_text(text: &str, path: &Path) -> Result<ParsedSource, Sourc
     })
 }
 
+fn parse_program_file_with_base(
+    path: &Path,
+    base_dir: &Path,
+    allow_includes: bool,
+) -> Result<ParsedSource, SourceError> {
+    let text = fs::read_to_string(path).map_err(|source| SourceError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let normalized = normalize_surface_syntax(&text);
+    let source_text =
+        NamedSource::new(path.display().to_string(), normalized.clone()).with_language("kdl");
+    let document: KdlDocument = normalized.parse().map_err(|source| SourceError::Kdl {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let context = ParseContext {
+        path,
+        source_text: &source_text,
+    };
+    let program = if allow_includes {
+        parse_entrypoint_document(&document, &context, base_dir)?
+    } else {
+        parse_document(&document, &context)?
+    };
+
+    Ok(ParsedSource {
+        program,
+        source_text,
+    })
+}
+
 fn parse_document(
     document: &KdlDocument,
     context: &ParseContext<'_>,
@@ -56,15 +149,22 @@ fn parse_document(
     let mut program = SourceProgram::default();
 
     for node in document.nodes() {
-        match node.name().value() {
-            "set" => program.sets.push(parse_set(node, context)?),
-            "data" => program.data.push(parse_data(node, context)?),
-            "param" => program.params.push(parse_param(node, context)?),
-            "model" => program.models.push(parse_model(node, context)?),
-            "projection" => program.projections.push(parse_projection(node, context)?),
-            "scenario" => program.scenarios.push(parse_scenario(node, context)?),
-            other => {
-                return Err(unsupported_declaration_error(node, other, context));
+        match Declaration::from_node(node) {
+            Some(Declaration::Include) => program.includes.push(parse_include(node, context)?),
+            Some(Declaration::Set) => program.sets.push(parse_set(node, context)?),
+            Some(Declaration::Data) => program.data.push(parse_data(node, context)?),
+            Some(Declaration::Param) => program.params.push(parse_param(node, context)?),
+            Some(Declaration::Model) => program.models.push(parse_model(node, context)?),
+            Some(Declaration::Projection) => {
+                program.projections.push(parse_projection(node, context)?);
+            }
+            Some(Declaration::Scenario) => program.scenarios.push(parse_scenario(node, context)?),
+            _ => {
+                return Err(unsupported_declaration_error(
+                    node,
+                    node.name().value(),
+                    context,
+                ));
             }
         }
     }
@@ -72,22 +172,143 @@ fn parse_document(
     Ok(program)
 }
 
+fn parse_entrypoint_document(
+    document: &KdlDocument,
+    context: &ParseContext<'_>,
+    base_dir: &Path,
+) -> Result<SourceProgram, SourceError> {
+    let mut program = SourceProgram::default();
+
+    for node in document.nodes() {
+        match Declaration::from_node(node) {
+            Some(Declaration::Include) => {
+                let include = parse_include(node, context)?;
+                merge_top_level_include(&mut program, &include, node, context, base_dir)?;
+            }
+            Some(Declaration::Set) => program.sets.push(parse_set(node, context)?),
+            Some(Declaration::Data) => program.data.push(parse_data(node, context)?),
+            Some(Declaration::Param) => program.params.push(parse_param(node, context)?),
+            Some(Declaration::Model) => program
+                .models
+                .push(parse_model_with_includes(node, context, base_dir)?),
+            Some(Declaration::Projection) => {
+                program.projections.push(parse_projection(node, context)?);
+            }
+            Some(Declaration::Scenario) => program.scenarios.push(parse_scenario(node, context)?),
+            _ => {
+                return Err(unsupported_declaration_error(
+                    node,
+                    node.name().value(),
+                    context,
+                ));
+            }
+        }
+    }
+
+    Ok(program)
+}
+
+fn merge_top_level_include(
+    target: &mut SourceProgram,
+    include: &IncludeDecl,
+    include_node: &KdlNode,
+    context: &ParseContext<'_>,
+    base_dir: &Path,
+) -> Result<(), SourceError> {
+    let included_path = resolve_include_path(base_dir, &include.path);
+    let included = parse_program_file_with_base(&included_path, base_dir, false)?;
+    reject_nested_includes(&included.program, include_node, context)?;
+    if !included.program.scenarios.is_empty() {
+        return Err(include_error(
+            include_node,
+            "included files must not define `scenario` declarations".to_string(),
+            context,
+        ));
+    }
+
+    target.params.extend(included.program.params);
+    target.data.extend(included.program.data);
+    target.models.extend(included.program.models);
+    target.sets.extend(included.program.sets);
+    target.projections.extend(included.program.projections);
+
+    Ok(())
+}
+
+fn reject_nested_includes(
+    program: &SourceProgram,
+    include_node: &KdlNode,
+    context: &ParseContext<'_>,
+) -> Result<(), SourceError> {
+    if !program.includes.is_empty()
+        || program
+            .models
+            .iter()
+            .any(|model| !model.includes.is_empty())
+    {
+        return Err(include_error(
+            include_node,
+            "included files must not contain `include` declarations".to_string(),
+            context,
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_include_path(base_dir: &Path, include_path: &str) -> PathBuf {
+    base_dir.join(include_path)
+}
+
+fn parse_include(node: &KdlNode, context: &ParseContext<'_>) -> Result<IncludeDecl, SourceError> {
+    if node.children().is_some() {
+        return Err(include_error(
+            node,
+            "include declarations must not have child blocks".to_string(),
+            context,
+        ));
+    }
+
+    let path = first_arg_string(node, 0, context)?;
+    if Path::new(&path).is_absolute() {
+        return Err(include_error(
+            node,
+            "include paths must be relative to the entrypoint file".to_string(),
+            context,
+        ));
+    }
+
+    Ok(IncludeDecl { path })
+}
+
+fn include_error(node: &KdlNode, reason: String, context: &ParseContext<'_>) -> SourceError {
+    SourceError::InvalidInclude {
+        reason,
+        path: context.path.to_path_buf(),
+        source_text: Box::new(context.source_text.clone()),
+        span: node.span(),
+    }
+}
+
 fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, SourceError> {
     let mut sets = Vec::new();
     let mut parameters = Vec::new();
     let mut controls = Vec::new();
     let mut expressions = Vec::new();
+    let mut includes = Vec::new();
     let constraints = parse_constraints(node, context)?;
     let mut optimize = None;
 
     for child in node.iter_children() {
-        match child.name().value() {
-            "set" => sets.push(parse_set(child, context)?),
-            "param" => parameters.push(parse_param(child, context)?),
-            "control" | "var" => controls.push(parse_control(child, context)?),
-            "expression" => expressions.push(parse_expression(child, context)?),
-            "constraint" => {}
-            "minimize" => {
+        match Declaration::from_node(child) {
+            Some(Declaration::Include) => includes.push(parse_include(child, context)?),
+            Some(Declaration::Set) => sets.push(parse_set(child, context)?),
+            Some(Declaration::Param) => parameters.push(parse_param(child, context)?),
+            Some(Declaration::Control | Declaration::Var) => {
+                controls.push(parse_control(child, context)?);
+            }
+            Some(Declaration::Expression) => expressions.push(parse_expression(child, context)?),
+            Some(Declaration::Constraint) => {}
+            Some(Declaration::Minimize) => {
                 if optimize.is_some() {
                     return Err(invalid_value_error(
                         child,
@@ -97,7 +318,7 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
                 }
                 optimize = Some(parse_optimize(child, ObjectiveSense::Minimize, context)?);
             }
-            "maximize" => {
+            Some(Declaration::Maximize) => {
                 if optimize.is_some() {
                     return Err(invalid_value_error(
                         child,
@@ -107,14 +328,19 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
                 }
                 optimize = Some(parse_optimize(child, ObjectiveSense::Maximize, context)?);
             }
-            other => {
-                return Err(unsupported_declaration_error(child, other, context));
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
             }
         }
     }
 
     Ok(ModelDecl {
         name: first_arg_string(node, 0, context)?,
+        includes,
         sets,
         parameters,
         controls,
@@ -125,6 +351,229 @@ fn parse_model(node: &KdlNode, context: &ParseContext<'_>) -> Result<ModelDecl, 
     })
 }
 
+fn parse_model_with_includes(
+    node: &KdlNode,
+    context: &ParseContext<'_>,
+    base_dir: &Path,
+) -> Result<ModelDecl, SourceError> {
+    let mut sets = Vec::new();
+    let mut parameters = Vec::new();
+    let mut controls = Vec::new();
+    let mut expressions = Vec::new();
+    let mut constraints = Vec::new();
+    let mut optimize = None;
+
+    for child in node.iter_children() {
+        match Declaration::from_node(child) {
+            Some(Declaration::Include) => {
+                let include = parse_include(child, context)?;
+                merge_model_include(
+                    &mut sets,
+                    &mut parameters,
+                    &mut controls,
+                    &mut expressions,
+                    &mut constraints,
+                    &mut optimize,
+                    &include,
+                    child,
+                    context,
+                    base_dir,
+                )?;
+            }
+            Some(Declaration::Set) => sets.push(parse_set(child, context)?),
+            Some(Declaration::Param) => parameters.push(parse_param(child, context)?),
+            Some(Declaration::Control | Declaration::Var) => {
+                controls.push(parse_control(child, context)?);
+            }
+            Some(Declaration::Expression) => expressions.push(parse_expression(child, context)?),
+            Some(Declaration::Constraint) => {
+                let index = constraints.len();
+                constraints.push(parse_constraint(child, index, context)?);
+            }
+            Some(Declaration::Minimize) => {
+                if optimize.is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "multiple objectives are not allowed".to_string(),
+                        context,
+                    ));
+                }
+                optimize = Some(parse_optimize(child, ObjectiveSense::Minimize, context)?);
+            }
+            Some(Declaration::Maximize) => {
+                if optimize.is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "multiple objectives are not allowed".to_string(),
+                        context,
+                    ));
+                }
+                optimize = Some(parse_optimize(child, ObjectiveSense::Maximize, context)?);
+            }
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
+            }
+        }
+    }
+
+    Ok(ModelDecl {
+        name: first_arg_string(node, 0, context)?,
+        includes: Vec::new(),
+        sets,
+        parameters,
+        controls,
+        expressions,
+        constraints,
+        optimize: optimize
+            .ok_or_else(|| missing_node_error("minimize_or_maximize", node, context))?,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn merge_model_include(
+    sets: &mut Vec<SetDecl>,
+    parameters: &mut Vec<crate::source::ParamDecl>,
+    controls: &mut Vec<crate::source::ControlDecl>,
+    expressions: &mut Vec<ExpressionDecl>,
+    constraints: &mut Vec<crate::source::ConstraintDecl>,
+    optimize: &mut Option<crate::source::ObjectiveDecl>,
+    include: &IncludeDecl,
+    include_node: &KdlNode,
+    context: &ParseContext<'_>,
+    base_dir: &Path,
+) -> Result<(), SourceError> {
+    let included_path = resolve_include_path(base_dir, &include.path);
+    let included = parse_model_fragment_file(&included_path)?;
+    if !included.includes.is_empty() {
+        return Err(include_error(
+            include_node,
+            "included files must not contain `include` declarations".to_string(),
+            context,
+        ));
+    }
+
+    sets.extend(included.sets);
+    parameters.extend(included.parameters);
+    controls.extend(included.controls);
+    expressions.extend(included.expressions);
+    for mut constraint in included.constraints {
+        if constraint.name_inferred {
+            constraint.name = format!("constraint_{}", constraints.len() + 1);
+        }
+        constraints.push(constraint);
+    }
+    if let Some(included_objective) = included.optimize {
+        if optimize.is_some() {
+            return Err(invalid_value_error(
+                include_node,
+                "multiple objectives are not allowed".to_string(),
+                context,
+            ));
+        }
+        *optimize = Some(included_objective);
+    }
+
+    Ok(())
+}
+
+#[derive(Default)]
+struct ModelFragment {
+    includes: Vec<IncludeDecl>,
+    sets: Vec<SetDecl>,
+    parameters: Vec<crate::source::ParamDecl>,
+    controls: Vec<crate::source::ControlDecl>,
+    expressions: Vec<ExpressionDecl>,
+    constraints: Vec<crate::source::ConstraintDecl>,
+    optimize: Option<crate::source::ObjectiveDecl>,
+}
+
+fn parse_model_fragment_file(path: &Path) -> Result<ModelFragment, SourceError> {
+    let text = fs::read_to_string(path).map_err(|source| SourceError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let normalized = normalize_surface_syntax(&text);
+    let source_text =
+        NamedSource::new(path.display().to_string(), normalized.clone()).with_language("kdl");
+    let document: KdlDocument = normalized.parse().map_err(|source| SourceError::Kdl {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let context = ParseContext {
+        path,
+        source_text: &source_text,
+    };
+    let mut fragment = ModelFragment::default();
+
+    for node in document.nodes() {
+        match Declaration::from_node(node) {
+            Some(Declaration::Include) => fragment.includes.push(parse_include(node, &context)?),
+            Some(Declaration::Set) => fragment.sets.push(parse_set(node, &context)?),
+            Some(Declaration::Param) => fragment.parameters.push(parse_param(node, &context)?),
+            Some(Declaration::Control | Declaration::Var) => {
+                fragment.controls.push(parse_control(node, &context)?);
+            }
+            Some(Declaration::Expression) => {
+                fragment.expressions.push(parse_expression(node, &context)?);
+            }
+            Some(Declaration::Constraint) => {
+                let index = fragment.constraints.len();
+                fragment
+                    .constraints
+                    .push(parse_constraint(node, index, &context)?);
+            }
+            Some(Declaration::Minimize) => {
+                if fragment.optimize.is_some() {
+                    return Err(invalid_value_error(
+                        node,
+                        "multiple objectives are not allowed".to_string(),
+                        &context,
+                    ));
+                }
+                fragment.optimize = Some(parse_optimize(node, ObjectiveSense::Minimize, &context)?);
+            }
+            Some(Declaration::Maximize) => {
+                if fragment.optimize.is_some() {
+                    return Err(invalid_value_error(
+                        node,
+                        "multiple objectives are not allowed".to_string(),
+                        &context,
+                    ));
+                }
+                fragment.optimize = Some(parse_optimize(node, ObjectiveSense::Maximize, &context)?);
+            }
+            Some(
+                Declaration::Data
+                | Declaration::Model
+                | Declaration::Projection
+                | Declaration::Scenario,
+            ) => {
+                return Err(include_error(
+                    node,
+                    format!(
+                        "`{}` is not allowed in a model-scope include",
+                        node.name().value()
+                    ),
+                    &context,
+                ));
+            }
+            _ => {
+                return Err(unsupported_declaration_error(
+                    node,
+                    node.name().value(),
+                    &context,
+                ));
+            }
+        }
+    }
+
+    Ok(fragment)
+}
+
 fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, SourceError> {
     let mut maps = Vec::new();
     let mut sets = Vec::new();
@@ -132,24 +581,28 @@ fn parse_data(node: &KdlNode, context: &ParseContext<'_>) -> Result<DataDecl, So
     let mut parameters = Vec::new();
 
     for child in node.iter_children() {
-        match child.name().value() {
-            "map" => maps.push(crate::source::MapDecl {
+        match Declaration::from_node(child) {
+            Some(Declaration::Map) => maps.push(crate::source::MapDecl {
                 name: first_arg_string(child, 0, context)?,
                 source: optional_property_string(child, "from", context)?,
             }),
-            "alias" => maps.push(crate::source::MapDecl {
+            Some(Declaration::Alias) => maps.push(crate::source::MapDecl {
                 name: first_arg_string(child, 0, context)?,
                 source: optional_property_string(child, "column", context)?,
             }),
-            "set" => sets.push(parse_set(child, context)?),
-            "index" => {
+            Some(Declaration::Set) => sets.push(parse_set(child, context)?),
+            Some(Declaration::Index) => {
                 indices.push(DataIndexDecl {
                     columns: collect_string_args(child, context)?,
                 });
             }
-            "param" => parameters.push(parse_param(child, context)?),
-            other => {
-                return Err(unsupported_declaration_error(child, other, context));
+            Some(Declaration::Param) => parameters.push(parse_param(child, context)?),
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
             }
         }
     }
@@ -192,7 +645,7 @@ fn parse_param(
     let index = optional_property_string(node, "index", context)?;
     let uses_index_children = node
         .iter_children()
-        .any(|child| child.name().value() == "index");
+        .any(|child| Declaration::from_node(child) == Some(Declaration::Index));
 
     let filter_expression = parse_optional_filter_expression(node, context)?;
     let parsed_filter_expression = filter_expression
@@ -202,9 +655,15 @@ fn parse_param(
         .map_err(|error| algebra_error(node, error.to_string(), context))?;
 
     for child in node.iter_children() {
-        match child.name().value() {
-            "index" | "filter" | "reduce" => {}
-            other => return Err(unsupported_declaration_error(child, other, context)),
+        match Declaration::from_node(child) {
+            Some(Declaration::Index | Declaration::Filter | Declaration::Reduce) => {}
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
+            }
         }
     }
 
@@ -241,13 +700,13 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
     }
 
     for child in node.iter_children() {
-        match child.name().value() {
-            "in" => subset_of = Some(first_arg_string(child, 0, context)?),
-            "index" => {
+        match Declaration::from_node(child) {
+            Some(Declaration::In) => subset_of = Some(first_arg_string(child, 0, context)?),
+            Some(Declaration::Index) => {
                 let index_name = first_arg_string(child, 0, context)?;
                 let domain = child
                     .iter_children()
-                    .find(|grandchild| grandchild.name().value() == "in")
+                    .find(|grandchild| Declaration::from_node(grandchild) == Some(Declaration::In))
                     .map(|in_node| first_arg_string(in_node, 0, context))
                     .transpose()?
                     .or_else(|| {
@@ -262,10 +721,11 @@ fn parse_set(node: &KdlNode, context: &ParseContext<'_>) -> Result<SetDecl, Sour
                     domain: Some(domain),
                 });
             }
-            "filter" => {
+            Some(Declaration::Filter) => {
                 filter_expression = Some(algebra_text_from_node(child, context)?);
             }
-            member => {
+            _ => {
+                let member = child.name().value();
                 if !child.entries().is_empty() {
                     return Err(unsupported_declaration_error(child, member, context));
                 }
@@ -326,33 +786,41 @@ fn parse_control(
     }
 
     for child in node.iter_children() {
-        match child.name().value() {
-            "bounds" => {
+        match Declaration::from_node(child) {
+            Some(Declaration::Bounds) => {
                 for bound in child.iter_children() {
-                    match bound.name().value() {
-                        "lower" => {
+                    match Declaration::from_node(bound) {
+                        Some(Declaration::Lower) => {
                             let formula_text = algebra_text_from_node(bound, context)?;
                             lower = Some(BoundExpr::Formula(
                                 parse_value_formula(&formula_text)
                                     .map_err(|e| algebra_error(bound, e.to_string(), context))?,
                             ));
                         }
-                        "upper" => {
+                        Some(Declaration::Upper) => {
                             let formula_text = algebra_text_from_node(bound, context)?;
                             upper = Some(BoundExpr::Formula(
                                 parse_value_formula(&formula_text)
                                     .map_err(|e| algebra_error(bound, e.to_string(), context))?,
                             ));
                         }
-                        other => {
-                            return Err(unsupported_declaration_error(bound, other, context));
+                        _ => {
+                            return Err(unsupported_declaration_error(
+                                bound,
+                                bound.name().value(),
+                                context,
+                            ));
                         }
                     }
                 }
             }
-            "index" => {}
-            other => {
-                return Err(unsupported_declaration_error(child, other, context));
+            Some(Declaration::Index) => {}
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
             }
         }
     }
@@ -445,14 +913,20 @@ fn parse_projection(
     let mut to_keys = Vec::new();
 
     for child in node.iter_children() {
-        match child.name().value() {
-            "from" => {
+        match Declaration::from_node(child) {
+            Some(Declaration::From) => {
                 from_domain = Some(parse_projection_from_domain(child, context)?);
             }
-            "to" => {
+            Some(Declaration::To) => {
                 to_keys = parse_projection_to_keys(child, context)?;
             }
-            other => return Err(unsupported_declaration_error(child, other, context)),
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
+            }
         }
     }
 
@@ -549,8 +1023,8 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
     let mut reports = Vec::new();
 
     for child in node.iter_children() {
-        match child.name().value() {
-            "data" => {
+        match Declaration::from_node(child) {
+            Some(Declaration::Data) => {
                 if child.children().is_some() {
                     return Err(SourceError::InvalidValue {
                         node: child.name().value().to_string(),
@@ -565,8 +1039,8 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
                     source: property_string(child, "source", context)?,
                 });
             }
-            "use" => model_use = Some(first_arg_string(child, 0, context)?),
-            "report" => {
+            Some(Declaration::Use) => model_use = Some(first_arg_string(child, 0, context)?),
+            Some(Declaration::Report) => {
                 let first = first_arg_string(child, 0, context)?;
                 if first.as_str() == "dual" {
                     let target = first_arg_string(child, 1, context)?;
@@ -591,8 +1065,12 @@ fn parse_scenario(node: &KdlNode, context: &ParseContext<'_>) -> Result<Scenario
                     });
                 }
             }
-            other => {
-                return Err(unsupported_declaration_error(child, other, context));
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
             }
         }
     }

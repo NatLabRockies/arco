@@ -1,0 +1,13 @@
+include "sets.kdl"
+
+model "Dispatch" {
+  include "dispatch-fragment.kdl"
+
+  minimize "TotalCost" {
+    sum(x[t] for t in time)
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

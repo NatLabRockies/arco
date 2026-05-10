@@ -13,6 +13,13 @@ fn example_path(relative: &str) -> PathBuf {
         .join(relative)
 }
 
+fn cli_fixture_path(relative: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(relative)
+}
+
 fn run_cli(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_arco"))
         .args(args)
@@ -113,6 +120,35 @@ fn kdl_check_json_reports_invalid_model() {
     );
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn kdl_check_json_reports_included_file_path() {
+    let model_path = cli_fixture_path("composition-invalid/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+
+    let output = run_cli(&["kdl", "check", model, "--format", "json"]);
+    assert!(
+        !output.status.success(),
+        "invalid model should exit non-zero\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid check json");
+    let diagnostics = payload["diagnostics"]
+        .as_array()
+        .expect("diagnostics array");
+    assert_eq!(diagnostics.len(), 1);
+    assert!(
+        diagnostics[0]["file"]
+            .as_str()
+            .expect("diagnostic file")
+            .ends_with("composition-invalid/bad-fragment.kdl")
+    );
+    assert_eq!(diagnostics[0]["line"], Value::from(1));
 }
 
 #[test]
