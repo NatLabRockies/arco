@@ -17,7 +17,7 @@ use crate::source::surface::normalize_surface_syntax;
 use kdl::{KdlDocument, KdlNode, KdlValue};
 use miette::NamedSource;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::info;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,7 +215,7 @@ fn merge_top_level_include(
     context: &ParseContext<'_>,
     base_dir: &Path,
 ) -> Result<(), SourceError> {
-    let included_path = resolve_include_path(base_dir, &include.path);
+    let included_path = base_dir.join(&include.path);
     let included = parse_program_file_with_base(&included_path, base_dir, false)?;
     reject_nested_includes(&included.program, include_node, context)?;
     if !included.program.scenarios.is_empty() {
@@ -253,10 +253,6 @@ fn reject_nested_includes(
         ));
     }
     Ok(())
-}
-
-fn resolve_include_path(base_dir: &Path, include_path: &str) -> PathBuf {
-    base_dir.join(include_path)
 }
 
 fn parse_include(node: &KdlNode, context: &ParseContext<'_>) -> Result<IncludeDecl, SourceError> {
@@ -446,7 +442,7 @@ fn merge_model_include(
     context: &ParseContext<'_>,
     base_dir: &Path,
 ) -> Result<(), SourceError> {
-    let included_path = resolve_include_path(base_dir, &include.path);
+    let included_path = base_dir.join(&include.path);
     let included = parse_model_fragment_file(&included_path)?;
     if !included.includes.is_empty() {
         return Err(include_error(
