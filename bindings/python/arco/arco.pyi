@@ -5,7 +5,7 @@ from typing import Callable, Mapping, Sequence, TypeAlias, TypedDict, TypeVar
 
 BlockFnT = TypeVar("BlockFnT", bound=Callable[..., object])
 
-IndexMember: TypeAlias = int | float | str
+IndexMember: TypeAlias = int | float | str | tuple["IndexMember", ...]
 JsonPrimitive: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonPrimitive | list["JsonValue"] | dict[str, "JsonValue"]
 BoundValue: TypeAlias = float | Sequence[float] | Sequence[Sequence[float]]

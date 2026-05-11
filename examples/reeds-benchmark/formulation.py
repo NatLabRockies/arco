@@ -9,16 +9,6 @@
 # arco = { path = "../../bindings/python" }
 # ///
 
-"""
-Arco Python implementation of the ReEDS-representative LP test problem.
-
-This version uses Arco array variables over compact composite domains instead of
-creating one Python object per scalar variable.  The formulation keeps the same
-algebra as the other benchmark entries while using bulk variable construction,
-vector bounds, and vector constraints where the current Python API supports
-that efficiently.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -30,13 +20,6 @@ import arco
 import numpy as np
 
 from data_generator import SIZES, ProblemData, make_problem
-
-
-def _sum_terms(terms):
-    total = 0.0
-    for term in terms:
-        total += term
-    return total
 
 
 def solve(
@@ -55,58 +38,115 @@ def solve(
         for t in T
         if data.valcap[ii[i], ri[r], ti[t]]
     ]
-    active_row = {key: pos for pos, key in enumerate(active_irt)}
     disp_irt = [
         key
         for key in active_irt
         if not data.is_vre[ii[key[0]]] and not data.is_storage[ii[key[0]]]
     ]
     storage_irt = [key for key in active_irt if data.is_storage[ii[key[0]]]]
-    storage_row = {key: pos for pos, key in enumerate(storage_irt)}
-
     route_year = [(route, t) for route in data.routes for t in T]
-    flow_row = {key: pos for pos, key in enumerate(route_year)}
 
-    active_by_rt = {
-        (r, t): [active_row[(i, r, t)] for i in techs if (i, r, t) in active_row]
-        for r in R
-        for t in T
-    }
-    storage_by_rt = {
-        (r, t): [storage_row[(i, r, t)] for i in techs if (i, r, t) in storage_row]
-        for r in R
-        for t in T
-    }
-    imports_from = {r: [] for r in R}
-    exports_to = {r: [] for r in R}
-    for r_from, r_to in data.routes:
-        imports_from[r_to].append(r_from)
-        exports_to[r_from].append(r_to)
+    n_a = len(active_irt)
+    n_d = len(disp_irt)
+    n_s = len(storage_irt)
+    n_f = len(route_year)
+    n_h = len(H)
+    n_t = len(T)
+    n_rt = len(R) * n_t
+
+    active_i = np.array([ii[i] for i, _r, _t in active_irt], dtype=np.int32)
+    active_r = np.array([ri[r] for _i, r, _t in active_irt], dtype=np.int32)
+    active_t = np.array([ti[t] for _i, _r, t in active_irt], dtype=np.int32)
+
+    rt_members = [(r, t) for r in R for t in T]
+    rt_idx = {key: pos for pos, key in enumerate(rt_members)}
+    active_pos = {key: pos for pos, key in enumerate(active_irt)}
+
+    active_rt = np.zeros((n_rt, n_a), dtype=float)
+    active_rt_rows = np.array(
+        [rt_idx[(r, t)] for _i, r, t in active_irt], dtype=np.int32
+    )
+    active_rt[active_rt_rows, np.arange(n_a, dtype=np.int32)] = 1.0
+
+    storage_rt = np.zeros((n_rt, n_s), dtype=float)
+    if n_s:
+        storage_rt_rows = np.array(
+            [rt_idx[(r, t)] for _i, r, t in storage_irt], dtype=np.int32
+        )
+        storage_rt[storage_rt_rows, np.arange(n_s, dtype=np.int32)] = 1.0
+
+    flow_rt = np.zeros((n_rt, n_f), dtype=float)
+    flow_rows_to = np.array(
+        [rt_idx[(r_to, t)] for (_r_from, r_to), t in route_year], dtype=np.int32
+    )
+    flow_rows_from = np.array(
+        [rt_idx[(r_from, t)] for (r_from, _r_to), t in route_year], dtype=np.int32
+    )
+    flow_cols = np.arange(n_f, dtype=np.int32)
+    np.add.at(flow_rt, (flow_rows_to, flow_cols), 1.0 - float(data.tranloss))
+    np.add.at(flow_rt, (flow_rows_from, flow_cols), -1.0)
+
+    active_group = active_i * len(R) + active_r
+    vintage = (
+        (active_group[:, None] == active_group[None, :])
+        & (active_t[:, None] >= active_t[None, :])
+    ).astype(float)
+
+    disp_active = np.array([active_pos[key] for key in disp_irt], dtype=np.int32)
+    storage_active = np.array([active_pos[key] for key in storage_irt], dtype=np.int32)
+    storage_pick = np.zeros((n_s, n_a), dtype=float)
+    if n_s:
+        storage_pick[np.arange(n_s, dtype=np.int32), storage_active] = 1.0
+
+    cap_init = np.array(
+        [float(data.cap_init[i, r]) for i, r in zip(active_i, active_r, strict=False)],
+        dtype=float,
+    )
+    cf = np.array(
+        [
+            [float(data.cf[i, r, hi[h]]) for h in H]
+            for i, r in zip(active_i, active_r, strict=False)
+        ],
+        dtype=float,
+    )
+    minload = np.array([float(data.minloadfrac[i]) for i in active_i], dtype=float)
+    min_cf = np.array([float(data.min_cf[i]) for i in active_i], dtype=float)
+    emit_rate = np.array([float(data.emit_rate[i]) for i in active_i], dtype=float)
+    hours_weight = np.asarray(data.hours_weight, dtype=float)
+    total_hw = float(hours_weight.sum())
+
+    rt_load = np.array(
+        [float(data.load[ri[r], hi[h], ti[t]]) for r in R for t in T for h in H],
+        dtype=float,
+    ).reshape(n_rt, n_h)
+    peak_rt = np.array(
+        [float(data.load[ri[r], :, ti[t]].max()) for r in R for t in T], dtype=float
+    )
+    emit_cap = np.array([float(data.emit_cap[ti[t]]) for t in T], dtype=float)
+
+    flow_upper = np.array(
+        [[float(data.transcap[route])] * n_h for route, _t in route_year], dtype=float
+    )
 
     t0 = time.perf_counter()
     model = arco.Model()
 
-    A = arco.IndexSet("active_irt", size=len(active_irt))
-    Hset = arco.IndexSet("hour", size=len(H))
-    D = arco.IndexSet("dispatchable_irt", size=len(disp_irt))
-    Hm = arco.IndexSet("ramp_hour", size=max(len(H) - 1, 0))
-    S = arco.IndexSet("storage_irt", size=len(storage_irt)) if storage_irt else None
-    F = arco.IndexSet("route_year", size=len(route_year))
+    A = arco.IndexSet("active_irt", members=active_irt)
+    Hset = arco.IndexSet("hour", members=H)
+    D = arco.IndexSet("dispatchable_irt", members=disp_irt)
+    Hm = arco.IndexSet("ramp_hour", members=H[:-1])
+    S = arco.IndexSet("storage_irt", members=storage_irt) if n_s else None
+    F = arco.IndexSet("route_year", members=route_year)
 
     cap = model.add_variables(A, bounds=arco.NonNegativeFloat, name="CAP")
     inv = model.add_variables(A, bounds=arco.NonNegativeFloat, name="INV")
     gen = model.add_variables(A, Hset, bounds=arco.NonNegativeFloat, name="GEN")
-
-    flow_upper = np.array(
-        [[data.transcap[route]] * len(H) for route, _ in route_year], dtype=float
-    )
     flow = model.add_variables(
         F,
         Hset,
         bounds=arco.Bounds(np.zeros_like(flow_upper), flow_upper),
         name="FLOW",
     )
-
     rampup = model.add_variables(D, Hm, bounds=arco.NonNegativeFloat, name="RAMPUP")
     if S is not None:
         charge = model.add_variables(
@@ -117,116 +157,75 @@ def solve(
         charge = None
         soc = None
 
-    for row, (i, r, t) in enumerate(active_irt):
-        model.add_constraint(
-            cap[row]
-            - _sum_terms(
-                inv[active_row[(i, r, tt)]]
-                for tt in T
-                if tt <= t and (i, r, tt) in active_row
-            )
-            == data.cap_init[ii[i], ri[r]],
-        )
+    model.add_constraints(cap - (vintage @ inv) == cap_init)
+    for h in range(n_h):
+        model.add_constraints(gen[:, h] <= cf[:, h] * cap)
+        model.add_constraints(gen[:, h] >= minload * cap)
 
-    for row, (i, r, _t) in enumerate(active_irt):
-        i_pos = ii[i]
-        r_pos = ri[r]
-        for h_pos, h in enumerate(H):
-            model.add_constraint(
-                gen[row, h_pos] <= data.cf[i_pos, r_pos, hi[h]] * cap[row],
-            )
+    for h in range(n_h):
+        lhs = (active_rt @ gen[:, h]) + (flow_rt @ flow[:, h])
+        if charge is not None:
+            lhs -= storage_rt @ charge[:, h]
+        model.add_constraints(lhs == rt_load[:, h])
 
-    for row, (i, _r, _t) in enumerate(active_irt):
-        minload = data.minloadfrac[ii[i]]
-        if minload <= 0.0:
-            continue
-        for h_pos in range(len(H)):
-            model.add_constraint(
-                gen[row, h_pos] >= minload * cap[row],
-            )
+    model.add_constraints((active_rt @ cap) >= (1.0 + float(data.prm)) * peak_rt)
 
-    for r in R:
-        for t in T:
-            active_rows = active_by_rt[(r, t)]
-            storage_rows = storage_by_rt[(r, t)]
-            for h_pos, h in enumerate(H):
-                lhs = _sum_terms(gen[row, h_pos] for row in active_rows)
-                if charge is not None:
-                    lhs -= _sum_terms(charge[row, h_pos] for row in storage_rows)
-                lhs += _sum_terms(
-                    (1.0 - data.tranloss) * flow[flow_row[((rf, r), t)], h_pos]
-                    for rf in imports_from[r]
-                )
-                lhs -= _sum_terms(
-                    flow[flow_row[((r, rt), t)], h_pos] for rt in exports_to[r]
-                )
-                model.add_constraint(
-                    lhs == data.load[ri[r], hi[h], ti[t]],
-                )
+    annual_gen = np.array(
+        [np.dot(hours_weight, gen[a, :]) for a in range(n_a)], dtype=object
+    )
+    emit_map = np.zeros((n_t, n_a), dtype=float)
+    emit_map[active_t, np.arange(n_a, dtype=np.int32)] = emit_rate
+    for y in range(n_t):
+        model.add_constraint(np.dot(emit_map[y, :], annual_gen) <= emit_cap[y])
 
-    for r in R:
-        for t in T:
-            peak = float(data.load[ri[r], :, ti[t]].max())
-            model.add_constraint(
-                _sum_terms(cap[row] for row in active_by_rt[(r, t)])
-                >= (1.0 + data.prm) * peak,
-            )
+    if n_h > 1 and n_d:
+        for d, a in enumerate(disp_active.tolist()):
+            model.add_constraints(rampup[d, :] >= gen[a, 1:] - gen[a, :-1])
 
-    for t in T:
-        model.add_constraint(
-            _sum_terms(
-                data.emit_rate[ii[i]]
-                * data.hours_weight[hi[h]]
-                * gen[active_row[(i, r, t)], h_pos]
-                for i in techs
-                for r in R
-                for h_pos, h in enumerate(H)
-                if (i, r, t) in active_row and data.emit_rate[ii[i]] > 0.0
-            )
-            <= data.emit_cap[ti[t]],
-        )
-
-    for drow, key in enumerate(disp_irt):
-        arow = active_row[key]
-        if len(H) > 1:
-            model.add_constraints(
-                rampup[drow, :] >= gen[arow, 1:] - gen[arow, :-1],
-            )
-
-    total_hw = float(data.hours_weight.sum())
-    hours_weight = np.asarray(data.hours_weight, dtype=float)
-    for row, (i, _r, _t) in enumerate(active_irt):
-        min_cf = data.min_cf[ii[i]]
-        if min_cf <= 0.0:
+    for a in range(n_a):
+        if min_cf[a] <= 0.0:
             continue
         model.add_constraint(
-            np.dot(hours_weight, gen[row, :]) >= min_cf * cap[row] * total_hw,
+            np.dot(hours_weight, gen[a, :]) >= min_cf[a] * total_hw * cap[a]
         )
 
     if charge is not None and soc is not None:
-        for srow, key in enumerate(storage_irt):
-            arow = active_row[key]
-            model.add_constraints(soc[srow, :] <= data.duration_h * cap[arow])
-            model.add_constraints(charge[srow, :] <= cap[arow])
-            for h_pos in range(len(H)):
-                next_h = (h_pos + 1) % len(H)
-                model.add_constraint(
-                    soc[srow, next_h]
-                    == soc[srow, h_pos]
-                    + data.charge_eff * charge[srow, h_pos]
-                    - gen[arow, h_pos],
-                )
+        cap_storage = storage_pick @ cap
+        gen_storage = storage_pick @ gen
+        for h in range(n_h):
+            model.add_constraints(soc[:, h] <= float(data.duration_h) * cap_storage)
+            model.add_constraints(charge[:, h] <= cap_storage)
+            model.add_constraints(
+                soc[:, (h + 1) % n_h]
+                == soc[:, h] + float(data.charge_eff) * charge[:, h] - gen_storage[:, h]
+            )
 
-    objective = 0.0
-    for row, (i, _r, t) in enumerate(active_irt):
-        pv = data.pvf[ti[t]]
-        objective += pv * data.cost_inv[ii[i]] * inv[row]
-        objective += np.dot(pv * data.cost_op[ii[i]] * hours_weight, gen[row, :])
-    for drow, (i, _r, t) in enumerate(disp_irt):
-        if len(H) > 1:
-            objective += (data.pvf[ti[t]] * data.startcost[ii[i]]) * rampup[
-                drow, :
-            ].sum()
+    pv_inv = np.array(
+        [
+            float(data.pvf[t]) * float(data.cost_inv[i])
+            for i, t in zip(active_i, active_t, strict=False)
+        ],
+        dtype=float,
+    )
+    pv_op = np.array(
+        [
+            float(data.pvf[t]) * float(data.cost_op[i])
+            for i, t in zip(active_i, active_t, strict=False)
+        ],
+        dtype=float,
+    )
+    objective = np.dot(pv_inv, inv) + np.sum(
+        (pv_op[:, None] * hours_weight[None, :]) * gen
+    )
+    if n_h > 1 and n_d:
+        start = np.array(
+            [
+                float(data.pvf[ti[t]]) * float(data.startcost[ii[i]])
+                for i, _r, t in disp_irt
+            ],
+            dtype=float,
+        )
+        objective += sum(start[d] * rampup[d, :].sum() for d in range(n_d))
     model.minimize(objective)
 
     build_s = time.perf_counter() - t0

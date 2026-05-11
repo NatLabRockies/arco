@@ -11,14 +11,43 @@ pub enum IndexMember {
     Int(i64),
     Float(f64),
     Str(String),
+    Tuple(Vec<IndexMember>),
 }
 
 impl IndexMember {
+    fn from_bound(value: &Bound<'_, PyAny>) -> Option<Self> {
+        if let Ok(parsed) = value.extract::<i64>() {
+            return Some(Self::Int(parsed));
+        }
+        if let Ok(parsed) = value.extract::<f64>() {
+            return Some(Self::Float(parsed));
+        }
+        if let Ok(parsed) = value.extract::<String>() {
+            return Some(Self::Str(parsed));
+        }
+        if let Ok(tuple) = value.cast::<pyo3::types::PyTuple>() {
+            let mut items = Vec::with_capacity(tuple.len());
+            for item in tuple.iter() {
+                let parsed = Self::from_bound(&item)?;
+                items.push(parsed);
+            }
+            return Some(Self::Tuple(items));
+        }
+        None
+    }
+
     fn to_pyobject(&self, py: Python<'_>) -> PyResult<PyObject> {
         let obj = match self {
             IndexMember::Int(v) => v.into_pyobject(py)?.into_any(),
             IndexMember::Float(v) => v.into_pyobject(py)?.into_any(),
             IndexMember::Str(v) => v.into_pyobject(py)?.into_any(),
+            IndexMember::Tuple(items) => {
+                let tuple_items = items
+                    .iter()
+                    .map(|item| item.to_pyobject(py))
+                    .collect::<PyResult<Vec<PyObject>>>()?;
+                pyo3::types::PyTuple::new(py, tuple_items)?.into_any()
+            }
         };
         Ok(obj.unbind())
     }
@@ -27,7 +56,7 @@ impl IndexMember {
         match self {
             IndexMember::Int(v) => Some(*v as f64),
             IndexMember::Float(v) => Some(*v),
-            IndexMember::Str(_) => None,
+            IndexMember::Str(_) | IndexMember::Tuple(_) => None,
         }
     }
 }
@@ -63,17 +92,12 @@ impl PyIndexSet {
                     let mut parsed = Vec::with_capacity(members.len());
                     for member in members {
                         let bound = member.bind(py);
-                        if let Ok(value) = bound.extract::<i64>() {
-                            parsed.push(IndexMember::Int(value));
-                        } else if let Ok(value) = bound.extract::<f64>() {
-                            parsed.push(IndexMember::Float(value));
-                        } else if let Ok(value) = bound.extract::<String>() {
-                            parsed.push(IndexMember::Str(value));
-                        } else {
-                            return Err(IndexSetTypeError::new_err(
-                                "members must be int, float, or str",
-                            ));
-                        }
+                        let parsed_member = IndexMember::from_bound(bound).ok_or_else(|| {
+                            IndexSetTypeError::new_err(
+                                "members must be int, float, str, or tuples of those",
+                            )
+                        })?;
+                        parsed.push(parsed_member);
                     }
                     Ok(Self {
                         name,

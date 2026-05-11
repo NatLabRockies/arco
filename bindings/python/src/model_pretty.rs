@@ -285,6 +285,10 @@ fn format_index_member(member: &crate::py_modules::index_set::IndexMember) -> St
         crate::py_modules::index_set::IndexMember::Int(value) => value.to_string(),
         crate::py_modules::index_set::IndexMember::Float(value) => format_ascii_number(*value),
         crate::py_modules::index_set::IndexMember::Str(value) => value.clone(),
+        crate::py_modules::index_set::IndexMember::Tuple(items) => {
+            let parts = items.iter().map(format_index_member).collect::<Vec<_>>();
+            format!("({})", parts.join(", "))
+        }
     }
 }
 

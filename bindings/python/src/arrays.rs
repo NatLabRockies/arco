@@ -1177,7 +1177,7 @@ fn numpy_concatenate(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyOb
             all_values.extend(va.get_values());
         } else if let Ok(ea) = item.extract::<PyRef<'_, PyExprArray>>() {
             has_arrays = true;
-            all_values.extend(ea.get_values().into_iter());
+            all_values.extend(ea.get_values());
         } else {
             // Try to extract as a flat array of floats
             let np = py.import("numpy")?;
