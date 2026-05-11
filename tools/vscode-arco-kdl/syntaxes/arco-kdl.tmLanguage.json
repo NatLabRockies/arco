@@ -29,7 +29,7 @@
     },
     "keywords": {
       "patterns": [
-        { "name": "keyword.control.arco-kdl", "match": "\\b(?:data|map|alias|set|param|model|control|var|constraint|expression|expr|minimize|maximize|scenario|use|use_data|report|index|in|filter|if|bounds|lower|upper|reduce|projection|from|to|sum|avg|min|max|first|last)\\b" }
+        { "name": "keyword.control.arco-kdl", "match": "\\b(?:include|data|map|alias|set|param|model|control|var|constraint|expression|expr|minimize|maximize|scenario|use|use_data|report|index|in|filter|if|bounds|lower|upper|reduce|projection|from|to|sum|avg|min|max|first|last)\\b" }
       ]
     },
     "operators": {

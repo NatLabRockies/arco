@@ -1,0 +1,8 @@
+set "time" { "1"; "2" }
+
+data "loads" source="data/load.csv" {
+  map "time" from="time"
+  param "demand" from="demand" {
+    index "time"
+  }
+}

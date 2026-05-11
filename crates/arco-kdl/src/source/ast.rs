@@ -4,6 +4,7 @@ use miette::NamedSource;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceProgram {
+    pub includes: Vec<IncludeDecl>,
     pub params: Vec<ParamDecl>,
     pub data: Vec<DataDecl>,
     pub models: Vec<ModelDecl>,
@@ -15,12 +16,18 @@ pub struct SourceProgram {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelDecl {
     pub name: String,
+    pub includes: Vec<IncludeDecl>,
     pub sets: Vec<SetDecl>,
     pub parameters: Vec<ParamDecl>,
     pub controls: Vec<ControlDecl>,
     pub expressions: Vec<ExpressionDecl>,
     pub constraints: Vec<ConstraintDecl>,
     pub optimize: ObjectiveDecl,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludeDecl {
+    pub path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,6 +232,7 @@ mod tests {
         let mut program = SourceProgram::default();
         program.models.push(ModelDecl {
             name: "ModelA".to_string(),
+            includes: Vec::new(),
             sets: Vec::new(),
             parameters: Vec::new(),
             controls: Vec::new(),

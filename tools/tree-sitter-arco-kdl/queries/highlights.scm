@@ -14,6 +14,7 @@
 ((kdl_node
   (identifier) @keyword)
  (#any-of? @keyword
+  "include"
   "set"
   "data"
   "param"

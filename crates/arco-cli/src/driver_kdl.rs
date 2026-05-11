@@ -53,17 +53,36 @@ pub fn kdl_check_file_json(path: &Path) -> Result<KdlCheckOutcome, DriverError> 
 }
 
 fn pipeline_error_diagnostic(path: &Path, error: &OpsCompileError) -> KdlDiagnostic {
-    let (line, column) = pipeline_error_location(path, error);
+    let diagnostic_path = pipeline_error_path(path, error);
+    let (line, column) = pipeline_error_location(diagnostic_path, error);
     let diagnostic = pipeline_error_inner_diagnostic(error);
 
     KdlDiagnostic {
-        file: path.display().to_string(),
+        file: diagnostic_path.display().to_string(),
         line,
         column,
         severity: "error",
         message: error.to_string(),
         code: diagnostic.code().map(|code| code.to_string()),
         help: diagnostic.help().map(|help| help.to_string()),
+    }
+}
+
+fn pipeline_error_path<'a>(default: &'a Path, error: &'a OpsCompileError) -> &'a Path {
+    let OpsCompileError::Source(error) = error else {
+        return default;
+    };
+
+    match error {
+        arco_ops::OpsSourceError::Io { path, .. }
+        | arco_ops::OpsSourceError::Kdl { path, .. }
+        | arco_ops::OpsSourceError::MissingNode { path, .. }
+        | arco_ops::OpsSourceError::MissingArgument { path, .. }
+        | arco_ops::OpsSourceError::MissingProperty { path, .. }
+        | arco_ops::OpsSourceError::InvalidValue { path, .. }
+        | arco_ops::OpsSourceError::UnsupportedDeclaration { path, .. }
+        | arco_ops::OpsSourceError::InvalidInclude { path, .. }
+        | arco_ops::OpsSourceError::InvalidAlgebra { path, .. } => path.as_path(),
     }
 }
 

@@ -276,6 +276,7 @@ pub fn source_error_span(error: &OpsSourceError) -> Option<miette::SourceSpan> {
         | SourceError::MissingProperty { span, .. }
         | SourceError::InvalidValue { span, .. }
         | SourceError::UnsupportedDeclaration { span, .. }
+        | SourceError::InvalidInclude { span, .. }
         | SourceError::InvalidAlgebra { span, .. } => Some(*span),
         SourceError::Io { .. } | SourceError::Kdl { .. } => None,
     }
@@ -503,6 +504,10 @@ mod tests {
             .join("examples/dense-lp/input.kdl")
     }
 
+    fn composed_fixture_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/composition/input.kdl")
+    }
+
     #[test]
     fn load_file_parses_kdl_source() {
         let loaded = ArcoOps::load_file(&fixture_path()).expect("fixture should load");
@@ -528,6 +533,19 @@ mod tests {
                 .variable_instances
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn compile_file_lowers_composed_kdl_source() {
+        let compiled =
+            ArcoOps::compile_file(&composed_fixture_path()).expect("fixture should compile");
+
+        assert_eq!(compiled.semantic_program.active_scenario, "Base");
+        assert_eq!(
+            compiled.compiled_problem.algebra.variable_instances.len(),
+            2
+        );
+        assert_eq!(compiled.compiled_problem.algebra.constraints.len(), 2);
     }
 
     #[test]

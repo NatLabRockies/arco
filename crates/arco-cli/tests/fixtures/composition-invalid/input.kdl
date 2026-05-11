@@ -1,0 +1,11 @@
+model "Dispatch" {
+  include "bad-fragment.kdl"
+
+  minimize "TotalCost" {
+    x
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

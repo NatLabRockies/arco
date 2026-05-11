@@ -16,6 +16,7 @@ This document defines the low-level Arco DSL profile authored in KDL 2.0.
 
 Scope of this specification:
 
+- [`include`](#32-include-declarations) declarations (entrypoint-owned file composition)
 - [`set`](#4-set-declaration-top-level) declarations (explicit domains)
 - [`projection`](#45-projection-declaration-top-level) declarations (named tuple-domain projections)
 - [`data`](#5-data-declaration) declarations (CSV-backed namespaces)
@@ -40,6 +41,7 @@ Scope of this specification:
 - [2. Terminology](#2-terminology)
 - [3. Top-level declarations](#3-top-level-declarations)
   - [3.1 Inline scalar parameters](#31-inline-scalar-parameters)
+  - [3.2 Include declarations](#32-include-declarations)
 - [4. `set` declaration (top-level)](#4-set-declaration-top-level)
 - [4.5 `projection` declaration (top-level)](#45-projection-declaration-top-level)
 - [5. `data` declaration](#5-data-declaration)
@@ -100,9 +102,10 @@ supported. Slashdash (`/-`) comments out an entire node, property, or argument,
 which is useful for toggling declarations during development.
 
 Unknown nodes: Implementations MUST reject unknown top-level node types
-(anything other than `set`, `projection`, `data`, `param`, `model`, `scenario`). Inside
-blocks, unknown child node types MUST also fail validation. This ensures forward
-compatibility is explicit: new node types require a spec version bump.
+(anything other than `include`, `set`, `projection`, `data`, `param`, `model`,
+`scenario`). Inside blocks, unknown child node types MUST also fail validation.
+This ensures forward compatibility is explicit: new node types require a spec
+version bump.
 
 ### 1.1 KDL compatibility
 
@@ -340,6 +343,33 @@ appear inside `data` blocks — `data` blocks are strictly CSV-backed, so every
 `param` inside a `data` block MUST read its value from the CSV file (either
 indexed or scalar via a single-row CSV). Inline scalars MUST NOT have `index`,
 `index` children, `from`, or `reduce` properties.
+
+### 3.2 Include declarations
+
+An entrypoint file MAY compose declarations from other `.kdl` files with
+`include` nodes:
+
+```kdl
+include "sets.kdl"
+
+model dispatch {
+  include "dispatch-constraints.kdl"
+  minimize total_cost { TotalCost }
+}
+```
+
+Top-level includes splice top-level declarations into the program at the include
+site. Model-scope includes splice model children into that model at the include
+site. Include paths resolve relative to the entrypoint file's parent directory.
+
+For v1 composition, only the entrypoint file MAY contain `include` nodes.
+Included files MUST NOT contain nested `include` nodes. Included files MUST NOT
+define `scenario` declarations; scenario selection belongs to the entrypoint.
+Model-scope include files may contain only model children (`set`, `param`,
+`control`/`var`, `expression`, `constraint`, `minimize`, `maximize`).
+
+Duplicate declarations are not overrides. After include expansion, existing
+semantic validation rules apply to the composed program.
 
 ---
 
@@ -2271,8 +2301,10 @@ profile. It describes Arco declarations layered on top of valid KDL 2.0 syntax.
 Appendix A defines ergonomic authoring syntax that desugars into this grammar.
 
 ```ebnf
-document          := { toplevel_set_decl | toplevel_param_decl
+document          := { include_decl | toplevel_set_decl | toplevel_param_decl
                      | data_decl | model_decl | scenario_decl }
+
+include_decl      := "include" string
 
 toplevel_set_decl := "set" name [ "alias" "=" name ]
                      "{" { value } "}"
@@ -2324,6 +2356,7 @@ param_block_child := "index" name | "reduce" reducer
 
 model_decl        := "model" name model_block
 model_block       := "{" { model_set_decl
+                         | include_decl
                          | model_param_decl
                          | control_decl
                          | expression_decl

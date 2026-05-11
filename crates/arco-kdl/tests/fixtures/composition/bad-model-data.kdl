@@ -1,0 +1,3 @@
+data "loads" source="data/load.csv" {
+  map "time" from="time"
+}

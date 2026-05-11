@@ -199,10 +199,35 @@ Arco models are written in [KDL](https://kdl.dev) files.
 
 The supported profile is low-level and explicit:
 
-- top-level `set`, `data`, `param`, `model`, and `scenario`
+- top-level `include`, `set`, `data`, `param`, `model`, and `scenario`
 - data-level `map`, `set`, `index`, and `param`
 - model-level `set`, `param`, `control`, `expression`, `constraint`, and one objective
 - scenario-level `use`, optional `data` bindings, and `report`
+
+Large formulations can be split across files with entrypoint-owned includes:
+
+```kdl
+include "sets.kdl"
+include "data.kdl"
+
+model GeneratorAllocation {
+  include "generator-variables.kdl"
+  include "generator-constraints.kdl"
+
+  minimize TotalCost {
+    sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
+  }
+}
+
+scenario GeneratorAllocationDay {
+  use GeneratorAllocation
+}
+```
+
+Top-level includes add shared declarations such as sets and data blocks.
+Includes inside `model` blocks add model children such as controls,
+expressions, and constraints. Included files cannot define scenarios or nested
+includes.
 
 Example:
 

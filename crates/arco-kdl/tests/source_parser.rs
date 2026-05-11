@@ -2,9 +2,10 @@ mod common;
 
 use arco_kdl::ObjectiveSense;
 use arco_kdl::source::{
-    BoundExpr, LiteralValue, ParsedSource, ReportKind, SourceError, parse_program_text,
+    BoundExpr, LiteralValue, ParsedSource, ReportKind, SourceError, parse_program_file,
+    parse_program_text,
 };
-use common::fixture_text;
+use common::{fixture_path, fixture_text};
 use std::path::PathBuf;
 
 fn parse_fixture(name: &str) -> Result<ParsedSource, Box<dyn std::error::Error>> {
@@ -17,6 +18,10 @@ fn parse_fixture_error(name: &str, context: &str) -> SourceError {
     let path = PathBuf::from("test.kdl");
     let text = fixture_text(name).expect("fixture should load");
     parse_program_text(&text, &path).expect_err(context)
+}
+
+fn parse_file_fixture_error(name: &str, context: &str) -> SourceError {
+    parse_program_file(&fixture_path(name)).expect_err(context)
 }
 
 #[test]
@@ -151,6 +156,140 @@ fn parses_expression_reduce_projection_block_form() -> Result<(), Box<dyn std::e
     assert!(expression.formula.contains("__reduce_projection__"));
 
     Ok(())
+}
+
+#[test]
+fn parse_program_file_expands_top_level_and_model_includes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let parsed = parse_program_file(&fixture_path("composition/input.kdl"))?;
+    let program = parsed.program;
+
+    assert_eq!(program.sets.len(), 1);
+    assert_eq!(program.sets[0].name, "time");
+    assert_eq!(program.data.len(), 1);
+    assert_eq!(program.models.len(), 1);
+
+    let model = &program.models[0];
+    assert!(model.includes.is_empty());
+    assert_eq!(model.controls.len(), 1);
+    assert_eq!(model.controls[0].name, "x");
+    assert_eq!(model.constraints.len(), 1);
+    assert_eq!(model.constraints[0].name, "limit");
+    assert_eq!(model.optimize.name, "TotalCost");
+    assert_eq!(program.scenarios.len(), 1);
+
+    Ok(())
+}
+
+#[test]
+fn parse_program_text_preserves_include_declarations_without_expanding()
+-> Result<(), Box<dyn std::error::Error>> {
+    let text = fixture_text("composition/input.kdl")?;
+    let parsed = parse_program_text(&text, &PathBuf::from("input.kdl"))?;
+
+    assert_eq!(parsed.program.includes.len(), 1);
+    assert_eq!(parsed.program.includes[0].path, "shared.kdl");
+    assert_eq!(parsed.program.models[0].includes.len(), 1);
+    assert_eq!(
+        parsed.program.models[0].includes[0].path,
+        "dispatch-fragment.kdl"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn parse_program_file_rejects_nested_includes() {
+    let error = parse_file_fixture_error(
+        "composition/nested-entry.kdl",
+        "nested includes should be rejected",
+    );
+
+    assert!(matches!(error, SourceError::InvalidInclude { .. }));
+    assert!(error.to_string().contains("include"));
+}
+
+#[test]
+fn parse_program_file_rejects_scenarios_from_included_files() {
+    let error = parse_file_fixture_error(
+        "composition/scenario-entry.kdl",
+        "included scenarios should be rejected",
+    );
+
+    assert!(matches!(error, SourceError::InvalidInclude { .. }));
+    assert!(error.to_string().contains("scenario"));
+}
+
+#[test]
+fn parse_program_file_rejects_top_level_declarations_in_model_includes() {
+    let error = parse_file_fixture_error(
+        "composition/model-include-data-entry.kdl",
+        "model include should reject top-level data declarations",
+    );
+
+    assert!(matches!(error, SourceError::InvalidInclude { .. }));
+    assert!(error.to_string().contains("model-scope include"));
+}
+
+#[test]
+fn parse_program_file_reports_missing_include_io_path() {
+    let error = parse_file_fixture_error(
+        "composition/missing-include-entry.kdl",
+        "missing include should report an io error",
+    );
+
+    match error {
+        SourceError::Io { path, .. } => assert!(path.ends_with("missing.kdl")),
+        other => panic!("expected missing include io error, got {other:?}"),
+    }
+}
+
+#[test]
+fn parse_program_text_rejects_absolute_top_level_include_paths() {
+    let text = r#"
+include "/tmp/shared.kdl"
+
+model "Dispatch" {
+  control "x" lower=0
+  minimize "TotalCost" {
+    x
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}
+"#;
+
+    let error = parse_program_text(text, &PathBuf::from("input.kdl"))
+        .expect_err("absolute top-level include path should be rejected");
+
+    assert!(matches!(error, SourceError::InvalidInclude { .. }));
+    assert!(error.to_string().contains("relative"));
+}
+
+#[test]
+fn parse_program_text_rejects_absolute_model_include_paths() {
+    let text = r#"
+model "Dispatch" {
+  include "/tmp/fragment.kdl"
+
+  control "x" lower=0
+  minimize "TotalCost" {
+    x
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}
+"#;
+
+    let error = parse_program_text(text, &PathBuf::from("input.kdl"))
+        .expect_err("absolute model include path should be rejected");
+
+    assert!(matches!(error, SourceError::InvalidInclude { .. }));
+    assert!(error.to_string().contains("relative"));
 }
 
 #[test]
