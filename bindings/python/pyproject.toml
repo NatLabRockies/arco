@@ -42,7 +42,13 @@ include = ["arco/py.typed", "arco/arco.pyi", "arco/blocks.pyi"]
 python-source = "."
 
 [dependency-groups]
-dev = ["ipython>=8.18.1"]
+dev = [
+    "ipython>=8.18.1",
+    "maturin>=1.13.2",
+    "numpy>=2.0.2",
+    "polars>=1.36.1",
+    "pytest>=8.4.2",
+]
 
 [tool.ruff.format]
 docstring-code-format = true

@@ -3,6 +3,7 @@
 //! This module exposes Arco's model builder and solver to Python with zero-copy access
 //! to solution data through memoryview.
 
+mod dataframe_vars;
 mod py_modules;
 
 use crate::py_modules as pym;
@@ -241,6 +242,83 @@ impl PyModel {
         self.add_variables_array_bounds(
             py, index_sets, &shape, total, bounds, is_integer, is_binary, name,
         )
+    }
+
+    /// Add variables from a DataFrame where each row defines a variable's indices.
+    ///
+    /// Each row of the DataFrame creates one variable, with column values becoming
+    /// the variable's coordinates in the sparse domain.
+    #[pyo3(signature = (df, bounds, is_integer=false, is_binary=false, name=None))]
+    fn add_variables_from_dataframe(
+        &mut self,
+        py: Python<'_>,
+        df: &Bound<'_, PyAny>,
+        bounds: &Bound<'_, PyAny>,
+        is_integer: bool,
+        is_binary: bool,
+        name: Option<String>,
+    ) -> PyResult<PyVariableArray> {
+        use crate::dataframe_vars::extract_index_sets_from_dataframe;
+        use arco_ops::modeling::Variable;
+
+        // Extract index sets from DataFrame columns
+        let (index_sets, n_rows, _columns) = extract_index_sets_from_dataframe(df, py)?;
+        let shape = vec![n_rows];
+
+        // Handle bounds
+        let bounds_spec = bounds.extract::<BoundsSpec>().or_else(|_| {
+            let lo = bounds
+                .getattr("lower")
+                .or_else(|_| bounds.getattr("lo"))?
+                .extract::<f64>()?;
+            let hi = bounds
+                .getattr("upper")
+                .or_else(|_| bounds.getattr("hi"))?
+                .extract::<f64>()?;
+            Ok::<_, PyErr>(BoundsSpec {
+                bounds: arco_ops::modeling::types::Bounds::new(lo, hi),
+                is_integer,
+                is_binary,
+            })
+        })?;
+
+        let effective_bounds = Self::effective_bounds(&bounds_spec, is_integer, is_binary)?;
+
+        // Create variables - one per row
+        let start_var_id = self.inner.num_variables() as u32;
+        self.inner.reserve_variables(n_rows);
+
+        let var_template = Variable {
+            bounds: bounds_spec.bounds,
+            is_integer: effective_bounds.is_integer,
+            is_active: true,
+        };
+
+        for _ in 0..n_rows {
+            self.inner
+                .add_variable(var_template)
+                .map_err(pym::errors::model_error_to_py)?;
+        }
+
+        // Register for pretty printing
+        self.register_array_print_spec(
+            py,
+            start_var_id,
+            n_rows,
+            &index_sets,
+            &shape,
+            name.as_deref(),
+        );
+
+        // Create a 1D VariableArray
+        Ok(PyVariableArray::new_compact(
+            index_sets,
+            shape,
+            start_var_id,
+            n_rows,
+            effective_bounds,
+            name,
+        ))
     }
 
     /// Deactivate a variable without removing its column.
