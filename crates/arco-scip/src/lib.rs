@@ -113,6 +113,7 @@ pub fn solve_model_view_with_options(
         variable_duals: Vec::new(),
         row_values,
         constraint_duals: Vec::new(),
+        metadata: Default::default(),
     })
 }
 

@@ -10,6 +10,17 @@ pub enum SolverStatus {
     Unknown,
 }
 
+pub trait SolverStatusMapping {
+    fn to_solver_status(self) -> SolverStatus;
+
+    fn has_solution(self) -> bool
+    where
+        Self: Sized,
+    {
+        self.to_solver_status().is_feasible()
+    }
+}
+
 impl SolverStatus {
     pub const fn is_optimal(self) -> bool {
         matches!(self, SolverStatus::Optimal)

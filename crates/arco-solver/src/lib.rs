@@ -25,7 +25,7 @@ pub use registry::{SolverCapabilityModel, SolverFamily, SolverRegistry, SolverTr
 pub use request::SolveRequest;
 pub use selection::{ResolvedSelection, SelectionError, SolverSelection, resolve_selection};
 pub use traits::{SolutionView, Solve};
-pub use types::{Solution, SolverError, SolverStatus};
+pub use types::{Solution, SolverError, SolverStatus, SolverStatusMapping};
 
 /// Minimal result envelope for direct solves over primitive model views.
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +44,8 @@ pub struct ModelViewSolveResult {
     pub row_values: Vec<f64>,
     /// Constraint duals in model constraint-id order when the backend reports them.
     pub constraint_duals: Vec<f64>,
+    /// Backend-reported numeric metadata such as timings and matrix dimensions.
+    pub metadata: std::collections::BTreeMap<String, f64>,
 }
 
 /// Platform-facing backend trait for Arco's core model type.

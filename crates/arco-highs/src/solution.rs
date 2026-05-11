@@ -1,9 +1,7 @@
 //! Solution type and trait implementations.
 
 use crate::ffi::HighsStatus;
-use crate::status::{
-    highs_has_solution, highs_status_string, highs_to_core_status, highs_to_generic_status,
-};
+use crate::status::{highs_has_solution, highs_status_string, highs_to_core_status};
 use arco_solver::SolutionView;
 use arco_solver::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use std::collections::BTreeMap;
@@ -203,7 +201,7 @@ impl SolutionView for Solution {
     }
 
     fn status(&self) -> SolverStatus {
-        highs_to_generic_status(self.status)
+        highs_to_core_status(self.status)
     }
 
     fn get_primal(&self, index: usize) -> Option<f64> {

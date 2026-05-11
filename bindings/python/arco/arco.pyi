@@ -136,6 +136,8 @@ class Solver:
         mip_gap: float | None = None,
         verbosity: int | None = None,
         log_to_console: bool | None = None,
+        parameters: Mapping[str, str] | None = None,
+        solver: str | None = None,
     ) -> None: ...
     @property
     def presolve(self) -> bool | None: ...
@@ -152,7 +154,7 @@ class Solver:
     @property
     def log_to_console(self) -> bool | None: ...
     def copy(
-        self, *, update: Mapping[str, bool | int | float | None] | None = None
+        self, *, update: Mapping[str, bool | int | float | str | Mapping[str, str] | None] | None = None
     ) -> Solver: ...
 
 class SolverSelection:
@@ -178,8 +180,34 @@ class SolverProfile:
     @property
     def transport(self) -> str: ...
 
-class HiGHS(Solver): ...
-class Xpress(Solver): ...
+class HiGHS(Solver):
+    def __init__(
+        self,
+        *,
+        presolve: bool | None = None,
+        threads: int | None = None,
+        tolerance: float | None = None,
+        time_limit: float | None = None,
+        mip_gap: float | None = None,
+        verbosity: int | None = None,
+        log_to_console: bool | None = None,
+        parameters: Mapping[str, str] | None = None,
+        solver: str | None = None,
+    ) -> None: ...
+class Xpress(Solver):
+    def __init__(
+        self,
+        *,
+        presolve: bool | None = None,
+        threads: int | None = None,
+        tolerance: float | None = None,
+        time_limit: float | None = None,
+        mip_gap: float | None = None,
+        verbosity: int | None = None,
+        log_to_console: bool | None = None,
+        parameters: Mapping[str, str] | None = None,
+        solver: str | None = None,
+    ) -> None: ...
 
 class IndexSet:
     def __init__(

@@ -6,7 +6,6 @@ use crate::{PyModel, PySolveResult};
 use arco_ops::solve::{ModelViewSolveResult, Solution, SolverError};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
-use std::collections::BTreeMap;
 
 pub(crate) fn solve_model(
     model: &PyModel,
@@ -79,6 +78,6 @@ fn solution_from_model_view_result(result: ModelViewSolveResult) -> Solution {
         objective_value: result.objective_value,
         status: result.status,
         solve_time_seconds: 0.0,
-        metadata: BTreeMap::new(),
+        metadata: result.metadata,
     }
 }

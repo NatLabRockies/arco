@@ -286,6 +286,12 @@ impl PySolveResult {
         self.inner.solve_time_seconds
     }
 
+    /// Numeric backend metadata, including optional timings and matrix stats.
+    #[getter]
+    fn metadata(&self) -> std::collections::BTreeMap<String, f64> {
+        self.inner.metadata.clone()
+    }
+
     /// Get number of simplex iterations (from metadata, 0 if not available).
     fn simplex_iterations(&self) -> u64 {
         self.inner
