@@ -48,4 +48,5 @@ toml = { workspace = true }
 
 [features]
 default = []
+ipopt = ["arco-ops/ipopt"]
 xpress = []

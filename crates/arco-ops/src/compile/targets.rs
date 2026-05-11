@@ -36,10 +36,18 @@ impl SolveTarget {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AlgebraicProblem {
+    #[serde(default = "default_linearized")]
+    pub linearized: bool,
     pub variable_instances: Vec<VariableInstance>,
     pub constraints: Vec<LinearConstraint>,
     pub objective: LinearObjective,
     pub reports: Vec<LinearReport>,
+    #[serde(default)]
+    pub nonlinear: Option<crate::compile::compile::NonlinearProblem>,
+}
+
+fn default_linearized() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

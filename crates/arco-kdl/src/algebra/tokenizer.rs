@@ -204,7 +204,10 @@ fn parse_identifier_token(text: &str, bytes: &[u8], index: &mut usize) -> Token 
 }
 
 pub(super) fn is_builtin_function(name: &str) -> bool {
-    matches!(name, "sqrt" | "pow" | "exp" | "ln" | "abs")
+    matches!(
+        name,
+        "sqrt" | "pow" | "exp" | "ln" | "abs" | "sin" | "cos" | "atan"
+    )
 }
 
 fn is_identifier_start(character: char) -> bool {

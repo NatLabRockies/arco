@@ -57,13 +57,69 @@ fn filter_value_to_key_component(
     }
 }
 
-/// Convert a `BoundExpr::Literal` to `f64`. Returns `None` for
-/// `BoundExpr::Formula` (parameter-based bounds need a linearization context
-/// that isn't available yet).
+/// Convert a `BoundExpr` to a constant `f64` when possible. Returns `None`
+/// for `BoundExpr::Formula` expressions that depend on identifiers, indexed
+/// parameters, or reductions (which need an instance binding context that is
+/// not available here).
 fn literal_bound_to_f64(bound: &BoundExpr, path: &Path) -> Result<Option<f64>, CompileError> {
     match bound {
         BoundExpr::Literal(literal) => literal_to_f64("bound", literal, path).map(Some),
-        BoundExpr::Formula(_) => Ok(None),
+        BoundExpr::Formula(expr) => Ok(evaluate_constant_expr(expr)),
+    }
+}
+
+/// Evaluate an `Expr` as a pure numeric constant (no free identifiers,
+/// indexed lookups, reductions, or comparisons). Returns `None` if any
+/// non-constant subexpression is encountered.
+fn evaluate_constant_expr(expr: &arco_kdl::algebra::Expr) -> Option<f64> {
+    use arco_kdl::algebra::{BinaryOp, Expr, UnaryOp};
+    match expr {
+        Expr::Number(value) => value.parse::<f64>().ok(),
+        Expr::Boolean(value) => Some(if *value { 1.0 } else { 0.0 }),
+        Expr::Unary { op, expr } => {
+            let value = evaluate_constant_expr(expr)?;
+            match op {
+                UnaryOp::Negate => Some(-value),
+            }
+        }
+        Expr::Binary { op, left, right } => {
+            let left_value = evaluate_constant_expr(left)?;
+            let right_value = evaluate_constant_expr(right)?;
+            match op {
+                BinaryOp::Add => Some(left_value + right_value),
+                BinaryOp::Subtract => Some(left_value - right_value),
+                BinaryOp::Multiply => Some(left_value * right_value),
+                BinaryOp::Divide => {
+                    if right_value == 0.0 {
+                        None
+                    } else {
+                        Some(left_value / right_value)
+                    }
+                }
+            }
+        }
+        Expr::FunctionCall { name, args } => {
+            let evaluated = args
+                .iter()
+                .map(evaluate_constant_expr)
+                .collect::<Option<Vec<_>>>()?;
+            match (name.as_str(), evaluated.as_slice()) {
+                ("sqrt", [x]) => Some(x.sqrt()),
+                ("abs", [x]) => Some(x.abs()),
+                ("exp", [x]) => Some(x.exp()),
+                ("ln", [x]) => Some(x.ln()),
+                ("sin", [x]) => Some(x.sin()),
+                ("cos", [x]) => Some(x.cos()),
+                ("atan", [x]) => Some(x.atan()),
+                ("pow", [base, exponent]) => Some(base.powf(*exponent)),
+                _ => None,
+            }
+        }
+        Expr::String(_)
+        | Expr::Identifier(_)
+        | Expr::Indexed { .. }
+        | Expr::Comparison { .. }
+        | Expr::Reduction(_) => None,
     }
 }
 

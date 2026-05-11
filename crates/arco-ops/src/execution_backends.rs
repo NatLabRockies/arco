@@ -79,6 +79,15 @@ pub(crate) fn adapter_for_selection(
     match selection.transport {
         SolverTransport::Embedded => match selection.family.as_str() {
             "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
+            #[cfg(feature = "ipopt")]
+            "ipopt" => Ok(Box::new(
+                crate::execution::IpoptArcoAdapter::with_console_log(log_to_console),
+            )),
+            #[cfg(not(feature = "ipopt"))]
+            "ipopt" => Err(
+                "embedded solver family 'ipopt' is not available (rebuild with --features ipopt)"
+                    .to_string(),
+            ),
             family => Err(format!(
                 "embedded solver family '{family}' is not available"
             )),

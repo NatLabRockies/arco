@@ -18,57 +18,125 @@ fn compile_algebra(
         instantiate_variable_instances(program, inputs, &variable_signatures, entrypoint)?;
     let instantiated_names: BTreeSet<String> =
         variable_instances.iter().map(|i| i.name.clone()).collect();
-    let mut constraints = compile_constraint_instances(
-        program,
-        inputs,
-        &named_expressions,
-        &variable_signatures,
-        &instantiated_names,
-        entrypoint,
-    )?;
-    constraints.extend(emit_terminal_boundary_constraints(
-        program,
-        inputs,
-        &variable_signatures,
-        entrypoint,
-    )?);
 
-    let objective = linearize_value_expr(
-        &program.active_objective.expression,
-        &LinearizationBindings::default(),
-        program,
-        inputs,
-        &named_expressions,
-        &variable_signatures,
-        &instantiated_names,
-        entrypoint,
-    )?;
-    let reports = program
-        .active_reports
-        .iter()
-        .map(|report| {
-            linearize_value_expr(
-                &report.formula,
-                &LinearizationBindings::default(),
+    // Try the linearization path first. The expensive nonlinear lowering is
+    // only built when the program actually requires it, which keeps pure-LP
+    // compile cost on its previous fast path.
+    let linearized_sections = (|| {
+        let mut constraints = compile_constraint_instances(
+            program,
+            inputs,
+            &named_expressions,
+            &variable_signatures,
+            &instantiated_names,
+            entrypoint,
+        )?;
+        constraints.extend(emit_terminal_boundary_constraints(
+            program,
+            inputs,
+            &variable_signatures,
+            entrypoint,
+        )?);
+
+        let objective = linearize_value_expr(
+            &program.active_objective.expression,
+            &LinearizationBindings::default(),
+            program,
+            inputs,
+            &named_expressions,
+            &variable_signatures,
+            &instantiated_names,
+            entrypoint,
+        )?;
+        let reports = program
+            .active_reports
+            .iter()
+            .map(|report| {
+                linearize_value_expr(
+                    &report.formula,
+                    &LinearizationBindings::default(),
+                    program,
+                    inputs,
+                    &named_expressions,
+                    &variable_signatures,
+                    &instantiated_names,
+                    entrypoint,
+                )
+                .map(|linearized| LinearReport {
+                    name: report.name.clone(),
+                    constant: linearized.constant,
+                    terms: linearized.into_terms(),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok::<(Vec<LinearConstraint>, AffineExpr, Vec<LinearReport>), CompileError>((
+            constraints,
+            objective,
+            reports,
+        ))
+    })();
+
+    // On a successful linearization, skip the nonlinear lowering entirely.
+    // On a fallback-eligible failure, build the nonlinear problem and decide
+    // whether the program actually needs the NLP path.
+    let (linearized, mut constraints, objective, reports, nonlinear) = match linearized_sections {
+        Ok((constraints, objective, reports)) => {
+            (true, constraints, objective, reports, None)
+        }
+        Err(CompileError::InvalidFormulation { message, .. }) => {
+            if !nonlinear_fallback_required(&message) {
+                return Err(CompileError::InvalidFormulation {
+                    message,
+                    path: entrypoint.to_path_buf(),
+                });
+            }
+
+            let nonlinear = compile_nonlinear_problem(
                 program,
                 inputs,
                 &named_expressions,
                 &variable_signatures,
                 &instantiated_names,
                 entrypoint,
+            )?;
+
+            if nonlinear_problem_requires_nlp(&nonlinear) {
+                variable_instances.sort_by(|a, b| a.name.cmp(&b.name));
+                return Ok(AlgebraicProblem {
+                    linearized: false,
+                    variable_instances,
+                    constraints: Vec::new(),
+                    objective: LinearObjective {
+                        name: program.active_objective.name.clone(),
+                        sense: match program.active_objective.sense {
+                            arco_kdl::ObjectiveSense::Minimize => TargetObjectiveSense::Minimize,
+                            arco_kdl::ObjectiveSense::Maximize => TargetObjectiveSense::Maximize,
+                        },
+                        constant: 0.0,
+                        terms: Vec::new(),
+                    },
+                    reports: Vec::new(),
+                    nonlinear: Some(nonlinear),
+                });
+            }
+
+            (
+                false,
+                Vec::<LinearConstraint>::new(),
+                AffineExpr::constant(0.0),
+                Vec::<LinearReport>::new(),
+                Some(nonlinear),
             )
-            .map(|linearized| LinearReport {
-                name: report.name.clone(),
-                constant: linearized.constant,
-                terms: linearized.into_terms(),
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+        }
+        Err(error) => return Err(error),
+    };
 
     variable_instances.sort_by(|a, b| a.name.cmp(&b.name));
     constraints.sort_by(|a, b| a.name.cmp(&b.name));
 
     Ok(AlgebraicProblem {
+        linearized,
         variable_instances,
         constraints,
         objective: LinearObjective {
@@ -81,6 +149,7 @@ fn compile_algebra(
             terms: objective.into_terms(),
         },
         reports,
+        nonlinear,
     })
 }
 

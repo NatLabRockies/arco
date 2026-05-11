@@ -4,6 +4,7 @@ use arco_ops::expression::{ComparisonSense, ConstraintExpr, Expr, VariableId};
 use pyo3::Borrowed;
 use pyo3::prelude::*;
 
+use crate::PyObject;
 use crate::py_modules::errors::{
     ExprCoefficientError, ExprConstantOffsetError, ExprDivisionByZeroError,
     ExprNotSingleVariableError,
@@ -142,14 +143,47 @@ impl PyExpr {
         self.add(other)
     }
 
-    fn __add__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+    fn __add__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         warn_if_large(py, self.inner.num_terms())?;
-        self.add_any(other)
+        #[cfg(feature = "ipopt")]
+        {
+            use crate::py_modules::nonlinear::{PyNonlinearExpr, coerce_to_nl, linear_expr_to_nl};
+            use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr};
+            if let Ok(nl_other) = other.extract::<PyRef<'_, PyNonlinearExpr>>() {
+                let nl = NlExpr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(linear_expr_to_nl(&self.inner)),
+                    right: Box::new(nl_other.nl().clone()),
+                };
+                let _ = coerce_to_nl;
+                return Ok(PyNonlinearExpr::from_nl(nl)
+                    .into_pyobject(py)?
+                    .unbind()
+                    .into());
+            }
+        }
+        Ok(self.add_any(other)?.into_pyobject(py)?.unbind().into())
     }
 
-    fn __radd__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+    fn __radd__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         warn_if_large(py, self.inner.num_terms())?;
-        self.add_any(other)
+        #[cfg(feature = "ipopt")]
+        {
+            use crate::py_modules::nonlinear::{PyNonlinearExpr, linear_expr_to_nl};
+            use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr};
+            if let Ok(nl_other) = other.extract::<PyRef<'_, PyNonlinearExpr>>() {
+                let nl = NlExpr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(nl_other.nl().clone()),
+                    right: Box::new(linear_expr_to_nl(&self.inner)),
+                };
+                return Ok(PyNonlinearExpr::from_nl(nl)
+                    .into_pyobject(py)?
+                    .unbind()
+                    .into());
+            }
+        }
+        Ok(self.add_any(other)?.into_pyobject(py)?.unbind().into())
     }
 
     fn __iadd__(&mut self, other: &Bound<'_, PyAny>) -> PyResult<()> {
@@ -158,20 +192,104 @@ impl PyExpr {
         Ok(())
     }
 
-    fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
-        self.sub_any(other)
+    fn __sub__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        #[cfg(feature = "ipopt")]
+        {
+            use crate::py_modules::nonlinear::{PyNonlinearExpr, linear_expr_to_nl};
+            use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr};
+            if let Ok(nl_other) = other.extract::<PyRef<'_, PyNonlinearExpr>>() {
+                let nl = NlExpr::Binary {
+                    op: BinaryOp::Subtract,
+                    left: Box::new(linear_expr_to_nl(&self.inner)),
+                    right: Box::new(nl_other.nl().clone()),
+                };
+                return Ok(PyNonlinearExpr::from_nl(nl)
+                    .into_pyobject(py)?
+                    .unbind()
+                    .into());
+            }
+        }
+        Ok(self.sub_any(other)?.into_pyobject(py)?.unbind().into())
     }
 
-    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
-        self.rsub_any(other)
+    fn __rsub__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        #[cfg(feature = "ipopt")]
+        {
+            use crate::py_modules::nonlinear::{PyNonlinearExpr, linear_expr_to_nl};
+            use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr};
+            if let Ok(nl_other) = other.extract::<PyRef<'_, PyNonlinearExpr>>() {
+                let nl = NlExpr::Binary {
+                    op: BinaryOp::Subtract,
+                    left: Box::new(nl_other.nl().clone()),
+                    right: Box::new(linear_expr_to_nl(&self.inner)),
+                };
+                return Ok(PyNonlinearExpr::from_nl(nl)
+                    .into_pyobject(py)?
+                    .unbind()
+                    .into());
+            }
+        }
+        Ok(self.rsub_any(other)?.into_pyobject(py)?.unbind().into())
     }
 
-    fn __mul__(&self, other: f64) -> Self {
-        self.scale(other)
+    fn __mul__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        #[cfg(feature = "ipopt")]
+        {
+            use crate::py_modules::nonlinear::{PyNonlinearExpr, coerce_to_nl, linear_expr_to_nl};
+            use crate::py_modules::variable::PyVariable;
+            use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr};
+            if other.extract::<PyRef<'_, PyNonlinearExpr>>().is_ok()
+                || other.extract::<PyRef<'_, PyVariable>>().is_ok()
+                || other.extract::<PyExpr>().is_ok()
+            {
+                let rhs = coerce_to_nl(other)?;
+                let nl = NlExpr::Binary {
+                    op: BinaryOp::Multiply,
+                    left: Box::new(linear_expr_to_nl(&self.inner)),
+                    right: Box::new(rhs),
+                };
+                return Ok(PyNonlinearExpr::from_nl(nl)
+                    .into_pyobject(py)?
+                    .unbind()
+                    .into());
+            }
+        }
+        if let Ok(scalar) = other.extract::<f64>() {
+            return Ok(self.scale(scalar).into_pyobject(py)?.unbind().into());
+        }
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "expected a numeric scalar, Variable, Expr, or NonlinearExpr",
+        ))
     }
 
-    fn __rmul__(&self, other: f64) -> Self {
-        self.scale(other)
+    fn __rmul__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        #[cfg(feature = "ipopt")]
+        {
+            use crate::py_modules::nonlinear::{PyNonlinearExpr, coerce_to_nl, linear_expr_to_nl};
+            use crate::py_modules::variable::PyVariable;
+            use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr};
+            if other.extract::<PyRef<'_, PyNonlinearExpr>>().is_ok()
+                || other.extract::<PyRef<'_, PyVariable>>().is_ok()
+                || other.extract::<PyExpr>().is_ok()
+            {
+                let lhs = coerce_to_nl(other)?;
+                let nl = NlExpr::Binary {
+                    op: BinaryOp::Multiply,
+                    left: Box::new(lhs),
+                    right: Box::new(linear_expr_to_nl(&self.inner)),
+                };
+                return Ok(PyNonlinearExpr::from_nl(nl)
+                    .into_pyobject(py)?
+                    .unbind()
+                    .into());
+            }
+        }
+        if let Ok(scalar) = other.extract::<f64>() {
+            return Ok(self.scale(scalar).into_pyobject(py)?.unbind().into());
+        }
+        Err(pyo3::exceptions::PyTypeError::new_err(
+            "expected a numeric scalar, Variable, Expr, or NonlinearExpr",
+        ))
     }
 
     fn __neg__(&self) -> Self {
@@ -185,16 +303,16 @@ impl PyExpr {
         Ok(self.scale(1.0 / other))
     }
 
-    fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintExpr> {
-        self.compare_py(rhs, ComparisonSense::GreaterEqual)
+    fn __ge__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        nl_or_linear_compare(py, self, rhs, ComparisonSense::GreaterEqual)
     }
 
-    fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintExpr> {
-        self.compare_py(rhs, ComparisonSense::LessEqual)
+    fn __le__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        nl_or_linear_compare(py, self, rhs, ComparisonSense::LessEqual)
     }
 
-    fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintExpr> {
-        self.compare_py(rhs, ComparisonSense::Equal)
+    fn __eq__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        nl_or_linear_compare(py, self, rhs, ComparisonSense::Equal)
     }
 
     #[allow(clippy::float_cmp)]
@@ -294,4 +412,43 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExpr>()?;
     m.add_class::<PyConstraintExpr>()?;
     Ok(())
+}
+
+/// Compare a linear `PyExpr` against `rhs`. If `rhs` is a `NonlinearExpr` (and
+/// the `ipopt` feature is enabled), returns a `PyNonlinearConstraintExpr`;
+/// otherwise returns a `PyConstraintExpr`.
+pub(crate) fn nl_or_linear_compare(
+    py: Python<'_>,
+    lhs: &PyExpr,
+    rhs: &Bound<'_, PyAny>,
+    sense: ComparisonSense,
+) -> PyResult<PyObject> {
+    #[cfg(feature = "ipopt")]
+    {
+        use crate::py_modules::nonlinear::{
+            NlSense, PyNonlinearConstraintExpr, PyNonlinearExpr, linear_expr_to_nl,
+        };
+        use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr};
+        if let Ok(nl_rhs) = rhs.extract::<PyRef<'_, PyNonlinearExpr>>() {
+            let lhs_nl = linear_expr_to_nl(&lhs.inner);
+            let diff = NlExpr::Binary {
+                op: BinaryOp::Subtract,
+                left: Box::new(lhs_nl),
+                right: Box::new(nl_rhs.nl().clone()),
+            };
+            let nl_sense = match sense {
+                ComparisonSense::GreaterEqual => NlSense::Ge,
+                ComparisonSense::LessEqual => NlSense::Le,
+                ComparisonSense::Equal => NlSense::Eq,
+            };
+            let con = PyNonlinearConstraintExpr::new(diff, nl_sense);
+            let _ = PyNonlinearExpr::from_nl;
+            return Ok(con.into_pyobject(py)?.unbind().into());
+        }
+    }
+    Ok(lhs
+        .compare_py(rhs, sense)?
+        .into_pyobject(py)?
+        .unbind()
+        .into())
 }

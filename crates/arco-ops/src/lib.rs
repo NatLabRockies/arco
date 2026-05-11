@@ -56,6 +56,23 @@ pub mod expression {
     pub use arco_model::{ConstraintId, VariableId};
 }
 
+/// Public nonlinear-programming surface exposed for embedded callers (Python
+/// bindings). Re-exports the nonlinear expression IR and the free-standing
+/// IPOPT entry point that operates on a `NonlinearProblem` plus per-variable
+/// bounds.
+#[cfg(feature = "ipopt")]
+pub mod nlp {
+    pub use crate::compile::compile::{
+        ConstraintSense, NonlinearConstraint, NonlinearExpr, NonlinearObjective, NonlinearProblem,
+        NonlinearReport,
+    };
+    pub use crate::execution::{
+        NlpError, NlpOptions, NlpSolution, NlpVariableSpec, solve_nonlinear_problem,
+    };
+    pub use arco_kdl::ObjectiveSense;
+    pub use arco_kdl::algebra::{BinaryOp, UnaryOp};
+}
+
 /// Stable solver-facing operations vocabulary exposed through the ops seam.
 pub mod solve {
     pub use arco_solver::{

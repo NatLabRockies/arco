@@ -416,6 +416,35 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
 }
 
 #[test]
+fn run_accepts_solver_log_flag() {
+    let model_path = example_path("examples/nodal-allocation/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let output = run_cli(&["run", model, "--compact", "--solver-log"]);
+    assert!(
+        output.status.success(),
+        "run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // With `--solver-log`, the embedded HiGHS backend interleaves its log
+    // lines with the run summary on stdout. Pull the last line that starts
+    // with `{` and parse just that as the JSON summary.
+    let stdout = String::from_utf8(output.stdout).expect("stdout is valid utf-8");
+    let json_line = stdout
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with('{'))
+        .expect("run summary JSON line present in stdout");
+    let summary: Value = serde_json::from_str(json_line).expect("valid run json");
+    assert_eq!(summary["active_scenario"], "NodalAllocationDay");
+    assert_eq!(summary["solve_status"], "optimal");
+}
+
+#[test]
 fn inspect_uses_canonical_set_size_for_alias_collision_bindings() {
     let root = unique_temp_dir("inspect-alias-collision");
     let data_dir = root.join("data");

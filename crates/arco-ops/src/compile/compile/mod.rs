@@ -95,6 +95,53 @@ pub use crate::compile::targets::{
     ObjectiveSense as TargetObjectiveSense, SolveTarget, VariableInstance, VariableKind,
 };
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NonlinearProblem {
+    pub objective: NonlinearObjective,
+    pub constraints: Vec<NonlinearConstraint>,
+    pub reports: Vec<NonlinearReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NonlinearObjective {
+    pub name: String,
+    pub sense: arco_kdl::ObjectiveSense,
+    pub expression: NonlinearExpr,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NonlinearConstraint {
+    pub name: String,
+    pub sense: ConstraintSense,
+    pub rhs: f64,
+    pub expression: NonlinearExpr,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NonlinearReport {
+    pub name: String,
+    pub expression: NonlinearExpr,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum NonlinearExpr {
+    Constant(f64),
+    Variable(String),
+    Unary {
+        op: UnaryOp,
+        expr: Box<NonlinearExpr>,
+    },
+    Binary {
+        op: BinaryOp,
+        left: Box<NonlinearExpr>,
+        right: Box<NonlinearExpr>,
+    },
+    FunctionCall {
+        name: String,
+        args: Vec<NonlinearExpr>,
+    },
+}
+
 #[derive(Debug)]
 struct ScenarioInputs {
     assets: Vec<AssetInputs>,
@@ -233,10 +280,16 @@ pub fn compile_program(
         traceability,
         algebra,
     };
+    let nonlinear_constraints = compiled
+        .algebra
+        .nonlinear
+        .as_ref()
+        .map_or(0, |problem| problem.constraints.len());
     debug!(
-        "generated {} variables, {} constraints, {} reports",
+        "generated {} variables, {} linear constraints, {} nonlinear constraints, {} reports",
         compiled.algebra.variable_instances.len(),
         compiled.algebra.constraints.len(),
+        nonlinear_constraints,
         compiled.reports.len()
     );
 
@@ -280,5 +333,6 @@ include!("expressions_domains.rs");
 include!("expressions_lookup.rs");
 include!("constraints_bindings.rs");
 include!("expressions_misc.rs");
+include!("nonlinear.rs");
 include!("data_tables.rs");
 include!("data_values.rs");
