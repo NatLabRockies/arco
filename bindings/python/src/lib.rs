@@ -1055,34 +1055,63 @@ impl PyModel {
 #[cfg(test)]
 mod tests {
     use super::SolverSettings;
+    use std::collections::BTreeMap;
 
     #[test]
     fn solver_settings_rejects_zero_threads() {
-        let result = SolverSettings::new(None, Some(0), None, None, None, None, None);
+        let result =
+            SolverSettings::new(None, Some(0), None, None, None, None, None, BTreeMap::new());
         assert!(result.is_err());
     }
 
     #[test]
     fn solver_settings_rejects_negative_tolerance() {
-        let result = SolverSettings::new(None, None, Some(-0.5), None, None, None, None);
+        let result = SolverSettings::new(
+            None,
+            None,
+            Some(-0.5),
+            None,
+            None,
+            None,
+            None,
+            BTreeMap::new(),
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn solver_settings_rejects_negative_time_limit() {
-        let result = SolverSettings::new(None, None, None, Some(-1.0), None, None, None);
+        let result = SolverSettings::new(
+            None,
+            None,
+            None,
+            Some(-1.0),
+            None,
+            None,
+            None,
+            BTreeMap::new(),
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn solver_settings_rejects_negative_mip_gap() {
-        let result = SolverSettings::new(None, None, None, None, Some(-0.1), None, None);
+        let result = SolverSettings::new(
+            None,
+            None,
+            None,
+            None,
+            Some(-0.1),
+            None,
+            None,
+            BTreeMap::new(),
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn solver_settings_accepts_defaults() {
-        let result = SolverSettings::new(None, None, None, None, None, None, None);
+        let result = SolverSettings::new(None, None, None, None, None, None, None, BTreeMap::new());
         assert!(result.is_ok());
     }
 }

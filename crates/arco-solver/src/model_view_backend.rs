@@ -81,6 +81,7 @@ mod tests {
                 variable_duals: Vec::new(),
                 row_values: Vec::new(),
                 constraint_duals: Vec::new(),
+                metadata: Default::default(),
             })
         }
     }

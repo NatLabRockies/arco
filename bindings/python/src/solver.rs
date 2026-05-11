@@ -3,6 +3,9 @@
 use crate::py_modules::errors::SolverInvalidSettingError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use std::collections::BTreeMap;
+
+type SolverParameters = BTreeMap<String, String>;
 
 /// Overrides for solve() calls that don't modify the solver's base settings.
 #[derive(Debug, Clone, Default)]
@@ -23,6 +26,7 @@ pub struct SolverSettings {
     pub mip_gap: Option<f64>,
     pub verbosity: Option<u32>,
     pub log_to_console: Option<bool>,
+    pub parameters: SolverParameters,
 }
 
 impl SolverSettings {
@@ -43,6 +47,7 @@ impl SolverSettings {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        parameters: SolverParameters,
     ) -> PyResult<Self> {
         if let Some(threads) = threads {
             if threads == 0 {
@@ -66,6 +71,7 @@ impl SolverSettings {
             mip_gap,
             verbosity,
             log_to_console,
+            parameters,
         })
     }
 
@@ -78,6 +84,7 @@ impl SolverSettings {
             overrides.mip_gap.or(self.mip_gap),
             overrides.verbosity.or(self.verbosity),
             overrides.log_to_console.or(self.log_to_console),
+            self.parameters.clone(),
         )
     }
 
@@ -105,6 +112,9 @@ impl SolverSettings {
         if let Some(log_to_console) = self.log_to_console {
             config = config.with_log_to_console(log_to_console);
         }
+        for (key, value) in &self.parameters {
+            config = config.with_parameter(key.clone(), value.clone());
+        }
         config
     }
 }
@@ -116,6 +126,17 @@ fn extract_optional<T: for<'a, 'py> FromPyObject<'a, 'py, Error = PyErr>>(
         return Ok(None);
     }
     value.extract().map(Some)
+}
+
+fn merge_solver_parameter(
+    parameters: Option<SolverParameters>,
+    solver: Option<String>,
+) -> SolverParameters {
+    let mut parameters = parameters.unwrap_or_default();
+    if let Some(solver) = solver {
+        parameters.insert("solver".to_string(), solver);
+    }
+    parameters
 }
 
 pub fn apply_solver_updates(
@@ -136,6 +157,15 @@ pub fn apply_solver_updates(
             "mip_gap" => settings.mip_gap = extract_optional(&value)?,
             "verbosity" => settings.verbosity = extract_optional(&value)?,
             "log_to_console" => settings.log_to_console = extract_optional(&value)?,
+            "parameters" => settings.parameters = value.extract()?,
+            "solver" => {
+                let value: Option<String> = extract_optional(&value)?;
+                if let Some(value) = value {
+                    settings.parameters.insert("solver".to_string(), value);
+                } else {
+                    settings.parameters.remove("solver");
+                }
+            }
             _ => {
                 return Err(SolverInvalidSettingError::new_err(format!(
                     "Unknown solver setting '{key}'",
@@ -151,12 +181,13 @@ pub fn apply_solver_updates(
         settings.mip_gap,
         settings.verbosity,
         settings.log_to_console,
+        settings.parameters,
     )
 }
 
 fn solver_repr(label: &str, settings: &SolverSettings) -> String {
     format!(
-        "{label}(presolve={:?}, threads={:?}, tolerance={:?}, time_limit={:?}, mip_gap={:?}, verbosity={:?}, log_to_console={:?})",
+        "{label}(presolve={:?}, threads={:?}, tolerance={:?}, time_limit={:?}, mip_gap={:?}, verbosity={:?}, log_to_console={:?}, parameters={:?})",
         settings.presolve,
         settings.threads,
         settings.tolerance,
@@ -164,6 +195,7 @@ fn solver_repr(label: &str, settings: &SolverSettings) -> String {
         settings.mip_gap,
         settings.verbosity,
         settings.log_to_console,
+        settings.parameters,
     )
 }
 
@@ -266,7 +298,7 @@ impl PySolverProfile {
 impl PySolver {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
     fn new(
         presolve: Option<bool>,
@@ -276,6 +308,8 @@ impl PySolver {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        parameters: Option<SolverParameters>,
+        solver: Option<String>,
     ) -> PyResult<Self> {
         let settings = SolverSettings::new(
             presolve,
@@ -285,6 +319,7 @@ impl PySolver {
             mip_gap,
             verbosity,
             log_to_console,
+            merge_solver_parameter(parameters, solver),
         )?;
         Ok(Self { settings })
     }
@@ -343,7 +378,7 @@ pub struct PyHiGHS;
 impl PyHiGHS {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
     fn new(
         presolve: Option<bool>,
@@ -353,6 +388,8 @@ impl PyHiGHS {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        parameters: Option<SolverParameters>,
+        solver: Option<String>,
     ) -> PyResult<(Self, PySolver)> {
         let settings = SolverSettings::new(
             presolve,
@@ -362,6 +399,7 @@ impl PyHiGHS {
             mip_gap,
             verbosity,
             log_to_console,
+            merge_solver_parameter(parameters, solver),
         )?;
         Ok((PyHiGHS, PySolver { settings }))
     }
@@ -391,7 +429,7 @@ pub struct PyXpress;
 impl PyXpress {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
     fn new(
         presolve: Option<bool>,
@@ -401,6 +439,8 @@ impl PyXpress {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        parameters: Option<SolverParameters>,
+        solver: Option<String>,
     ) -> PyResult<(Self, PySolver)> {
         let settings = SolverSettings::new(
             presolve,
@@ -410,6 +450,7 @@ impl PyXpress {
             mip_gap,
             verbosity,
             log_to_console,
+            merge_solver_parameter(parameters, solver),
         )?;
         Ok((PyXpress, PySolver { settings }))
     }
@@ -441,7 +482,7 @@ pub struct PyIpopt;
 impl PyIpopt {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
     fn new(
         presolve: Option<bool>,
@@ -451,6 +492,8 @@ impl PyIpopt {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        parameters: Option<SolverParameters>,
+        solver: Option<String>,
     ) -> PyResult<(Self, PySolver)> {
         let settings = SolverSettings::new(
             presolve,
@@ -460,6 +503,7 @@ impl PyIpopt {
             mip_gap,
             verbosity,
             log_to_console,
+            merge_solver_parameter(parameters, solver),
         )?;
         Ok((PyIpopt, PySolver { settings }))
     }
