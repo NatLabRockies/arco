@@ -96,3 +96,33 @@ def test_expr_array_stub_exposes_operator_signatures() -> None:
     _assert_signatures_present(
         block=expr_array_block, expected_signatures=expected_signatures
     )
+
+
+def test_index_set_stub_exposes_alias_signature() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    index_set_block = _class_block(source=source, class_name="IndexSet")
+    _assert_signatures_present(
+        block=index_set_block,
+        expected_signatures=["def alias(self, name: str) -> IndexSet: ..."],
+    )
+
+
+def test_param_stub_exposes_function_signature() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    normalized = _normalize_whitespace(source)
+    for fragment in [
+        "def param(",
+        "*axes: IndexSet",
+        "name: str | None = None",
+        ") -> ParamArray: ...",
+    ]:
+        assert _normalize_whitespace(fragment) in normalized
+
+
+def test_model_stub_exposes_active_kwargs_for_array_builders() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    model_block = _class_block(source=source, class_name="Model")
+    normalized_model = _normalize_whitespace(model_block)
+    assert _normalize_whitespace("def add_variables(") in normalized_model
+    assert _normalize_whitespace("active: object | None = None") in normalized_model
+    assert _normalize_whitespace("def add_constraints(") in normalized_model

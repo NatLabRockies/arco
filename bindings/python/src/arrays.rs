@@ -26,7 +26,7 @@ pub use expr_array::PyExprArray;
 pub use variable_array::PyVariableArray;
 
 // Re-export compact types for use in lib.rs
-pub(crate) use constraint_array::{CompactConstraintStorage, CompactRhs};
+pub(crate) use constraint_array::CompactConstraintStorage;
 
 /// Sum values along a specific axis in a flat row-major array.
 ///

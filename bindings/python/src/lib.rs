@@ -188,7 +188,8 @@ impl PyModel {
     }
 
     /// Add a vector or grid of variables to the model.
-    #[pyo3(signature = (*index_sets, bounds, is_integer=false, is_binary=false, name=None))]
+    #[pyo3(signature = (*index_sets, bounds, is_integer=false, is_binary=false, active=None, name=None))]
+    #[allow(clippy::too_many_arguments)]
     fn add_variables(
         &mut self,
         py: Python<'_>,
@@ -196,6 +197,7 @@ impl PyModel {
         bounds: &Bound<'_, PyAny>,
         is_integer: bool,
         is_binary: bool,
+        active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyVariableArray> {
         let index_sets = extract_index_sets(index_sets)?;
@@ -234,13 +236,14 @@ impl PyModel {
                 scalar_bounds,
                 is_integer,
                 is_binary,
+                active,
                 name,
             );
         }
 
         // Try per-element array bounds: Bounds object with numpy array lo/hi
         self.add_variables_array_bounds(
-            py, index_sets, &shape, total, bounds, is_integer, is_binary, name,
+            py, index_sets, &shape, total, bounds, is_integer, is_binary, active, name,
         )
     }
 
@@ -249,6 +252,7 @@ impl PyModel {
     /// Each row of the DataFrame creates one variable, with column values becoming
     /// the variable's coordinates in the sparse domain.
     #[pyo3(signature = (df, bounds, is_integer=false, is_binary=false, name=None))]
+    #[allow(clippy::too_many_arguments)]
     fn add_variables_from_dataframe(
         &mut self,
         py: Python<'_>,
@@ -398,12 +402,14 @@ impl PyModel {
     /// Returns a `ConstraintArray` representing the added constraints.
     /// Uses compact insertion when possible (zero per-element allocation),
     /// falling back to a batch path for materialized expressions.
-    #[pyo3(signature = (expr, *, sense=PyComparisonSense::GreaterEqual, rhs=None, name=None))]
+    #[pyo3(signature = (expr, *, sense=PyComparisonSense::GreaterEqual, rhs=None, active=None, name=None))]
+    #[allow(clippy::too_many_arguments)]
     fn add_constraints(
         &mut self,
         expr: &Bound<'_, PyAny>,
         sense: PyComparisonSense,
         rhs: Option<&Bound<'_, PyAny>>,
+        active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyConstraintArray> {
         // Branch 1: ConstraintArray input
@@ -416,7 +422,7 @@ impl PyModel {
 
             // Fast path: compact constraint storage
             if let Some(compact) = array.as_compact() {
-                return self.add_constraints_compact_internal(compact, name);
+                return self.add_constraints_compact_internal(compact, active, name);
             }
 
             // Full path
@@ -424,6 +430,7 @@ impl PyModel {
                 array.exprs().to_vec(),
                 array.get_sense(),
                 array.get_rhs(),
+                active,
                 name,
             );
         }
@@ -443,6 +450,7 @@ impl PyModel {
                 || array.to_core(),
                 rhs_obj,
                 sense,
+                active,
                 name,
             );
         }
@@ -454,6 +462,7 @@ impl PyModel {
                 || array.to_core(),
                 rhs_obj,
                 sense,
+                active,
                 name,
             );
         }

@@ -132,6 +132,13 @@ impl PyIndexSet {
             .collect()
     }
 
+    fn alias(&self, name: String) -> Self {
+        Self {
+            name,
+            members: self.members.clone(),
+        }
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "IndexSet(name='{}', size={})",

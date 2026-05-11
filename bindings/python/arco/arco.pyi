@@ -227,6 +227,21 @@ class IndexSet:
     def size(self) -> int: ...
     @property
     def members(self) -> list[IndexMember]: ...
+    def alias(self, name: str) -> IndexSet: ...
+
+class ParamArray:
+    @property
+    def axes(self) -> tuple[IndexSet, ...]: ...
+    @property
+    def shape(self) -> tuple[int, ...]: ...
+    @property
+    def values(self) -> object: ...
+
+def param(
+    values: object,
+    *axes: IndexSet,
+    name: str | None = None,
+) -> ParamArray: ...
 
 class Expr:
     def __init__(self) -> None: ...
@@ -578,6 +593,7 @@ class Model:
         bounds: Bounds | BoundType,
         is_integer: bool = False,
         is_binary: bool = False,
+        active: object | None = None,
         name: str | None = None,
     ) -> VariableArray: ...
     def add_constraint(
@@ -593,6 +609,7 @@ class Model:
         *,
         sense: str = "ge",
         rhs: float | IndexSet | None = None,
+        active: object | None = None,
         name: str | None = None,
     ) -> list[Constraint]: ...
     def add_slack(

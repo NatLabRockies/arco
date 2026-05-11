@@ -11,6 +11,40 @@ use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
 impl PyModel {
+    fn resolve_active_mask(
+        active: Option<&Bound<'_, PyAny>>,
+        shape: &[usize],
+        total: usize,
+    ) -> PyResult<Vec<bool>> {
+        let Some(active_obj) = active else {
+            return Ok(vec![true; total]);
+        };
+
+        if active_obj.is_instance_of::<pyo3::types::PyBool>() {
+            let value: bool = active_obj.extract()?;
+            return Ok(vec![value; total]);
+        }
+
+        let values_obj = match active_obj.getattr("values") {
+            Ok(values) => values,
+            Err(_) => active_obj.clone(),
+        };
+        let py = active_obj.py();
+        let np = py.import("numpy")?;
+        let arr = np.call_method1("asarray", (&values_obj,))?;
+        let broadcast = np.call_method1("broadcast_to", (arr, shape.to_vec()))?;
+        let flat = broadcast.call_method0("flatten")?;
+        let mask: Vec<bool> = flat.extract()?;
+        if mask.len() != total {
+            return Err(errors::ArrayShapeMismatchError::new_err(format!(
+                "active mask size {} does not match target size {}",
+                mask.len(),
+                total
+            )));
+        }
+        Ok(mask)
+    }
+
     /// Compute effective bounds spec, validating binary constraints.
     #[allow(clippy::float_cmp)]
     pub(crate) fn effective_bounds(
@@ -118,58 +152,73 @@ impl PyModel {
     }
 
     /// Insert constraints via compact term patterns (zero per-element allocation).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn add_constraints_compact_internal(
         &mut self,
         compact: &arrays::CompactConstraintStorage,
+        active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyConstraintArray> {
         let count = compact.count;
-        let term_patterns = compact.term_patterns();
         let sense = compact.sense;
+        let mask = Self::resolve_active_mask(active, &[count], count)?;
 
-        // Build per-element bounds from sense + rhs
-        let bounds_list: Vec<Bounds> = match &compact.rhs {
-            arrays::CompactRhs::Scalar(rhs_val) => {
-                vec![bounds_from_sense(sense, *rhs_val); count]
+        if mask.iter().all(|value| !*value) {
+            return Ok(PyConstraintArray::from_batch(0, 0, sense, &[]));
+        }
+
+        let term_patterns = compact.term_patterns();
+        let rhs_vec = compact.rhs_vec();
+
+        let mut batch: Vec<(Vec<(VariableId, f64)>, Bounds)> = Vec::new();
+        let mut filtered_rhs: Vec<f64> = Vec::new();
+
+        for idx in 0..count {
+            if !mask[idx] {
+                continue;
             }
-            arrays::CompactRhs::Vec(rhs_values) => rhs_values
+            let rhs_val = rhs_vec[idx];
+            let terms: Vec<(VariableId, f64)> = term_patterns
                 .iter()
-                .map(|rhs_val| bounds_from_sense(sense, *rhs_val))
-                .collect(),
-        };
+                .map(|(start_var_id, coeff)| (VariableId::new(start_var_id + idx as u32), *coeff))
+                .collect();
+            batch.push((terms, bounds_from_sense(sense, rhs_val)));
+            filtered_rhs.push(rhs_val);
+        }
 
         let first_constraint_id = self
             .inner
-            .add_constraints_compact(&term_patterns, &bounds_list)
+            .add_constraints_batch(&batch)
             .map_err(errors::model_error_to_py)?;
 
-        self.name_constraint_block(first_constraint_id, count, name.as_deref())?;
+        self.name_constraint_block(first_constraint_id, batch.len(), name.as_deref())?;
 
-        let rhs_vec = compact.rhs_vec();
         Ok(PyConstraintArray::from_batch(
             first_constraint_id.inner(),
-            count,
+            batch.len(),
             sense,
-            &rhs_vec,
+            &filtered_rhs,
         ))
     }
 
     /// Add constraints from an array expression (VariableArray or ExprArray) with a separate rhs.
     ///
     /// Tries the compact fast path first, then falls back to materialized comparison.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn add_constraints_from_array(
         &mut self,
         compact_expr: Option<arrays::CompactExprStorage>,
         core_fn: impl FnOnce() -> arrays::LinearArrayCore,
         rhs_obj: &Bound<'_, PyAny>,
         sense: ComparisonSense,
+        active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyConstraintArray> {
         // Fast path: compact expression
         if let Some(ref compact) = compact_expr {
             if let Some(compact_con) = arrays::try_make_compact_constraint(compact, rhs_obj, sense)
             {
-                return self.add_constraints_compact_internal(&compact_con, name);
+                return self.add_constraints_compact_internal(&compact_con, active, name);
             }
         }
 
@@ -185,41 +234,54 @@ impl PyModel {
             constraints.exprs().to_vec(),
             constraints.get_sense(),
             constraints.get_rhs(),
+            active,
             name,
         )
     }
 
     /// Insert constraints via materialized expressions (existing batch path).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn add_constraints_full_internal(
         &mut self,
         exprs: Vec<PyExpr>,
         sense: ComparisonSense,
         rhs: Vec<f64>,
+        active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyConstraintArray> {
         let total = exprs.len();
+        let mask = Self::resolve_active_mask(active, &[total], total)?;
 
-        let batch: Vec<(Vec<(VariableId, f64)>, Bounds)> = exprs
+        let mut batch: Vec<(Vec<(VariableId, f64)>, Bounds)> = Vec::new();
+        let mut filtered_rhs: Vec<f64> = Vec::new();
+        for ((expr, rhs_val), is_active) in exprs
             .into_iter()
-            .zip(rhs.iter())
-            .map(|(expr, &rhs_val)| {
+            .zip(rhs.iter().copied())
+            .zip(mask.iter().copied())
+        {
+            if is_active {
                 let bounds = bounds_from_sense(sense, rhs_val);
-                (expr.into_inner().normalized_terms(), bounds)
-            })
-            .collect();
+                batch.push((expr.into_inner().normalized_terms(), bounds));
+                filtered_rhs.push(rhs_val);
+            }
+        }
+
+        if batch.is_empty() {
+            return Ok(PyConstraintArray::from_batch(0, 0, sense, &[]));
+        }
 
         let first_constraint_id = self
             .inner
             .add_constraints_batch(&batch)
             .map_err(errors::model_error_to_py)?;
 
-        self.name_constraint_block(first_constraint_id, total, name.as_deref())?;
+        self.name_constraint_block(first_constraint_id, batch.len(), name.as_deref())?;
 
         Ok(PyConstraintArray::from_batch(
             first_constraint_id.inner(),
-            total,
+            batch.len(),
             sense,
-            &rhs,
+            &filtered_rhs,
         ))
     }
 
@@ -252,10 +314,12 @@ impl PyModel {
         bounds: BoundsSpec,
         is_integer: bool,
         is_binary: bool,
+        _active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyVariableArray> {
         let effective_bounds = Self::effective_bounds(&bounds, is_integer, is_binary)?;
         let start_var_id = self.inner.num_variables() as u32;
+        let active_mask = Self::resolve_active_mask(_active, shape, total)?;
         self.inner.reserve_variables(total);
 
         // Add all variables to the model in a tight loop (no PyExpr/PyVariable allocation)
@@ -264,10 +328,16 @@ impl PyModel {
             is_integer: effective_bounds.is_integer,
             is_active: true,
         };
-        for _ in 0..total {
-            self.inner
+        for is_active in active_mask {
+            let var_id = self
+                .inner
                 .add_variable(var_template)
                 .map_err(errors::model_error_to_py)?;
+            if !is_active {
+                self.inner
+                    .deactivate_variable(var_id)
+                    .map_err(errors::model_error_to_py)?;
+            }
         }
 
         self.register_array_print_spec(
@@ -300,9 +370,11 @@ impl PyModel {
         bounds_obj: &Bound<'_, PyAny>,
         is_integer: bool,
         is_binary: bool,
+        _active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyVariableArray> {
         let start_var_id = self.inner.num_variables() as u32;
+        let active_mask = Self::resolve_active_mask(_active, shape, total)?;
         self.inner.reserve_variables(total);
 
         // Extract lower and upper as numpy arrays from a Bounds-like object
@@ -355,6 +427,11 @@ impl PyModel {
                 .inner
                 .add_variable(var)
                 .map_err(errors::model_error_to_py)?;
+            if !active_mask[i] {
+                self.inner
+                    .deactivate_variable(var_id)
+                    .map_err(errors::model_error_to_py)?;
+            }
 
             let var_name = name.as_ref().map(|base| {
                 if total == 1 {

@@ -89,3 +89,20 @@ True
 >>> "0 <= gen[t,g] <= 100  for t in T, g in G" in rendered
 True
 ```
+
+```python doctest
+>>> import numpy as np
+>>> import arco
+>>> i = arco.IndexSet("i", members=["a", "b"])
+>>> t = arco.IndexSet("t", members=[2020, 2025, 2030])
+>>> t_alias = t.alias("t_to")
+>>> t_alias.name
+'t_to'
+>>> t_alias.members == t.members
+True
+>>> p = arco.param(np.arange(6).reshape(2, 3), i, t)
+>>> p.shape
+(2, 3)
+>>> tuple(ax.name for ax in p.axes)
+('i', 't')
+```

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 import inspect
@@ -110,5 +111,57 @@ def block(
     return _decorate_block(func=func, name=name)
 
 
+@dataclass(frozen=True)
+class ParamArray:
+    _values: object
+    _axes: tuple[object, ...]
+    _name: str | None = None
+
+    @property
+    def axes(self) -> tuple[object, ...]:
+        return self._axes
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        shape = getattr(self._values, "shape", None)
+        if shape is None:
+            return ()
+        return tuple(int(v) for v in shape)
+
+    @property
+    def values(self) -> object:
+        return self._values
+
+
+def param(values: object, *axes: object, name: str | None = None) -> ParamArray:
+    try:
+        import numpy as np
+    except ModuleNotFoundError as exc:  # pragma: no cover
+        raise RuntimeError("arco.param requires numpy") from exc
+
+    np_values = np.asarray(values)
+
+    if np_values.ndim != len(axes):
+        raise _arco.ArrayDimensionError(
+            f"values.ndim ({np_values.ndim}) must equal len(axes) ({len(axes)})"
+        )
+
+    for idx, (axis, dim_size) in enumerate(zip(axes, np_values.shape, strict=True)):
+        if not isinstance(axis, _arco.IndexSet):
+            raise _arco.ArrayTypeError(
+                f"axis {idx} must be IndexSet, got {type(axis).__name__}"
+            )
+        if axis.size != dim_size:
+            raise _arco.ArrayShapeMismatchError(
+                f"axis {axis.name!r} size ({axis.size}) does not match dimension size ({dim_size})"
+            )
+
+    return ParamArray(_values=np_values, _axes=tuple(axes), _name=name)
+
+
 if "block" not in __all__:
     __all__.append("block")
+if "ParamArray" not in __all__:
+    __all__.append("ParamArray")
+if "param" not in __all__:
+    __all__.append("param")
