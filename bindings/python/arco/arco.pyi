@@ -154,7 +154,10 @@ class Solver:
     @property
     def log_to_console(self) -> bool | None: ...
     def copy(
-        self, *, update: Mapping[str, bool | int | float | str | Mapping[str, str] | None] | None = None
+        self,
+        *,
+        update: Mapping[str, bool | int | float | str | Mapping[str, str] | None]
+        | None = None,
     ) -> Solver: ...
 
 class SolverSelection:
@@ -194,6 +197,7 @@ class HiGHS(Solver):
         parameters: Mapping[str, str] | None = None,
         solver: str | None = None,
     ) -> None: ...
+
 class Xpress(Solver):
     def __init__(
         self,
