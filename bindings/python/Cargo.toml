@@ -17,6 +17,7 @@ test = false
 
 [dependencies]
 pyo3 = { workspace = true, features = ["extension-module"] }
+arco-arrays = { workspace = true }
 arco-blocks = { workspace = true }
 arco-ops = { workspace = true }
 serde_json = { workspace = true }

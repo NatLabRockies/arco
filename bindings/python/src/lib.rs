@@ -422,16 +422,35 @@ impl PyModel {
 
             // Fast path: compact constraint storage
             if let Some(compact) = array.as_compact() {
-                return self.add_constraints_compact_internal(compact, active, name);
+                return self.add_constraints_compact_shaped_internal(
+                    compact,
+                    active,
+                    name,
+                    array.shape_ref(),
+                    &array.clone_index_sets(),
+                );
+            }
+            if let Some((left, right, lazy_sense)) = array.as_lazy_compare() {
+                return self.add_constraints_lazy_compare_shaped_internal(
+                    left,
+                    right,
+                    lazy_sense,
+                    active,
+                    name,
+                    array.shape_ref(),
+                    &array.clone_index_sets(),
+                );
             }
 
             // Full path
-            return self.add_constraints_full_internal(
+            return self.add_constraints_shaped_internal(
                 array.exprs().to_vec(),
                 array.get_sense(),
                 array.get_rhs(),
                 active,
                 name,
+                array.shape_ref(),
+                &array.clone_index_sets(),
             );
         }
 

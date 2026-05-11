@@ -74,10 +74,11 @@ def test_variable_array_stub_exposes_operator_signatures() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
     variable_array_block = _class_block(source=source, class_name="VariableArray")
     expected_signatures = [
-        "def __sub__(self, other: VariableArray | ExprArray | float | Sequence[float]) -> ExprArray: ...",
+        "def __sub__(self, other: VariableArray | ExprArray | ParamArray | float | Sequence[float]) -> ExprArray: ...",
         "def __ge__(",
         "def __len__(self) -> int: ...",
-        "def __getitem__(self, index: int | slice | tuple[object, object] | object) -> Variable | VariableArray: ...",
+        "def __getitem__(self, index: int | slice | tuple[object, ...] | object) -> Variable | Expr | VariableArray: ...",
+        "def cumsum(self, *, over: IndexSet) -> Expr | ExprArray: ...",
     ]
     _assert_signatures_present(
         block=variable_array_block, expected_signatures=expected_signatures
@@ -88,10 +89,11 @@ def test_expr_array_stub_exposes_operator_signatures() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
     expr_array_block = _class_block(source=source, class_name="ExprArray")
     expected_signatures = [
-        "def __add__(self, other: VariableArray | ExprArray | float | Sequence[float]) -> ExprArray: ...",
+        "def __add__(self, other: VariableArray | ExprArray | ParamArray | float | Sequence[float]) -> ExprArray: ...",
         "def __le__(",
         "def __len__(self) -> int: ...",
-        "def __getitem__(self, index: int | slice | tuple[object, object] | object) -> Expr | ExprArray: ...",
+        "def __getitem__(self, index: int | slice | tuple[object, ...] | object) -> Expr | ExprArray: ...",
+        "def roll(self, *, shift: int, over: IndexSet) -> Expr | ExprArray: ...",
     ]
     _assert_signatures_present(
         block=expr_array_block, expected_signatures=expected_signatures
@@ -117,6 +119,19 @@ def test_param_stub_exposes_function_signature() -> None:
         ") -> ParamArray: ...",
     ]:
         assert _normalize_whitespace(fragment) in normalized
+
+
+def test_param_array_stub_exposes_labeled_operator_signatures() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    param_block = _class_block(source=source, class_name="ParamArray")
+    expected_signatures = [
+        "def __mul__(self, other: ParamArray | float | object) -> object: ...",
+        "def __matmul__(self, other: IndexSet | Sequence[IndexSet]) -> object: ...",
+        "def cumsum(self, *, over: IndexSet) -> ParamArray: ...",
+    ]
+    _assert_signatures_present(
+        block=param_block, expected_signatures=expected_signatures
+    )
 
 
 def test_model_stub_exposes_active_kwargs_for_array_builders() -> None:

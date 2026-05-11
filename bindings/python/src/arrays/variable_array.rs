@@ -12,12 +12,14 @@ use arco_ops::expression::{Expr, VariableId};
 
 use super::LinearArrayCore;
 use super::indexing::{
-    AxisIndex, maybe_boolean_mask_indices, resolve_axis_index, slice_indices, sliced_2d_index_sets,
+    AxisIndex, maybe_boolean_mask_indices, resolve_axis_index, selected_flat_indices,
+    slice_indices, sliced_2d_index_sets, sliced_and_index_sets,
 };
 use super::{
-    CompactExprStorage, ComparisonSense, PyConstraintArray, PyExprArray, array_add, array_function,
-    array_mul, array_neg, array_reduce, array_rsub, array_sub, array_sum, array_truediv,
-    array_ufunc, compare_with_compact_fallback, try_extract_compact,
+    CompactExprStorage, ComparisonSense, PyConstraintArray, PyExprArray, array_add, array_cumsum,
+    array_diff, array_function, array_mul, array_neg, array_reduce, array_roll, array_rsub,
+    array_sub, array_sum, array_truediv, array_ufunc, compare_with_compact_fallback,
+    try_extract_compact,
 };
 
 /// Compact metadata for a contiguous block of variables with scalar bounds.
@@ -48,7 +50,7 @@ impl CompactStorage {
 /// Full storage when we have per-element data (e.g. array bounds or sliced arrays).
 struct FullStorage {
     core: LinearArrayCore,
-    variables: Vec<PyVariable>,
+    variables: Vec<Option<PyVariable>>,
 }
 
 /// Internal storage enum for VariableArray.
@@ -75,6 +77,26 @@ impl PyVariableArray {
         shape: Vec<usize>,
         values: Vec<PyExpr>,
         variables: Vec<PyVariable>,
+    ) -> Self {
+        Python::attach(|py| Self {
+            storage: VariableStorage::Full(FullStorage {
+                core: LinearArrayCore::new(
+                    index_sets.iter().map(|s| s.clone_ref(py)).collect(),
+                    shape.clone(),
+                    values,
+                ),
+                variables: variables.into_iter().map(Some).collect(),
+            }),
+            index_sets,
+            shape,
+        })
+    }
+
+    pub fn new_sparse(
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+        values: Vec<PyExpr>,
+        variables: Vec<Option<PyVariable>>,
     ) -> Self {
         Python::attach(|py| Self {
             storage: VariableStorage::Full(FullStorage {
@@ -140,17 +162,27 @@ impl PyVariableArray {
     /// Create a 1D subarray from a list of flat indices.
     fn subarray_from_indices(&self, indices: &[usize]) -> PyVariableArray {
         let vals = indices.iter().map(|&i| self.expr_at(i).unwrap()).collect();
-        let vars = indices
-            .iter()
-            .map(|&i| self.variable_at(i).unwrap())
-            .collect();
-        PyVariableArray::new(Vec::new(), vec![indices.len()], vals, vars)
+        let vars = indices.iter().map(|&i| self.variable_at(i)).collect();
+        let index_sets = Python::attach(|py| {
+            if self.shape.len() == 1 && self.index_sets.len() == 1 {
+                sliced_and_index_sets(
+                    py,
+                    &self.index_sets,
+                    &self.shape,
+                    &[AxisIndex::Range(indices.to_vec())],
+                )
+                .unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        });
+        PyVariableArray::new_sparse(index_sets, vec![indices.len()], vals, vars)
     }
 
     /// Reconstruct a PyVariable for the given flat index.
     fn variable_at(&self, idx: usize) -> Option<PyVariable> {
         match &self.storage {
-            VariableStorage::Full(full) => full.variables.get(idx).cloned(),
+            VariableStorage::Full(full) => full.variables.get(idx).cloned().flatten(),
             VariableStorage::Compact(compact) => {
                 if idx >= compact.count {
                     return None;
@@ -188,7 +220,7 @@ impl PyVariableArray {
 
     pub fn get_variable_refs(&self) -> Vec<PyVariable> {
         match &self.storage {
-            VariableStorage::Full(full) => full.variables.clone(),
+            VariableStorage::Full(full) => full.variables.iter().flatten().cloned().collect(),
             VariableStorage::Compact(compact) => (0..compact.count)
                 .map(|i| {
                     PyVariable::new(
@@ -270,86 +302,102 @@ impl PyVariableArray {
     }
 
     fn getitem_tuple(&self, py: Python<'_>, tuple: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
-        if self.shape.len() != 2 || tuple.len() != 2 {
+        if tuple.len() > self.shape.len() {
             return Err(ArrayDimensionError::new_err(
-                "tuple indexing requires a 2D array and exactly 2 indices",
+                "tuple indexing cannot specify more dimensions than the array rank",
             ));
         }
-        let nrows = self.shape[0];
-        let ncols = self.shape[1];
-        let idx0 = tuple.get_item(0)?;
-        let idx1 = tuple.get_item(1)?;
+        if self.shape.len() == 2 && tuple.len() == 2 {
+            let nrows = self.shape[0];
+            let ncols = self.shape[1];
+            let idx0 = tuple.get_item(0)?;
+            let idx1 = tuple.get_item(1)?;
 
-        let rows = resolve_axis_index(&idx0, nrows)?;
-        let cols = resolve_axis_index(&idx1, ncols)?;
+            let rows = resolve_axis_index(&idx0, nrows)?;
+            let cols = resolve_axis_index(&idx1, ncols)?;
 
-        match (&rows, &cols) {
-            (AxisIndex::Single(r), AxisIndex::Single(c)) => {
-                let flat_idx = r * ncols + c;
-                let var = self.variable_at(flat_idx).ok_or_else(|| {
-                    ArrayIndexError::new_err(format!("flat index {} out of range", flat_idx))
-                })?;
-                Ok(var.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Single(r), AxisIndex::Range(col_indices)) => {
-                let mut vals = Vec::with_capacity(col_indices.len());
-                let mut vars = Vec::with_capacity(col_indices.len());
-                for &c in col_indices {
+            match (&rows, &cols) {
+                (AxisIndex::Single(r), AxisIndex::Single(c)) => {
                     let flat_idx = r * ncols + c;
-                    vals.push(self.expr_at(flat_idx).unwrap());
-                    vars.push(self.variable_at(flat_idx).unwrap());
-                }
-                let n = vals.len();
-                let new_index_sets = if col_indices.len() == ncols && self.index_sets.len() == 2 {
-                    vec![self.index_sets[1].clone_ref(py)]
-                } else {
-                    Vec::new()
-                };
-                let result = PyVariableArray::new(new_index_sets, vec![n], vals, vars);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Range(row_indices), AxisIndex::Single(c)) => {
-                let mut vals = Vec::with_capacity(row_indices.len());
-                let mut vars = Vec::with_capacity(row_indices.len());
-                for &r in row_indices {
-                    let flat_idx = r * ncols + c;
-                    vals.push(self.expr_at(flat_idx).unwrap());
-                    vars.push(self.variable_at(flat_idx).unwrap());
-                }
-                let n = vals.len();
-                let new_index_sets = if row_indices.len() == nrows && self.index_sets.len() == 2 {
-                    vec![self.index_sets[0].clone_ref(py)]
-                } else {
-                    Vec::new()
-                };
-                let result = PyVariableArray::new(new_index_sets, vec![n], vals, vars);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
-            }
-            (AxisIndex::Range(row_indices), AxisIndex::Range(col_indices)) => {
-                let new_nrows = row_indices.len();
-                let new_ncols = col_indices.len();
-                let mut vals = Vec::with_capacity(new_nrows * new_ncols);
-                let mut vars = Vec::with_capacity(new_nrows * new_ncols);
-                for &r in row_indices {
-                    for &c in col_indices {
-                        let flat_idx = r * ncols + c;
-                        vals.push(self.expr_at(flat_idx).unwrap());
-                        vars.push(self.variable_at(flat_idx).unwrap());
+                    if let Some(var) = self.variable_at(flat_idx) {
+                        return Ok(var.into_pyobject(py)?.into_any().unbind());
                     }
+                    let expr = self.expr_at(flat_idx).ok_or_else(|| {
+                        ArrayIndexError::new_err(format!("flat index {} out of range", flat_idx))
+                    })?;
+                    return Ok(expr.into_pyobject(py)?.into_any().unbind());
                 }
-                let new_index_sets = sliced_2d_index_sets(
-                    py,
-                    &self.index_sets,
-                    nrows,
-                    ncols,
-                    row_indices,
-                    col_indices,
-                )?;
-                let result =
-                    PyVariableArray::new(new_index_sets, vec![new_nrows, new_ncols], vals, vars);
-                Ok(result.into_pyobject(py)?.into_any().unbind())
+                (AxisIndex::Range(row_indices), AxisIndex::Range(col_indices))
+                    if self.index_sets.len() == 2 =>
+                {
+                    let new_nrows = row_indices.len();
+                    let new_ncols = col_indices.len();
+                    let mut vals = Vec::with_capacity(new_nrows * new_ncols);
+                    let mut vars = Vec::with_capacity(new_nrows * new_ncols);
+                    for &r in row_indices {
+                        for &c in col_indices {
+                            let flat_idx = r * ncols + c;
+                            vals.push(self.expr_at(flat_idx).unwrap());
+                            vars.push(self.variable_at(flat_idx));
+                        }
+                    }
+                    let new_index_sets = sliced_2d_index_sets(
+                        py,
+                        &self.index_sets,
+                        nrows,
+                        ncols,
+                        row_indices,
+                        col_indices,
+                    )?;
+                    let result = PyVariableArray::new_sparse(
+                        new_index_sets,
+                        vec![new_nrows, new_ncols],
+                        vals,
+                        vars,
+                    );
+                    return Ok(result.into_pyobject(py)?.into_any().unbind());
+                }
+                _ => {}
             }
         }
+
+        let mut selections = Vec::with_capacity(self.shape.len());
+        for axis in 0..self.shape.len() {
+            if axis < tuple.len() {
+                selections.push(resolve_axis_index(
+                    &tuple.get_item(axis)?,
+                    self.shape[axis],
+                )?);
+            } else {
+                selections.push(AxisIndex::Range((0..self.shape[axis]).collect()));
+            }
+        }
+
+        let (flat_indices, out_shape) = selected_flat_indices(&self.shape, &selections);
+        if out_shape.is_empty() {
+            let flat_idx = *flat_indices.first().ok_or_else(|| {
+                ArrayIndexError::new_err("scalar tuple indexing did not resolve any element")
+            })?;
+            if let Some(var) = self.variable_at(flat_idx) {
+                return Ok(var.into_pyobject(py)?.into_any().unbind());
+            }
+            let expr = self.expr_at(flat_idx).ok_or_else(|| {
+                ArrayIndexError::new_err(format!("flat index {} out of range", flat_idx))
+            })?;
+            return Ok(expr.into_pyobject(py)?.into_any().unbind());
+        }
+
+        let vals = flat_indices
+            .iter()
+            .map(|&idx| self.expr_at(idx).unwrap())
+            .collect::<Vec<_>>();
+        let vars = flat_indices
+            .iter()
+            .map(|&idx| self.variable_at(idx))
+            .collect::<Vec<_>>();
+        let new_index_sets = sliced_and_index_sets(py, &self.index_sets, &self.shape, &selections)?;
+        let result = PyVariableArray::new_sparse(new_index_sets, out_shape, vals, vars);
+        Ok(result.into_pyobject(py)?.into_any().unbind())
     }
 }
 
@@ -453,6 +501,21 @@ impl PyVariableArray {
         let core = self.to_core();
         array_sum(&core, py, over)
     }
+    #[pyo3(signature = (*, over))]
+    fn cumsum(&self, py: Python<'_>, over: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let core = self.to_core();
+        array_cumsum(&core, py, over)
+    }
+    #[pyo3(signature = (*, over))]
+    fn diff(&self, py: Python<'_>, over: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let core = self.to_core();
+        array_diff(&core, py, over)
+    }
+    #[pyo3(signature = (*, shift, over))]
+    fn roll(&self, py: Python<'_>, shift: isize, over: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let core = self.to_core();
+        array_roll(&core, py, shift, over)
+    }
     fn __rshift__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         let core = self.to_core();
         array_reduce(&core, py, rhs)
@@ -527,16 +590,24 @@ impl PyVariableArray {
         }
 
         if let Ok(idx) = index.extract::<usize>() {
-            return self
-                .variable_at(idx)
-                .ok_or_else(|| {
-                    ArrayIndexError::new_err(format!(
-                        "index {} out of range for array of size {}",
-                        idx,
-                        self.len()
-                    ))
-                })
-                .and_then(|v| Ok(v.into_pyobject(py)?.into_any().unbind()));
+            if idx >= self.len() {
+                return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                    "index {} out of range for array of size {}",
+                    idx,
+                    self.len()
+                )));
+            }
+            if let Some(variable) = self.variable_at(idx) {
+                return Ok(variable.into_pyobject(py)?.into_any().unbind());
+            }
+            let expr = self.expr_at(idx).ok_or_else(|| {
+                pyo3::exceptions::PyIndexError::new_err(format!(
+                    "index {} out of range for array of size {}",
+                    idx,
+                    self.len()
+                ))
+            })?;
+            return Ok(expr.into_pyobject(py)?.into_any().unbind());
         }
 
         if let Some(mask_indices) = maybe_boolean_mask_indices(py, index, self.len())? {

@@ -11,10 +11,10 @@ def test_add_variables_active_mask_controls_activation() -> None:
 
     _ = model.add_variables(i, bounds=arco.NonNegativeFloat, active=[True, False, True])
 
-    assert model.num_variables == 3
+    assert model.num_variables == 2
     snapshot = model.inspect()
     statuses = [v.is_active for v in snapshot.variables]
-    assert statuses == [True, False, True]
+    assert statuses == [True, True]
 
 
 def test_add_constraints_active_mask_skips_inactive_rows() -> None:
@@ -41,6 +41,7 @@ def test_add_variables_active_mask_broadcasts_with_numpy_rules() -> None:
     mask = np.array([[True, False], [False, True]], dtype=bool)
     _ = model.add_variables(i, r, h, bounds=arco.NonNegativeFloat, active=mask)
 
-    statuses = [v.is_active for v in model.inspect().variables]
-    assert statuses.count(True) == 4
-    assert statuses.count(False) == 4
+    snapshot = model.inspect()
+    assert model.num_variables == 4
+    assert len(snapshot.variables) == 4
+    assert all(variable.is_active for variable in snapshot.variables)

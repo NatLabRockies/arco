@@ -46,9 +46,9 @@ impl<'a, 'py> FromPyObject<'a, 'py> for BoundsSpec {
 #[pyclass(from_py_object, name = "Bounds")]
 pub struct PyBounds {
     pub inner: Bounds,
-    /// Per-element lower bounds as numpy array (None for scalar bounds)
+    /// Per-element lower bound source object (None for scalar bounds)
     pub array_lower: Option<PyObject>,
-    /// Per-element upper bounds as numpy array (None for scalar bounds)
+    /// Per-element upper bound source object (None for scalar bounds)
     pub array_upper: Option<PyObject>,
 }
 
@@ -91,7 +91,7 @@ impl PyBounds {
     #[new]
     #[pyo3(signature = (lo=None, hi=None, *, lower=None, upper=None))]
     fn new(
-        py: Python<'_>,
+        _py: Python<'_>,
         lo: Option<&Bound<'_, PyAny>>,
         hi: Option<&Bound<'_, PyAny>>,
         lower: Option<&Bound<'_, PyAny>>,
@@ -117,21 +117,12 @@ impl PyBounds {
                 array_upper: None,
             });
         }
-
-        // Per-element array bounds (numpy arrays)
-        let np = py.import("numpy")?;
-        let lo_arr = np
-            .call_method1("asarray", (low_obj,))?
-            .call_method1("astype", ("float64",))?;
-        let hi_arr = np
-            .call_method1("asarray", (high_obj,))?
-            .call_method1("astype", ("float64",))?;
-
-        // Store arrays; use NaN sentinels for scalar inner (won't be used for array bounds)
+        // Preserve the original Python objects so labeled params can still
+        // broadcast by axis identity when the model builder consumes them.
         Ok(Self {
             inner: Bounds::new(f64::NEG_INFINITY, f64::INFINITY),
-            array_lower: Some(lo_arr.unbind()),
-            array_upper: Some(hi_arr.unbind()),
+            array_lower: Some(low_obj.clone().unbind()),
+            array_upper: Some(high_obj.clone().unbind()),
         })
     }
 

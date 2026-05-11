@@ -4,6 +4,7 @@ use crate::PyObject;
 use crate::py_modules::errors::{IndexSetArgumentError, IndexSetEmptyError, IndexSetTypeError};
 use pyo3::IntoPyObject;
 use pyo3::prelude::*;
+use pyo3::types::PySlice;
 
 /// Internal representation of an index set member.
 #[derive(Debug, Clone)]
@@ -137,6 +138,52 @@ impl PyIndexSet {
             name,
             members: self.members.clone(),
         }
+    }
+
+    fn __getitem__(&self, py: Python<'_>, index: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let Ok(idx) = index.extract::<isize>() {
+            let resolved = if idx < 0 {
+                self.members.len() as isize + idx
+            } else {
+                idx
+            };
+            if resolved < 0 || resolved as usize >= self.members.len() {
+                return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                    "index {} out of range for IndexSet of size {}",
+                    idx,
+                    self.members.len()
+                )));
+            }
+            return self.members[resolved as usize].to_pyobject(py);
+        }
+
+        if let Ok(slice) = index.cast::<PySlice>() {
+            let indices = slice.indices(self.members.len() as isize)?;
+            let mut members = Vec::new();
+            let mut current = indices.start;
+            while (indices.step > 0 && current < indices.stop)
+                || (indices.step < 0 && current > indices.stop)
+            {
+                members.push(self.members[current as usize].clone());
+                current += indices.step;
+            }
+            if members.is_empty() {
+                return Err(IndexSetEmptyError::new_err(
+                    "IndexSet slices must contain at least one member",
+                ));
+            }
+            return Ok(Self {
+                name: self.name.clone(),
+                members,
+            }
+            .into_pyobject(py)?
+            .into_any()
+            .unbind());
+        }
+
+        Err(IndexSetTypeError::new_err(
+            "IndexSet indices must be integers or slices",
+        ))
     }
 
     fn __repr__(&self) -> String {
