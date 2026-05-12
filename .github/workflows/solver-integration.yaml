@@ -121,7 +121,8 @@ jobs:
         run: |
           set -euo pipefail
           bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
-          test -d "$XPRESSDIR/lib"
+          xpress_dir="$(awk -F= '$1 == "XPRESSDIR" { print substr($0, index($0, "=") + 1) }' "$GITHUB_ENV" | tail -n 1)"
+          test -d "$xpress_dir/lib"
 
       - name: Solve docs example with Xpress
         run: bash ./scripts/solver_docs_smoke.sh xpress xpress
