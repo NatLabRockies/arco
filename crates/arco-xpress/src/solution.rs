@@ -117,7 +117,7 @@ impl SolutionView for Solution {
     }
 
     fn status(&self) -> SolverStatus {
-        self.core_status.into()
+        self.core_status
     }
 
     fn get_primal(&self, index: usize) -> Option<f64> {

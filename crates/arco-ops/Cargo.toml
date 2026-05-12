@@ -21,6 +21,7 @@ arco-ipopt = { workspace = true, optional = true }
 arco-kdl = { workspace = true }
 arco-scip = { workspace = true }
 arco-solver = { workspace = true }
+arco-xpress = { workspace = true, optional = true }
 arco-validate = { workspace = true }
 csv = "1.4"
 ipopt = { version = "0.5", optional = true }
@@ -35,4 +36,4 @@ tracing = { workspace = true }
 [features]
 default = []
 ipopt = ["dep:arco-ipopt", "dep:ipopt"]
-xpress = []
+xpress = ["dep:arco-xpress"]

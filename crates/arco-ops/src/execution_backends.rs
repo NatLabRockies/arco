@@ -7,8 +7,6 @@ use crate::execution::{
     build_model, evaluate_linear_report, extract_dual_report_values, lookup_primal_value,
     map_solver_status,
 };
-#[cfg(feature = "xpress")]
-use crate::xpress::Solver as XpressSolver;
 use crate::{ops_problem_from_algebraic, portable_problem_from_ops};
 use arco_highs::{HighsModelViewBackend, highs_version};
 use arco_scip as scip;
@@ -16,6 +14,8 @@ use arco_solver::{
     ModelViewBackendRegistry, ModelViewSolveResult, ResolvedSelection, SolverConfig, SolverError,
     SolverProfile, SolverRegistry, SolverTransport,
 };
+#[cfg(feature = "xpress")]
+use arco_xpress::{XpressModelViewBackend, xpress_runtime_available};
 use std::time::Instant;
 use tracing::info;
 
@@ -37,12 +37,19 @@ pub(crate) fn solve_model_view_with_builtin_backend(
             registry.register(&highs);
             registry.solve("highs", model, config)
         }
+        #[cfg(feature = "xpress")]
+        "xpress" => {
+            let xpress = XpressModelViewBackend;
+            let mut registry = ModelViewBackendRegistry::new();
+            registry.register(&xpress);
+            registry.solve("xpress", model, config)
+        }
+        #[cfg(not(feature = "xpress"))]
+        "xpress" => Err(SolverError::SolverNotAvailable(
+            "Xpress model-view backend is not enabled; rebuild with --features xpress".to_string(),
+        )),
         "ipopt" => Err(SolverError::SolverNotAvailable(
             "IPOPT model-view backend is not implemented yet; use a supported backend such as 'highs'"
-                .to_string(),
-        )),
-        "xpress" => Err(SolverError::SolverNotAvailable(
-            "Xpress model-view backend is not implemented yet; use a supported backend such as 'highs'"
                 .to_string(),
         )),
         "scip" => Err(SolverError::SolverNotAvailable(
@@ -58,6 +65,12 @@ pub(crate) fn solve_model_view_with_builtin_backend(
 pub(crate) fn builtin_solver_version(family: &str) -> Option<String> {
     match normalize_model_view_backend_family(family) {
         "highs" => highs_version(),
+        #[cfg(feature = "xpress")]
+        "xpress" => Some(if xpress_runtime_available() {
+            "available".to_string()
+        } else {
+            "not-found".to_string()
+        }),
         _ => None,
     }
 }
@@ -79,6 +92,15 @@ pub(crate) fn adapter_for_selection(
     match selection.transport {
         SolverTransport::Embedded => match selection.family.as_str() {
             "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
+            #[cfg(feature = "xpress")]
+            "xpress" => Ok(Box::new(XpressArcoAdapter::with_console_log(
+                log_to_console,
+            ))),
+            #[cfg(not(feature = "xpress"))]
+            "xpress" => Err(
+                "embedded solver family 'xpress' is not available (rebuild with --features xpress)"
+                    .to_string(),
+            ),
             #[cfg(feature = "ipopt")]
             "ipopt" => Ok(Box::new(
                 crate::execution::IpoptArcoAdapter::with_console_log(log_to_console),
@@ -361,33 +383,26 @@ impl OptimizationAdapter for XpressArcoAdapter {
 
         info!("starting solver backend run: {}", backend);
         let solver_started = Instant::now();
-        info!("initializing solver backend instance");
-        let mut solver = XpressSolver::new(&built.model).map_err(|source| {
-            ExecutionError::SolverInitialization {
+        let config = SolverConfig::default().with_log_to_console(self.log_to_console);
+        let solution = solve_model_view_with_builtin_backend("xpress", &built.model, &config)
+            .map_err(|source| ExecutionError::Solve {
                 backend: backend.clone(),
                 source,
-            }
-        })?;
-        solver.set_log_to_console(self.log_to_console);
-
-        let solution = solver.solve().map_err(|source| ExecutionError::Solve {
-            backend: backend.clone(),
-            source,
-        })?;
+            })?;
         info!(
             "solver backend run completed in {:.2} ms: {}",
             solver_started.elapsed().as_secs_f64() * 1000.0,
             backend
         );
-        info!("solve status: {:?}", solution.core_status());
-        if !solution.is_feasible() {
+        info!("solve status: {}", solution.status);
+        if !solution.status.is_feasible() {
             return Err(ExecutionError::NoFeasibleSolution {
                 backend,
-                status: format!("{:?}", solution.core_status()),
+                status: solution.status.to_string(),
             });
         }
 
-        let objective_value = problem.algebra.objective.constant + solution.objective_value();
+        let objective_value = problem.algebra.objective.constant + solution.objective_value;
         let report_values = problem
             .algebra
             .reports
@@ -399,7 +414,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
                         &backend,
                         report,
                         &variable_indices,
-                        solution.primal_values(),
+                        &solution.primal_values,
                     )?,
                 })
             })
@@ -419,7 +434,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
                             &backend,
                             &instance.name,
                             &variable_indices,
-                            solution.primal_values(),
+                            &solution.primal_values,
                         )
                     })
                     .transpose()?
@@ -437,7 +452,7 @@ impl OptimizationAdapter for XpressArcoAdapter {
                                     &backend,
                                     &instance.name,
                                     &variable_indices,
-                                    solution.primal_values(),
+                                    &solution.primal_values,
                                 )?,
                             })
                         })
@@ -455,10 +470,10 @@ impl OptimizationAdapter for XpressArcoAdapter {
             .collect::<Result<Vec<_>, _>>()?;
 
         let dual_report_values =
-            extract_dual_report_values(problem, &constraint_indices, solution.constraint_duals());
+            extract_dual_report_values(problem, &constraint_indices, &solution.constraint_duals);
 
         Ok(AdapterSolveOutput {
-            status: map_solver_status(solution.core_status()),
+            status: map_solver_status(solution.status),
             objective_value: ScalarArtifactValue {
                 compiled_name: problem.objective.name.clone(),
                 value: objective_value,

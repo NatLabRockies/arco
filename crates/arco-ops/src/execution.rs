@@ -127,6 +127,12 @@ pub struct ScipArcoAdapter {
     pub(crate) environment: std::collections::BTreeMap<String, String>,
 }
 
+#[cfg(feature = "xpress")]
+#[derive(Debug, Default)]
+pub struct XpressArcoAdapter {
+    pub(crate) log_to_console: bool,
+}
+
 #[derive(Debug, Error)]
 pub enum ExecutionError {
     #[error("adapter backend `{backend}` failed to add variable `{compiled_name}`: {source}")]

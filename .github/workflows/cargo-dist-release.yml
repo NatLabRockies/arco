@@ -206,6 +206,17 @@ jobs:
           if [[ -n "${MATRIX_PACKAGES_INSTALL}" ]]; then
             bash -euo pipefail -c "${MATRIX_PACKAGES_INSTALL}"
           fi
+      - name: Install Xpress SDK (Linux, optional)
+        if: ${{ runner.os == 'Linux' && vars.XPRESS_SDK_LINUX_URL != '' }}
+        shell: bash
+        env:
+          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+        run: |
+          set -euo pipefail
+          curl -fsSL "$XPRESS_SDK_LINUX_URL" -o /tmp/xpress-sdk-linux.tar.gz
+          sudo mkdir -p /opt/xpressmp
+          sudo tar -xzf /tmp/xpress-sdk-linux.tar.gz -C /opt/xpressmp --strip-components=1
+          echo "XPRESSDIR=/opt/xpressmp" >> "$GITHUB_ENV"
       # MODIFIED: musl-tools only ships a C wrapper (musl-gcc); highs-sys needs
       # a C++ compiler that links against musl's libstdc++, not glibc's.
       # For container-based builds (messense/rust-musl-cross), the toolchain is pre-installed.

@@ -1,17 +1,15 @@
 fn main() {
-    // When the xpress feature is enabled, embed an rpath so linked targets can
-    // locate libxprs.dylib at runtime without requiring DYLD_LIBRARY_PATH.
     #[cfg(feature = "xpress")]
     {
         println!("cargo:rerun-if-env-changed=XPRESSDIR");
 
-        let xpress_dir = detect_xpress_dir();
+        let Some(dir) = detect_xpress_dir() else {
+            return;
+        };
 
-        if let Some(dir) = xpress_dir {
+        if target_family().as_deref() == Some("unix") {
             let lib_dir = format!("{dir}/lib");
-            if target_family().as_deref() == Some("unix") {
-                println!("cargo:rustc-link-arg=-Wl,-rpath,{lib_dir}");
-            }
+            println!("cargo:rustc-link-arg-cdylib=-Wl,-rpath,{lib_dir}");
         }
     }
 }

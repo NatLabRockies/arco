@@ -27,7 +27,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 [features]
 default = []
 ipopt = ["arco-ops/ipopt"]
-xpress = []
+xpress = ["arco-ops/xpress"]
 
 [lints]
 workspace = true

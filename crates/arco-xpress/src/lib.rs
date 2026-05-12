@@ -9,4 +9,6 @@ pub mod solver;
 mod status;
 
 pub use solution::Solution;
-pub use solver::{Solver, XpressModelViewBackend, solve_model_view};
+pub use solver::{
+    Solver, XpressModelViewBackend, detect_xpress_dir, solve_model_view, xpress_runtime_available,
+};
