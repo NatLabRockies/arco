@@ -1,47 +1,13 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 
 import arco
 
 
-def _local_xpress_dir() -> str | None:
-    configured = os.environ.get("XPRESSDIR")
-    if configured and Path(configured).exists():
-        return configured
-
-    candidates = [
-        Path.home() / "User Apps" / "FICO Xpress" / "xpressmp",
-        Path.home() / "opt" / "xpressmp",
-        Path("/Applications/FICO Xpress/xpressmp"),
-        Path("/Volumes/FICO Xpress Installer/FICO Xpress/xpressmp"),
-        Path("/opt/xpressmp"),
-        Path("/Library/xpressmp"),
-        Path("C:/xpressmp"),
-    ]
-
-    user_profile = os.environ.get("USERPROFILE")
-    if user_profile:
-        candidates.append(
-            Path(user_profile) / "AppData" / "Local" / "FICO Xpress" / "xpressmp"
-        )
-    program_files = os.environ.get("ProgramFiles")
-    if program_files:
-        candidates.append(Path(program_files) / "FICO Xpress" / "xpressmp")
-    program_files_x86 = os.environ.get("ProgramFiles(x86)")
-    if program_files_x86:
-        candidates.append(Path(program_files_x86) / "FICO Xpress" / "xpressmp")
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-
-    return None
-
-
-def _build_model() -> arco.Model:
+def build_model() -> arco.Model:
     model = arco.Model()
     x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
     model.add_constraint(x >= 1.0, name="demand")
@@ -49,14 +15,33 @@ def _build_model() -> arco.Model:
     return model
 
 
+XPRESS_RUNTIME_INFO = arco.solver_runtime_info(family="xpress")
+HAS_XPRESS_RUNTIME = bool(XPRESS_RUNTIME_INFO.get("runtime_dir"))
+
+
 @pytest.mark.skipif(
-    _local_xpress_dir() is None, reason="local Xpress SDK not available"
+    not HAS_XPRESS_RUNTIME,
+    reason="local Xpress runtime not available",
+)
+def test_xpress_runtime_info_exposes_license_contract() -> None:
+    info = XPRESS_RUNTIME_INFO
+    assert info["family"] == "xpress"
+    assert info["requires_license"] is True
+    assert info["license_env_var"] == "XPAUTH_PATH"
+    assert info["runtime_env_var"] == "XPRESSDIR"
+
+
+@pytest.mark.skipif(
+    not HAS_XPRESS_RUNTIME,
+    reason="local Xpress runtime not available",
 )
 def test_xpress_solver_object_solves_model() -> None:
-    os.environ.setdefault("XPRESSDIR", _local_xpress_dir() or "")
+    runtime_dir = XPRESS_RUNTIME_INFO.get("runtime_dir")
+    if runtime_dir:
+        os.environ.setdefault("XPRESSDIR", str(runtime_dir))
 
     try:
-        result = _build_model().solve(solver=arco.Xpress(log_to_console=False))
+        result = build_model().solve(solver=arco.Xpress(log_to_console=False))
     except Exception as exc:  # pragma: no cover - environment dependent
         message = str(exc)
         if (
@@ -71,13 +56,16 @@ def test_xpress_solver_object_solves_model() -> None:
 
 
 @pytest.mark.skipif(
-    _local_xpress_dir() is None, reason="local Xpress SDK not available"
+    not HAS_XPRESS_RUNTIME,
+    reason="local Xpress runtime not available",
 )
 def test_xpress_solver_selection_family_solves_model() -> None:
-    os.environ.setdefault("XPRESSDIR", _local_xpress_dir() or "")
+    runtime_dir = XPRESS_RUNTIME_INFO.get("runtime_dir")
+    if runtime_dir:
+        os.environ.setdefault("XPRESSDIR", str(runtime_dir))
 
     try:
-        result = _build_model().solve(solver=arco.SolverSelection.family("xpress"))
+        result = build_model().solve(solver=arco.SolverSelection.family("xpress"))
     except Exception as exc:  # pragma: no cover - environment dependent
         message = str(exc)
         if (

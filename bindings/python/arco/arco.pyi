@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Callable, Mapping, Sequence, TypeAlias, TypedDict, TypeVar
+from typing import Callable, Mapping, Sequence, TypeAlias, TypedDict, TypeVar, overload
 
 BlockFnT = TypeVar("BlockFnT", bound=Callable[..., object])
 
@@ -13,6 +13,15 @@ BoundValue: TypeAlias = float | Sequence[float] | Sequence[Sequence[float]]
 class SolverInfo(TypedDict):
     solver: str
     version: str | None
+
+class SolverRuntimeInfo(TypedDict):
+    family: str
+    requires_license: bool
+    license_env_var: str | None
+    runtime_env_var: str | None
+    runtime_dir: str | None
+    configured_license_path: str | None
+    backend_enabled: bool
 
 class CscExport(TypedDict):
     col_ptrs: Sequence[int]
@@ -197,6 +206,11 @@ class HiGHS(Solver):
         parameters: Mapping[str, str] | None = None,
         solver: str | None = None,
     ) -> None: ...
+
+@overload
+def solver_runtime_info(*, family: str) -> SolverRuntimeInfo: ...
+@overload
+def solver_runtime_info(*, family: None = None) -> dict[str, SolverRuntimeInfo]: ...
 
 class Xpress(Solver):
     def __init__(

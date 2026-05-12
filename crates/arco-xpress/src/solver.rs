@@ -93,6 +93,12 @@ pub fn xpress_runtime_available() -> bool {
     detect_xpress_dir().is_some()
 }
 
+pub fn detect_xpress_license_path(xpress_dir: Option<&Path>) -> Option<PathBuf> {
+    license_candidates(xpress_dir)
+        .into_iter()
+        .find(|path| path.exists())
+}
+
 #[allow(unsafe_code)]
 fn xprs_lic_errmsg() -> String {
     let mut buf = [0 as c_char; ERRMSG_BUF_LEN as usize];
@@ -104,7 +110,7 @@ fn xprs_lic_errmsg() -> String {
         .into_owned()
 }
 
-fn license_candidates(xpress_dir: Option<&Path>) -> Vec<PathBuf> {
+pub fn license_candidates(xpress_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("XPAUTH_PATH").filter(|value| !value.is_empty()) {
         candidates.push(PathBuf::from(path));

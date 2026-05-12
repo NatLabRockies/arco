@@ -237,59 +237,8 @@ jobs:
       - name: Install Xpress Python package and export runtime env
         run: |
           set -euo pipefail
-
-          env_file="$(mktemp)"
-          trap 'rm -f "$env_file"' EXIT
-          uv run --with xpress python - <<'PY' > "$env_file"
-          import pathlib
-          import xpress
-
-          pkg_root = pathlib.Path(xpress.__file__).resolve().parent
-          candidates = [
-              pkg_root,
-              pkg_root / "xpressmp",
-              pkg_root / "lib" / "xpressmp",
-          ]
-
-          runtime_root = next(
-              (
-                  path
-                  for path in candidates
-                  if (path / "bin").is_dir() and (path / "lib").is_dir()
-              ),
-              None,
-          )
-          if runtime_root is None:
-              raise SystemExit(
-                  f"could not locate xpress runtime from package root: {pkg_root}"
-              )
-
-          license_candidates = [
-              runtime_root / "bin" / "community-xpauth.xpr",
-              runtime_root / "bin" / "xpauth.xpr",
-              pkg_root / "community-xpauth.xpr",
-              pkg_root / "xpauth.xpr",
-          ]
-
-          license_path = next(
-              (path for path in license_candidates if path.is_file()),
-              None,
-          )
-          if license_path is None:
-              raise SystemExit(
-                  "could not locate xpress community license in python package"
-              )
-
-          print(f"XPRESSDIR={runtime_root}")
-          print(f"XPAUTH_PATH={license_path}")
-          PY
-
-          cat "$env_file" >> "$GITHUB_ENV"
-          XPRESSDIR="$(grep '^XPRESSDIR=' "$env_file" | cut -d= -f2-)"
-          XPAUTH_PATH="$(grep '^XPAUTH_PATH=' "$env_file" | cut -d= -f2-)"
-          test -d "$XPRESSDIR/bin"
+          bash ./scripts/export_xpress_env_from_python.sh "$GITHUB_ENV"
           test -d "$XPRESSDIR/lib"
-          test -f "$XPAUTH_PATH"
 
       - name: Run Xpress-enabled CLI integration tests
         run: |
