@@ -10,6 +10,7 @@ on:
       - "justfile"
       - "scripts/export_xpress_env_from_python.sh"
       - "scripts/install_ipopt_linux_deps.sh"
+      - "scripts/setup_solver_runtime_env.sh"
       - "scripts/solver_docs_smoke.sh"
       - ".github/workflows/solver-integration.yaml"
       - ".github/actions/**"
@@ -24,6 +25,7 @@ on:
       - "justfile"
       - "scripts/export_xpress_env_from_python.sh"
       - "scripts/install_ipopt_linux_deps.sh"
+      - "scripts/setup_solver_runtime_env.sh"
       - "scripts/solver_docs_smoke.sh"
       - ".github/workflows/solver-integration.yaml"
       - ".github/actions/**"
@@ -115,10 +117,10 @@ jobs:
           sync-python-licenses: "false"
           rust-cache-shared-key: solver-integration
 
-      - name: Export Xpress runtime env
+      - name: Setup solver runtime env (xpress)
         run: |
           set -euo pipefail
-          bash ./scripts/export_xpress_env_from_python.sh "$GITHUB_ENV"
+          bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
           test -d "$XPRESSDIR/lib"
 
       - name: Solve docs example with Xpress

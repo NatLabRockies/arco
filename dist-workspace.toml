@@ -32,12 +32,13 @@ dispatch-releases = true
 precise-builds = true
 # Whether to install an updater program
 install-updater = true
+# Extra setup steps injected into dist build-local-artifacts jobs
+github-build-setup = "../dist-build-setup.yml"
 
 # Use a container with musl toolchain pre-installed instead of downloading from musl.cc
 # The messense/rust-musl-cross image has the full musl cross-toolchain including C++
 [dist.github-custom-runners.x86_64-unknown-linux-gnu]
 runner = "ubuntu-22.04"
-packages-install = "bash ./scripts/export_xpress_env_from_python.sh \"$GITHUB_ENV\""
 
 [dist.github-custom-runners.x86_64-unknown-linux-musl]
 container = { image = "messense/rust-musl-cross:x86_64-musl", host = "x86_64-unknown-linux-gnu" }

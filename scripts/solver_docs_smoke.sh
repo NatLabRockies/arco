@@ -10,7 +10,7 @@ solver_family="$1"
 cargo_feature="${2:-}"
 model_path="examples/dense-lp/input.kdl"
 
-cargo_args=(+"${RUST_TOOLCHAIN_VERSION:-1.85}" run -p arco-cli)
+cargo_args=(cargo +"${RUST_TOOLCHAIN_VERSION:-1.85}" run -p arco-cli)
 if [[ -n "$cargo_feature" ]]; then
 	cargo_args+=(--features "$cargo_feature")
 fi
