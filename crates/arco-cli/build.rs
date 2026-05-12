@@ -1,6 +1,6 @@
 fn main() {
-    // When the xpress feature is enabled, embed an rpath so linked targets can
-    // locate libxprs.dylib at runtime without requiring DYLD_LIBRARY_PATH.
+    // When the xpress feature is enabled and a local runtime is present, embed
+    // an rpath hint so dlopen can find libxprs without extra env vars.
     #[cfg(feature = "xpress")]
     {
         println!("cargo:rerun-if-env-changed=XPRESSDIR");

@@ -15,7 +15,7 @@ default-run = "arco"
 [package.metadata.dist]
 # This is the main distributable artifact
 dist = true
-# Release binaries should include Xpress support when SDK/linker inputs are available in CI.
+# Release binaries should include Xpress support; the runtime library is loaded dynamically.
 features = ["xpress"]
 
 [package.metadata.wix]

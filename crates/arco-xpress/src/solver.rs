@@ -14,6 +14,7 @@ use tracing::{debug, warn};
 pub type SolverErrorAlias = SolverError;
 
 struct XpressGuard {
+    api: &'static ffi::Api,
     original_xpressdir: Option<String>,
     original_xpauth: Option<String>,
 }
@@ -22,20 +23,23 @@ impl Drop for XpressGuard {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         unsafe {
-            ffi::XPRSfree();
+            (self.api.xprs_free)();
         }
         restore_env("XPRESSDIR", &self.original_xpressdir);
         restore_env("XPAUTH_PATH", &self.original_xpauth);
     }
 }
 
-struct ProbGuard(ffi::XPRSprob);
+struct ProbGuard {
+    api: &'static ffi::Api,
+    prob: ffi::XPRSprob,
+}
 
 impl Drop for ProbGuard {
     #[allow(unsafe_code)]
     fn drop(&mut self) {
         unsafe {
-            ffi::XPRSdestroyprob(self.0);
+            (self.api.xprs_destroyprob)(self.prob);
         }
     }
 }
@@ -90,7 +94,7 @@ pub fn detect_xpress_dir() -> Option<PathBuf> {
 }
 
 pub fn xpress_runtime_available() -> bool {
-    detect_xpress_dir().is_some()
+    ffi::runtime_library_available(detect_xpress_dir().as_deref())
 }
 
 pub fn detect_xpress_license_path(xpress_dir: Option<&Path>) -> Option<PathBuf> {
@@ -101,13 +105,24 @@ pub fn detect_xpress_license_path(xpress_dir: Option<&Path>) -> Option<PathBuf> 
 
 #[allow(unsafe_code)]
 fn xprs_lic_errmsg() -> String {
+    let Ok(api) = ffi::api() else {
+        return "unable to load Xpress runtime library".to_string();
+    };
     let mut buf = [0 as c_char; ERRMSG_BUF_LEN as usize];
     unsafe {
-        ffi::XPRSgetlicerrmsg(buf.as_mut_ptr(), ERRMSG_BUF_LEN);
+        (api.xprs_getlicerrmsg)(buf.as_mut_ptr(), ERRMSG_BUF_LEN);
     }
     unsafe { CStr::from_ptr(buf.as_ptr()) }
         .to_string_lossy()
         .into_owned()
+}
+
+fn xpress_api() -> Result<&'static ffi::Api, SolverError> {
+    ffi::api().map_err(|error| {
+        SolverError::SolverNotAvailable(format!(
+            "Xpress runtime library is not available: {error}. Install the FICO Xpress runtime and set XPRESSDIR if needed."
+        ))
+    })
 }
 
 pub fn license_candidates(xpress_dir: Option<&Path>) -> Vec<PathBuf> {
@@ -139,6 +154,8 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
         }
     }
 
+    let api = xpress_api()?;
+
     for candidate in license_candidates(detected_dir.as_deref()) {
         if !candidate.exists() {
             continue;
@@ -147,20 +164,21 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
             continue;
         };
         let mut lic_status: c_int = 0;
-        if unsafe { ffi::XPRSlicense(&raw mut lic_status, c_path.as_ptr()) } != 0 {
+        if unsafe { (api.xprs_license)(&raw mut lic_status, c_path.as_ptr()) } != 0 {
             continue;
         }
         unsafe {
             std::env::set_var("XPAUTH_PATH", &candidate);
         }
-        if unsafe { ffi::XPRSinit(std::ptr::null()) } == 0 {
+        if unsafe { (api.xprs_init)(std::ptr::null()) } == 0 {
             return Ok(XpressGuard {
+                api,
                 original_xpressdir,
                 original_xpauth,
             });
         }
         unsafe {
-            ffi::XPRSfree();
+            (api.xprs_free)();
         }
     }
 
@@ -187,16 +205,21 @@ fn restore_env(key: &str, original: &Option<String>) {
 }
 
 #[allow(unsafe_code)]
-fn xprs_create_prob() -> Result<ProbGuard, SolverError> {
+fn xprs_create_prob(api: &'static ffi::Api) -> Result<ProbGuard, SolverError> {
     let mut prob: ffi::XPRSprob = std::ptr::null_mut();
-    ffi::check_xprs(unsafe { ffi::XPRScreateprob(&raw mut prob) })
+    ffi::check_xprs(unsafe { (api.xprs_createprob)(&raw mut prob) })
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRScreateprob failed: {rc}")))?;
-    Ok(ProbGuard(prob))
+    Ok(ProbGuard { api, prob })
 }
 
 #[allow(unsafe_code)]
-fn set_int_control(prob: ffi::XPRSprob, control: c_int, value: c_int) -> Result<(), SolverError> {
-    ffi::check_xprs(unsafe { ffi::XPRSsetintcontrol(prob, control, value) }).map_err(|rc| {
+fn set_int_control(
+    api: &'static ffi::Api,
+    prob: ffi::XPRSprob,
+    control: c_int,
+    value: c_int,
+) -> Result<(), SolverError> {
+    ffi::check_xprs(unsafe { (api.xprs_setintcontrol)(prob, control, value) }).map_err(|rc| {
         SolverError::SolverSpecific(format!(
             "XPRSsetintcontrol({control}, {value}) failed: {rc}"
         ))
@@ -204,8 +227,13 @@ fn set_int_control(prob: ffi::XPRSprob, control: c_int, value: c_int) -> Result<
 }
 
 #[allow(unsafe_code)]
-fn set_dbl_control(prob: ffi::XPRSprob, control: c_int, value: f64) -> Result<(), SolverError> {
-    ffi::check_xprs(unsafe { ffi::XPRSsetdblcontrol(prob, control, value) }).map_err(|rc| {
+fn set_dbl_control(
+    api: &'static ffi::Api,
+    prob: ffi::XPRSprob,
+    control: c_int,
+    value: f64,
+) -> Result<(), SolverError> {
+    ffi::check_xprs(unsafe { (api.xprs_setdblcontrol)(prob, control, value) }).map_err(|rc| {
         SolverError::SolverSpecific(format!(
             "XPRSsetdblcontrol({control}, {value}) failed: {rc}"
         ))
@@ -213,18 +241,26 @@ fn set_dbl_control(prob: ffi::XPRSprob, control: c_int, value: f64) -> Result<()
 }
 
 #[allow(unsafe_code)]
-fn get_int_attrib(prob: ffi::XPRSprob, attrib: c_int) -> Result<c_int, SolverError> {
+fn get_int_attrib(
+    api: &'static ffi::Api,
+    prob: ffi::XPRSprob,
+    attrib: c_int,
+) -> Result<c_int, SolverError> {
     let mut value: c_int = 0;
-    ffi::check_xprs(unsafe { ffi::XPRSgetintattrib(prob, attrib, &raw mut value) }).map_err(
+    ffi::check_xprs(unsafe { (api.xprs_getintattrib)(prob, attrib, &raw mut value) }).map_err(
         |rc| SolverError::SolverSpecific(format!("XPRSgetintattrib({attrib}) failed: {rc}")),
     )?;
     Ok(value)
 }
 
 #[allow(unsafe_code)]
-fn get_dbl_attrib(prob: ffi::XPRSprob, attrib: c_int) -> Result<f64, SolverError> {
+fn get_dbl_attrib(
+    api: &'static ffi::Api,
+    prob: ffi::XPRSprob,
+    attrib: c_int,
+) -> Result<f64, SolverError> {
     let mut value = 0.0;
-    ffi::check_xprs(unsafe { ffi::XPRSgetdblattrib(prob, attrib, &raw mut value) }).map_err(
+    ffi::check_xprs(unsafe { (api.xprs_getdblattrib)(prob, attrib, &raw mut value) }).map_err(
         |rc| SolverError::SolverSpecific(format!("XPRSgetdblattrib({attrib}) failed: {rc}")),
     )?;
     Ok(value)
@@ -262,61 +298,66 @@ fn clamp_bound(value: f64) -> f64 {
 }
 
 fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
-    if let Some(limit) = config.time_limit
-        && (!limit.is_finite() || limit < 0.0)
-    {
-        return Err(SolverError::SolverSpecific(
-            "invalid solver setting: time_limit must be finite and >= 0".to_string(),
-        ));
+    if let Some(limit) = config.time_limit {
+        if !limit.is_finite() || limit < 0.0 {
+            return Err(SolverError::SolverSpecific(
+                "invalid solver setting: time_limit must be finite and >= 0".to_string(),
+            ));
+        }
     }
-    if let Some(gap) = config.mip_gap
-        && (!gap.is_finite() || gap < 0.0)
-    {
-        return Err(SolverError::SolverSpecific(
-            "invalid solver setting: mip_gap must be finite and >= 0".to_string(),
-        ));
+    if let Some(gap) = config.mip_gap {
+        if !gap.is_finite() || gap < 0.0 {
+            return Err(SolverError::SolverSpecific(
+                "invalid solver setting: mip_gap must be finite and >= 0".to_string(),
+            ));
+        }
     }
-    if let Some(tolerance) = config.tolerance
-        && (!tolerance.is_finite() || tolerance < 0.0)
-    {
-        return Err(SolverError::SolverSpecific(
-            "invalid solver setting: tolerance must be finite and >= 0".to_string(),
-        ));
+    if let Some(tolerance) = config.tolerance {
+        if !tolerance.is_finite() || tolerance < 0.0 {
+            return Err(SolverError::SolverSpecific(
+                "invalid solver setting: tolerance must be finite and >= 0".to_string(),
+            ));
+        }
     }
-    if let Some(threads) = config.threads
-        && threads == 0
-    {
-        return Err(SolverError::SolverSpecific(
-            "invalid solver setting: threads must be >= 1".to_string(),
-        ));
+    if let Some(threads) = config.threads {
+        if threads == 0 {
+            return Err(SolverError::SolverSpecific(
+                "invalid solver setting: threads must be >= 1".to_string(),
+            ));
+        }
     }
     Ok(())
 }
 
-fn apply_solver_config(prob: ffi::XPRSprob, config: &SolverConfig) -> Result<(), SolverError> {
+fn apply_solver_config(
+    api: &'static ffi::Api,
+    prob: ffi::XPRSprob,
+    config: &SolverConfig,
+) -> Result<(), SolverError> {
     validate_solver_config(config)?;
 
     set_int_control(
+        api,
         prob,
         ffi::XPRS_OUTPUTLOG,
         i32::from(config.log_to_console.unwrap_or(false)),
     )?;
 
     if let Some(limit) = config.time_limit {
-        set_dbl_control(prob, ffi::XPRS_MAXTIME, -limit)?;
+        set_dbl_control(api, prob, ffi::XPRS_MAXTIME, -limit)?;
     }
     if let Some(gap) = config.mip_gap {
-        set_dbl_control(prob, ffi::XPRS_MIPRELSTOP, gap)?;
+        set_dbl_control(api, prob, ffi::XPRS_MIPRELSTOP, gap)?;
     }
     if let Some(presolve) = config.presolve {
-        set_int_control(prob, ffi::XPRS_PRESOLVE, i32::from(presolve))?;
+        set_int_control(api, prob, ffi::XPRS_PRESOLVE, i32::from(presolve))?;
     }
     if let Some(threads) = config.threads {
-        set_int_control(prob, ffi::XPRS_THREADS, threads as c_int)?;
+        set_int_control(api, prob, ffi::XPRS_THREADS, threads as c_int)?;
     }
     if let Some(tolerance) = config.tolerance {
-        set_dbl_control(prob, ffi::XPRS_FEASTOL, tolerance)?;
-        set_dbl_control(prob, ffi::XPRS_OPTIMALITYTOL, tolerance)?;
+        set_dbl_control(api, prob, ffi::XPRS_FEASTOL, tolerance)?;
+        set_dbl_control(api, prob, ffi::XPRS_OPTIMALITYTOL, tolerance)?;
     }
 
     Ok(())
@@ -435,15 +476,16 @@ fn solve_problem(
     mstart.push(mrwind.len() as c_int);
     let matrix_build_seconds = matrix_build_start.elapsed().as_secs_f64();
 
-    let _env_guard = xprs_init()?;
-    let prob_guard = xprs_create_prob()?;
-    let prob = prob_guard.0;
+    let env_guard = xprs_init()?;
+    let api = env_guard.api;
+    let prob_guard = xprs_create_prob(api)?;
+    let prob = prob_guard.prob;
 
-    apply_solver_config(prob, config)?;
+    apply_solver_config(api, prob, config)?;
 
     if has_integer {
         ffi::check_xprs(unsafe {
-            ffi::XPRSloadmip(
+            (api.xprs_loadmip)(
                 prob,
                 std::ptr::null(),
                 ncols as c_int,
@@ -472,7 +514,7 @@ fn solve_problem(
         .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadmip failed: {rc}")))?;
     } else {
         ffi::check_xprs(unsafe {
-            ffi::XPRSloadlp(
+            (api.xprs_loadlp)(
                 prob,
                 std::ptr::null(),
                 ncols as c_int,
@@ -493,7 +535,7 @@ fn solve_problem(
     }
 
     ffi::check_xprs(unsafe {
-        ffi::XPRSchgobjsense(
+        (api.xprs_chgobjsense)(
             prob,
             match sense {
                 Sense::Minimize => ffi::XPRS_OBJ_MINIMIZE,
@@ -505,24 +547,24 @@ fn solve_problem(
 
     let run_start = Instant::now();
     if has_integer {
-        ffi::check_xprs(unsafe { ffi::XPRSmipoptimize(prob, std::ptr::null()) })
+        ffi::check_xprs(unsafe { (api.xprs_mipoptimize)(prob, std::ptr::null()) })
             .map_err(|rc| SolverError::SolverSpecific(format!("XPRSmipoptimize failed: {rc}")))?;
     } else {
-        ffi::check_xprs(unsafe { ffi::XPRSlpoptimize(prob, std::ptr::null()) })
+        ffi::check_xprs(unsafe { (api.xprs_lpoptimize)(prob, std::ptr::null()) })
             .map_err(|rc| SolverError::SolverSpecific(format!("XPRSlpoptimize failed: {rc}")))?;
     }
     let run_seconds = run_start.elapsed().as_secs_f64();
     let solve_time_seconds = solve_started.elapsed().as_secs_f64();
 
     let (core_status, has_solution, status_string) = if has_integer {
-        let raw = get_int_attrib(prob, ffi::XPRS_MIPSTATUS)?;
+        let raw = get_int_attrib(api, prob, ffi::XPRS_MIPSTATUS)?;
         (
             status::mip_status_to_core(raw),
             status::mip_has_solution(raw),
             status::mip_status_string(raw),
         )
     } else {
-        let raw = get_int_attrib(prob, ffi::XPRS_LPSTATUS)?;
+        let raw = get_int_attrib(api, prob, ffi::XPRS_LPSTATUS)?;
         (
             status::lp_status_to_core(raw),
             status::lp_has_solution(raw),
@@ -555,9 +597,9 @@ fn solve_problem(
     }
 
     let objective_value = if has_integer {
-        get_dbl_attrib(prob, ffi::XPRS_MIPOBJVAL)?
+        get_dbl_attrib(api, prob, ffi::XPRS_MIPOBJVAL)?
     } else {
-        get_dbl_attrib(prob, ffi::XPRS_LPOBJVAL)?
+        get_dbl_attrib(api, prob, ffi::XPRS_LPOBJVAL)?
     };
 
     let extract_solution = config
@@ -572,13 +614,13 @@ fn solve_problem(
         let mut constraint_duals = vec![0.0; nrows];
         if has_integer {
             ffi::check_xprs(unsafe {
-                ffi::XPRSgetmipsol(prob, primal_values.as_mut_ptr(), row_values.as_mut_ptr())
+                (api.xprs_getmipsol)(prob, primal_values.as_mut_ptr(), row_values.as_mut_ptr())
             })
             .map_err(|rc| SolverError::SolverSpecific(format!("XPRSgetmipsol failed: {rc}")))?;
             (primal_values, variable_duals, row_values, constraint_duals)
         } else {
             ffi::check_xprs(unsafe {
-                ffi::XPRSgetlpsol(
+                (api.xprs_getlpsol)(
                     prob,
                     primal_values.as_mut_ptr(),
                     row_values.as_mut_ptr(),
@@ -593,6 +635,9 @@ fn solve_problem(
         (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
     let solution_extract_seconds = extract_start.elapsed().as_secs_f64();
+
+    drop(prob_guard);
+    drop(env_guard);
 
     let mut metadata = BTreeMap::new();
     metadata.insert("xpress_matrix_build_s".to_string(), matrix_build_seconds);
@@ -805,5 +850,35 @@ mod tests {
         assert_eq!(solver.config().threads, Some(2));
         assert_eq!(solver.config().time_limit, Some(5.0));
         assert_eq!(solver.config().log_to_console, Some(false));
+    }
+
+    #[test]
+    fn reject_invalid_numeric_solver_settings() {
+        let error = validate_solver_config(&SolverConfig::new().with_time_limit(-1.0))
+            .expect_err("negative time_limit should be rejected");
+        assert!(
+            matches!(error, SolverError::SolverSpecific(message) if message.contains("time_limit"))
+        );
+
+        let error = validate_solver_config(&SolverConfig::new().with_mip_gap(f64::NAN))
+            .expect_err("non-finite mip_gap should be rejected");
+        assert!(
+            matches!(error, SolverError::SolverSpecific(message) if message.contains("mip_gap"))
+        );
+
+        let error = validate_solver_config(&SolverConfig::new().with_tolerance(-0.5))
+            .expect_err("negative tolerance should be rejected");
+        assert!(
+            matches!(error, SolverError::SolverSpecific(message) if message.contains("tolerance"))
+        );
+    }
+
+    #[test]
+    fn reject_zero_threads() {
+        let error = validate_solver_config(&SolverConfig::new().with_threads(0))
+            .expect_err("zero threads should be rejected");
+        assert!(
+            matches!(error, SolverError::SolverSpecific(message) if message.contains("threads"))
+        );
     }
 }

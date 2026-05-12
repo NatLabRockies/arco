@@ -66,7 +66,8 @@ impl Diagnostic for DriverError {
             Self::BackendNotAvailable { .. } => Some(Box::new(
                 "To enable Xpress support, rebuild arco with the xpress feature:\n\n\
                  \x20   cargo install --path . --features xpress\n\n\
-                 This requires the FICO Xpress SDK installed and XPRESSDIR set.\n\n\
+                 Runtime solves still require the FICO Xpress SDK/runtime installed locally.\n\
+                 Set XPRESSDIR if Arco cannot auto-detect it.\n\n\
                  On macOS (DMG install):\n\
                  \x20   export XPRESSDIR=\"/Applications/FICO Xpress/xpressmp\"\n\n\
                  On Linux:\n\

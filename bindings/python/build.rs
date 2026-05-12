@@ -8,6 +8,7 @@ fn main() {
         };
 
         if target_family().as_deref() == Some("unix") {
+            // Help the extension module discover libxprs when it is loaded at runtime.
             let lib_dir = format!("{dir}/lib");
             println!("cargo:rustc-link-arg-cdylib=-Wl,-rpath,{lib_dir}");
         }
