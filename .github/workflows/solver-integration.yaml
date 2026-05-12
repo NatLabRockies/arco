@@ -1,0 +1,139 @@
+name: Solver Integration
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "bindings/python/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - "scripts/export_xpress_env_from_python.sh"
+      - ".github/workflows/solver-integration.yaml"
+      - ".github/actions/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "crates/**"
+      - "bindings/python/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - "scripts/export_xpress_env_from_python.sh"
+      - ".github/workflows/solver-integration.yaml"
+      - ".github/actions/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.43.0"
+  PYTHON_LATEST: "3.12"
+  RUST_TOOLCHAIN_VERSION: "1.85"
+
+jobs:
+  highs-smoke:
+    name: HiGHS smoke (docs example)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "true"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: solver-integration
+
+      - name: Solve docs example with HiGHS
+        run: |
+          set -euo pipefail
+          output="$(cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli -- run examples/dense-lp/input.kdl --compact)"
+          python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["solve_status"] == "optimal", p' "$output"
+
+  ipopt-smoke:
+    name: IPOPT smoke (docs example)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends liblapack-dev libopenblas-dev gfortran
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "true"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: solver-integration
+
+      - name: Solve docs example with IPOPT
+        env:
+          FFLAGS: "-fallow-argument-mismatch"
+          FCFLAGS: "-fallow-argument-mismatch"
+        run: |
+          set -euo pipefail
+          config_dir="$(mktemp -d)"
+          export ARCO_CONFIG_DIR="$config_dir"
+          cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli --features ipopt -- solver set ipopt
+          output="$(cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli --features ipopt -- run examples/dense-lp/input.kdl --compact)"
+          python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["solve_status"] in {"optimal","feasible"}, p' "$output"
+
+  xpress-smoke:
+    name: Xpress smoke (docs example)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "true"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: solver-integration
+
+      - name: Export Xpress runtime env
+        run: |
+          set -euo pipefail
+          bash ./scripts/export_xpress_env_from_python.sh "$GITHUB_ENV"
+          test -d "$XPRESSDIR/lib"
+
+      - name: Solve docs example with Xpress
+        run: |
+          set -euo pipefail
+          config_dir="$(mktemp -d)"
+          export ARCO_CONFIG_DIR="$config_dir"
+          cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli --features xpress -- solver set xpress
+          output="$(cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli --features xpress -- run examples/dense-lp/input.kdl --compact)"
+          python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["solve_status"] == "optimal", p' "$output"
