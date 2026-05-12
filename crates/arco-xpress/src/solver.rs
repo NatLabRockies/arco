@@ -25,8 +25,8 @@ impl Drop for XpressGuard {
         unsafe {
             (self.api.xprs_free)();
         }
-        restore_env("XPRESSDIR", &self.original_xpressdir);
-        restore_env("XPAUTH_PATH", &self.original_xpauth);
+        restore_env("XPRESSDIR", self.original_xpressdir.as_deref());
+        restore_env("XPAUTH_PATH", self.original_xpauth.as_deref());
     }
 }
 
@@ -182,8 +182,8 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
         }
     }
 
-    restore_env("XPRESSDIR", &original_xpressdir);
-    restore_env("XPAUTH_PATH", &original_xpauth);
+    restore_env("XPRESSDIR", original_xpressdir.as_deref());
+    restore_env("XPAUTH_PATH", original_xpauth.as_deref());
     let dir_info = detected_dir.as_ref().map_or_else(
         || "(not found)".to_string(),
         |path| path.display().to_string(),
@@ -197,7 +197,7 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
 }
 
 #[allow(unsafe_code)]
-fn restore_env(key: &str, original: &Option<String>) {
+fn restore_env(key: &str, original: Option<&str>) {
     match original {
         Some(value) => unsafe { std::env::set_var(key, value) },
         None => unsafe { std::env::remove_var(key) },
@@ -297,34 +297,26 @@ fn clamp_bound(value: f64) -> f64 {
     }
 }
 
+fn ensure_non_negative_finite_setting(name: &str, value: Option<f64>) -> Result<(), SolverError> {
+    if let Some(value) = value {
+        if !value.is_finite() || value < 0.0 {
+            return Err(SolverError::SolverSpecific(format!(
+                "invalid solver setting: {name} must be finite and >= 0"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
-    if let Some(limit) = config.time_limit {
-        if !limit.is_finite() || limit < 0.0 {
-            return Err(SolverError::SolverSpecific(
-                "invalid solver setting: time_limit must be finite and >= 0".to_string(),
-            ));
-        }
-    }
-    if let Some(gap) = config.mip_gap {
-        if !gap.is_finite() || gap < 0.0 {
-            return Err(SolverError::SolverSpecific(
-                "invalid solver setting: mip_gap must be finite and >= 0".to_string(),
-            ));
-        }
-    }
-    if let Some(tolerance) = config.tolerance {
-        if !tolerance.is_finite() || tolerance < 0.0 {
-            return Err(SolverError::SolverSpecific(
-                "invalid solver setting: tolerance must be finite and >= 0".to_string(),
-            ));
-        }
-    }
-    if let Some(threads) = config.threads {
-        if threads == 0 {
-            return Err(SolverError::SolverSpecific(
-                "invalid solver setting: threads must be >= 1".to_string(),
-            ));
-        }
+    ensure_non_negative_finite_setting("time_limit", config.time_limit)?;
+    ensure_non_negative_finite_setting("mip_gap", config.mip_gap)?;
+    ensure_non_negative_finite_setting("tolerance", config.tolerance)?;
+
+    if let Some(0) = config.threads {
+        return Err(SolverError::SolverSpecific(
+            "invalid solver setting: threads must be >= 1".to_string(),
+        ));
     }
     Ok(())
 }
