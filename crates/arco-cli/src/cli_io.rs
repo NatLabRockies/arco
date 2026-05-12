@@ -2,6 +2,7 @@ use std::io::{self, Write};
 
 const ANSI_RESET: &str = "\x1b[0m";
 const ANSI_DIM_GRAY: &str = "\x1b[38;5;245m";
+const ANSI_RED: &str = "\x1b[31m";
 const ANSI_BOLD: &str = "\x1b[1m";
 const ANSI_NO_BOLD: &str = "\x1b[22m";
 
@@ -43,6 +44,13 @@ pub fn write_stdout_line(line: &str) -> io::Result<()> {
     write_all_ignoring_broken_pipe(&mut handle, b"\n")
 }
 
+pub fn write_stderr_line(line: &str) -> io::Result<()> {
+    let stderr = io::stderr();
+    let mut handle = stderr.lock();
+    write_all_ignoring_broken_pipe(&mut handle, line.as_bytes())?;
+    write_all_ignoring_broken_pipe(&mut handle, b"\n")
+}
+
 pub fn should_log_solver_to_console(verbose: u8, stdout_is_terminal: bool) -> bool {
     verbose >= 2 && stdout_is_terminal
 }
@@ -69,6 +77,13 @@ pub fn format_timed_status(
         style_bold_in_dim(detail, color_mode)
     );
     style_dimmed(&payload, color_mode)
+}
+
+pub fn style_error_label(content: &str, color_mode: ColorMode) -> String {
+    if color_mode == ColorMode::Disabled {
+        return content.to_string();
+    }
+    format!("{ANSI_RED}{ANSI_BOLD}{content}{ANSI_NO_BOLD}{ANSI_RESET}")
 }
 
 pub fn style_bold_in_dim(content: &str, color_mode: ColorMode) -> String {

@@ -1,4 +1,4 @@
-use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim};
+use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim, style_error_label};
 use crate::config::{ConfigError, SolverConfigState, load_solver_config};
 pub use crate::driver_kdl::{KdlCheckOutcome, kdl_check_file_json};
 pub use crate::driver_summary::{
@@ -7,7 +7,7 @@ pub use crate::driver_summary::{
 };
 use crate::driver_summary::{summarize_variables, trim_family_prefix};
 use arco_ops::execution::{ExecutionError, SolveStatus, render_problem_model};
-use arco_ops::solve::{ResolvedSelection, SolverProfile};
+use arco_ops::solve::{ResolvedSelection, SolverDiagnostic, SolverProfile};
 use arco_ops::{ArcoOps, OpsCompileError};
 use miette::Diagnostic;
 use std::fmt::Display;
@@ -44,6 +44,40 @@ pub enum DriverError {
     BackendNotAvailable { message: String },
     #[error("{message}")]
     InspectFormat { message: String },
+}
+
+pub fn render_plain_driver_error(error: &DriverError, color_mode: ColorMode) -> Option<String> {
+    let DriverError::Execution(ExecutionError::Solve { backend, source }) = error else {
+        return None;
+    };
+    let arco_ops::solve::SolverError::Diagnostic(diagnostic) = source else {
+        return None;
+    };
+
+    Some(render_solver_diagnostic(backend, diagnostic, color_mode))
+}
+
+fn render_solver_diagnostic(
+    backend: &str,
+    diagnostic: &SolverDiagnostic,
+    color_mode: ColorMode,
+) -> String {
+    match diagnostic {
+        SolverDiagnostic::ModelSizeLimit {
+            solver,
+            operation,
+            return_code,
+            limit,
+            model,
+        } => format!(
+            "{} {solver} size limit exceeded\n  --> solver backend: {backend}\n   |\n   = model: rows={}, columns={}, nonzeros={}, rows+columns={}, limit={limit}\n   = help: reduce variables/constraints, switch solver (`arco solver set highs`), or use a higher-limit license\n   = note: operation={operation}, rc={return_code}",
+            style_error_label("error[arco::solver::model_size_limit]:", color_mode),
+            model.constraints,
+            model.variables,
+            model.coefficients,
+            model.rows_plus_columns(),
+        ),
+    }
 }
 
 impl Diagnostic for DriverError {
@@ -324,8 +358,11 @@ fn peak_rss_bytes() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::format_validate_success;
+    use super::{format_validate_success, render_plain_driver_error};
+    use crate::driver::DriverError;
     use crate::driver_kdl::span_line_column;
+    use arco_ops::execution::ExecutionError;
+    use arco_ops::solve::{SolverDiagnostic, SolverError, SolverModelStats};
     use miette::SourceSpan;
     use std::fs;
     use std::path::Path;
@@ -345,6 +382,39 @@ mod tests {
 
         assert_eq!(location, (Some(1), Some(10)));
         fs::remove_file(path).expect("remove unicode fixture");
+    }
+
+    #[test]
+    fn renders_plain_solver_diagnostic_without_miette_glyphs() {
+        let error = DriverError::Execution(ExecutionError::Solve {
+            backend: "arco-rust-xpress".to_string(),
+            source: SolverError::Diagnostic(SolverDiagnostic::ModelSizeLimit {
+                solver: "Xpress Community Edition".to_string(),
+                operation: "lpoptimize".to_string(),
+                return_code: 120,
+                limit: 5000,
+                model: SolverModelStats {
+                    variables: 2550,
+                    constraints: 2784,
+                    coefficients: 8160,
+                },
+            }),
+        });
+
+        let rendered = render_plain_driver_error(&error, crate::cli_io::ColorMode::Disabled)
+            .expect("solver diagnostics should render as plain CLI reports");
+
+        assert!(rendered.starts_with(
+            "error[arco::solver::model_size_limit]: Xpress Community Edition size limit exceeded"
+        ));
+        assert!(rendered.contains("  --> solver backend: arco-rust-xpress"));
+        assert!(rendered.contains("   |"));
+        assert!(rendered.contains(
+            "   = model: rows=2784, columns=2550, nonzeros=8160, rows+columns=5334, limit=5000"
+        ));
+        assert!(rendered.contains("   = note: operation=lpoptimize, rc=120"));
+        assert!(!rendered.contains('×'));
+        assert!(!rendered.contains('╰'));
     }
 
     #[test]

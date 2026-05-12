@@ -197,7 +197,7 @@ pub enum ExecutionError {
         #[source]
         source: ArcoSolverError,
     },
-    #[error("adapter backend `{backend}` failed to solve model: {source}")]
+    #[error("solver backend `{backend}` could not solve this model")]
     Solve {
         backend: String,
         #[source]
@@ -910,7 +910,21 @@ mod tests {
         VariableInstance, VariableKind,
     };
     use crate::compile::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
-    use crate::execution::{MockArcoAdapter, execute_problem_with_options};
+    use crate::execution::{ExecutionError, MockArcoAdapter, execute_problem_with_options};
+    use arco_solver::SolverError as ArcoSolverError;
+
+    #[test]
+    fn solve_error_display_keeps_source_out_of_top_level_message() {
+        let error = ExecutionError::Solve {
+            backend: "xpress".to_string(),
+            source: ArcoSolverError::SolverSpecific("detailed solver reason".to_string()),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "solver backend `xpress` could not solve this model"
+        );
+    }
 
     #[test]
     #[allow(clippy::float_cmp)]

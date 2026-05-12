@@ -78,9 +78,10 @@ pub mod solve {
     pub use arco_solver::{
         ModelViewBackend, ModelViewBackendRegistry, ModelViewSolveResult, ResolvedSelection,
         SelectionError, Solution, SolutionView, Solve, SolveRequest, SolverCapabilityModel,
-        SolverConfig, SolverConfigDocument, SolverError, SolverFamily, SolverProfile,
-        SolverRegistry, SolverRequirements, SolverSelection, SolverStatus, SolverTransport,
-        merged_profiles, preflight_model_view, preflight_selection, resolve_selection,
+        SolverConfig, SolverConfigDocument, SolverDiagnostic, SolverError, SolverFamily,
+        SolverModelStats, SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
+        SolverStatus, SolverTransport, merged_profiles, preflight_model_view, preflight_selection,
+        resolve_selection,
     };
 }
 
