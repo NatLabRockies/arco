@@ -29,6 +29,7 @@ classifiers = [
   "Topic :: Scientific/Engineering",
   "Topic :: Scientific/Engineering :: Mathematics",
 ]
+dependencies = ["numpy>=2.0.2"]
 
 [project.urls]
 Homepage = "https://github.com/NatLabRockies/arco"
@@ -43,11 +44,11 @@ python-source = "."
 
 [dependency-groups]
 dev = [
-    "ipython>=8.18.1",
-    "maturin>=1.13.2",
-    "numpy>=2.0.2",
-    "polars>=1.36.1",
-    "pytest>=8.4.2",
+  "ipython>=8.18.1",
+  "maturin>=1.13.2",
+  "numpy>=2.0.2",
+  "polars>=1.36.1",
+  "pytest>=8.4.2",
 ]
 
 [tool.ruff.format]

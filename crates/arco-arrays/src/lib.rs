@@ -43,8 +43,7 @@ impl LabeledShape {
     pub fn new(axes: Vec<AxisSpec>) -> Result<Self, ShapeError> {
         let mut seen = BTreeSet::new();
         for axis in &axes {
-            let key = (axis.name.clone(), axis.len);
-            if !seen.insert(key) {
+            if !seen.insert(axis.name.clone()) {
                 return Err(ShapeError::DuplicateAxis {
                     axis: axis.name.clone(),
                 });

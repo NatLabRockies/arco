@@ -70,7 +70,7 @@ fn labeled_shape_from_index_sets(index_sets: &[Py<PyIndexSet>]) -> PyResult<Labe
     Python::attach(|py| {
         let axes = index_sets
             .iter()
-            .map(|index_set| axis_spec_from_bound(&index_set.bind(py)))
+            .map(|index_set| axis_spec_from_bound(index_set.bind(py)))
             .collect();
         LabeledShape::new(axes).map_err(|err| ArrayDimensionError::new_err(err.to_string()))
     })
@@ -276,11 +276,12 @@ impl LinearArrayCore {
         other: &LinearArrayCore,
         combine: fn(&PyExpr, &PyExpr) -> PyExpr,
     ) -> PyResult<LinearArrayCore> {
-        self.assert_same_shape(other)?;
+        let aligned_other = other.broadcast_to_target(&self.index_sets)?;
+        self.assert_same_shape(&aligned_other)?;
         let values = self
             .values
             .iter()
-            .zip(other.values.iter())
+            .zip(aligned_other.values.iter())
             .map(|(left, right)| combine(left, right))
             .collect();
         Ok(LinearArrayCore::new(
@@ -406,9 +407,7 @@ impl LinearArrayCore {
         other: &LinearArrayCore,
         sense: ComparisonSense,
     ) -> PyResult<PyConstraintArray> {
-        let (left, right) = if self.shape == other.shape {
-            (self.clone_with_gil(), other.clone_with_gil())
-        } else if let Ok(aligned_other) = other.broadcast_to_target(&self.index_sets) {
+        let (left, right) = if let Ok(aligned_other) = other.broadcast_to_target(&self.index_sets) {
             (self.clone_with_gil(), aligned_other)
         } else if let Ok(aligned_self) = self.broadcast_to_target(&other.index_sets) {
             (aligned_self, other.clone_with_gil())
@@ -1802,6 +1801,15 @@ fn numpy_einsum(
         }
         labels
     };
+    for label in &output_term {
+        if !label_sizes.contains_key(label) {
+            return Err(ArrayDimensionError::new_err(format!(
+                "np.einsum output label '{}' does not appear in any input term",
+                label
+            )));
+        }
+    }
+
     let coeff_shape = coeff_labels
         .iter()
         .map(|label| label_sizes[label])

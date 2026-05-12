@@ -11,6 +11,11 @@ resolution-markers = [
 name = "arco"
 version = "0.5.0"
 source = { editable = "." }
+dependencies = [
+    { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -28,6 +33,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=2.0.2" }]
 
 [package.metadata.requires-dev]
 dev = [

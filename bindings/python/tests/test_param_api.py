@@ -31,6 +31,14 @@ def test_param_rejects_duplicate_axes_without_alias() -> None:
         arco.param(np.arange(4).reshape(2, 2), i, i)
 
 
+def test_param_rejects_duplicate_axis_name_even_if_size_differs() -> None:
+    h = arco.IndexSet("h", members=[0, 1, 2])
+    h_ramp = h[:-1]
+
+    with pytest.raises(arco.ArrayDimensionError):
+        arco.param(np.arange(6).reshape(3, 2), h, h_ramp)
+
+
 def test_param_arithmetic_aligns_by_axis_identity() -> None:
     i = arco.IndexSet("i", members=["a", "b"])
     h = arco.IndexSet("h", members=[0, 1, 2])
@@ -63,6 +71,16 @@ def test_param_mask_broadcasts_into_sparse_variable_creation() -> None:
     _ = model.add_variables(i, r, h, bounds=arco.NonNegativeFloat, active=active)
 
     assert model.num_variables == 6
+
+
+def test_param_array_array_protocol_accepts_dtype() -> None:
+    i = arco.IndexSet("i", members=["a", "b"])
+    p = arco.param(np.array([1.0, 2.0]), i)
+
+    arr = np.asarray(p, dtype=np.float32)
+
+    assert arr.dtype == np.float32
+    np.testing.assert_allclose(arr, np.array([1.0, 2.0], dtype=np.float32))
 
 
 def test_numpy_sum_and_diff_accept_named_axes() -> None:

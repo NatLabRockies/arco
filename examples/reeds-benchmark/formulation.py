@@ -26,7 +26,7 @@ def solve(
     data: ProblemData, solver: str = "highs", build_only: bool = False
 ) -> tuple[float, float, float]:
     if solver != "highs":
-        raise ValueError("solve_arco_python only supports solver='highs'")
+        raise ValueError("solve only supports solver='highs'")
 
     regions, techs, hours, years = data.regions, data.techs, data.hours, data.years
     region_index = data.r_idx

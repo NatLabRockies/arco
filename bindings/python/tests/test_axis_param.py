@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import arco
 
@@ -176,3 +177,27 @@ def test_einsum_accepts_arco_array_operand() -> None:
             inv,
         )
     )
+
+
+def test_einsum_rejects_output_labels_not_in_inputs() -> None:
+    model = arco.Model()
+    i = arco.IndexSet("i", members=["a", "b"])
+    x = model.add_variables(i, bounds=arco.NonNegativeFloat)
+
+    with pytest.raises(arco.ArrayDimensionError):
+        np.einsum("i->ij", x)
+
+
+def test_array_array_ops_align_by_axis_labels_not_position() -> None:
+    model = arco.Model()
+    i = arco.IndexSet("i", members=["a", "b"])
+    t = arco.IndexSet("t", members=[2020, 2025])
+    b = model.add_variables(t, i, bounds=arco.NonNegativeFloat, name="B")
+    weight = arco.param(np.array([[1.0, 2.0], [10.0, 20.0]]), i, t)
+
+    model.minimize((weight * b).sum())
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.objective is not None
+
+    coeffs = [float(term[1]) for term in snapshot.objective.terms]
+    assert coeffs == pytest.approx([1.0, 10.0, 2.0, 20.0])

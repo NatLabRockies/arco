@@ -133,8 +133,13 @@ class ParamArray:
     def values(self) -> object:
         return self._values
 
-    def __array__(self) -> object:
-        return self._values
+    def __array__(self, dtype: object = None, copy: object = None) -> object:
+        import numpy as np
+
+        values = np.asarray(self._values, dtype=dtype)
+        if copy:
+            return values.copy()
+        return values
 
     def __getitem__(self, index: object) -> object:
         import numpy as np
@@ -473,18 +478,17 @@ def param(values: object, *axes: object, name: str | None = None) -> ParamArray:
             f"values.ndim ({np_values.ndim}) must equal len(axes) ({len(axes)})"
         )
 
-    seen_axes: set[tuple[str, int]] = set()
+    seen_axes: set[str] = set()
     for idx, (axis, dim_size) in enumerate(zip(axes, np_values.shape, strict=True)):
         if not isinstance(axis, _arco.IndexSet):
             raise _arco.ArrayTypeError(
                 f"axis {idx} must be IndexSet, got {type(axis).__name__}"
             )
-        axis_key = (axis.name, axis.size)
-        if axis_key in seen_axes:
+        if axis.name in seen_axes:
             raise _arco.ArrayDimensionError(
                 f"duplicate axis {axis.name!r} requires an explicit alias"
             )
-        seen_axes.add(axis_key)
+        seen_axes.add(axis.name)
         if axis.size != dim_size:
             raise _arco.ArrayShapeMismatchError(
                 f"axis {axis.name!r} size ({axis.size}) does not match dimension size ({dim_size})"
