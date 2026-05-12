@@ -22,7 +22,9 @@ setup_xpress_from_python() {
 	trap 'rm -f "$env_file"' RETURN
 
 	uv run -p 3.12 --with xpress python - <<'PY' >"$env_file"
+import importlib.util
 import pathlib
+
 import xpresslibs
 
 root = pathlib.Path(xpresslibs.__file__).resolve().parent
@@ -30,7 +32,15 @@ lib_dir = root / "lib"
 if not lib_dir.is_dir():
     raise SystemExit(f"missing Xpress lib dir: {lib_dir}")
 
+xpress_spec = importlib.util.find_spec("xpress")
+if xpress_spec is None or xpress_spec.origin is None:
+    raise SystemExit("missing xpress Python package")
+license_path = pathlib.Path(xpress_spec.origin).resolve().parent / "license" / "community-xpauth.xpr"
+if not license_path.is_file():
+    raise SystemExit(f"missing Xpress community license: {license_path}")
+
 print(f"XPRESSDIR={root}")
+print(f"XPAUTH_PATH={license_path}")
 PY
 
 	cat "$env_file" >>"$github_env_file"
