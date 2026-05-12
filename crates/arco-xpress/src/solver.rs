@@ -6,7 +6,8 @@ use crate::status;
 use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
 use arco_solver::{ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverError};
 use std::collections::BTreeMap;
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tracing::{debug, warn};
@@ -321,6 +322,36 @@ fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
     Ok(())
 }
 
+#[allow(unsafe_code)]
+unsafe extern "C" fn xpress_message_callback(
+    _prob: ffi::XPRSprob,
+    _data: *mut c_void,
+    msg: *const c_char,
+    msglen: c_int,
+    _msgtype: c_int,
+) {
+    if msg.is_null() || msglen <= 0 {
+        return;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(msg.cast::<u8>(), msglen as usize) };
+    let mut stdout = io::stdout().lock();
+    let _ = stdout.write_all(bytes);
+    if !bytes.ends_with(b"\n") {
+        let _ = stdout.write_all(b"\n");
+    }
+    let _ = stdout.flush();
+}
+
+#[allow(unsafe_code)]
+fn enable_console_logging(api: &'static ffi::Api, prob: ffi::XPRSprob) -> Result<(), SolverError> {
+    ffi::check_xprs(unsafe {
+        (api.xprs_setcbmessage)(prob, Some(xpress_message_callback), std::ptr::null_mut())
+    })
+    .map_err(|rc| SolverError::SolverSpecific(format!("XPRSsetcbmessage failed: {rc}")))?;
+    set_int_control(api, prob, ffi::XPRS_LPLOG, 1)?;
+    set_int_control(api, prob, ffi::XPRS_MIPLOG, 1)
+}
+
 fn apply_solver_config(
     api: &'static ffi::Api,
     prob: ffi::XPRSprob,
@@ -328,12 +359,11 @@ fn apply_solver_config(
 ) -> Result<(), SolverError> {
     validate_solver_config(config)?;
 
-    set_int_control(
-        api,
-        prob,
-        ffi::XPRS_OUTPUTLOG,
-        i32::from(config.log_to_console.unwrap_or(false)),
-    )?;
+    let log_to_console = config.log_to_console.unwrap_or(false);
+    if log_to_console {
+        enable_console_logging(api, prob)?;
+    }
+    set_int_control(api, prob, ffi::XPRS_OUTPUTLOG, i32::from(log_to_console))?;
 
     if let Some(limit) = config.time_limit {
         set_dbl_control(api, prob, ffi::XPRS_MAXTIME, -limit)?;

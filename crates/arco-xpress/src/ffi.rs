@@ -24,6 +24,8 @@ pub const XPRS_OBJ_MAXIMIZE: c_int = -1;
 // Integer control indices
 pub const XPRS_THREADS: c_int = 8278;
 pub const XPRS_PRESOLVE: c_int = 8011;
+pub const XPRS_LPLOG: c_int = 8009;
+pub const XPRS_MIPLOG: c_int = 8028;
 pub const XPRS_OUTPUTLOG: c_int = 8035;
 
 // Double control indices
@@ -116,6 +118,10 @@ type XPRSlicenseFn = unsafe extern "C" fn(*mut c_int, *const c_char) -> c_int;
 type XPRSgetlicerrmsgFn = unsafe extern "C" fn(*mut c_char, c_int) -> c_int;
 type XPRSgetversionFn = unsafe extern "C" fn(*mut c_char) -> c_int;
 type XPRSgetbannerFn = unsafe extern "C" fn(*mut c_char) -> c_int;
+type XPRSmessageCallbackFn =
+    unsafe extern "C" fn(XPRSprob, *mut c_void, *const c_char, c_int, c_int);
+type XPRSsetcbmessageFn =
+    unsafe extern "C" fn(XPRSprob, Option<XPRSmessageCallbackFn>, *mut c_void) -> c_int;
 
 #[derive(Clone, Debug)]
 enum LibraryTarget {
@@ -175,6 +181,7 @@ pub struct Api {
     pub xprs_getlicerrmsg: XPRSgetlicerrmsgFn,
     pub xprs_getversion: XPRSgetversionFn,
     pub xprs_getbanner: XPRSgetbannerFn,
+    pub xprs_setcbmessage: XPRSsetcbmessageFn,
 }
 
 static API: OnceLock<Result<Api, RuntimeLoadError>> = OnceLock::new();
@@ -308,6 +315,7 @@ fn load_api() -> Result<Api, RuntimeLoadError> {
                     xprs_getlicerrmsg: load_symbol!(handle, "XPRSgetlicerrmsg", XPRSgetlicerrmsgFn),
                     xprs_getversion: load_symbol!(handle, "XPRSgetversion", XPRSgetversionFn),
                     xprs_getbanner: load_symbol!(handle, "XPRSgetbanner", XPRSgetbannerFn),
+                    xprs_setcbmessage: load_symbol!(handle, "XPRSsetcbmessage", XPRSsetcbmessageFn),
                 });
             }
             Err(error) => failures.push(format!("{} ({error})", target.display_name())),
