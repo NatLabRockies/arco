@@ -9,6 +9,8 @@ on:
       - "Cargo.lock"
       - "justfile"
       - "scripts/export_xpress_env_from_python.sh"
+      - "scripts/install_ipopt_linux_deps.sh"
+      - "scripts/solver_docs_smoke.sh"
       - ".github/workflows/solver-integration.yaml"
       - ".github/actions/**"
   push:
@@ -21,6 +23,8 @@ on:
       - "Cargo.lock"
       - "justfile"
       - "scripts/export_xpress_env_from_python.sh"
+      - "scripts/install_ipopt_linux_deps.sh"
+      - "scripts/solver_docs_smoke.sh"
       - ".github/workflows/solver-integration.yaml"
       - ".github/actions/**"
   workflow_dispatch:
@@ -60,10 +64,7 @@ jobs:
           rust-cache-shared-key: solver-integration
 
       - name: Solve docs example with HiGHS
-        run: |
-          set -euo pipefail
-          output="$(cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli -- run examples/dense-lp/input.kdl --compact)"
-          python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["solve_status"] == "optimal", p' "$output"
+        run: bash ./scripts/solver_docs_smoke.sh highs
 
   ipopt-smoke:
     name: IPOPT smoke (docs example)
@@ -75,10 +76,7 @@ jobs:
           persist-credentials: false
 
       - name: Install system dependencies
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends liblapack-dev libopenblas-dev gfortran
+        run: bash ./scripts/install_ipopt_linux_deps.sh
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -95,13 +93,7 @@ jobs:
         env:
           FFLAGS: "-fallow-argument-mismatch"
           FCFLAGS: "-fallow-argument-mismatch"
-        run: |
-          set -euo pipefail
-          config_dir="$(mktemp -d)"
-          export ARCO_CONFIG_DIR="$config_dir"
-          cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli --features ipopt -- solver set ipopt
-          output="$(cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli --features ipopt -- run examples/dense-lp/input.kdl --compact)"
-          python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["solve_status"] in {"optimal","feasible"}, p' "$output"
+        run: bash ./scripts/solver_docs_smoke.sh ipopt ipopt
 
   xpress-smoke:
     name: Xpress smoke (docs example)
@@ -130,10 +122,4 @@ jobs:
           test -d "$XPRESSDIR/lib"
 
       - name: Solve docs example with Xpress
-        run: |
-          set -euo pipefail
-          config_dir="$(mktemp -d)"
-          export ARCO_CONFIG_DIR="$config_dir"
-          cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli --features xpress -- solver set xpress
-          output="$(cargo +"$RUST_TOOLCHAIN_VERSION" run -p arco-cli --features xpress -- run examples/dense-lp/input.kdl --compact)"
-          python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["solve_status"] == "optimal", p' "$output"
+        run: bash ./scripts/solver_docs_smoke.sh xpress xpress
