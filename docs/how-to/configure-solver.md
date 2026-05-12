@@ -1,30 +1,28 @@
 # Configure Solver
 
-Arco separates model construction from solver configuration. You can build a
-model once and solve it with different solver settings by swapping the solver
-object passed to `model.solve()`. This guide shows how to create, customize,
-and reuse solver configurations.
+Arco separates model construction from solver configuration. Build a model once,
+then swap solver settings without changing model code.
 
 ## CLI solver selection and profile config
 
-The CLI now persists solver configuration in a versioned TOML document:
+Arco stores CLI solver selection in a versioned TOML file:
 
-- user config: `~/.config/arco/solver.toml` (or `ARCO_CONFIG_DIR/solver.toml`)
-- project config: `./.arco/solver.toml` (or `ARCO_PROJECT_CONFIG_DIR/solver.toml`)
+- User scope: `~/.config/arco/solver.toml` (or `ARCO_CONFIG_DIR/solver.toml`)
+- Project scope: `./.arco/solver.toml` (or `ARCO_PROJECT_CONFIG_DIR/solver.toml`)
 
-Selection is stored exactly as typed and can name either a solver family or a
-profile. Built-in CLI families currently include `highs`, `xpress` (when built
-with the feature), and `scip` (external process via the dedicated `arco-scip`
-integration crate):
+Selections can be a solver family or a profile. Built-in families include
+`highs`, `xpress` (when enabled), and `scip` (via `arco-scip`).
 
 ```bash
 arco solver set highs
 arco solver show
 ```
 
-`arco solver show` reports resolved family/profile/transport and best-effort
-availability state. Legacy `solver.json` is no longer migrated automatically;
-create `solver.toml` explicitly.
+`arco solver show` displays resolved family/profile/transport and best-effort
+availability.
+
+> [!NOTE]
+> Legacy `solver.json` is not auto-migrated. Create `solver.toml` explicitly.
 
 ## Create a solver object
 
@@ -137,47 +135,201 @@ backend uses its own default.
 
 ## Xpress (LP / MIP solver)
 
-The Xpress backend is available when Arco is built with the `xpress` feature flag.
-Xpress supports LP, MIP, and QP problems.
+The Xpress backend is available when Arco is built with the `xpress` feature
+flag. Xpress supports LP, MIP, and QP problems.
 
 > [!IMPORTANT]
-> Building with Xpress requires the FICO Xpress Optimizer SDK to be installed
-> on the system. Set the `XPRESSDIR` environment variable to your Xpress
-> installation directory before building.
+> Xpress requires the FICO Xpress Optimizer SDK installed locally.
 
-### Install Xpress
+### Setup at a glance
 
-Download the FICO Xpress Community Edition from
-[fico.com](https://www.fico.com/en/products/fico-xpress-optimization). The
-community edition is free and supports models up to ~5000 variables/constraints.
+1. Install Xpress Community Edition from [fico.com](https://www.fico.com/en/products/fico-xpress-optimization).
+2. If you installed Arco from a prebuilt binary, skip build steps and only configure environment variables.
+3. If you build Arco yourself, build with `--features xpress`.
+4. Run `arco solver set xpress` and verify with `arco solver show`.
 
-| Platform | Typical `XPRESSDIR`                                                        |
-| -------- | -------------------------------------------------------------------------- |
-| macOS    | `~/User Apps/FICO Xpress/xpressmp` or `/Applications/FICO Xpress/xpressmp` |
-| Linux    | `/opt/xpressmp`                                                            |
+### Platform setup
 
-The installer generates two license files in `$XPRESSDIR/bin/`:
+<details>
+<summary>macOS</summary>
 
-- `community-xpauth.xpr` — community license (`hostid="any"`, works on any machine)
-- `xpauth.xpr` — commercial license (tied to a specific machine)
+Typical `XPRESSDIR` locations:
 
-Arco tries the community license first, then falls back to the commercial one.
-If you have a commercial license and want to force it, set `XPAUTH_PATH` to its
-full path.
+- `~/User Apps/FICO Xpress/xpressmp`
+- `/Applications/FICO Xpress/xpressmp`
+- `~/opt/xpressmp`
 
-### Build with Xpress support
+Build:
 
 ```bash
-export XPRESSDIR="$HOME/User Apps/FICO Xpress/xpressmp"  # adjust to your install
-
-# Rust crate
+# Optional when not in an auto-detected location
+export XPRESSDIR="$HOME/opt/xpressmp"
 cargo build --features xpress
-
-# Python wheel (maturin)
-maturin develop --features xpress
+uv run --project bindings/python --with maturin maturin develop --features xpress
 ```
 
-### Usage
+</details>
+
+<details>
+<summary>Linux</summary>
+
+Typical `XPRESSDIR`: `/opt/xpressmp`
+
+Build:
+
+```bash
+# Optional when not in an auto-detected location
+export XPRESSDIR="/opt/xpressmp"
+cargo build --features xpress
+uv run --project bindings/python --with maturin maturin develop --features xpress
+```
+
+</details>
+
+<details>
+<summary>Windows (PowerShell)</summary>
+
+Typical `XPRESSDIR` locations:
+
+- `C:\xpressmp`
+- `%USERPROFILE%\AppData\Local\FICO Xpress\xpressmp`
+- `%ProgramFiles%\FICO Xpress\xpressmp`
+- `%ProgramFiles(x86)%\FICO Xpress\xpressmp`
+
+Build:
+
+```powershell
+$env:XPRESSDIR = "C:\xpressmp"
+cargo build --features xpress
+uv run --project bindings/python --with maturin maturin develop --features xpress
+```
+
+</details>
+
+> [!TIP]
+> Use `arco solver show` after setting the backend. It is the fastest way to
+> confirm selection and availability state.
+
+### License files
+
+The installer creates license files under `$XPRESSDIR/bin/`:
+
+- `community-xpauth.xpr` — Community Edition license
+- `xpauth.xpr` — commercial license
+
+Arco tries community first, then commercial. To force a specific commercial
+license, set `XPAUTH_PATH` to the full license file path.
+
+> [!NOTE]
+> Community licenses expire. If Xpress suddenly fails license initialization,
+> refresh/reinstall the SDK to regenerate `community-xpauth.xpr`.
+
+### Using a prebuilt Arco binary (no build required)
+
+If your `arco` binary already includes Xpress support, you only need:
+
+1. Xpress SDK installed.
+2. `XPRESSDIR` only if auto-detection does not find your install.
+3. Optional `XPAUTH_PATH` only for forcing a commercial license file.
+4. Solver selection + verification:
+
+```bash
+arco solver set xpress
+arco solver show
+```
+
+<details>
+<summary>macOS / Linux: one-session setup</summary>
+
+```bash
+export XPRESSDIR="$HOME/opt/xpressmp"
+# optional, commercial license only
+export XPAUTH_PATH="$XPRESSDIR/bin/xpauth.xpr"
+
+arco solver set xpress
+arco solver show
+```
+
+</details>
+
+<details>
+<summary>macOS / Linux: persistent setup</summary>
+
+```bash
+echo 'export XPRESSDIR="$HOME/opt/xpressmp"' >> ~/.zshrc
+# optional, commercial license only
+echo 'export XPAUTH_PATH="$XPRESSDIR/bin/xpauth.xpr"' >> ~/.zshrc
+
+source ~/.zshrc
+arco solver set xpress
+arco solver show
+```
+
+</details>
+
+<details>
+<summary>Windows (PowerShell): one-session setup</summary>
+
+```powershell
+$env:XPRESSDIR = "C:\xpressmp"
+# optional, commercial license only
+$env:XPAUTH_PATH = "$env:XPRESSDIR\bin\xpauth.xpr"
+
+arco solver set xpress
+arco solver show
+```
+
+</details>
+
+<details>
+<summary>Windows (PowerShell): persistent setup</summary>
+
+```powershell
+setx XPRESSDIR "C:\xpressmp"
+# optional, commercial license only
+setx XPAUTH_PATH "C:\xpressmp\bin\xpauth.xpr"
+
+# open a new terminal, then verify
+arco solver set xpress
+arco solver show
+```
+
+</details>
+
+### Build with Xpress support (source builds only)
+
+Use the OS-specific toggle blocks in [Platform setup](#platform-setup).
+
+<details>
+<summary>macOS quick smoke test directly from DMG (no copy needed)</summary>
+
+```bash
+hdiutil attach -nobrowse -readonly "$HOME/Downloads/FICO_Xpress_9.8.1_for_ARM_Mac_Installer.dmg"
+export XPRESSDIR="/Volumes/FICO Xpress Installer/FICO Xpress/xpressmp"
+```
+
+The mounted `xpressmp` tree includes a valid community license, enough for
+local CLI/Python verification.
+
+</details>
+
+### CLI usage
+
+```bash
+arco solver set xpress
+arco solver show
+arco run examples/dense-lp/input.kdl --compact
+```
+
+If SDK discovery fails, retry with `XPRESSDIR=/path/to/xpressmp`.
+
+### CI notes
+
+CI can run Xpress-backed tests/releases when the SDK archive URL is provided via
+`XPRESS_SDK_LINUX_URL` repository secret. The Linux workflows unpack the SDK to
+`/opt/xpressmp` and set `XPRESSDIR` automatically.
+
+### Python usage
 
 ```python
 import arco
@@ -187,6 +339,15 @@ model = arco.Model()
 x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=10.0))
 model.minimize(x)
 solution = model.solve(solver=solver)
+```
+
+You can also select the backend without building a dedicated solver object:
+
+```python
+import arco
+
+selection = arco.SolverSelection.family("xpress")
+solution = model.solve(solver=selection, log_to_console=False)
 ```
 
 ### Settings mapping
@@ -204,7 +365,7 @@ solution = model.solve(solver=solver)
 ## IPOPT (nonlinear / continuous solver)
 
 The IPOPT backend is available when Arco is built with the `ipopt` feature flag.
-IPOPT is a continuous-only solver -- it does **not** support integer or binary
+IPOPT is a continuous-only solver -- it does not support integer or binary
 variables. Passing a model that contains integer variables will raise an error.
 
 > [!IMPORTANT]

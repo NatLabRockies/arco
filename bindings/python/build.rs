@@ -1,6 +1,4 @@
 fn main() {
-    // When the xpress feature is enabled and a local runtime is present, embed
-    // an rpath hint so dlopen can find libxprs without extra env vars.
     #[cfg(feature = "xpress")]
     {
         println!("cargo:rerun-if-env-changed=XPRESSDIR");
@@ -10,8 +8,9 @@ fn main() {
         };
 
         if target_family().as_deref() == Some("unix") {
+            // Help the extension module discover libxprs when it is loaded at runtime.
             let lib_dir = format!("{dir}/lib");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,{lib_dir}");
+            println!("cargo:rustc-link-arg-cdylib=-Wl,-rpath,{lib_dir}");
         }
     }
 }

@@ -21,19 +21,34 @@ fn cli_fixture_path(relative: &str) -> PathBuf {
 }
 
 fn run_cli(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_arco"))
-        .args(args)
-        .output()
-        .expect("failed to execute arco binary")
+    run_cli_with_env(args, &[])
 }
 
 fn run_cli_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_arco"));
     command.args(args);
+
+    let has_config_dir = envs
+        .iter()
+        .any(|(key, _)| *key == "ARCO_CONFIG_DIR" || *key == "ARCO_PROJECT_CONFIG_DIR");
+    let config_root = if has_config_dir {
+        None
+    } else {
+        let root = unique_temp_dir("cli-config");
+        fs::create_dir_all(&root).expect("create temp config dir");
+        command.env("ARCO_CONFIG_DIR", &root);
+        Some(root)
+    };
+
     for (key, value) in envs {
         command.env(key, value);
     }
-    command.output().expect("failed to execute arco binary")
+
+    let output = command.output().expect("failed to execute arco binary");
+    if let Some(root) = config_root {
+        let _ = fs::remove_dir_all(root);
+    }
+    output
 }
 
 fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -42,6 +57,55 @@ fn unique_temp_dir(prefix: &str) -> PathBuf {
         .expect("system clock should be after unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!("arco-cli-{prefix}-{}-{nanos}", std::process::id()))
+}
+
+#[cfg(feature = "xpress")]
+fn local_xpress_dir() -> Option<String> {
+    if let Some(path) = std::env::var("XPRESSDIR")
+        .ok()
+        .filter(|value| !value.is_empty())
+    {
+        if PathBuf::from(&path).exists() {
+            return Some(path);
+        }
+    }
+
+    let mut candidates = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        candidates.push(home.join("User Apps").join("FICO Xpress").join("xpressmp"));
+        candidates.push(home.join("opt").join("xpressmp"));
+    }
+    if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+        let user_profile = PathBuf::from(user_profile);
+        candidates.push(
+            user_profile
+                .join("AppData")
+                .join("Local")
+                .join("FICO Xpress")
+                .join("xpressmp"),
+        );
+    }
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        let program_files = PathBuf::from(program_files);
+        candidates.push(program_files.join("FICO Xpress").join("xpressmp"));
+    }
+    if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
+        let program_files_x86 = PathBuf::from(program_files_x86);
+        candidates.push(program_files_x86.join("FICO Xpress").join("xpressmp"));
+    }
+    candidates.extend([
+        PathBuf::from("/Applications/FICO Xpress/xpressmp"),
+        PathBuf::from("/Volumes/FICO Xpress Installer/FICO Xpress/xpressmp"),
+        PathBuf::from("/opt/xpressmp"),
+        PathBuf::from("/Library/xpressmp"),
+        PathBuf::from("C:\\xpressmp"),
+    ]);
+
+    candidates
+        .into_iter()
+        .find(|path| path.exists())
+        .map(|path| path.display().to_string())
 }
 
 #[test]
@@ -277,6 +341,64 @@ fn inspect_json_variables_have_set_bindings() {
             assert!(set_binding.get("size").is_some());
         }
     }
+}
+
+#[cfg(feature = "xpress")]
+#[test]
+fn solver_set_and_run_use_xpress_backend_when_available() {
+    let Some(xpress_dir) = local_xpress_dir() else {
+        return;
+    };
+
+    let root = unique_temp_dir("solver-xpress");
+    let config_dir = root.join("config");
+    fs::create_dir_all(&config_dir).expect("create config dir");
+
+    let set_output = run_cli_with_env(
+        &["solver", "set", "xpress"],
+        &[
+            ("ARCO_CONFIG_DIR", config_dir.to_str().expect("config dir")),
+            ("XPRESSDIR", &xpress_dir),
+        ],
+    );
+    assert!(
+        set_output.status.success(),
+        "solver set failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&set_output.stdout),
+        String::from_utf8_lossy(&set_output.stderr)
+    );
+
+    let model = example_path("examples/dense-lp/input.kdl");
+    let run_output = run_cli_with_env(
+        &["run", model.to_str().expect("model path"), "--compact"],
+        &[
+            ("ARCO_CONFIG_DIR", config_dir.to_str().expect("config dir")),
+            ("XPRESSDIR", &xpress_dir),
+        ],
+    );
+    if String::from_utf8_lossy(&run_output.stderr).contains("Xpress license initialization failed")
+    {
+        let _ = fs::remove_dir_all(root);
+        return;
+    }
+    assert!(
+        run_output.status.success(),
+        "xpress run failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&run_output.stdout).expect("valid run json");
+    assert_eq!(
+        payload["backend"],
+        Value::String("arco-rust-xpress".to_string())
+    );
+    assert_eq!(
+        payload["solve_status"],
+        Value::String("optimal".to_string())
+    );
+
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]

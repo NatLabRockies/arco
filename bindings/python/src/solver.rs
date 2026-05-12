@@ -4,6 +4,7 @@ use crate::py_modules::errors::SolverInvalidSettingError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 type SolverParameters = BTreeMap<String, String>;
 
@@ -525,6 +526,107 @@ impl PyIpopt {
     }
 }
 
+fn detect_xpress_dir_for_python() -> Option<PathBuf> {
+    if let Some(path) = std::env::var("XPRESSDIR")
+        .ok()
+        .filter(|value| !value.is_empty())
+    {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    let mut candidates = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = PathBuf::from(home);
+        candidates.push(home.join("User Apps").join("FICO Xpress").join("xpressmp"));
+        candidates.push(home.join("opt").join("xpressmp"));
+    }
+    if let Some(user_profile) = std::env::var_os("USERPROFILE") {
+        let user_profile = PathBuf::from(user_profile);
+        candidates.push(
+            user_profile
+                .join("AppData")
+                .join("Local")
+                .join("FICO Xpress")
+                .join("xpressmp"),
+        );
+    }
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        let program_files = PathBuf::from(program_files);
+        candidates.push(program_files.join("FICO Xpress").join("xpressmp"));
+    }
+    if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
+        let program_files_x86 = PathBuf::from(program_files_x86);
+        candidates.push(program_files_x86.join("FICO Xpress").join("xpressmp"));
+    }
+    candidates.extend([
+        PathBuf::from("/Applications/FICO Xpress/xpressmp"),
+        PathBuf::from("/Volumes/FICO Xpress Installer/FICO Xpress/xpressmp"),
+        PathBuf::from("/opt/xpressmp"),
+        PathBuf::from("/Library/xpressmp"),
+        PathBuf::from("C:/xpressmp"),
+    ]);
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn solver_runtime_info_for_family(py: Python<'_>, family: &str) -> PyResult<Py<PyDict>> {
+    let info = PyDict::new(py);
+    info.set_item("family", family)?;
+
+    match family {
+        "xpress" => {
+            info.set_item("requires_license", true)?;
+            info.set_item("license_env_var", "XPAUTH_PATH")?;
+            info.set_item("runtime_env_var", "XPRESSDIR")?;
+            let xpress_dir = detect_xpress_dir_for_python().map(|path| path.display().to_string());
+            info.set_item("runtime_dir", xpress_dir)?;
+            let configured = std::env::var("XPAUTH_PATH").ok();
+            info.set_item("configured_license_path", configured)?;
+            info.set_item("backend_enabled", cfg!(feature = "xpress"))?;
+        }
+        "highs" | "scip" | "ipopt" => {
+            info.set_item("requires_license", false)?;
+            info.set_item("license_env_var", Option::<String>::None)?;
+            info.set_item("runtime_env_var", Option::<String>::None)?;
+            info.set_item("runtime_dir", Option::<String>::None)?;
+            info.set_item("configured_license_path", Option::<String>::None)?;
+            info.set_item(
+                "backend_enabled",
+                family != "ipopt" || cfg!(feature = "ipopt"),
+            )?;
+        }
+        _ => {
+            return Err(
+                crate::py_modules::errors::SolverInvalidSettingError::new_err(format!(
+                    "Unknown solver family '{family}'"
+                )),
+            );
+        }
+    }
+
+    Ok(info.unbind())
+}
+
+#[pyfunction]
+#[pyo3(signature = (*, family=None))]
+fn solver_runtime_info(py: Python<'_>, family: Option<String>) -> PyResult<Py<PyAny>> {
+    let Some(family) = family else {
+        let out = PyDict::new(py);
+        for item in ["highs", "scip", "ipopt", "xpress"] {
+            let info = solver_runtime_info_for_family(py, item)?;
+            out.set_item(item, info.bind(py))?;
+        }
+        return Ok(out.unbind().into());
+    };
+
+    let normalized = family.to_lowercase();
+    let info = solver_runtime_info_for_family(py, &normalized)?;
+    Ok(info.into_any())
+}
+
 /// Register solver classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySolver>()?;
@@ -534,6 +636,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyXpress>()?;
     #[cfg(feature = "ipopt")]
     m.add_class::<PyIpopt>()?;
+    m.add_function(wrap_pyfunction!(solver_runtime_info, m)?)?;
     Ok(())
 }
 

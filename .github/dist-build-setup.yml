@@ -1,0 +1,27 @@
+- name: Setup solver runtime (xpress)
+  shell: bash
+  env:
+    XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+    XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
+    XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+  run: |
+    set -euo pipefail
+    bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
+
+- name: Validate XPRESSDIR for xpress-enabled dist builds (unix)
+  if: runner.os != 'Windows'
+  shell: bash
+  run: |
+    set -euo pipefail
+    if [[ -z "${XPRESSDIR:-}" ]]; then
+      echo "XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS." >&2
+      exit 1
+    fi
+
+- name: Validate XPRESSDIR for xpress-enabled dist builds (windows)
+  if: runner.os == 'Windows'
+  shell: pwsh
+  run: |
+    if (-not $env:XPRESSDIR) {
+      Write-Error 'XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS.'
+    }
