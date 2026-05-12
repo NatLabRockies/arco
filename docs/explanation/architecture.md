@@ -16,6 +16,7 @@ Interaction surfaces
                ▼
 arco-ops (stable interaction facade)
         │
+        ├── arco-arrays  binding-agnostic labeled-array planning + sparse mask broadcast
         ├── arco-kdl      KDL parsing + source AST + primitive documents
         ├── arco-model    primitive model + indexed data + document DTOs
         ├── arco-validate model-view validation/reporting
@@ -29,6 +30,9 @@ arco-ops (stable interaction facade)
 - `arco-model`: canonical primitive model APIs (`ModelBuilder`, `FrozenModel`,
   `ModelView`, `ModelPatch`), indexed-data primitives, and primitive document
   DTOs.
+- `arco-arrays`: reusable labeled-axis array primitives used by bindings for
+  axis identity, broadcast planning, sparse active-mask expansion, and
+  fail-fast shape validation.
 - `arco-kdl`: KDL parser/AST/diagnostics plus document-only primitive builders
   for `IndexedData` and primitive document shells; it does not lower algebra to
   solve-ready models.

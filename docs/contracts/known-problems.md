@@ -171,7 +171,10 @@ Known optimum on the small test graph: objective `2` using the direct arc
 >>> no_arc = model.add_constraints(x[costs == 0.0] == 0.0, name="no_arc")
 >>> len(no_arc)
 6
->>> flow = model.add_constraints((x.sum(over=dst) - x.sum(over=src)) == balance, name="flow")
+>>> flow = [
+...     model.add_constraint(x[i, :].sum() - x[:, i].sum() == balance[i], name=f"flow_{i}")
+...     for i in range(3)
+... ]
 >>> len(flow)
 3
 >>> model.minimize(np.sum(costs * x))

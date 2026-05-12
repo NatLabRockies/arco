@@ -187,7 +187,8 @@ impl PyModel {
     }
 
     /// Add a vector or grid of variables to the model.
-    #[pyo3(signature = (*index_sets, bounds, is_integer=false, is_binary=false, name=None))]
+    #[pyo3(signature = (*index_sets, bounds, is_integer=false, is_binary=false, active=None, name=None))]
+    #[allow(clippy::too_many_arguments)]
     fn add_variables(
         &mut self,
         py: Python<'_>,
@@ -195,6 +196,7 @@ impl PyModel {
         bounds: &Bound<'_, PyAny>,
         is_integer: bool,
         is_binary: bool,
+        active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyVariableArray> {
         let index_sets = extract_index_sets(index_sets)?;
@@ -233,13 +235,14 @@ impl PyModel {
                 scalar_bounds,
                 is_integer,
                 is_binary,
+                active,
                 name,
             );
         }
 
         // Try per-element array bounds: Bounds object with numpy array lo/hi
         self.add_variables_array_bounds(
-            py, index_sets, &shape, total, bounds, is_integer, is_binary, name,
+            py, index_sets, &shape, total, bounds, is_integer, is_binary, active, name,
         )
     }
 
@@ -320,12 +323,14 @@ impl PyModel {
     /// Returns a `ConstraintArray` representing the added constraints.
     /// Uses compact insertion when possible (zero per-element allocation),
     /// falling back to a batch path for materialized expressions.
-    #[pyo3(signature = (expr, *, sense=PyComparisonSense::GreaterEqual, rhs=None, name=None))]
+    #[pyo3(signature = (expr, *, sense=PyComparisonSense::GreaterEqual, rhs=None, active=None, name=None))]
+    #[allow(clippy::too_many_arguments)]
     fn add_constraints(
         &mut self,
         expr: &Bound<'_, PyAny>,
         sense: PyComparisonSense,
         rhs: Option<&Bound<'_, PyAny>>,
+        active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyConstraintArray> {
         // Branch 1: ConstraintArray input
@@ -338,15 +343,35 @@ impl PyModel {
 
             // Fast path: compact constraint storage
             if let Some(compact) = array.as_compact() {
-                return self.add_constraints_compact_internal(compact, name);
+                return self.add_constraints_compact_shaped_internal(
+                    compact,
+                    active,
+                    name,
+                    array.shape_ref(),
+                    &array.clone_index_sets(),
+                );
+            }
+            if let Some((left, right, lazy_sense)) = array.as_lazy_compare() {
+                return self.add_constraints_lazy_compare_shaped_internal(
+                    left,
+                    right,
+                    lazy_sense,
+                    active,
+                    name,
+                    array.shape_ref(),
+                    &array.clone_index_sets(),
+                );
             }
 
             // Full path
-            return self.add_constraints_full_internal(
+            return self.add_constraints_shaped_internal(
                 array.exprs().to_vec(),
                 array.get_sense(),
                 array.get_rhs(),
+                active,
                 name,
+                array.shape_ref(),
+                &array.clone_index_sets(),
             );
         }
 
@@ -365,6 +390,7 @@ impl PyModel {
                 || array.to_core(),
                 rhs_obj,
                 sense,
+                active,
                 name,
             );
         }
@@ -376,6 +402,7 @@ impl PyModel {
                 || array.to_core(),
                 rhs_obj,
                 sense,
+                active,
                 name,
             );
         }

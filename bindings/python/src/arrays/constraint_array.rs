@@ -9,6 +9,7 @@ use crate::py_modules::constraint::PyConstraint;
 use crate::py_modules::index_set::PyIndexSet;
 
 use super::CompactTerm;
+use super::LinearArrayCore;
 
 /// Right-hand side for compact constraints.
 #[derive(Clone, Debug)]
@@ -55,6 +56,13 @@ pub(crate) enum ConstraintArrayStorage {
         sense: ComparisonSense,
         rhs: Vec<f64>,
     },
+    /// Lazy array-vs-array comparison used to apply active masks before
+    /// allocating per-row terms.
+    LazyCompare {
+        left: LinearArrayCore,
+        right: LinearArrayCore,
+        sense: ComparisonSense,
+    },
     /// Compact: constraints from compact expression patterns (not yet inserted).
     Compact(CompactConstraintStorage),
 }
@@ -99,9 +107,25 @@ impl PyConstraintArray {
         }
     }
 
+    pub(crate) fn from_lazy_compare(
+        left: LinearArrayCore,
+        right: LinearArrayCore,
+        sense: ComparisonSense,
+    ) -> Self {
+        let shape = left.shape.clone();
+        let index_sets = left.clone_index_sets();
+        Self {
+            storage: ConstraintArrayStorage::LazyCompare { left, right, sense },
+            shape,
+            index_sets,
+            first_constraint_id: None,
+        }
+    }
+
     pub fn exprs(&self) -> &[PyExpr] {
         match &self.storage {
             ConstraintArrayStorage::Full { exprs, .. } => exprs,
+            ConstraintArrayStorage::LazyCompare { .. } => &[],
             ConstraintArrayStorage::Compact(_) => &[], // Should not be called on compact
         }
     }
@@ -109,6 +133,7 @@ impl PyConstraintArray {
     pub fn get_sense(&self) -> ComparisonSense {
         match &self.storage {
             ConstraintArrayStorage::Full { sense, .. } => *sense,
+            ConstraintArrayStorage::LazyCompare { sense, .. } => *sense,
             ConstraintArrayStorage::Compact(c) => c.sense,
         }
     }
@@ -116,8 +141,30 @@ impl PyConstraintArray {
     pub fn get_rhs(&self) -> Vec<f64> {
         match &self.storage {
             ConstraintArrayStorage::Full { rhs, .. } => rhs.clone(),
+            ConstraintArrayStorage::LazyCompare { left, right, .. } => left
+                .values
+                .iter()
+                .zip(right.values.iter())
+                .map(|(left_expr, right_expr)| {
+                    let diff = left_expr.inner().add(&right_expr.inner().scale(-1.0));
+                    -PyExpr::from_expr(diff).constant()
+                })
+                .collect(),
             ConstraintArrayStorage::Compact(c) => c.rhs_vec(),
         }
+    }
+
+    pub(crate) fn shape_ref(&self) -> &[usize] {
+        &self.shape
+    }
+
+    pub(crate) fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
+        Python::attach(|py| {
+            self.index_sets
+                .iter()
+                .map(|set| set.clone_ref(py))
+                .collect()
+        })
     }
 
     /// Get compact storage if available.
@@ -125,6 +172,18 @@ impl PyConstraintArray {
         match &self.storage {
             ConstraintArrayStorage::Compact(c) => Some(c),
             ConstraintArrayStorage::Full { .. } => None,
+            ConstraintArrayStorage::LazyCompare { .. } => None,
+        }
+    }
+
+    pub(crate) fn as_lazy_compare(
+        &self,
+    ) -> Option<(&LinearArrayCore, &LinearArrayCore, ComparisonSense)> {
+        match &self.storage {
+            ConstraintArrayStorage::LazyCompare { left, right, sense } => {
+                Some((left, right, *sense))
+            }
+            ConstraintArrayStorage::Full { .. } | ConstraintArrayStorage::Compact(_) => None,
         }
     }
 
@@ -148,9 +207,29 @@ impl PyConstraintArray {
         }
     }
 
+    pub(crate) fn from_batch_shaped(
+        first_constraint_id: u32,
+        shape: Vec<usize>,
+        index_sets: Vec<Py<PyIndexSet>>,
+        sense: ComparisonSense,
+        rhs: &[f64],
+    ) -> Self {
+        Self {
+            storage: ConstraintArrayStorage::Full {
+                exprs: Vec::new(),
+                sense,
+                rhs: rhs.to_vec(),
+            },
+            shape,
+            index_sets,
+            first_constraint_id: Some(first_constraint_id),
+        }
+    }
+
     fn len(&self) -> usize {
         match &self.storage {
             ConstraintArrayStorage::Full { rhs, .. } => rhs.len(),
+            ConstraintArrayStorage::LazyCompare { left, .. } => left.values.len(),
             ConstraintArrayStorage::Compact(c) => c.count,
         }
     }
@@ -159,6 +238,12 @@ impl PyConstraintArray {
     fn rhs_at(&self, index: usize) -> f64 {
         match &self.storage {
             ConstraintArrayStorage::Full { rhs, .. } => rhs[index],
+            ConstraintArrayStorage::LazyCompare { left, right, .. } => {
+                let diff = left.values[index]
+                    .inner()
+                    .add(&right.values[index].inner().scale(-1.0));
+                -PyExpr::from_expr(diff).constant()
+            }
             ConstraintArrayStorage::Compact(c) => match &c.rhs {
                 CompactRhs::Scalar(v) => *v,
                 CompactRhs::Vec(v) => v[index],

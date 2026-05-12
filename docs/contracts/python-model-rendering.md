@@ -89,3 +89,37 @@ True
 >>> "0 <= gen[t,g] <= 100  for t in T, g in G" in rendered
 True
 ```
+
+```python doctest
+>>> import numpy as np
+>>> import arco
+>>> i = arco.IndexSet("i", members=["a", "b"])
+>>> t = arco.IndexSet("t", members=[2020, 2025, 2030])
+>>> t_alias = t.alias("t_to")
+>>> t_alias.name
+'t_to'
+>>> t_alias.members == t.members
+True
+>>> p = arco.param(np.arange(6).reshape(2, 3), i, t)
+>>> p.shape
+(2, 3)
+>>> tuple(ax.name for ax in p.axes)
+('i', 't')
+```
+
+```python doctest
+>>> import numpy as np
+>>> import arco
+>>> model = arco.Model()
+>>> i = arco.IndexSet("i", members=["a", "b"])
+>>> r = arco.IndexSet("r", members=["north", "south"])
+>>> h = arco.IndexSet("h", members=[0, 1])
+>>> active = arco.param(np.array([[True, False], [False, True]]), i, r)
+>>> gen = model.add_variables(i, r, h, bounds=arco.NonNegativeFloat, active=active, name="gen")
+>>> model.num_variables
+4
+>>> np.sum(gen, axis=i).shape
+(2, 2)
+>>> np.diff(gen, axis=h).shape
+(2, 2, 1)
+```

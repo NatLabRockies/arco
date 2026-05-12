@@ -1,7 +1,11 @@
 //! Python wrappers for variable, expression, and constraint arrays.
 
+use std::collections::{BTreeMap, BTreeSet};
+
+use arco_arrays::{AxisSpec, BroadcastPlan, LabeledShape};
 use arco_ops::expression::{ComparisonSense, Expr, VariableId};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use pyo3::types::PyTuple;
 
 use crate::PyObject;
@@ -10,7 +14,7 @@ use crate::py_modules::errors::{
     ExprDivisionByZeroError,
 };
 use crate::py_modules::expr::PyExpr;
-use crate::py_modules::index_set::PyIndexSet;
+use crate::py_modules::index_set::{IndexMember, PyIndexSet};
 
 #[path = "arrays/constraint_array.rs"]
 mod constraint_array;
@@ -26,7 +30,7 @@ pub use expr_array::PyExprArray;
 pub use variable_array::PyVariableArray;
 
 // Re-export compact types for use in lib.rs
-pub(crate) use constraint_array::{CompactConstraintStorage, CompactRhs};
+pub(crate) use constraint_array::CompactConstraintStorage;
 
 /// Sum values along a specific axis in a flat row-major array.
 ///
@@ -55,6 +59,151 @@ fn sum_over_axis(values: &[PyExpr], shape: &[usize], axis: usize) -> Vec<PyExpr>
     }
 
     result
+}
+
+fn axis_spec_from_bound(index_set: &Bound<'_, PyIndexSet>) -> AxisSpec {
+    let borrowed = index_set.borrow();
+    AxisSpec::new(borrowed.name.clone(), borrowed.members.len())
+}
+
+fn labeled_shape_from_index_sets(index_sets: &[Py<PyIndexSet>]) -> PyResult<LabeledShape> {
+    Python::attach(|py| {
+        let axes = index_sets
+            .iter()
+            .map(|index_set| axis_spec_from_bound(index_set.bind(py)))
+            .collect();
+        LabeledShape::new(axes).map_err(|err| ArrayDimensionError::new_err(err.to_string()))
+    })
+}
+
+fn extract_labeled_operand(
+    py: Python<'_>,
+    other: &Bound<'_, PyAny>,
+) -> PyResult<Option<(Vec<Py<PyIndexSet>>, Vec<f64>)>> {
+    let Ok(axes_obj) = other.getattr("axes") else {
+        return Ok(None);
+    };
+    let values_obj = other
+        .getattr("values")
+        .map_err(|_| ArrayTypeError::new_err("labeled operands must expose a values attribute"))?;
+    let axes_tuple = axes_obj.cast::<PyTuple>().map_err(|_| {
+        ArrayTypeError::new_err("labeled operands must expose axes as a tuple of IndexSet")
+    })?;
+
+    let mut index_sets = Vec::with_capacity(axes_tuple.len());
+    for axis in axes_tuple.iter() {
+        let axis = axis.cast::<PyIndexSet>().map_err(|_| {
+            ArrayTypeError::new_err("labeled operands must expose axes as IndexSet values")
+        })?;
+        index_sets.push(axis.clone().unbind());
+    }
+
+    let np = py.import("numpy")?;
+    let flat = np
+        .call_method1("asarray", (&values_obj,))?
+        .call_method0("flatten")?;
+    let values = flat.extract::<Vec<f64>>()?;
+    Ok(Some((index_sets, values)))
+}
+
+fn extract_labeled_numeric_values(
+    py: Python<'_>,
+    other: &Bound<'_, PyAny>,
+    target_index_sets: &[Py<PyIndexSet>],
+    target_len: usize,
+) -> PyResult<Option<Vec<f64>>> {
+    let Some((source_index_sets, values)) = extract_labeled_operand(py, other)? else {
+        return Ok(None);
+    };
+    let source_shape = labeled_shape_from_index_sets(&source_index_sets)?;
+    let target_shape = labeled_shape_from_index_sets(target_index_sets)?;
+    let plan = BroadcastPlan::new(source_shape.clone(), target_shape)
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+
+    let aligned = plan
+        .broadcast_dense(&values)
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+    if aligned.len() != target_len {
+        return Err(ArrayShapeMismatchError::new_err(format!(
+            "broadcasted labeled operand has length {} but target length is {}",
+            aligned.len(),
+            target_len
+        )));
+    }
+    Ok(Some(aligned))
+}
+
+fn multiply_with_labeled_union(
+    core: &LinearArrayCore,
+    py: Python<'_>,
+    other: &Bound<'_, PyAny>,
+) -> PyResult<Option<LinearArrayCore>> {
+    let Some((source_index_sets, source_values)) = extract_labeled_operand(py, other)? else {
+        return Ok(None);
+    };
+
+    let mut union_index_sets = source_index_sets
+        .iter()
+        .map(|index_set| index_set.clone_ref(py))
+        .collect::<Vec<_>>();
+    let union_names = source_index_sets
+        .iter()
+        .map(|index_set| index_set.bind(py).borrow().name.clone())
+        .collect::<BTreeSet<_>>();
+    for index_set in &core.index_sets {
+        let name = index_set.bind(py).borrow().name.clone();
+        if !union_names.contains(&name) {
+            union_index_sets.push(index_set.clone_ref(py));
+        }
+    }
+
+    let target_shape = labeled_shape_from_index_sets(&union_index_sets)?;
+    let core_shape = labeled_shape_from_index_sets(&core.index_sets)?;
+    let source_shape = labeled_shape_from_index_sets(&source_index_sets)?;
+    let expanded_exprs = BroadcastPlan::new(core_shape, target_shape.clone())
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?
+        .broadcast_dense(&core.values)
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+    let weights = BroadcastPlan::new(source_shape, target_shape.clone())
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?
+        .broadcast_dense(&source_values)
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+
+    let values = expanded_exprs
+        .into_iter()
+        .zip(weights)
+        .map(|(expr, weight)| expr.scale(weight))
+        .collect();
+    Ok(Some(LinearArrayCore::new(
+        union_index_sets,
+        target_shape.shape(),
+        values,
+    )))
+}
+
+fn parse_named_axes(
+    core: &LinearArrayCore,
+    py: Python<'_>,
+    selection: &Bound<'_, PyAny>,
+) -> PyResult<Vec<usize>> {
+    let mut axes_to_sum = Vec::new();
+
+    if let Ok(single) = selection.cast::<PyIndexSet>() {
+        axes_to_sum.push(core.find_axis(py, single)?);
+    } else {
+        let items: Vec<Bound<'_, PyAny>> = selection.try_iter()?.collect::<PyResult<Vec<_>>>()?;
+        for item in &items {
+            let index_set = item.cast::<PyIndexSet>().map_err(|_| {
+                ArrayTypeError::new_err("axis/over must be an IndexSet or tuple of IndexSets")
+            })?;
+            axes_to_sum.push(core.find_axis(py, index_set)?);
+        }
+    }
+
+    axes_to_sum.sort_unstable();
+    axes_to_sum.dedup();
+    axes_to_sum.reverse();
+    Ok(axes_to_sum)
 }
 
 /// Shared storage for indexed linear expression arrays.
@@ -99,16 +248,40 @@ impl LinearArrayCore {
         Ok(())
     }
 
+    fn broadcast_to_target(
+        &self,
+        target_index_sets: &[Py<PyIndexSet>],
+    ) -> PyResult<LinearArrayCore> {
+        let source_shape = labeled_shape_from_index_sets(&self.index_sets)?;
+        let target_shape = labeled_shape_from_index_sets(target_index_sets)?;
+        let plan = BroadcastPlan::new(source_shape, target_shape.clone())
+            .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+        let values = plan
+            .broadcast_dense(&self.values)
+            .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+        Ok(LinearArrayCore::new(
+            Python::attach(|py| {
+                target_index_sets
+                    .iter()
+                    .map(|set| set.clone_ref(py))
+                    .collect()
+            }),
+            target_shape.shape(),
+            values,
+        ))
+    }
+
     fn combine(
         &self,
         other: &LinearArrayCore,
         combine: fn(&PyExpr, &PyExpr) -> PyExpr,
     ) -> PyResult<LinearArrayCore> {
-        self.assert_same_shape(other)?;
+        let aligned_other = other.broadcast_to_target(&self.index_sets)?;
+        self.assert_same_shape(&aligned_other)?;
         let values = self
             .values
             .iter()
-            .zip(other.values.iter())
+            .zip(aligned_other.values.iter())
             .map(|(left, right)| combine(left, right))
             .collect();
         Ok(LinearArrayCore::new(
@@ -234,22 +407,15 @@ impl LinearArrayCore {
         other: &LinearArrayCore,
         sense: ComparisonSense,
     ) -> PyResult<PyConstraintArray> {
-        self.assert_same_shape(other)?;
-        let mut exprs = Vec::with_capacity(self.values.len());
-        let mut rhs = Vec::with_capacity(self.values.len());
-        for (left, right) in self.values.iter().zip(other.values.iter()) {
-            let diff = left.inner().add(&right.inner().scale(-1.0));
-            let diff_expr = PyExpr::from_expr(diff);
-            exprs.push(diff_expr.without_constant());
-            rhs.push(-diff_expr.constant());
-        }
-        Ok(PyConstraintArray::new(
-            exprs,
-            sense,
-            rhs,
-            self.shape.clone(),
-            self.clone_index_sets(),
-        ))
+        let (left, right) = if let Ok(aligned_other) = other.broadcast_to_target(&self.index_sets) {
+            (self.clone_with_gil(), aligned_other)
+        } else if let Ok(aligned_self) = self.broadcast_to_target(&other.index_sets) {
+            (aligned_self, other.clone_with_gil())
+        } else {
+            return Err(ArrayShapeMismatchError::new_err("array shapes must match"));
+        };
+        left.assert_same_shape(&right)?;
+        Ok(PyConstraintArray::from_lazy_compare(left, right, sense))
     }
 
     pub fn compare_scalar(&self, rhs: f64, sense: ComparisonSense) -> PyConstraintArray {
@@ -348,12 +514,12 @@ impl LinearArrayCore {
                 return Ok(i);
             }
         }
-        // Fallback: match by name and size
+        // Fallback: match by axis label so narrowed slices still accept the
+        // original IndexSet in axis=... calls.
         let target_name = &index_set.borrow().name;
-        let target_size = index_set.borrow().members.len();
         for (i, stored) in self.index_sets.iter().enumerate() {
             let stored_ref = stored.bind(py).borrow();
-            if &stored_ref.name == target_name && stored_ref.members.len() == target_size {
+            if &stored_ref.name == target_name {
                 return Ok(i);
             }
         }
@@ -361,25 +527,6 @@ impl LinearArrayCore {
             "IndexSet '{}' is not a dimension of this array",
             index_set.borrow().name
         )))
-    }
-
-    /// Perform sum over one axis, returning (new_values, new_shape, new_index_sets).
-    fn sum_over_one(
-        &self,
-        py: Python<'_>,
-        axis: usize,
-    ) -> (Vec<PyExpr>, Vec<usize>, Vec<Py<PyIndexSet>>) {
-        let new_values = sum_over_axis(&self.values, &self.shape, axis);
-        let mut new_shape = self.shape.clone();
-        new_shape.remove(axis);
-        let new_index_sets: Vec<Py<PyIndexSet>> = self
-            .index_sets
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != axis)
-            .map(|(_, s)| s.clone_ref(py))
-            .collect();
-        (new_values, new_shape, new_index_sets)
     }
 
     /// Sum all elements to a scalar Expr.
@@ -714,11 +861,16 @@ fn compare_array_rhs(
     if let Ok(rhs) = rhs.extract::<f64>() {
         return Ok(core.compare_scalar(rhs, sense));
     }
+    if let Some(rhs_values) =
+        extract_labeled_numeric_values(rhs.py(), rhs, &core.index_sets, core.values.len())?
+    {
+        return core.compare_vec(&rhs_values, sense);
+    }
     if let Ok(rhs_values) = rhs.extract::<Vec<f64>>() {
         return core.compare_vec(&rhs_values, sense);
     }
     Err(pyo3::exceptions::PyTypeError::new_err(
-        "comparison RHS must be a float, list of floats, VariableArray, ExprArray, or IndexSet",
+        "comparison RHS must be a float, list of floats, VariableArray, ExprArray, labeled param, or IndexSet",
     ))
 }
 
@@ -751,23 +903,7 @@ fn array_sum(
         return Ok(core.sum_all().into_pyobject(py)?.into_any().unbind());
     };
 
-    let mut axes_to_sum: Vec<usize> = Vec::new();
-
-    if let Ok(single) = over.cast::<PyIndexSet>() {
-        axes_to_sum.push(core.find_axis(py, single)?);
-    } else {
-        let items: Vec<Bound<'_, PyAny>> = over.try_iter()?.collect::<PyResult<Vec<_>>>()?;
-        for item in &items {
-            let index_set = item.cast::<PyIndexSet>().map_err(|_| {
-                ArrayTypeError::new_err("over= must be an IndexSet or tuple of IndexSets")
-            })?;
-            axes_to_sum.push(core.find_axis(py, index_set)?);
-        }
-    }
-
-    axes_to_sum.sort_unstable();
-    axes_to_sum.dedup();
-    axes_to_sum.reverse();
+    let axes_to_sum = parse_named_axes(core, py, over)?;
 
     let mut current_values = core.values.clone();
     let mut current_shape = core.shape.clone();
@@ -789,12 +925,7 @@ fn array_reduce(
     py: Python<'_>,
     rhs: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
-    let index_set = rhs.cast::<PyIndexSet>().map_err(|_| {
-        ArrayTypeError::new_err(">> / @ operator requires an IndexSet on the right-hand side")
-    })?;
-    let axis = core.find_axis(py, index_set)?;
-    let (new_values, new_shape, new_index_sets) = core.sum_over_one(py, axis);
-    reduce_or_wrap(new_values, new_shape, new_index_sets, py)
+    array_sum(core, py, Some(rhs))
 }
 
 /// Wrap a LinearArrayCore into a full-storage PyExprArray.
@@ -810,6 +941,11 @@ fn array_add(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyExp
         let result = core.combine(&other_core, |left, right| left.add(right.clone()))?;
         return Ok(wrap_core(result));
     }
+    if let Some(values) =
+        extract_labeled_numeric_values(other.py(), other, &core.index_sets, core.values.len())?
+    {
+        return Ok(wrap_core(core.add_vec(&values)?));
+    }
     if let Ok(value) = other.extract::<f64>() {
         return Ok(wrap_core(core.add_scalar(value)));
     }
@@ -822,6 +958,11 @@ fn array_sub(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyExp
     if let Ok(other_core) = extract_array_core(other) {
         let result = core.combine(&other_core, |left, right| left.add(right.scale(-1.0)))?;
         return Ok(wrap_core(result));
+    }
+    if let Some(values) =
+        extract_labeled_numeric_values(other.py(), other, &core.index_sets, core.values.len())?
+    {
+        return Ok(wrap_core(core.sub_vec(&values)?));
     }
     if let Ok(value) = other.extract::<f64>() {
         return Ok(wrap_core(core.sub_scalar(value)));
@@ -836,6 +977,11 @@ fn array_rsub(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyEx
         let result = other_core.combine(core, |left, right| left.add(right.scale(-1.0)))?;
         return Ok(wrap_core(result));
     }
+    if let Some(values) =
+        extract_labeled_numeric_values(other.py(), other, &core.index_sets, core.values.len())?
+    {
+        return Ok(wrap_core(core.rsub_vec(&values)?));
+    }
     if let Ok(value) = other.extract::<f64>() {
         return Ok(wrap_core(core.rsub_scalar(value)));
     }
@@ -847,6 +993,14 @@ fn array_rsub(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyEx
 fn array_mul(core: &LinearArrayCore, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
     if let Ok(scalar) = other.extract::<f64>() {
         return Ok(wrap_core(core.scale_all(scalar)));
+    }
+    if let Some(result) = multiply_with_labeled_union(core, other.py(), other)? {
+        return Ok(wrap_core(result));
+    }
+    if let Some(weights) =
+        extract_labeled_numeric_values(other.py(), other, &core.index_sets, core.values.len())?
+    {
+        return Ok(wrap_core(core.mul_vec(&weights)?));
     }
     let weights: Vec<f64> = other.extract()?;
     Ok(wrap_core(core.mul_vec(&weights)?))
@@ -940,6 +1094,209 @@ fn expr_array_to_pyobject(arr: PyExprArray, py: Python<'_>) -> PyResult<PyObject
     Ok(arr.into_pyobject(py)?.into_any().unbind())
 }
 
+fn slice_index_set(
+    py: Python<'_>,
+    index_set: &Py<PyIndexSet>,
+    selected: &[usize],
+) -> PyResult<Py<PyIndexSet>> {
+    let borrowed = index_set.bind(py).borrow();
+    let members = selected
+        .iter()
+        .map(|idx| borrowed.members[*idx].clone())
+        .collect::<Vec<_>>();
+    Py::new(
+        py,
+        PyIndexSet {
+            name: borrowed.name.clone(),
+            members,
+        },
+    )
+}
+
+fn cumsum_over_axis(values: &[PyExpr], shape: &[usize], axis: usize) -> Vec<PyExpr> {
+    let ndim = shape.len();
+    let axis_size = shape[axis];
+    let outer: usize = shape[..axis].iter().product();
+    let inner: usize = shape[axis + 1..ndim].iter().product();
+    let mut out = vec![PyExpr::default(); values.len()];
+
+    for o in 0..outer {
+        for i in 0..inner {
+            let mut acc = PyExpr::default();
+            for a in 0..axis_size {
+                let idx = o * axis_size * inner + a * inner + i;
+                acc.add_assign(&values[idx]);
+                out[idx] = acc.clone();
+            }
+        }
+    }
+
+    out
+}
+
+fn diff_over_axis(
+    values: &[PyExpr],
+    shape: &[usize],
+    axis: usize,
+) -> (Vec<PyExpr>, Vec<usize>, Vec<usize>) {
+    let ndim = shape.len();
+    let axis_size = shape[axis];
+    let outer: usize = shape[..axis].iter().product();
+    let inner: usize = shape[axis + 1..ndim].iter().product();
+    let mut out = Vec::with_capacity(outer * axis_size.saturating_sub(1) * inner);
+
+    for o in 0..outer {
+        for a in 1..axis_size {
+            for i in 0..inner {
+                let current_idx = o * axis_size * inner + a * inner + i;
+                let prev_idx = current_idx - inner;
+                out.push(values[current_idx].add(values[prev_idx].scale(-1.0)));
+            }
+        }
+    }
+
+    let mut new_shape = shape.to_vec();
+    new_shape[axis] = axis_size.saturating_sub(1);
+    let selected = (1..axis_size).collect();
+    (out, new_shape, selected)
+}
+
+fn roll_over_axis(values: &[PyExpr], shape: &[usize], axis: usize, shift: isize) -> Vec<PyExpr> {
+    let ndim = shape.len();
+    let axis_size = shape[axis];
+    let outer: usize = shape[..axis].iter().product();
+    let inner: usize = shape[axis + 1..ndim].iter().product();
+    let mut out = vec![PyExpr::default(); values.len()];
+    let normalized = shift.rem_euclid(axis_size as isize) as usize;
+
+    for o in 0..outer {
+        for a in 0..axis_size {
+            let shifted = (a + normalized) % axis_size;
+            for i in 0..inner {
+                let src_idx = o * axis_size * inner + a * inner + i;
+                let dst_idx = o * axis_size * inner + shifted * inner + i;
+                out[dst_idx] = values[src_idx].clone();
+            }
+        }
+    }
+
+    out
+}
+
+fn extract_axis_kwarg<'py>(
+    kwargs: &'py Bound<'py, PyAny>,
+    name: &str,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    if kwargs.is_none() {
+        return Ok(None);
+    }
+    let dict = kwargs.cast::<PyDict>()?;
+    dict.get_item(name)
+}
+
+fn numpy_cumsum(
+    py: Python<'_>,
+    core: &LinearArrayCore,
+    kwargs: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let axis = extract_axis_kwarg(kwargs, "axis")?
+        .ok_or_else(|| ArrayDimensionError::new_err("np.cumsum requires axis=IndexSet"))?;
+    let axes = parse_named_axes(core, py, &axis)?;
+    if axes.len() != 1 {
+        return Err(ArrayDimensionError::new_err(
+            "np.cumsum requires exactly one IndexSet axis",
+        ));
+    }
+    let result = PyExprArray::new(
+        core.clone_index_sets(),
+        core.shape.clone(),
+        cumsum_over_axis(&core.values, &core.shape, axes[0]),
+    );
+    expr_array_to_pyobject(result, py)
+}
+
+fn numpy_diff(
+    py: Python<'_>,
+    core: &LinearArrayCore,
+    kwargs: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let axis = extract_axis_kwarg(kwargs, "axis")?
+        .ok_or_else(|| ArrayDimensionError::new_err("np.diff requires axis=IndexSet"))?;
+    let axes = parse_named_axes(core, py, &axis)?;
+    if axes.len() != 1 {
+        return Err(ArrayDimensionError::new_err(
+            "np.diff requires exactly one IndexSet axis",
+        ));
+    }
+    let axis = axes[0];
+    let (values, shape, selected) = diff_over_axis(&core.values, &core.shape, axis);
+    let mut index_sets = core.clone_index_sets();
+    index_sets[axis] = slice_index_set(py, &core.index_sets[axis], &selected)?;
+    expr_array_to_pyobject(PyExprArray::new(index_sets, shape, values), py)
+}
+
+fn numpy_roll(
+    py: Python<'_>,
+    core: &LinearArrayCore,
+    args: &Bound<'_, PyTuple>,
+    kwargs: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let shift = if args.len() > 1 {
+        args.get_item(1)?.extract::<isize>()?
+    } else {
+        extract_axis_kwarg(kwargs, "shift")?
+            .ok_or_else(|| ArrayDimensionError::new_err("np.roll requires shift"))?
+            .extract::<isize>()?
+    };
+    let axis = extract_axis_kwarg(kwargs, "axis")?
+        .ok_or_else(|| ArrayDimensionError::new_err("np.roll requires axis=IndexSet"))?;
+    let axes = parse_named_axes(core, py, &axis)?;
+    if axes.len() != 1 {
+        return Err(ArrayDimensionError::new_err(
+            "np.roll requires exactly one IndexSet axis",
+        ));
+    }
+    let result = PyExprArray::new(
+        core.clone_index_sets(),
+        core.shape.clone(),
+        roll_over_axis(&core.values, &core.shape, axes[0], shift),
+    );
+    expr_array_to_pyobject(result, py)
+}
+
+pub(super) fn array_cumsum(
+    core: &LinearArrayCore,
+    py: Python<'_>,
+    over: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("axis", over)?;
+    numpy_cumsum(py, core, kwargs.as_any())
+}
+
+pub(super) fn array_diff(
+    core: &LinearArrayCore,
+    py: Python<'_>,
+    over: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("axis", over)?;
+    numpy_diff(py, core, kwargs.as_any())
+}
+
+pub(super) fn array_roll(
+    core: &LinearArrayCore,
+    py: Python<'_>,
+    shift: isize,
+    over: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let kwargs = PyDict::new(py);
+    kwargs.set_item("axis", over)?;
+    kwargs.set_item("shift", shift)?;
+    let args = PyTuple::new(py, [shift])?;
+    numpy_roll(py, core, &args, kwargs.as_any())
+}
+
 /// Handle numpy ufuncs on a LinearArrayCore.
 fn array_ufunc(
     core: &LinearArrayCore,
@@ -961,11 +1318,17 @@ fn array_ufunc(
 
     match ufunc_name.as_str() {
         "multiply" => {
-            let np = py.import("numpy")?;
-            let flat = np
-                .call_method1("asarray", (other,))?
-                .call_method0("flatten")?;
-            let weights: Vec<f64> = flat.extract()?;
+            let weights = if let Some(values) =
+                extract_labeled_numeric_values(py, other, &core.index_sets, core.values.len())?
+            {
+                values
+            } else {
+                let np = py.import("numpy")?;
+                let flat = np
+                    .call_method1("asarray", (other,))?
+                    .call_method0("flatten")?;
+                flat.extract()?
+            };
             expr_array_to_pyobject(wrap_core(core.mul_vec(&weights)?), py)
         }
         "add" => expr_array_to_pyobject(array_add(core, other)?, py),
@@ -991,9 +1354,14 @@ fn array_function(
     kwargs: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
     let func_name = func.getattr("__name__")?.extract::<String>()?;
+    let axis = extract_axis_kwarg(kwargs, "axis")?;
 
     match func_name.as_str() {
-        "sum" => array_sum(core, py, None),
+        "sum" => array_sum(core, py, axis.as_ref()),
+        "cumsum" => numpy_cumsum(py, core, kwargs),
+        "diff" => numpy_diff(py, core, kwargs),
+        "roll" => numpy_roll(py, core, args, kwargs),
+        "einsum" => numpy_einsum(py, args, kwargs),
         "dot" => numpy_dot(py, args),
         "matmul" => numpy_matmul(py, args),
         "diag" => {
@@ -1011,7 +1379,7 @@ fn array_function(
             numpy_diag(py, core, k)
         }
         "fliplr" => numpy_fliplr(py, core),
-        "concatenate" => numpy_concatenate(py, args),
+        "concatenate" => numpy_concatenate(py, core, args, kwargs),
         _ => Ok(py.NotImplemented().into_pyobject(py)?.unbind()),
     }
 }
@@ -1159,7 +1527,12 @@ fn numpy_matmul(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject>
 }
 
 /// np.concatenate(arrays): concatenate a sequence of arrays and/or scalar arrays.
-fn numpy_concatenate(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
+fn numpy_concatenate(
+    py: Python<'_>,
+    core: &LinearArrayCore,
+    args: &Bound<'_, PyTuple>,
+    kwargs: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
     if args.is_empty() {
         return Err(ArrayDimensionError::new_err(
             "np.concatenate requires at least one argument",
@@ -1167,38 +1540,416 @@ fn numpy_concatenate(py: Python<'_>, args: &Bound<'_, PyTuple>) -> PyResult<PyOb
     }
     let seq = args.get_item(0)?;
     let items: Vec<Bound<'_, PyAny>> = seq.try_iter()?.collect::<PyResult<Vec<_>>>()?;
+    let axis = extract_axis_kwarg(kwargs, "axis")?;
+    let axis = if let Some(axis) = axis {
+        let axes = parse_named_axes(core, py, &axis)?;
+        if axes.len() != 1 {
+            return Err(ArrayDimensionError::new_err(
+                "np.concatenate requires exactly one IndexSet axis",
+            ));
+        }
+        axes[0]
+    } else {
+        0
+    };
 
-    let mut all_values = Vec::new();
-    let mut has_arrays = false;
-
+    let np = py.import("numpy")?;
+    let mut arrays = Vec::new();
+    let mut has_array_operand = false;
     for item in &items {
         if let Ok(va) = item.extract::<PyRef<'_, PyVariableArray>>() {
-            has_arrays = true;
-            all_values.extend(va.get_values());
+            has_array_operand = true;
+            arrays.push(va.to_core());
         } else if let Ok(ea) = item.extract::<PyRef<'_, PyExprArray>>() {
-            has_arrays = true;
-            all_values.extend(ea.get_values().into_iter());
+            has_array_operand = true;
+            arrays.push(ea.to_core());
         } else {
-            // Try to extract as a flat array of floats
-            let np = py.import("numpy")?;
-            let flat = np
-                .call_method1("asarray", (item,))?
-                .call_method0("flatten")?;
+            let ndarray = np.call_method1("asarray", (item,))?;
+            let shape: Vec<usize> = ndarray.getattr("shape")?.extract()?;
+            let flat = ndarray.call_method0("flatten")?;
             let floats: Vec<f64> = flat.extract()?;
-            for f in &floats {
-                all_values.push(PyExpr::from_expr(Expr::from_constant(*f)));
+            let values = floats
+                .into_iter()
+                .map(|value| PyExpr::from_expr(Expr::from_constant(value)))
+                .collect();
+            arrays.push(LinearArrayCore::new(Vec::new(), shape, values));
+        }
+    }
+
+    if !has_array_operand {
+        return Err(ArrayTypeError::new_err(
+            "np.concatenate requires at least one VariableArray or ExprArray operand",
+        ));
+    }
+
+    let first = arrays
+        .first()
+        .ok_or_else(|| ArrayTypeError::new_err("np.concatenate requires at least one array"))?;
+    let reference = arrays
+        .iter()
+        .find(|array| !array.index_sets.is_empty())
+        .unwrap_or(first);
+    let rank = reference.shape.len();
+    for array in &arrays {
+        if array.shape.len() != rank {
+            return Err(ArrayDimensionError::new_err(
+                "np.concatenate requires arrays with matching rank",
+            ));
+        }
+        for dim in 0..rank {
+            if dim != axis && array.shape[dim] != reference.shape[dim] {
+                return Err(ArrayShapeMismatchError::new_err(
+                    "np.concatenate requires matching non-concatenated dimensions",
+                ));
             }
         }
     }
 
-    if !has_arrays {
+    let before: usize = reference.shape[..axis].iter().product();
+    let after: usize = reference.shape[axis + 1..].iter().product();
+    let axis_total: usize = arrays.iter().map(|array| array.shape[axis]).sum();
+    let mut values = Vec::with_capacity(before * axis_total * after);
+
+    for outer in 0..before {
+        for array in &arrays {
+            let axis_len = array.shape[axis];
+            for idx in 0..axis_len {
+                for inner in 0..after {
+                    let flat = outer * axis_len * after + idx * after + inner;
+                    values.push(array.values[flat].clone());
+                }
+            }
+        }
+    }
+
+    let mut shape = reference.shape.clone();
+    shape[axis] = axis_total;
+    let mut index_sets = reference.clone_index_sets();
+    let axis_members = arrays.iter().try_fold(Vec::new(), |mut acc, array| {
+        if array.index_sets.is_empty() {
+            for idx in 0..array.shape[axis] {
+                acc.push(crate::py_modules::index_set::IndexMember::Int(idx as i64));
+            }
+        } else {
+            let borrowed = array.index_sets[axis].bind(py).borrow();
+            for member in &borrowed.members {
+                acc.push(member.clone());
+            }
+        }
+        Ok::<_, PyErr>(acc)
+    })?;
+    index_sets[axis] = Py::new(
+        py,
+        PyIndexSet {
+            name: reference.index_sets[axis].bind(py).borrow().name.clone(),
+            members: axis_members,
+        },
+    )?;
+    let result = PyExprArray::new(index_sets, shape, values);
+    Ok(result.into_pyobject(py)?.into_any().unbind())
+}
+
+fn parse_einsum_subscripts(
+    subscripts: &str,
+    operand_count: usize,
+) -> PyResult<(Vec<Vec<char>>, Vec<char>)> {
+    if subscripts.contains("...") {
         return Err(ArrayTypeError::new_err(
-            "np.concatenate requires at least one VariableArray or ExprArray",
+            "np.einsum with Arco arrays does not support ellipsis",
+        ));
+    }
+    let (lhs, rhs) = subscripts.split_once("->").ok_or_else(|| {
+        ArrayTypeError::new_err("np.einsum with Arco arrays requires explicit output subscripts")
+    })?;
+    let inputs = lhs
+        .split(',')
+        .map(|part| part.chars().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    if inputs.len() != operand_count {
+        return Err(ArrayDimensionError::new_err(format!(
+            "np.einsum expected {} operands but received {}",
+            inputs.len(),
+            operand_count
+        )));
+    }
+    let output = rhs.chars().collect::<Vec<_>>();
+
+    for term in inputs.iter().chain(std::iter::once(&output)) {
+        let mut seen = BTreeSet::new();
+        for label in term {
+            if !label.is_ascii_alphabetic() {
+                return Err(ArrayTypeError::new_err(
+                    "np.einsum with Arco arrays only supports alphabetic subscripts",
+                ));
+            }
+            if !seen.insert(*label) {
+                return Err(ArrayTypeError::new_err(
+                    "np.einsum with Arco arrays does not support repeated subscripts in one operand",
+                ));
+            }
+        }
+    }
+
+    Ok((inputs, output))
+}
+
+fn einsum_shape_from_operand(py: Python<'_>, operand: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
+    if let Ok(va) = operand.extract::<PyRef<'_, PyVariableArray>>() {
+        return Ok(va.shape.clone());
+    }
+    if let Ok(ea) = operand.extract::<PyRef<'_, PyExprArray>>() {
+        return Ok(ea.storage.shape().to_vec());
+    }
+
+    let np = py.import("numpy")?;
+    let array = np.call_method1("asarray", (operand,))?;
+    array.getattr("shape")?.extract()
+}
+
+fn numpy_einsum(
+    py: Python<'_>,
+    args: &Bound<'_, PyTuple>,
+    kwargs: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    if args.len() < 2 {
+        return Err(ArrayDimensionError::new_err(
+            "np.einsum requires a subscript string and at least one operand",
         ));
     }
 
-    let n = all_values.len();
-    let result = PyExprArray::new(Vec::new(), vec![n], all_values);
+    let subscripts = args.get_item(0)?.extract::<String>()?;
+    let operands = args.iter().skip(1).collect::<Vec<Bound<'_, PyAny>>>();
+    let (input_terms, output_term) = parse_einsum_subscripts(&subscripts, operands.len())?;
+    let kwargs_dict = if kwargs.is_none() {
+        None
+    } else {
+        Some(kwargs.cast::<PyDict>()?)
+    };
+
+    let linear_operands = operands
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, operand)| extract_array_core(operand).ok().map(|core| (idx, core)))
+        .collect::<Vec<_>>();
+    if linear_operands.len() > 1 {
+        return Err(ArrayTypeError::new_err(
+            "np.einsum with Arco arrays supports exactly one VariableArray or ExprArray operand",
+        ));
+    }
+    if linear_operands.is_empty() {
+        let np = py.import("numpy")?;
+        let dense_args = operands
+            .iter()
+            .map(|operand| np.call_method1("asarray", (operand,)))
+            .collect::<PyResult<Vec<_>>>()?;
+        let mut call_args = Vec::with_capacity(dense_args.len() + 1);
+        call_args.push(subscripts.into_pyobject(py)?.into_any().unbind());
+        for operand in dense_args {
+            call_args.push(operand.into_any().unbind());
+        }
+        return np
+            .getattr("einsum")?
+            .call(PyTuple::new(py, call_args)?, kwargs_dict)
+            .map(|value| value.unbind());
+    }
+
+    let (expr_index, core) = &linear_operands[0];
+    let expr_index = *expr_index;
+    let expr_spec = &input_terms[expr_index];
+    if expr_spec.len() != core.shape.len() {
+        return Err(ArrayDimensionError::new_err(format!(
+            "np.einsum subscript rank {} does not match Arco array rank {}",
+            expr_spec.len(),
+            core.shape.len()
+        )));
+    }
+
+    let mut label_sizes = BTreeMap::<char, usize>::new();
+    for (term, operand) in input_terms.iter().zip(operands.iter()) {
+        let shape = einsum_shape_from_operand(py, operand)?;
+        if shape.len() != term.len() {
+            return Err(ArrayDimensionError::new_err(format!(
+                "np.einsum operand rank {} does not match subscript rank {}",
+                shape.len(),
+                term.len()
+            )));
+        }
+        for (label, size) in term.iter().zip(shape.iter()) {
+            if let Some(existing) = label_sizes.insert(*label, *size) {
+                if existing != *size {
+                    return Err(ArrayShapeMismatchError::new_err(format!(
+                        "np.einsum label '{}' has incompatible dimensions {} and {}",
+                        label, existing, size
+                    )));
+                }
+            }
+        }
+    }
+
+    let numeric_specs = input_terms
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, term)| (idx != expr_index).then_some(term))
+        .map(|term| term.iter().collect::<String>())
+        .collect::<Vec<_>>();
+    let coeff_labels = {
+        let mut labels = output_term.clone();
+        for label in expr_spec {
+            if !labels.contains(label) {
+                labels.push(*label);
+            }
+        }
+        labels
+    };
+    for label in &output_term {
+        if !label_sizes.contains_key(label) {
+            return Err(ArrayDimensionError::new_err(format!(
+                "np.einsum output label '{}' does not appear in any input term",
+                label
+            )));
+        }
+    }
+
+    let coeff_shape = coeff_labels
+        .iter()
+        .map(|label| label_sizes[label])
+        .collect::<Vec<_>>();
+    let coeff_source_labels = coeff_labels
+        .iter()
+        .copied()
+        .filter(|label| {
+            numeric_specs
+                .iter()
+                .any(|spec| spec.chars().any(|candidate| candidate == *label))
+        })
+        .collect::<Vec<_>>();
+
+    let coeffs = if numeric_specs.is_empty() {
+        vec![1.0; coeff_shape.iter().product::<usize>().max(1)]
+    } else {
+        let np = py.import("numpy")?;
+        let numeric_inputs = operands
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, operand)| (idx != expr_index).then_some(operand))
+            .map(|operand| np.call_method1("asarray", (operand,)))
+            .collect::<PyResult<Vec<_>>>()?;
+        let coeff_subscripts = format!(
+            "{}->{}",
+            numeric_specs.join(","),
+            coeff_source_labels.iter().collect::<String>()
+        );
+        let mut call_args = Vec::with_capacity(numeric_inputs.len() + 1);
+        call_args.push(coeff_subscripts.into_pyobject(py)?.into_any().unbind());
+        for operand in numeric_inputs {
+            call_args.push(operand.into_any().unbind());
+        }
+        let result = np
+            .getattr("einsum")?
+            .call(PyTuple::new(py, call_args)?, kwargs_dict)?;
+        let array = np.call_method1("asarray", (result,))?;
+        let flat = array.call_method0("flatten")?;
+        let dense = flat.extract::<Vec<f64>>()?;
+        if coeff_source_labels == coeff_labels {
+            dense
+        } else {
+            let source_shape = LabeledShape::new(
+                coeff_source_labels
+                    .iter()
+                    .map(|label| AxisSpec::new(label.to_string(), label_sizes[label]))
+                    .collect(),
+            )
+            .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
+            let target_shape = LabeledShape::new(
+                coeff_labels
+                    .iter()
+                    .map(|label| AxisSpec::new(label.to_string(), label_sizes[label]))
+                    .collect(),
+            )
+            .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
+            BroadcastPlan::new(source_shape, target_shape)
+                .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?
+                .broadcast_dense(&dense)
+                .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?
+        }
+    };
+
+    let coeff_strides = arco_arrays::row_major_strides(&coeff_shape);
+    let expr_strides = arco_arrays::row_major_strides(&core.shape);
+    let output_shape = output_term
+        .iter()
+        .map(|label| label_sizes[label])
+        .collect::<Vec<_>>();
+    let output_strides = arco_arrays::row_major_strides(&output_shape);
+    let output_len = output_shape.iter().product::<usize>().max(1);
+    let mut output_values = vec![PyExpr::default(); output_len];
+
+    let label_positions = coeff_labels
+        .iter()
+        .enumerate()
+        .map(|(idx, label)| (*label, idx))
+        .collect::<BTreeMap<_, _>>();
+
+    for (flat_idx, coefficient) in coeffs.iter().copied().enumerate() {
+        if coefficient == 0.0 {
+            continue;
+        }
+        let mut remainder = flat_idx;
+        let mut coords = vec![0usize; coeff_shape.len()];
+        for (idx, stride) in coeff_strides.iter().enumerate() {
+            coords[idx] = if *stride == 0 { 0 } else { remainder / stride };
+            remainder %= stride;
+        }
+
+        let expr_flat = expr_spec
+            .iter()
+            .enumerate()
+            .map(|(axis, label)| {
+                coords[*label_positions.get(label).expect("einsum label")] * expr_strides[axis]
+            })
+            .sum::<usize>();
+
+        let output_flat = if output_shape.is_empty() {
+            0
+        } else {
+            output_term
+                .iter()
+                .enumerate()
+                .map(|(axis, label)| {
+                    coords[*label_positions.get(label).expect("einsum label")]
+                        * output_strides[axis]
+                })
+                .sum::<usize>()
+        };
+        output_values[output_flat].add_assign_owned(core.values[expr_flat].scale(coefficient));
+    }
+
+    if output_shape.is_empty() {
+        return Ok(output_values
+            .pop()
+            .expect("einsum scalar result")
+            .into_pyobject(py)?
+            .into_any()
+            .unbind());
+    }
+
+    let mut index_sets = Vec::with_capacity(output_term.len());
+    for label in &output_term {
+        if let Some(expr_axis) = expr_spec.iter().position(|candidate| candidate == label) {
+            index_sets.push(core.index_sets[expr_axis].clone_ref(py));
+            continue;
+        }
+        let size = label_sizes[label];
+        index_sets.push(Py::new(
+            py,
+            PyIndexSet {
+                name: label.to_string(),
+                members: (0..size).map(|idx| IndexMember::Int(idx as i64)).collect(),
+            },
+        )?);
+    }
+
+    let result = PyExprArray::new(index_sets, output_shape, output_values);
     Ok(result.into_pyobject(py)?.into_any().unbind())
 }
 

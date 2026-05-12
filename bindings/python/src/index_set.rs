@@ -4,6 +4,7 @@ use crate::PyObject;
 use crate::py_modules::errors::{IndexSetArgumentError, IndexSetEmptyError, IndexSetTypeError};
 use pyo3::IntoPyObject;
 use pyo3::prelude::*;
+use pyo3::types::PySlice;
 
 /// Internal representation of an index set member.
 #[derive(Debug, Clone)]
@@ -11,14 +12,43 @@ pub enum IndexMember {
     Int(i64),
     Float(f64),
     Str(String),
+    Tuple(Vec<IndexMember>),
 }
 
 impl IndexMember {
+    fn from_bound(value: &Bound<'_, PyAny>) -> Option<Self> {
+        if let Ok(parsed) = value.extract::<i64>() {
+            return Some(Self::Int(parsed));
+        }
+        if let Ok(parsed) = value.extract::<f64>() {
+            return Some(Self::Float(parsed));
+        }
+        if let Ok(parsed) = value.extract::<String>() {
+            return Some(Self::Str(parsed));
+        }
+        if let Ok(tuple) = value.cast::<pyo3::types::PyTuple>() {
+            let mut items = Vec::with_capacity(tuple.len());
+            for item in tuple.iter() {
+                let parsed = Self::from_bound(&item)?;
+                items.push(parsed);
+            }
+            return Some(Self::Tuple(items));
+        }
+        None
+    }
+
     fn to_pyobject(&self, py: Python<'_>) -> PyResult<PyObject> {
         let obj = match self {
             IndexMember::Int(v) => v.into_pyobject(py)?.into_any(),
             IndexMember::Float(v) => v.into_pyobject(py)?.into_any(),
             IndexMember::Str(v) => v.into_pyobject(py)?.into_any(),
+            IndexMember::Tuple(items) => {
+                let tuple_items = items
+                    .iter()
+                    .map(|item| item.to_pyobject(py))
+                    .collect::<PyResult<Vec<PyObject>>>()?;
+                pyo3::types::PyTuple::new(py, tuple_items)?.into_any()
+            }
         };
         Ok(obj.unbind())
     }
@@ -27,7 +57,7 @@ impl IndexMember {
         match self {
             IndexMember::Int(v) => Some(*v as f64),
             IndexMember::Float(v) => Some(*v),
-            IndexMember::Str(_) => None,
+            IndexMember::Str(_) | IndexMember::Tuple(_) => None,
         }
     }
 }
@@ -63,17 +93,12 @@ impl PyIndexSet {
                     let mut parsed = Vec::with_capacity(members.len());
                     for member in members {
                         let bound = member.bind(py);
-                        if let Ok(value) = bound.extract::<i64>() {
-                            parsed.push(IndexMember::Int(value));
-                        } else if let Ok(value) = bound.extract::<f64>() {
-                            parsed.push(IndexMember::Float(value));
-                        } else if let Ok(value) = bound.extract::<String>() {
-                            parsed.push(IndexMember::Str(value));
-                        } else {
-                            return Err(IndexSetTypeError::new_err(
-                                "members must be int, float, or str",
-                            ));
-                        }
+                        let parsed_member = IndexMember::from_bound(bound).ok_or_else(|| {
+                            IndexSetTypeError::new_err(
+                                "members must be int, float, str, or tuples of those",
+                            )
+                        })?;
+                        parsed.push(parsed_member);
                     }
                     Ok(Self {
                         name,
@@ -106,6 +131,59 @@ impl PyIndexSet {
             .iter()
             .map(|member| member.to_pyobject(py))
             .collect()
+    }
+
+    fn alias(&self, name: String) -> Self {
+        Self {
+            name,
+            members: self.members.clone(),
+        }
+    }
+
+    fn __getitem__(&self, py: Python<'_>, index: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let Ok(idx) = index.extract::<isize>() {
+            let resolved = if idx < 0 {
+                self.members.len() as isize + idx
+            } else {
+                idx
+            };
+            if resolved < 0 || resolved as usize >= self.members.len() {
+                return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                    "index {} out of range for IndexSet of size {}",
+                    idx,
+                    self.members.len()
+                )));
+            }
+            return self.members[resolved as usize].to_pyobject(py);
+        }
+
+        if let Ok(slice) = index.cast::<PySlice>() {
+            let indices = slice.indices(self.members.len() as isize)?;
+            let mut members = Vec::new();
+            let mut current = indices.start;
+            while (indices.step > 0 && current < indices.stop)
+                || (indices.step < 0 && current > indices.stop)
+            {
+                members.push(self.members[current as usize].clone());
+                current += indices.step;
+            }
+            if members.is_empty() {
+                return Err(IndexSetEmptyError::new_err(
+                    "IndexSet slices must contain at least one member",
+                ));
+            }
+            return Ok(Self {
+                name: self.name.clone(),
+                members,
+            }
+            .into_pyobject(py)?
+            .into_any()
+            .unbind());
+        }
+
+        Err(IndexSetTypeError::new_err(
+            "IndexSet indices must be integers or slices",
+        ))
     }
 
     fn __repr__(&self) -> String {

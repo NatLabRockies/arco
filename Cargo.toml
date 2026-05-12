@@ -26,6 +26,7 @@ sysinfo = "0.33"
 pyo3 = "0.28"
 tracing-subscriber = "0.3"
 smallvec = "1"
+arco-arrays = { path = "crates/arco-arrays" }
 arco-solver = { path = "crates/arco-solver" }
 arco-highs = { path = "crates/arco-highs" }
 arco-ipopt = { path = "crates/arco-ipopt" }

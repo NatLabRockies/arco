@@ -5,6 +5,7 @@ allow_same_layer = true
 [layers]
 primitives = [
   "arco-model",
+  "arco-arrays",
   "arco-diagnostics",
   "arco-solver",
   "arco-format",

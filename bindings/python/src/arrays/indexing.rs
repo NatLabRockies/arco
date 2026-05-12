@@ -109,6 +109,91 @@ pub(super) fn sliced_2d_index_sets(
     Ok(vec![row_set, col_set])
 }
 
+pub(super) fn selected_flat_indices(
+    shape: &[usize],
+    selections: &[AxisIndex],
+) -> (Vec<usize>, Vec<usize>) {
+    let strides = row_major_strides(shape);
+    let mut flat_indices = Vec::new();
+    let mut out_shape = Vec::new();
+    for selection in selections {
+        if let AxisIndex::Range(indices) = selection {
+            out_shape.push(indices.len());
+        }
+    }
+
+    fn walk(
+        axis: usize,
+        base: usize,
+        selections: &[AxisIndex],
+        strides: &[usize],
+        out: &mut Vec<usize>,
+    ) {
+        if axis == selections.len() {
+            out.push(base);
+            return;
+        }
+        match &selections[axis] {
+            AxisIndex::Single(idx) => walk(
+                axis + 1,
+                base + idx * strides[axis],
+                selections,
+                strides,
+                out,
+            ),
+            AxisIndex::Range(indices) => {
+                for idx in indices {
+                    walk(
+                        axis + 1,
+                        base + idx * strides[axis],
+                        selections,
+                        strides,
+                        out,
+                    );
+                }
+            }
+        }
+    }
+
+    walk(0, 0, selections, &strides, &mut flat_indices);
+    (flat_indices, out_shape)
+}
+
+pub(super) fn sliced_and_index_sets(
+    py: Python<'_>,
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    selections: &[AxisIndex],
+) -> PyResult<Vec<Py<PyIndexSet>>> {
+    if index_sets.len() != shape.len() {
+        return Ok(Vec::new());
+    }
+
+    let mut out = Vec::new();
+    for (axis, selection) in selections.iter().enumerate() {
+        let AxisIndex::Range(indices) = selection else {
+            continue;
+        };
+        if indices.len() == shape[axis] {
+            out.push(index_sets[axis].clone_ref(py));
+            continue;
+        }
+        let borrowed = index_sets[axis].bind(py).borrow();
+        let members = indices
+            .iter()
+            .map(|idx| borrowed.members[*idx].clone())
+            .collect();
+        out.push(Py::new(
+            py,
+            PyIndexSet {
+                name: borrowed.name.clone(),
+                members,
+            },
+        )?);
+    }
+    Ok(out)
+}
+
 fn make_slice_index_set(py: Python<'_>, size: usize) -> PyResult<Py<PyIndexSet>> {
     Py::new(
         py,
@@ -117,4 +202,14 @@ fn make_slice_index_set(py: Python<'_>, size: usize) -> PyResult<Py<PyIndexSet>>
             members: (0..size).map(|i| IndexMember::Int(i as i64)).collect(),
         },
     )
+}
+
+fn row_major_strides(shape: &[usize]) -> Vec<usize> {
+    let mut strides = vec![1; shape.len()];
+    let mut stride = 1;
+    for (idx, size) in shape.iter().enumerate().rev() {
+        strides[idx] = stride;
+        stride *= *size;
+    }
+    strides
 }
