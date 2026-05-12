@@ -23,7 +23,7 @@ targets = [
   "x86_64-pc-windows-msvc",
 ]
 # Which actions to run on pull requests
-pr-run-mode = "upload"
+pr-run-mode = "plan"
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Whether CI should trigger releases with dispatches instead of tag pushes
