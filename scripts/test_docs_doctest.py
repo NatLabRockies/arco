@@ -19,7 +19,6 @@ def _find_repo_root(*, start: Path) -> Path:
 REPO_ROOT = _find_repo_root(start=Path(__file__).resolve().parent)
 DOCS_DIR = REPO_ROOT / "docs"
 DOCTEST_FENCE_PATTERN = re.compile(r"^```python\s+doctest\b")
-COMMENTED_DOCTEST_PROMPT_PATTERN = re.compile(r"^\s*#\s*(>>>|\.\.\.)")
 COMMENTED_DOCTEST_LINE_PATTERN = re.compile(r"^(\s*)#\s?(.*)$")
 FENCE_END = "```"
 EXCLUDED_DOC_DIRS: set[str] = set()
@@ -97,27 +96,12 @@ def _collect_doctest_blocks() -> list[DoctestBlock]:
 
 
 def _normalize_doctest_source(*, source: str) -> str:
-    source_lines = source.splitlines()
-    uses_commented_doctest = any(
-        COMMENTED_DOCTEST_PROMPT_PATTERN.match(line) is not None
-        for line in source_lines
-        if line.strip()
-    )
-    if not uses_commented_doctest:
-        return source
-
     normalized_lines: list[str] = []
-    for line_number, line in enumerate(source_lines, start=1):
-        if not line.strip():
-            normalized_lines.append(line)
-            continue
-
+    for line in source.splitlines():
         match = COMMENTED_DOCTEST_LINE_PATTERN.match(line)
         if match is None:
-            raise AssertionError(
-                "Commented doctest block contains a non-comment line "
-                f"at source line {line_number}: {line!r}"
-            )
+            normalized_lines.append(line)
+            continue
 
         indent, content = match.groups()
         normalized_lines.append(f"{indent}{content}")
@@ -165,8 +149,9 @@ def test_normalize_doctest_source_supports_comment_prefixed_blocks() -> None:
     assert normalized == ">>> answer = 2 + 2\n>>> answer\n4"
 
 
-def test_normalize_doctest_source_rejects_mixed_commented_blocks() -> None:
-    source = "# >>> answer = 2 + 2\n4"
+def test_normalize_doctest_source_supports_commented_expectations() -> None:
+    source = ">>> answer = 2 + 2\n>>> answer\n# 4"
 
-    with pytest.raises(AssertionError, match="non-comment line"):
-        _normalize_doctest_source(source=source)
+    normalized = _normalize_doctest_source(source=source)
+
+    assert normalized == ">>> answer = 2 + 2\n>>> answer\n4"
