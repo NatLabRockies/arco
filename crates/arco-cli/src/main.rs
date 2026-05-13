@@ -8,6 +8,7 @@ use arco_cli::driver::{
     RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
     render_plain_driver_error, run_file_json_with_options_and_config, validate_file_only,
 };
+use arco_cli::self_update;
 use arco_ops::{ArcoOps, OpsExportFormat};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use miette::IntoDiagnostic;
@@ -79,6 +80,12 @@ enum Command {
         #[command(subcommand)]
         action: SolverAction,
     },
+    /// Manage the arco executable
+    #[command(name = "self")]
+    This {
+        #[command(subcommand)]
+        action: SelfAction,
+    },
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -109,6 +116,19 @@ enum SolverAction {
     Show,
     /// Set the default solver selection token (family or profile)
     Set { selection: String },
+}
+
+#[derive(Subcommand)]
+enum SelfAction {
+    /// Update this arco executable when installed by the standalone installer
+    Update {
+        /// Update to a specific release tag instead of the latest release
+        #[arg(long)]
+        version: Option<String>,
+        /// GitHub token for higher API rate limits
+        #[arg(long)]
+        token: Option<String>,
+    },
 }
 
 fn main() -> miette::Result<()> {
@@ -188,6 +208,7 @@ fn main() -> miette::Result<()> {
             output,
         } => export_model(path, format, output)?,
         Command::Solver { action } => handle_solver_action(action)?,
+        Command::This { action } => handle_self_action(action, cli.verbose)?,
     }
 
     Ok(())
@@ -233,6 +254,19 @@ fn export_model(
         fs::write(output_path, buffer).into_diagnostic()?;
     } else {
         write_stdout(&buffer).into_diagnostic()?;
+    }
+
+    Ok(())
+}
+
+fn handle_self_action(action: SelfAction, verbose: u8) -> miette::Result<()> {
+    match action {
+        SelfAction::Update { version, token } => {
+            let code = self_update::update(version, token, verbose)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
     }
 
     Ok(())
