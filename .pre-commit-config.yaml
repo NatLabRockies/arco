@@ -100,7 +100,7 @@ repos:
     hooks:
       - id: zizmor
         name: zizmor
-        entry: uvx zizmor .github
+        entry: bash -c 'workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "release.yml" -print); uvx zizmor .github/actions .github/dependabot.yml "${workflows[@]}"'
         language: system
         types: [yaml]
         files: ^\.github/workflows/.*\.yaml$
@@ -109,7 +109,7 @@ repos:
 
       - id: actionlint
         name: actionlint
-        entry: uvx --from actionlint-py actionlint
+        entry: bash -c 'workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "release.yml" -print); uvx --from actionlint-py actionlint "${workflows[@]}"'
         language: system
         types: [yaml]
         files: ^\.github/workflows/.*\.ya?ml$

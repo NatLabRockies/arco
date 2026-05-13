@@ -25,3 +25,33 @@
     if (-not $env:XPRESSDIR) {
       Write-Error 'XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS.'
     }
+
+- name: Configure musl SCIP source build
+  if: contains(join(matrix.targets, ','), 'musl')
+  shell: bash
+  run: |
+    set -euo pipefail
+
+    patch_script="$RUNNER_TEMP/arco-scip-source-patch.cmake"
+    toolchain_file="$RUNNER_TEMP/arco-musl-toolchain.cmake"
+
+    cat > "$patch_script" <<'EOF'
+    set(_arco_soplex_cmake "${CMAKE_SOURCE_DIR}/soplex/CMakeLists.txt")
+    if(EXISTS "${_arco_soplex_cmake}")
+      file(READ "${_arco_soplex_cmake}" _arco_soplex_contents)
+      string(REPLACE "add_subdirectory(tests/c_interface)\n" "" _arco_soplex_contents "${_arco_soplex_contents}")
+      string(REPLACE "add_subdirectory(check)\n" "" _arco_soplex_contents "${_arco_soplex_contents}")
+      file(WRITE "${_arco_soplex_cmake}" "${_arco_soplex_contents}")
+      message(STATUS "Arco: disabled Soplex test targets for musl static linking")
+    endif()
+    EOF
+
+    cat > "$toolchain_file" <<EOF
+    set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "$patch_script")
+    set(CMAKE_PROJECT_INCLUDE "$patch_script")
+    EOF
+
+    {
+      echo "CMAKE_TOOLCHAIN_FILE=$toolchain_file"
+      echo "CMAKE_TOOLCHAIN_FILE_x86_64_unknown_linux_musl=$toolchain_file"
+    } >> "$GITHUB_ENV"

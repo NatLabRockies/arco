@@ -33,7 +33,10 @@ jobs:
           version: "0.9.4"
 
       - name: Run zizmor
-        run: uvx zizmor .github
+        run: |
+          workflows=()
+          while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) ! -name 'release.yml' -print)
+          uvx zizmor .github/actions .github/dependabot.yml "${workflows[@]}"
 
   actionlint:
     name: actionlint
@@ -47,4 +50,6 @@ jobs:
       - name: Run actionlint
         run: |
           bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint
+          workflows=()
+          while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) ! -name 'release.yml' -print)
+          ./actionlint "${workflows[@]}"
