@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.6.0](https://github.com/NatLabRockies/arco/compare/v0.5.0...v0.6.0) (2026-05-13)
+
+
+### Features
+
+* add projection grammar ([#206](https://github.com/NatLabRockies/arco/issues/206)) ([0e30225](https://github.com/NatLabRockies/arco/commit/0e30225ec3caefffe9dfc33ec2640ef3cdf2cc65))
+* **cli:** add arco --version output ([#214](https://github.com/NatLabRockies/arco/issues/214)) ([124a403](https://github.com/NatLabRockies/arco/commit/124a4034d4cc8a50dbf39f2b56e3d365408c66c9))
+* **cli:** add self-update command ([#251](https://github.com/NatLabRockies/arco/issues/251)) ([8de1e2a](https://github.com/NatLabRockies/arco/commit/8de1e2af8e27c3c22ea06bea0718e9b4f584c948))
+* **examples:** add minimal ReEDS KDL benchmark ([#246](https://github.com/NatLabRockies/arco/issues/246)) ([9fa1dde](https://github.com/NatLabRockies/arco/commit/9fa1dde240a4779e89cb2d43334706ed28a2a462))
+* **examples:** add ReEDS benchmark ([#244](https://github.com/NatLabRockies/arco/issues/244)) ([f1871f5](https://github.com/NatLabRockies/arco/commit/f1871f5a46636190f0137bae72f9369dfef04404))
+* implement solver registry architecture core ([#225](https://github.com/NatLabRockies/arco/issues/225)) ([fa16aa4](https://github.com/NatLabRockies/arco/commit/fa16aa47afbc0d69b74b271a71eac39c4c88c760))
+* **kdl:** enable always-on set unpacking ([#216](https://github.com/NatLabRockies/arco/issues/216)) ([e85f232](https://github.com/NatLabRockies/arco/commit/e85f2327177d1733bffcadc5d2f9f9161114bca4))
+* **kdl:** support entrypoint includes ([#239](https://github.com/NatLabRockies/arco/issues/239)) ([997387a](https://github.com/NatLabRockies/arco/commit/997387ae031e901e495ccc0e26879779cfd31fe3))
+* NLP solver integration for related problems solutions ([#238](https://github.com/NatLabRockies/arco/issues/238)) ([6963306](https://github.com/NatLabRockies/arco/commit/6963306782ac965c2a9f4bef228984d0fae5fc12))
+* **scip:** embed native solver backend ([#250](https://github.com/NatLabRockies/arco/issues/250)) ([bc2736f](https://github.com/NatLabRockies/arco/commit/bc2736fb6a7392cfc79f12fba70fa0970a6fb45b))
+* **solver:** add generic diagnostics ([#247](https://github.com/NatLabRockies/arco/issues/247)) ([f514d4b](https://github.com/NatLabRockies/arco/commit/f514d4bfc8cb959b58e0df4270915a499a1bfff7))
+* **xpress:** add CI/dist xpress coverage and path discovery ([#245](https://github.com/NatLabRockies/arco/issues/245)) ([038d4e7](https://github.com/NatLabRockies/arco/commit/038d4e714b0a1195c2c2ed98ca46c0bef91c20b8))
+
+
+### Bug Fixes
+
+* **cli:** report tuple component sizes in inspect ([#217](https://github.com/NatLabRockies/arco/issues/217)) ([7c14445](https://github.com/NatLabRockies/arco/commit/7c14445870304030dbdda46f0cd4a9c8ee66496a))
+* **kdl:** fail fast on duplicate model declarations ([#219](https://github.com/NatLabRockies/arco/issues/219)) ([10d16c5](https://github.com/NatLabRockies/arco/commit/10d16c56d86fd16e81f7152d0e02f97db8f19ba0))
+* preserve tuple index labels in lookups ([#213](https://github.com/NatLabRockies/arco/issues/213)) ([8e6f6b9](https://github.com/NatLabRockies/arco/commit/8e6f6b9b1ca6e8b7c16b1234b82f6864b805da31))
+* sync kdl overlay with grammar ([#221](https://github.com/NatLabRockies/arco/issues/221)) ([b069c27](https://github.com/NatLabRockies/arco/commit/b069c27b9abbcc53c7c960b50d09935be815c3e5))
+
+
+### Performance
+
+* **highs:** optimize model-view solve path ([#243](https://github.com/NatLabRockies/arco/issues/243)) ([7789b69](https://github.com/NatLabRockies/arco/commit/7789b697fbff183c40ef5f8ab7237d3e2a2e7ac2))
+
+
+### Refactoring
+
+* align examples with single-source data params ([#215](https://github.com/NatLabRockies/arco/issues/215)) ([dd905e7](https://github.com/NatLabRockies/arco/commit/dd905e7af69671bc33d6e62ec617af1240fa5235))
+* **kdl:** move inline test KDL into file fixtures ([#220](https://github.com/NatLabRockies/arco/issues/220)) ([6dd1472](https://github.com/NatLabRockies/arco/commit/6dd1472dd99692a7593a21f39288bd0d1075d8c8))
+
+
+### Build
+
+* **deps:** bump actions/labeler from 6.0.1 to 6.1.0 ([#249](https://github.com/NatLabRockies/arco/issues/249)) ([008e17e](https://github.com/NatLabRockies/arco/commit/008e17eef83bc985885c8b858e1f5126c8fa8a78))
+* **deps:** bump astral-sh/setup-uv from 8.0.0 to 8.1.0 ([#210](https://github.com/NatLabRockies/arco/issues/210)) ([c846838](https://github.com/NatLabRockies/arco/commit/c8468386d5dea455cec59e08c0b4aadddb0cb16d))
+* **deps:** bump benchmark-action/github-action-benchmark ([#248](https://github.com/NatLabRockies/arco/issues/248)) ([8116235](https://github.com/NatLabRockies/arco/commit/81162350f9c04f1093c5ea6dd8878d7d98a54636))
+* **deps:** bump googleapis/release-please-action from 4.4.1 to 5.0.0 ([#209](https://github.com/NatLabRockies/arco/issues/209)) ([1234547](https://github.com/NatLabRockies/arco/commit/1234547ef769d6ae2d36bfa5dd1d1080516fbb6d))
+
 ## [0.5.0](https://github.com/NatLabRockies/arco/compare/v0.4.0...v0.5.0) (2026-04-24)
 
 
