@@ -48,7 +48,7 @@ jobs:
     if: needs.release-please.outputs.release_created == 'true'
     permissions:
       contents: write # Required because the called workflow uploads release artifacts to GitHub Releases.
-    uses: ./.github/workflows/cargo-dist-release.yml
+    uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
 

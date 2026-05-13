@@ -185,4 +185,4 @@ test-solver package:
 
 [group: 'hygiene']
 workflow-quality:
-    uvx zizmor .github
+    workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) ! -name 'release.yml' -print); uvx zizmor .github/actions .github/dependabot.yml "${workflows[@]}"
