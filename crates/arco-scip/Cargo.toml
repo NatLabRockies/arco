@@ -18,6 +18,6 @@ arco-solver = { workspace = true }
 arco-format = { workspace = true }
 arco-model = { workspace = true }
 miette = { version = "7", features = ["fancy"] }
-russcip = { version = "0.9.1", default-features = false, features = ["bundled"] }
+russcip = { version = "0.9.1", default-features = false, features = ["from-source"] }
 thiserror = "2.0"
 tracing = { workspace = true }
