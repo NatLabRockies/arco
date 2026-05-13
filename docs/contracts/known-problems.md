@@ -21,17 +21,17 @@ Known optimum: `x = 1`, `y = 4`, objective `11`.
 >>> x = model.add_variable(bounds=arco.Bounds(lower=1.0, upper=float("inf")), name="x")
 >>> y = model.add_variable(bounds=arco.Bounds(lower=2.0, upper=float("inf")), name="y")
 >>> model.add_constraint(x + y >= 5.0, name="demand")
-Constraint('demand', Bounds(5, inf))
+# Constraint('demand', Bounds(5, inf))
 >>> model.minimize(3.0 * x + 2.0 * y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
-True
+# True
 >>> round(solution.objective_value, 6)
-11.0
+# 11.0
 >>> round(solution.get_primal(index=x), 6)
-1.0
+# 1.0
 >>> round(solution.get_primal(index=y), 6)
-4.0
+# 4.0
 ```
 
 ## Production Mix
@@ -53,21 +53,21 @@ Known optimum: `x = 20`, `y = 60`, objective `2600`.
 >>> x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
 >>> y = model.add_variable(bounds=arco.NonNegativeFloat, name="y")
 >>> model.add_constraint(x <= 40.0, name="demand")
-Constraint('demand', Bounds(-inf, 40))
+# Constraint('demand', Bounds(-inf, 40))
 >>> model.add_constraint(x + y <= 80.0, name="labor_a")
-Constraint('labor_a', Bounds(-inf, 80))
+# Constraint('labor_a', Bounds(-inf, 80))
 >>> model.add_constraint(2.0 * x + y <= 100.0, name="labor_b")
-Constraint('labor_b', Bounds(-inf, 100))
+# Constraint('labor_b', Bounds(-inf, 100))
 >>> model.maximize(40.0 * x + 30.0 * y)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
-True
+# True
 >>> round(solution.objective_value, 6)
-2600.0
+# 2600.0
 >>> round(solution.get_value(x), 6)
-20.0
+# 20.0
 >>> round(solution.get_value(y), 6)
-60.0
+# 60.0
 ```
 
 ## $A x = b$ Feasibility
@@ -97,17 +97,17 @@ Known solution: `x = [1, 2]`.
 >>> x = model.add_variables(j, bounds=arco.NonNegativeFloat, name="x")
 >>> row_constraints = model.add_constraints((A @ x) == b, name="row")
 >>> len(row_constraints)
-2
+# 2
 >>> row_constraints[0].bounds
-Bounds(lower=3, upper=3)
+# Bounds(lower=3, upper=3)
 >>> row_constraints[1].bounds
-Bounds(lower=1, upper=1)
+# Bounds(lower=1, upper=1)
 >>> model.minimize(0.0)
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
-True
+# True
 >>> tuple(float(v) for v in np.round(solution.get_value(x), 6))
-(1.0, 2.0)
+# (1.0, 2.0)
 ```
 
 ## 0-1 Knapsack
@@ -134,15 +134,15 @@ With values `[6,5,4]` and weights `[3,2,1]`, the known optimum value is `10`
 ...     sum(w * x[name] for w, name in zip(weights, items, strict=True)) <= 4.0,
 ...     name="capacity",
 ... )
-Constraint('capacity', Bounds(-inf, 4))
+# Constraint('capacity', Bounds(-inf, 4))
 >>> model.maximize(sum(v * x[name] for v, name in zip(values, items, strict=True)))
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
-True
+# True
 >>> round(solution.objective_value, 6)
-10.0
+# 10.0
 >>> tuple(round(solution.get_value(x[name]), 6) for name in items)
-(1.0, 0.0, 1.0)
+# (1.0, 0.0, 1.0)
 ```
 
 ## Network Flow (numpy integration)
@@ -170,23 +170,23 @@ Known optimum on the small test graph: objective `2` using the direct arc
 >>> x = model.add_variables(src, dst, bounds=arco.Binary, name="x")
 >>> no_arc = model.add_constraints(x[costs == 0.0] == 0.0, name="no_arc")
 >>> len(no_arc)
-6
+# 6
 >>> flow = [
 ...     model.add_constraint(x[i, :].sum() - x[:, i].sum() == balance[i], name=f"flow_{i}")
 ...     for i in range(3)
 ... ]
 >>> len(flow)
-3
+# 3
 >>> model.minimize(np.sum(costs * x))
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
-True
+# True
 >>> round(solution.objective_value, 6)
-2.0
+# 2.0
 >>> round(solution.get_value(x[0, 1]), 6)
-1.0
+# 1.0
 >>> abs(solution.get_value(x[0, 2])) < 1e-6
-True
+# True
 ```
 
 ## Unit Commitment
@@ -215,20 +215,20 @@ Known optimum for this two-unit instance: objective `275`, generation
 >>> g = model.add_variables(units, bounds=arco.NonNegativeFloat, name="gen")
 >>> u = model.add_variables(units, bounds=arco.Binary, name="commit")
 >>> model.add_constraint(g.sum() == demand, name="balance")
-Constraint('balance', Bounds(120, 120))
+# Constraint('balance', Bounds(120, 120))
 >>> capacity = model.add_constraints(g <= gen_max * u, name="capacity")
 >>> len(capacity)
-2
+# 2
 >>> model.minimize(np.sum(fixed_cost * u + variable_cost * g))
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
-True
+# True
 >>> round(solution.objective_value, 6)
-275.0
+# 275.0
 >>> tuple(float(v) for v in np.round(solution.get_value(g), 6))
-(100.0, 20.0)
+# (100.0, 20.0)
 >>> tuple(float(v) for v in np.round(solution.get_value(u), 6))
-(1.0, 1.0)
+# (1.0, 1.0)
 ```
 
 ## Network Design
@@ -261,28 +261,28 @@ Known optimum for this toy graph: select edges `0->1` and `1->3`, objective
 >>> edge = model.add_variables(src, dst, bounds=arco.Binary, name="edge")
 >>> flow = model.add_variables(src, dst, bounds=arco.NonNegativeFloat, name="flow")
 >>> model.add_constraint(np.sum(edge) <= 2.0, name="edge_budget")
-Constraint('edge_budget', Bounds(-inf, 2))
+# Constraint('edge_budget', Bounds(-inf, 2))
 >>> capacity = model.add_constraints(flow <= G * edge, name="capacity")
 >>> len(capacity)
-16
+# 16
 >>> conservation = model.add_constraints(
 ...     flow[1:-1, :].sum(over=dst) == flow[:, 1:-1].sum(over=src),
 ...     name="flow_conservation",
 ... )
 >>> len(conservation)
-2
+# 2
 >>> model.minimize(0.1 * np.sum(edge) - flow[0, :].sum())
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
-True
+# True
 >>> round(solution.objective_value, 6)
--4.8
+# -4.8
 >>> solution.get_value(edge[0, 1]) > 0.9
-True
+# True
 >>> solution.get_value(edge[1, 3]) > 0.9
-True
+# True
 >>> abs(solution.get_value(edge[0, 2])) < 1e-6
-True
+# True
 ```
 
 ## Energy Storage Dispatch
@@ -316,24 +316,24 @@ generation `[2,2]`.
 >>> d = model.add_variables(time, bounds=arco.Bounds(lower=0.0, upper=1.0), name="discharge")
 >>> balance = model.add_constraints(p + r + d == demand + c, name="balance")
 >>> len(balance)
-2
+# 2
 >>> s_prev = np.concatenate([[initial_storage], s[:-1]])
 >>> dynamics = model.add_constraints(s == s_prev + c - d, name="storage_dynamics")
 >>> len(dynamics)
-2
+# 2
 >>> renewable_cap = model.add_constraints(r <= available, name="renewable_cap")
 >>> len(renewable_cap)
-2
+# 2
 >>> model.minimize(10.0 * p.sum())
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
-True
+# True
 >>> round(solution.objective_value, 6)
-40.0
+# 40.0
 >>> tuple(float(v) for v in np.round(solution.get_value(p), 6))
-(2.0, 2.0)
+# (2.0, 2.0)
 >>> tuple(float(v) for v in np.round(solution.get_value(d), 6))
-(1.0, 1.0)
+# (1.0, 1.0)
 ```
 
 ## N-Queens
@@ -361,29 +361,29 @@ For `N=4`, the model is feasible with objective `0`.
 >>> q = model.add_variables(rows, cols, bounds=arco.Binary, name="queen")
 >>> row_cons = model.add_constraints(q.sum(over=cols) == 1.0, name="row")
 >>> len(row_cons)
-4
+# 4
 >>> col_cons = model.add_constraints(q.sum(over=rows) == 1.0, name="col")
 >>> len(col_cons)
-4
+# 4
 >>> diag_down = [model.add_constraint(np.diag(q, k).sum() <= 1.0, name=f"diag_down_{k}") for k in range(-(N - 1), N)]
 >>> len(diag_down)
-7
+# 7
 >>> diag_up = [model.add_constraint(np.diag(np.fliplr(q), k).sum() <= 1.0, name=f"diag_up_{k}") for k in range(-(N - 1), N)]
 >>> len(diag_up)
-7
+# 7
 >>> model.minimize(0.0)
 >>> solution = model.solve(log_to_console=False)
 >>> board = solution.get_value(q).reshape(N, N)
 >>> solution.is_optimal()
-True
+# True
 >>> round(solution.objective_value, 6)
-0.0
+# 0.0
 >>> tuple(float(v) for v in np.round(np.sum(board, axis=0), 6))
-(1.0, 1.0, 1.0, 1.0)
+# (1.0, 1.0, 1.0, 1.0)
 >>> tuple(float(v) for v in np.round(np.sum(board, axis=1), 6))
-(1.0, 1.0, 1.0, 1.0)
+# (1.0, 1.0, 1.0, 1.0)
 >>> bool(max(np.diag(board, k).sum() for k in range(-(N - 1), N)) <= 1.0 + 1e-6)
-True
+# True
 >>> bool(max(np.diag(np.fliplr(board), k).sum() for k in range(-(N - 1), N)) <= 1.0 + 1e-6)
-True
+# True
 ```

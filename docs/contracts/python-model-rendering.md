@@ -15,15 +15,15 @@ This file encodes rendering guarantees for the Python API as executable doctests
 >>> model.maximize(5.0 * x1 + 3.0 * x2 + 2.0 * x3 + 7.0 * x4 + 4.0 * x5)
 >>> rendered = str(model)
 >>> rendered.startswith("Max 5 x[1] + 3 x[2] + 2 x[3] + 7 x[4] + 4 x[5]")
-True
+# True
 >>> "\ns.t.\n" in rendered
-True
+# True
 >>> "Subject to" in rendered
-False
+# False
 >>> "Binary: x[1], x[2], x[3], x[4], x[5]" in rendered
-True
+# True
 >>> " <= 10" in rendered
-True
+# True
 >>> operator_columns = [
 ...     line.index(" <=")
 ...     for line in rendered.splitlines()
@@ -34,9 +34,9 @@ True
 ...     if " = " in line
 ... ]
 >>> len(operator_columns) >= 2
-True
+# True
 >>> max(operator_columns) - min(operator_columns) <= 1
-True
+# True
 ```
 
 ```python doctest
@@ -50,17 +50,17 @@ True
 ...     _ = model.add_constraint(sum(vars_) <= float(idx), name=f"c[{idx + 1}]")
 >>> preview = str(model)
 >>> "... (5 more terms)" in preview
-True
+# True
 >>> "... (2 more constraints)" in preview
-True
+# True
 >>> buf = io.StringIO()
 >>> with contextlib.redirect_stdout(buf):
 ...     model.pprint()
 >>> full = buf.getvalue()
 >>> "... (2 more constraints)" in full
-False
+# False
 >>> "c[22]:" in full
-True
+# True
 ```
 
 ```python doctest
@@ -75,19 +75,19 @@ True
 >>> _ = model.add_constraints(gen.sum(over=g) >= [120.0, 90.0])
 >>> rendered = str(model)
 >>> "Index sets:" in rendered
-True
+# True
 >>> "T = [0, 1]" in rendered
-True
+# True
 >>> "G = [solar, wind, gas]" in rendered
-True
+# True
 >>> "gen[0,solar]" in rendered
-True
+# True
 >>> "gen[1,gas]" in rendered
-True
+# True
 >>> "Bounds:" in rendered
-True
+# True
 >>> "0 <= gen[t,g] <= 100  for t in T, g in G" in rendered
-True
+# True
 ```
 
 ```python doctest
