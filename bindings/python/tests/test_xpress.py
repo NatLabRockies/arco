@@ -17,6 +17,7 @@ def build_model() -> arco.Model:
 
 XPRESS_RUNTIME_INFO = arco.solver_runtime_info(family="xpress")
 HAS_XPRESS_RUNTIME = bool(XPRESS_RUNTIME_INFO.get("runtime_dir"))
+HAS_XPRESS_BACKEND = bool(XPRESS_RUNTIME_INFO.get("backend_enabled"))
 
 
 @pytest.mark.skipif(
@@ -32,8 +33,8 @@ def test_xpress_runtime_info_exposes_license_contract() -> None:
 
 
 @pytest.mark.skipif(
-    not HAS_XPRESS_RUNTIME,
-    reason="local Xpress runtime not available",
+    (not HAS_XPRESS_RUNTIME) or (not HAS_XPRESS_BACKEND),
+    reason="xpress runtime/backend not available in this build",
 )
 def test_xpress_solver_object_solves_model() -> None:
     runtime_dir = XPRESS_RUNTIME_INFO.get("runtime_dir")
@@ -44,10 +45,7 @@ def test_xpress_solver_object_solves_model() -> None:
         result = build_model().solve(solver=arco.Xpress(log_to_console=False))
     except Exception as exc:  # pragma: no cover - environment dependent
         message = str(exc)
-        if (
-            "Xpress license initialization failed" in message
-            or "Xpress model-view backend is not enabled" in message
-        ):
+        if "Xpress license initialization failed" in message:
             pytest.skip(message)
         raise
 
@@ -56,8 +54,8 @@ def test_xpress_solver_object_solves_model() -> None:
 
 
 @pytest.mark.skipif(
-    not HAS_XPRESS_RUNTIME,
-    reason="local Xpress runtime not available",
+    (not HAS_XPRESS_RUNTIME) or (not HAS_XPRESS_BACKEND),
+    reason="xpress runtime/backend not available in this build",
 )
 def test_xpress_solver_selection_family_solves_model() -> None:
     runtime_dir = XPRESS_RUNTIME_INFO.get("runtime_dir")
@@ -68,12 +66,17 @@ def test_xpress_solver_selection_family_solves_model() -> None:
         result = build_model().solve(solver=arco.SolverSelection.family("xpress"))
     except Exception as exc:  # pragma: no cover - environment dependent
         message = str(exc)
-        if (
-            "Xpress license initialization failed" in message
-            or "Xpress model-view backend is not enabled" in message
-        ):
+        if "Xpress license initialization failed" in message:
             pytest.skip(message)
         raise
 
     assert result.is_optimal()
     assert result.objective_value == pytest.approx(2.0)
+
+
+def test_xpress_constructor_fails_fast_when_backend_disabled() -> None:
+    if HAS_XPRESS_BACKEND:
+        pytest.skip("xpress backend enabled in this build")
+
+    with pytest.raises(Exception, match="built without the xpress feature"):
+        build_model().solve(solver=arco.Xpress(log_to_console=False))

@@ -27,6 +27,11 @@ pub(crate) fn solve_model(
         || model.default_backend.clone(),
         |solver| detect_default_backend(Some(solver)),
     );
+    if selected_backend == "xpress" && !crate::py_modules::solver::xpress_backend_enabled() {
+        return Err(errors::generic_solver_error_to_py(SolverError::SolverNotAvailable(
+            "Python bindings were built without the xpress feature. Rebuild with: uv run --with maturin maturin develop --features xpress".to_string(),
+        )));
+    }
 
     let overrides = SolveOverrides {
         log_to_console,

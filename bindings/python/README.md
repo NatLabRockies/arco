@@ -20,6 +20,15 @@ cd bindings/python
 uv run --with maturin maturin develop --features ipopt
 ```
 
+To enable the Xpress backend in Python bindings, build with `xpress`:
+
+```bash
+cd bindings/python
+uv run --with maturin maturin develop --features xpress
+```
+
+Without this feature, `arco.Xpress(...)` is importable but solve will fail fast with a rebuild hint.
+
 Run linting:
 
 ```bash
