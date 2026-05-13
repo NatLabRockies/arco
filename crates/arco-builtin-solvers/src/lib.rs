@@ -9,7 +9,6 @@ use arco_ops::solve::{
 };
 use arco_ops::{ops_problem_from_algebraic, portable_problem_from_ops};
 use arco_solver::{ModelViewBackendRegistry, SolverRegistry};
-use std::collections::BTreeMap;
 
 pub fn register_builtin_solver_families(registry: &mut SolverRegistry) {
     arco_scip::register_solver_family(registry);
@@ -17,7 +16,9 @@ pub fn register_builtin_solver_families(registry: &mut SolverRegistry) {
 
 pub fn register_builtin_model_view_backends(registry: &mut ModelViewBackendRegistry<'_>) {
     let highs = Box::leak(Box::new(HighsModelViewBackend));
+    let scip = Box::leak(Box::new(arco_scip::ScipModelViewBackend));
     registry.register(highs);
+    registry.register(scip);
 }
 
 #[derive(Debug, Default)]
@@ -64,30 +65,21 @@ impl OptimizationAdapter for HighsArcoAdapter {
 }
 
 #[derive(Debug, Default)]
-struct ScipExternalAdapter {
+struct ScipArcoAdapter {
     log_to_console: bool,
-    executable: Option<String>,
-    arguments: Vec<String>,
-    environment: BTreeMap<String, String>,
+    solver_config: SolverConfig,
 }
 
-impl ScipExternalAdapter {
-    fn with_external_process_profile(
-        log_to_console: bool,
-        executable: Option<String>,
-        arguments: Vec<String>,
-        environment: BTreeMap<String, String>,
-    ) -> Self {
+impl ScipArcoAdapter {
+    fn with_native_profile(log_to_console: bool, solver_config: SolverConfig) -> Self {
         Self {
             log_to_console,
-            executable,
-            arguments,
-            environment,
+            solver_config,
         }
     }
 }
 
-impl OptimizationAdapter for ScipExternalAdapter {
+impl OptimizationAdapter for ScipArcoAdapter {
     fn backend_name(&self) -> &'static str {
         arco_scip::BACKEND_NAME
     }
@@ -98,10 +90,13 @@ impl OptimizationAdapter for ScipExternalAdapter {
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
-        let options = arco_scip::ExternalProcessOptions {
-            executable: self.executable.clone(),
-            arguments: self.arguments.clone(),
-            environment: self.environment.clone(),
+        let options = arco_scip::NativeSolveOptions {
+            time_limit: self.solver_config.time_limit,
+            mip_gap: self.solver_config.mip_gap,
+            presolve: self.solver_config.presolve,
+            threads: self.solver_config.threads,
+            tolerance: self.solver_config.tolerance,
+            verbosity: self.solver_config.verbosity,
         };
         let variable_families = problem
             .variables
@@ -121,18 +116,12 @@ impl OptimizationAdapter for ScipExternalAdapter {
             &options,
         )
         .map_err(|source| match source {
-            arco_scip::Error::Io { source } => ExecutionError::ExternalSolverIo {
-                backend: backend.clone(),
-                source,
-            },
-            arco_scip::Error::Process { message } => ExecutionError::ExternalSolverProcess {
-                backend: backend.clone(),
-                message,
-            },
-            arco_scip::Error::Parse { message } => ExecutionError::ExternalSolverParse {
-                backend: backend.clone(),
-                message,
-            },
+            arco_scip::Error::Build { message } | arco_scip::Error::Process { message } => {
+                ExecutionError::ExternalSolverProcess {
+                    backend: backend.clone(),
+                    message,
+                }
+            }
             arco_scip::Error::NoFeasibleSolution { status } => ExecutionError::NoFeasibleSolution {
                 backend: backend.clone(),
                 status,
@@ -143,6 +132,7 @@ impl OptimizationAdapter for ScipExternalAdapter {
             status: match solution.status {
                 arco_scip::SolveStatus::Optimal => SolveStatus::Optimal,
                 arco_scip::SolveStatus::Infeasible => SolveStatus::Infeasible,
+                arco_scip::SolveStatus::TimeLimit => SolveStatus::TimeLimit,
                 arco_scip::SolveStatus::Failed => SolveStatus::Failed,
             },
             objective_value: ScalarArtifactValue {
@@ -186,23 +176,20 @@ pub fn adapter_for_selection(
     match selection.transport {
         SolverTransport::Embedded => match selection.family.as_str() {
             "highs" => Ok(Box::new(HighsArcoAdapter::with_console_log(log_to_console))),
+            "scip" => Ok(Box::new(ScipArcoAdapter::with_native_profile(
+                log_to_console,
+                profile.map_or_else(SolverConfig::default, |value| value.options.clone()),
+            ))),
             family => Err(format!(
                 "embedded solver family '{family}' is not available"
             )),
         },
-        SolverTransport::ExternalProcess => match selection.family.as_str() {
-            "scip" => Ok(Box::new(
-                ScipExternalAdapter::with_external_process_profile(
-                    log_to_console,
-                    profile.and_then(|value| value.executable.clone()),
-                    profile.map_or_else(Vec::new, |value| value.arguments.clone()),
-                    profile.map_or_else(Default::default, |value| value.environment.clone()),
-                ),
-            )),
-            family => Err(format!(
+        SolverTransport::ExternalProcess => {
+            let family = selection.family.as_str();
+            Err(format!(
                 "external-process solver family '{family}' is not available"
-            )),
-        },
+            ))
+        }
     }
 }
 
@@ -210,7 +197,6 @@ pub fn adapter_for_selection(
 mod tests {
     use super::adapter_for_selection;
     use arco_ops::solve::{ResolvedSelection, SolverConfig, SolverProfile, SolverTransport};
-    use std::collections::BTreeMap;
 
     #[test]
     fn embedded_highs_selection_returns_highs_adapter() {
@@ -228,20 +214,20 @@ mod tests {
     }
 
     #[test]
-    fn external_scip_selection_returns_scip_adapter() {
+    fn embedded_scip_selection_returns_scip_adapter() {
         let selection = ResolvedSelection {
             token: "scip".to_string(),
             family: "scip".to_string(),
             profile: Some("scip-local".to_string()),
-            transport: SolverTransport::ExternalProcess,
+            transport: SolverTransport::Embedded,
         };
         let profile = SolverProfile {
             name: "scip-local".to_string(),
             family: "scip".to_string(),
-            transport: SolverTransport::ExternalProcess,
-            executable: Some("/usr/bin/scip".to_string()),
-            arguments: vec!["-q".to_string()],
-            environment: BTreeMap::from([("SCIP_SETTINGS".to_string(), "fast".to_string())]),
+            transport: SolverTransport::Embedded,
+            executable: None,
+            arguments: Vec::new(),
+            environment: Default::default(),
             options: SolverConfig::default(),
         };
 

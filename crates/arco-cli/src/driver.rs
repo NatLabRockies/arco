@@ -344,6 +344,7 @@ fn solve_status_name(status: SolveStatus) -> &'static str {
     match status {
         SolveStatus::Optimal => "optimal",
         SolveStatus::Infeasible => "infeasible",
+        SolveStatus::TimeLimit => "time_limit",
         SolveStatus::Failed => "failed",
     }
 }

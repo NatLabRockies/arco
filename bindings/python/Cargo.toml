@@ -24,6 +24,9 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
+[build-dependencies]
+scip-sys = { version = "0.1.26", features = ["bundled"] }
+
 [features]
 default = []
 ipopt = ["arco-ops/ipopt"]

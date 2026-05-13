@@ -5,7 +5,7 @@
 use arco_ops::ArcoOps;
 use arco_ops::solve::{
     ResolvedSelection, SelectionError, SolverConfigDocument, SolverProfile, SolverRegistry,
-    SolverTransport, merged_profiles, resolve_selection,
+    merged_profiles, resolve_selection,
 };
 use miette::Diagnostic;
 use std::collections::BTreeMap;
@@ -160,12 +160,7 @@ pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {
 }
 
 fn selection_is_supported_in_cli(resolved: &ResolvedSelection) -> bool {
-    match resolved.transport {
-        SolverTransport::Embedded => {
-            resolved.family == "highs" || (resolved.family == "xpress" && cfg!(feature = "xpress"))
-        }
-        SolverTransport::ExternalProcess => true,
-    }
+    ArcoOps::builtin_adapter_for_selection(resolved, false, None).is_ok()
 }
 
 pub fn save_solver_selection(selection: &str) -> Result<PathBuf, ConfigError> {
@@ -358,7 +353,7 @@ mod tests {
             token: "scip".to_string(),
             family: "scip".to_string(),
             profile: None,
-            transport: arco_ops::solve::SolverTransport::ExternalProcess,
+            transport: arco_ops::solve::SolverTransport::Embedded,
         };
 
         assert!(super::selection_is_supported_in_cli(&resolved));

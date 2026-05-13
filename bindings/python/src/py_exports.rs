@@ -12,7 +12,7 @@ pub use crate::py_modules::solution::{PySolutionStatus, PySolveResult};
 #[cfg(feature = "ipopt")]
 pub use crate::py_modules::solver::PyIpopt;
 pub use crate::py_modules::solver::{
-    PyHiGHS, PySolver, PySolverProfile, PySolverSelection, PyXpress, SolverSettings,
+    PyHiGHS, PyScip, PySolver, PySolverProfile, PySolverSelection, PyXpress, SolverSettings,
 };
 pub use crate::py_modules::variable::PyVariable;
 pub use crate::py_modules::views::{

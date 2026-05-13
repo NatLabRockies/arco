@@ -362,6 +362,58 @@ solution = model.solve(solver=selection, log_to_console=False)
 | `log_to_console` | `XPRS_OUTPUTLOG`  | 1 = on, 0 = off |
 | `verbosity`      | --                | Ignored         |
 
+## SCIP (embedded native LP / MIP solver)
+
+SCIP support is provided by `arco-scip` through
+[`russcip`](https://github.com/scipopt/russcip). Arco embeds SCIP in the default
+Rust build, sends the LP/MIP model through the native Rust SCIP API, and does
+not require a separate `scip` executable at runtime.
+
+> [!IMPORTANT]
+> SCIP is distributed under the Apache-2.0 license, but some optional third-party
+> SCIP build components may have different licenses. Check SCIP and `russcip`
+> redistribution terms before publishing bundled Arco artifacts.
+
+### Setup at a glance
+
+1. Build or install Arco normally; SCIP is embedded in the default Rust build.
+2. Run `arco solver set scip` and verify with `arco solver show`.
+
+```bash
+arco solver set scip
+arco solver show
+arco run examples/dense-lp/input.kdl --compact
+```
+
+### Python usage
+
+```python
+import arco
+
+solver = arco.Scip(time_limit=60.0, log_to_console=False)
+solution = model.solve(solver=solver)
+```
+
+You can also select a configured SCIP profile or family without constructing a
+solver object:
+
+```python
+selection = arco.SolverSelection.family("scip")
+solution = model.solve(solver=selection, log_to_console=False)
+```
+
+### Settings mapping
+
+| Setting          | SCIP handling          | Notes                                               |
+| ---------------- | ---------------------- | --------------------------------------------------- |
+| `time_limit`     | `set limits/time`      | From profile or Python settings                     |
+| `mip_gap`        | `set limits/gap`       | From profile or Python settings                     |
+| `log_to_console` | SCIP output toggle     | `false` keeps logs quiet                            |
+| `presolve`       | `presolving/maxrounds` | `false` disables presolve; `true` uses SCIP default |
+| `threads`        | `parallel/maxnthreads` |                                                     |
+| `tolerance`      | `numerics/feastol`     | Feasibility tolerance                               |
+| `verbosity`      | `display/verblevel`    | SCIP verbosity level                                |
+
 ## IPOPT (nonlinear / continuous solver)
 
 The IPOPT backend is available when Arco is built with the `ipopt` feature flag.

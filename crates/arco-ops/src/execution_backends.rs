@@ -30,36 +30,30 @@ pub(crate) fn solve_model_view_with_builtin_backend(
     model: &dyn arco_model::ModelView,
     config: &SolverConfig,
 ) -> Result<ModelViewSolveResult, SolverError> {
-    match normalize_model_view_backend_family(family) {
-        "highs" => {
-            let highs = HighsModelViewBackend;
-            let mut registry = ModelViewBackendRegistry::new();
-            registry.register(&highs);
-            registry.solve("highs", model, config)
-        }
-        #[cfg(feature = "xpress")]
-        "xpress" => {
-            let xpress = XpressModelViewBackend;
-            let mut registry = ModelViewBackendRegistry::new();
-            registry.register(&xpress);
-            registry.solve("xpress", model, config)
-        }
-        #[cfg(not(feature = "xpress"))]
-        "xpress" => Err(SolverError::SolverNotAvailable(
-            "Xpress model-view backend is not enabled; rebuild with --features xpress".to_string(),
-        )),
-        "ipopt" => Err(SolverError::SolverNotAvailable(
+    let family = normalize_model_view_backend_family(family);
+    if family == "ipopt" {
+        return Err(SolverError::SolverNotAvailable(
             "IPOPT model-view backend is not implemented yet; use a supported backend such as 'highs'"
                 .to_string(),
-        )),
-        "scip" => Err(SolverError::SolverNotAvailable(
-            "SCIP is available as an external-process adapter, not as a builtin model-view backend"
-                .to_string(),
-        )),
-        other => Err(SolverError::SolverNotAvailable(format!(
-            "no builtin model-view backend registered for '{other}'"
-        ))),
+        ));
     }
+    #[cfg(not(feature = "xpress"))]
+    if family == "xpress" {
+        return Err(SolverError::SolverNotAvailable(
+            "Xpress model-view backend is not enabled; rebuild with --features xpress".to_string(),
+        ));
+    }
+
+    let highs = HighsModelViewBackend;
+    let scip = scip::ScipModelViewBackend;
+    let mut registry = ModelViewBackendRegistry::new();
+    registry.register(&highs);
+    registry.register(&scip);
+    #[cfg(feature = "xpress")]
+    let xpress = XpressModelViewBackend;
+    #[cfg(feature = "xpress")]
+    registry.register(&xpress);
+    registry.solve(family, model, config)
 }
 
 pub(crate) fn builtin_solver_version(family: &str) -> Option<String> {
@@ -101,6 +95,10 @@ pub(crate) fn adapter_for_selection(
                 "embedded solver family 'xpress' is not available (rebuild with --features xpress)"
                     .to_string(),
             ),
+            "scip" => Ok(Box::new(ScipArcoAdapter::with_native_profile(
+                log_to_console,
+                profile.map_or_else(SolverConfig::default, |value| value.options.clone()),
+            ))),
             #[cfg(feature = "ipopt")]
             "ipopt" => Ok(Box::new(
                 crate::execution::IpoptArcoAdapter::with_console_log(log_to_console),
@@ -114,17 +112,12 @@ pub(crate) fn adapter_for_selection(
                 "embedded solver family '{family}' is not available"
             )),
         },
-        SolverTransport::ExternalProcess => match selection.family.as_str() {
-            "scip" => Ok(Box::new(ScipArcoAdapter::with_external_process_profile(
-                log_to_console,
-                profile.and_then(|value| value.executable.clone()),
-                profile.map_or_else(Vec::new, |value| value.arguments.clone()),
-                profile.map_or_else(Default::default, |value| value.environment.clone()),
-            ))),
-            family => Err(format!(
+        SolverTransport::ExternalProcess => {
+            let family = selection.family.as_str();
+            Err(format!(
                 "external-process solver family '{family}' is not available"
-            )),
-        },
+            ))
+        }
     }
 }
 
@@ -265,10 +258,13 @@ impl OptimizationAdapter for ScipArcoAdapter {
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = scip::BACKEND_NAME.to_string();
-        let options = scip::ExternalProcessOptions {
-            executable: self.executable.clone(),
-            arguments: self.arguments.clone(),
-            environment: self.environment.clone(),
+        let options = scip::NativeSolveOptions {
+            time_limit: self.solver_config.time_limit,
+            mip_gap: self.solver_config.mip_gap,
+            presolve: self.solver_config.presolve,
+            threads: self.solver_config.threads,
+            tolerance: self.solver_config.tolerance,
+            verbosity: self.solver_config.verbosity,
         };
         let variable_families = problem
             .variables
@@ -288,18 +284,12 @@ impl OptimizationAdapter for ScipArcoAdapter {
             &options,
         )
         .map_err(|source| match source {
-            scip::Error::Io { source } => ExecutionError::ExternalSolverIo {
-                backend: backend.clone(),
-                source,
-            },
-            scip::Error::Process { message } => ExecutionError::ExternalSolverProcess {
-                backend: backend.clone(),
-                message,
-            },
-            scip::Error::Parse { message } => ExecutionError::ExternalSolverParse {
-                backend: backend.clone(),
-                message,
-            },
+            scip::Error::Build { message } | scip::Error::Process { message } => {
+                ExecutionError::ExternalSolverProcess {
+                    backend: backend.clone(),
+                    message,
+                }
+            }
             scip::Error::NoFeasibleSolution { status } => ExecutionError::NoFeasibleSolution {
                 backend: backend.clone(),
                 status,
@@ -310,6 +300,7 @@ impl OptimizationAdapter for ScipArcoAdapter {
             status: match solution.status {
                 scip::SolveStatus::Optimal => SolveStatus::Optimal,
                 scip::SolveStatus::Infeasible => SolveStatus::Infeasible,
+                scip::SolveStatus::TimeLimit => SolveStatus::TimeLimit,
                 scip::SolveStatus::Failed => SolveStatus::Failed,
             },
             objective_value: ScalarArtifactValue {
@@ -518,13 +509,12 @@ mod tests {
     }
 
     #[test]
-    fn builtin_model_view_backend_reports_scip_external_only() {
+    fn builtin_model_view_backend_reports_scip_empty_model() {
         let model = Model::new();
         let error = solve_model_view_with_builtin_backend("scip", &model, &SolverConfig::new())
-            .expect_err("scip backend should report external-process only path");
+            .expect_err("empty model should fail before SCIP solve");
 
-        assert!(matches!(error, SolverError::SolverNotAvailable(_)));
-        assert!(error.to_string().contains("external-process adapter"));
+        assert!(matches!(error, SolverError::EmptyModel));
     }
 
     #[test]

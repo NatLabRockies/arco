@@ -3,7 +3,8 @@ use crate::compile::compile::{
     ConstraintSense, LinearReport, LinearTerm, TargetObjectiveSense as ObjectiveSense, VariableKind,
 };
 use crate::solve::{
-    ModelViewSolveResult, SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus,
+    ModelViewSolveResult, SolverConfig, SolverError as ArcoSolverError,
+    SolverStatus as ArcoSolverStatus,
 };
 use arco_model::{
     Bounds, Constraint, Model, ModelError as ArcoModelError, Objective, PrettyPrintOptions, Sense,
@@ -37,6 +38,7 @@ pub struct AdapterSolveOutput {
 pub enum SolveStatus {
     Optimal,
     Infeasible,
+    TimeLimit,
     Failed,
 }
 
@@ -122,9 +124,7 @@ pub struct RustArcoAdapter {
 #[derive(Debug, Default)]
 pub struct ScipArcoAdapter {
     pub(crate) log_to_console: bool,
-    pub(crate) executable: Option<String>,
-    pub(crate) arguments: Vec<String>,
-    pub(crate) environment: std::collections::BTreeMap<String, String>,
+    pub(crate) solver_config: SolverConfig,
 }
 
 #[cfg(feature = "xpress")]
@@ -278,17 +278,10 @@ impl ScipArcoAdapter {
         }
     }
 
-    pub fn with_external_process_profile(
-        log_to_console: bool,
-        executable: Option<String>,
-        arguments: Vec<String>,
-        environment: std::collections::BTreeMap<String, String>,
-    ) -> Self {
+    pub fn with_native_profile(log_to_console: bool, solver_config: SolverConfig) -> Self {
         Self {
             log_to_console,
-            executable,
-            arguments,
-            environment,
+            solver_config,
         }
     }
 }
@@ -822,8 +815,8 @@ pub(crate) fn map_solver_status(status: ArcoSolverStatus) -> SolveStatus {
     match status {
         ArcoSolverStatus::Optimal => SolveStatus::Optimal,
         ArcoSolverStatus::Infeasible => SolveStatus::Infeasible,
+        ArcoSolverStatus::TimeLimit => SolveStatus::TimeLimit,
         ArcoSolverStatus::Unbounded
-        | ArcoSolverStatus::TimeLimit
         | ArcoSolverStatus::IterationLimit
         | ArcoSolverStatus::Unknown => SolveStatus::Failed,
     }
@@ -910,8 +903,10 @@ mod tests {
         VariableInstance, VariableKind,
     };
     use crate::compile::compile::{CompiledObjective, CompiledProblem, CompiledVariable};
-    use crate::execution::{ExecutionError, MockArcoAdapter, execute_problem_with_options};
-    use arco_solver::SolverError as ArcoSolverError;
+    use crate::execution::{
+        ExecutionError, MockArcoAdapter, execute_problem_with_options, map_solver_status,
+    };
+    use arco_solver::{SolverError as ArcoSolverError, SolverStatus as ArcoSolverStatus};
 
     #[test]
     fn solve_error_display_keeps_source_out_of_top_level_message() {
@@ -923,6 +918,14 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "solver backend `xpress` could not solve this model"
+        );
+    }
+
+    #[test]
+    fn map_solver_status_preserves_time_limit() {
+        assert_eq!(
+            map_solver_status(ArcoSolverStatus::TimeLimit),
+            crate::execution::SolveStatus::TimeLimit
         );
     }
 
