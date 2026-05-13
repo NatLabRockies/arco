@@ -25,7 +25,9 @@ pub use registry::{SolverCapabilityModel, SolverFamily, SolverRegistry, SolverTr
 pub use request::SolveRequest;
 pub use selection::{ResolvedSelection, SelectionError, SolverSelection, resolve_selection};
 pub use traits::{SolutionView, Solve};
-pub use types::{Solution, SolverError, SolverStatus, SolverStatusMapping};
+pub use types::{
+    Solution, SolverDiagnostic, SolverError, SolverModelStats, SolverStatus, SolverStatusMapping,
+};
 
 /// Minimal result envelope for direct solves over primitive model views.
 #[derive(Debug, Clone, PartialEq)]

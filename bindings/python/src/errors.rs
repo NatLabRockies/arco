@@ -320,6 +320,7 @@ pub fn generic_solver_error_to_py(e: arco_ops::solve::SolverError) -> PyErr {
         arco_ops::solve::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
         arco_ops::solve::SolverError::SolverNotAvailable(_) => SolverInternalError::new_err(msg),
         arco_ops::solve::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
+        arco_ops::solve::SolverError::Diagnostic(_) => SolverInternalError::new_err(msg),
         arco_ops::solve::SolverError::SolveFailure { status } => {
             use arco_ops::solve::SolverStatus;
             match status {

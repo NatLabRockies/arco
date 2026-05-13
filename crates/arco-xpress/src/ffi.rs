@@ -114,6 +114,7 @@ type XPRSsetdblcontrolFn = unsafe extern "C" fn(XPRSprob, c_int, c_double) -> c_
 type XPRSgetdblcontrolFn = unsafe extern "C" fn(XPRSprob, c_int, *mut c_double) -> c_int;
 type XPRSgetintattribFn = unsafe extern "C" fn(XPRSprob, c_int, *mut c_int) -> c_int;
 type XPRSgetdblattribFn = unsafe extern "C" fn(XPRSprob, c_int, *mut c_double) -> c_int;
+type XPRSgetlasterrorFn = unsafe extern "C" fn(XPRSprob, *mut c_char) -> c_int;
 type XPRSlicenseFn = unsafe extern "C" fn(*mut c_int, *const c_char) -> c_int;
 type XPRSgetlicerrmsgFn = unsafe extern "C" fn(*mut c_char, c_int) -> c_int;
 type XPRSgetversionFn = unsafe extern "C" fn(*mut c_char) -> c_int;
@@ -177,6 +178,7 @@ pub struct Api {
     pub xprs_getdblcontrol: XPRSgetdblcontrolFn,
     pub xprs_getintattrib: XPRSgetintattribFn,
     pub xprs_getdblattrib: XPRSgetdblattribFn,
+    pub xprs_getlasterror: XPRSgetlasterrorFn,
     pub xprs_license: XPRSlicenseFn,
     pub xprs_getlicerrmsg: XPRSgetlicerrmsgFn,
     pub xprs_getversion: XPRSgetversionFn,
@@ -311,6 +313,7 @@ fn load_api() -> Result<Api, RuntimeLoadError> {
                     ),
                     xprs_getintattrib: load_symbol!(handle, "XPRSgetintattrib", XPRSgetintattribFn),
                     xprs_getdblattrib: load_symbol!(handle, "XPRSgetdblattrib", XPRSgetdblattribFn),
+                    xprs_getlasterror: load_symbol!(handle, "XPRSgetlasterror", XPRSgetlasterrorFn),
                     xprs_license: load_symbol!(handle, "XPRSlicense", XPRSlicenseFn),
                     xprs_getlicerrmsg: load_symbol!(handle, "XPRSgetlicerrmsg", XPRSgetlicerrmsgFn),
                     xprs_getversion: load_symbol!(handle, "XPRSgetversion", XPRSgetversionFn),

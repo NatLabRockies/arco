@@ -1,12 +1,12 @@
 use arco_cli::cli_io::{
-    ColorMode, should_colorize_stdout, should_log_solver_to_console, write_stdout,
-    write_stdout_line,
+    ColorMode, should_colorize_stdout, should_log_solver_to_console, write_stderr_line,
+    write_stdout, write_stdout_line,
 };
 use arco_cli::config::{load_solver_config, save_solver_selection};
 use arco_cli::debug_shell::launch_ipython;
 use arco_cli::driver::{
     RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
-    run_file_json_with_options_and_config, validate_file_only,
+    render_plain_driver_error, run_file_json_with_options_and_config, validate_file_only,
 };
 use arco_ops::{ArcoOps, OpsExportFormat};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
@@ -150,8 +150,20 @@ fn main() -> miette::Result<()> {
                         ),
                 },
                 &solver_config,
-            )?;
-            write_stdout(output.as_bytes()).into_diagnostic()?;
+            );
+            match output {
+                Ok(output) => write_stdout(output.as_bytes()).into_diagnostic()?,
+                Err(error) => {
+                    if let Some(rendered) = render_plain_driver_error(
+                        &error,
+                        ColorMode::from(should_colorize_stdout(std::io::stderr().is_terminal())),
+                    ) {
+                        write_stderr_line(&rendered).into_diagnostic()?;
+                        std::process::exit(1);
+                    }
+                    return Err(error.into());
+                }
+            }
         }
         Command::PrintModel { path } => {
             write_stdout_line(&print_file_model(&path)?).into_diagnostic()?;

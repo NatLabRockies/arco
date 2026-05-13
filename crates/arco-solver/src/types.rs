@@ -60,6 +60,51 @@ impl std::fmt::Display for SolverStatus {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SolverModelStats {
+    pub variables: usize,
+    pub constraints: usize,
+    pub coefficients: usize,
+}
+
+impl SolverModelStats {
+    pub const fn rows_plus_columns(&self) -> usize {
+        self.variables + self.constraints
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum SolverDiagnostic {
+    ModelSizeLimit {
+        solver: String,
+        operation: String,
+        return_code: i32,
+        limit: usize,
+        model: SolverModelStats,
+    },
+}
+
+impl std::fmt::Display for SolverDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SolverDiagnostic::ModelSizeLimit {
+                solver,
+                operation,
+                return_code,
+                limit,
+                model,
+            } => write!(
+                f,
+                "{solver} cannot solve this model because it exceeds the configured size limit.\n\nModel size:\n  - rows: {}\n  - columns: {}\n  - nonzeros: {}\n  - rows + columns: {}\n  - limit: {limit}\n\nTry one of:\n  1. reduce the number of variables or constraints in the model\n  2. switch to another solver, for example: `arco solver set highs`\n  3. use a solver license/profile with a higher size limit\n\nDetails: solver={solver}, operation={operation}, rc={return_code}",
+                model.constraints,
+                model.variables,
+                model.coefficients,
+                model.rows_plus_columns(),
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SolverError {
     EmptyModel,
     NoObjective,
@@ -67,6 +112,7 @@ pub enum SolverError {
     InvalidVariableId(u32),
     SolverNotAvailable(String),
     SolveFailure { status: SolverStatus },
+    Diagnostic(SolverDiagnostic),
     SolverSpecific(String),
 }
 
@@ -79,6 +125,7 @@ impl SolverError {
             SolverError::InvalidVariableId(_) => "SOLVER_INVALID_VARIABLE_ID",
             SolverError::SolverNotAvailable(_) => "SOLVER_NOT_AVAILABLE",
             SolverError::SolveFailure { .. } => "SOLVER_SOLVE_FAILURE",
+            SolverError::Diagnostic(_) => "SOLVER_DIAGNOSTIC",
             SolverError::SolverSpecific(_) => "SOLVER_SPECIFIC",
         }
     }
@@ -101,9 +148,8 @@ impl std::fmt::Display for SolverError {
             SolverError::SolveFailure { status } => {
                 write!(f, "[{}] Solve failed with status: {}", self.code(), status)
             }
-            SolverError::SolverSpecific(msg) => {
-                write!(f, "[{}] Solver error: {}", self.code(), msg)
-            }
+            SolverError::Diagnostic(diagnostic) => write!(f, "{}", diagnostic),
+            SolverError::SolverSpecific(msg) => write!(f, "{}", msg),
         }
     }
 }

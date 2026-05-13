@@ -4,7 +4,10 @@ use crate::ffi;
 use crate::solution::Solution;
 use crate::status;
 use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
-use arco_solver::{ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverError};
+use arco_solver::{
+    ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverDiagnostic, SolverError,
+    SolverModelStats,
+};
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::io::{self, Write};
@@ -46,6 +49,7 @@ impl Drop for ProbGuard {
 }
 
 const ERRMSG_BUF_LEN: c_int = 512;
+const LAST_ERROR_BUF_LEN: c_int = 4096;
 
 /// Return the most likely local Xpress installation directory.
 pub fn detect_xpress_dir() -> Option<PathBuf> {
@@ -203,6 +207,86 @@ fn restore_env(key: &str, original: Option<&str>) {
         Some(value) => unsafe { std::env::set_var(key, value) },
         None => unsafe { std::env::remove_var(key) },
     }
+}
+
+#[allow(unsafe_code)]
+fn xprs_last_error(api: &'static ffi::Api, prob: ffi::XPRSprob) -> Option<String> {
+    let mut buffer = [0 as c_char; LAST_ERROR_BUF_LEN as usize];
+    let rc = unsafe { (api.xprs_getlasterror)(prob, buffer.as_mut_ptr()) };
+    if rc != 0 {
+        return None;
+    }
+
+    let message = unsafe { CStr::from_ptr(buffer.as_ptr()) }
+        .to_string_lossy()
+        .trim()
+        .to_string();
+    if message.is_empty() {
+        None
+    } else {
+        Some(message)
+    }
+}
+
+fn xpress_model_stats(model: &(impl ModelView + ?Sized)) -> SolverModelStats {
+    SolverModelStats {
+        variables: model.num_variables(),
+        constraints: model.num_constraints(),
+        coefficients: model.num_coefficients(),
+    }
+}
+
+fn normalize_xpress_last_error(last_error: &str) -> String {
+    let trimmed = last_error.trim();
+    let without_prefix = trimmed.strip_prefix('?').unwrap_or(trimmed).trim_start();
+    let without_code = without_prefix
+        .split_once(" Error:")
+        .map_or(without_prefix, |(_, message)| message.trim());
+
+    if without_code.contains("Problem has too many rows and columns. The maximum is 5000") {
+        return "Xpress Community Edition size limit exceeded: this model is larger than the 5000 row/column maximum. Try a smaller instance or use HiGHS/full Xpress."
+            .to_string();
+    }
+
+    without_code.to_string()
+}
+
+fn format_xpress_failure_message(action: &str, rc: c_int, last_error: Option<&str>) -> String {
+    match last_error {
+        Some(message) => {
+            let normalized = normalize_xpress_last_error(message);
+            format!("Xpress solve failed ({action}, rc={rc}): {normalized}")
+        }
+        None => format!("Xpress solve failed ({action}, rc={rc})"),
+    }
+}
+
+fn xpress_failure_error(
+    api: &'static ffi::Api,
+    prob: ffi::XPRSprob,
+    action: &str,
+    rc: c_int,
+    model: &(impl ModelView + ?Sized),
+) -> SolverError {
+    let last_error = xprs_last_error(api, prob);
+    if last_error
+        .as_deref()
+        .is_some_and(|message| normalize_xpress_last_error(message).contains("size limit exceeded"))
+    {
+        return SolverError::Diagnostic(SolverDiagnostic::ModelSizeLimit {
+            solver: "Xpress Community Edition".to_string(),
+            operation: action.trim_start_matches("XPRS").to_ascii_lowercase(),
+            return_code: rc,
+            limit: 5000,
+            model: xpress_model_stats(model),
+        });
+    }
+
+    SolverError::SolverSpecific(format_xpress_failure_message(
+        action,
+        rc,
+        last_error.as_deref(),
+    ))
 }
 
 #[allow(unsafe_code)]
@@ -533,7 +617,7 @@ fn solve_problem(
                 std::ptr::null(),
             )
         })
-        .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadmip failed: {rc}")))?;
+        .map_err(|rc| xpress_failure_error(api, prob, "XPRSloadmip", rc, model))?;
     } else {
         ffi::check_xprs(unsafe {
             (api.xprs_loadlp)(
@@ -553,7 +637,7 @@ fn solve_problem(
                 upper_bounds.as_ptr(),
             )
         })
-        .map_err(|rc| SolverError::SolverSpecific(format!("XPRSloadlp failed: {rc}")))?;
+        .map_err(|rc| xpress_failure_error(api, prob, "XPRSloadlp", rc, model))?;
     }
 
     ffi::check_xprs(unsafe {
@@ -570,10 +654,10 @@ fn solve_problem(
     let run_start = Instant::now();
     if has_integer {
         ffi::check_xprs(unsafe { (api.xprs_mipoptimize)(prob, std::ptr::null()) })
-            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSmipoptimize failed: {rc}")))?;
+            .map_err(|rc| xpress_failure_error(api, prob, "XPRSmipoptimize", rc, model))?;
     } else {
         ffi::check_xprs(unsafe { (api.xprs_lpoptimize)(prob, std::ptr::null()) })
-            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSlpoptimize failed: {rc}")))?;
+            .map_err(|rc| xpress_failure_error(api, prob, "XPRSlpoptimize", rc, model))?;
     }
     let run_seconds = run_start.elapsed().as_secs_f64();
     let solve_time_seconds = solve_started.elapsed().as_secs_f64();
@@ -901,6 +985,36 @@ mod tests {
             .expect_err("zero threads should be rejected");
         assert!(
             matches!(error, SolverError::SolverSpecific(message) if message.contains("threads"))
+        );
+    }
+
+    #[test]
+    fn formats_xpress_failure_message_with_last_error() {
+        let message =
+            format_xpress_failure_message("XPRSlpoptimize", 120, Some("invalid identifier 'gen'"));
+
+        assert_eq!(
+            message,
+            "Xpress solve failed (XPRSlpoptimize, rc=120): invalid identifier 'gen'"
+        );
+    }
+
+    #[test]
+    fn formats_xpress_failure_message_without_last_error() {
+        let message = format_xpress_failure_message("XPRSloadlp", 1157, None);
+
+        assert_eq!(message, "Xpress solve failed (XPRSloadlp, rc=1157)");
+    }
+
+    #[test]
+    fn normalizes_xpress_community_size_limit_message() {
+        let message = normalize_xpress_last_error(
+            "?120 Error: Problem has too many rows and columns. The maximum is 5000",
+        );
+
+        assert_eq!(
+            message,
+            "Xpress Community Edition size limit exceeded: this model is larger than the 5000 row/column maximum. Try a smaller instance or use HiGHS/full Xpress."
         );
     }
 }
