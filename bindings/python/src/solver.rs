@@ -473,6 +473,57 @@ impl PyXpress {
     }
 }
 
+#[pyclass(from_py_object, extends = PySolver, name = "Scip")]
+#[derive(Debug, Clone)]
+pub struct PyScip;
+
+#[pymethods]
+impl PyScip {
+    #[new]
+    #[pyo3(
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
+    )]
+    fn new(
+        presolve: Option<bool>,
+        threads: Option<u32>,
+        tolerance: Option<f64>,
+        time_limit: Option<f64>,
+        mip_gap: Option<f64>,
+        verbosity: Option<u32>,
+        log_to_console: Option<bool>,
+        parameters: Option<SolverParameters>,
+        solver: Option<String>,
+    ) -> PyResult<(Self, PySolver)> {
+        let settings = SolverSettings::new(
+            presolve,
+            threads,
+            tolerance,
+            time_limit,
+            mip_gap,
+            verbosity,
+            log_to_console,
+            merge_solver_parameter(parameters, solver),
+        )?;
+        Ok((PyScip, PySolver { settings }))
+    }
+
+    #[pyo3(signature = (*, update=None))]
+    fn copy(
+        slf: PyRef<'_, Self>,
+        py: Python<'_>,
+        update: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Py<Self>> {
+        let base = slf.into_super();
+        let settings = apply_solver_updates(base.settings.clone(), update)?;
+        Py::new(py, (PyScip, PySolver { settings }))
+    }
+
+    fn __repr__(slf: PyRef<'_, Self>) -> String {
+        let base = slf.into_super();
+        solver_repr("Scip", &base.settings)
+    }
+}
+
 #[cfg(feature = "ipopt")]
 #[pyclass(from_py_object, extends = PySolver, name = "Ipopt")]
 #[derive(Debug, Clone)]
@@ -633,6 +684,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySolverSelection>()?;
     m.add_class::<PySolverProfile>()?;
     m.add_class::<PyHiGHS>()?;
+    m.add_class::<PyScip>()?;
     m.add_class::<PyXpress>()?;
     #[cfg(feature = "ipopt")]
     m.add_class::<PyIpopt>()?;
@@ -678,6 +730,9 @@ pub(crate) fn detect_default_backend(solver: Option<&Bound<'_, PyAny>>) -> Strin
     if solver.cast::<PyIpopt>().is_ok() {
         return "ipopt".to_string();
     }
+    if solver.cast::<PyScip>().is_ok() {
+        return "scip".to_string();
+    }
     if solver.cast::<PyXpress>().is_ok() {
         return "xpress".to_string();
     }
@@ -701,6 +756,9 @@ pub(crate) fn extract_solver_settings(
     if let Ok(ipopt) = solver.cast::<PyIpopt>() {
         return Ok(ipopt.borrow().into_super().settings.clone());
     }
+    if let Ok(scip) = solver.cast::<PyScip>() {
+        return Ok(scip.borrow().into_super().settings.clone());
+    }
     if let Ok(xpress) = solver.cast::<PyXpress>() {
         return Ok(xpress.borrow().into_super().settings.clone());
     }
@@ -708,6 +766,6 @@ pub(crate) fn extract_solver_settings(
         return Ok(base.borrow().settings.clone());
     }
     Err(crate::py_modules::errors::SolverTypeError::new_err(
-        "solver must be a SolverSelection, SolverProfile, Solver, HiGHS, Ipopt, or Xpress instance",
+        "solver must be a SolverSelection, SolverProfile, Solver, HiGHS, Scip, Ipopt, or Xpress instance",
     ))
 }

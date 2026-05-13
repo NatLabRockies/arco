@@ -742,7 +742,7 @@ fn run_fails_for_unsupported_embedded_family_selection() {
 }
 
 #[test]
-fn run_external_scip_profile_with_missing_executable_reports_io_error() {
+fn run_external_scip_profile_reports_unsupported_transport() {
     let model_path = example_path("examples/dense-lp/input.kdl");
     let model = model_path
         .to_str()
@@ -772,15 +772,15 @@ fn run_external_scip_profile_with_missing_executable_reports_io_error() {
 
     assert!(
         !output.status.success(),
-        "missing scip executable should fail\nstdout:\n{}\nstderr:\n{}",
+        "external scip profile should fail\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("failed during external solver I/O"),
-        "expected external solver io failure\nstdout:\n{}\nstderr:\n{}",
+        stderr.contains("external-process solver family 'scip' is not available"),
+        "expected unsupported external-process failure\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         stderr
     );

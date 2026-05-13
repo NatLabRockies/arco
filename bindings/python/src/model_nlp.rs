@@ -243,6 +243,7 @@ pub(crate) fn solve_with_ipopt(
     let status = match solution.status {
         arco_ops::execution::SolveStatus::Optimal => arco_ops::solve::SolverStatus::Optimal,
         arco_ops::execution::SolveStatus::Infeasible => arco_ops::solve::SolverStatus::Infeasible,
+        arco_ops::execution::SolveStatus::TimeLimit => arco_ops::solve::SolverStatus::TimeLimit,
         arco_ops::execution::SolveStatus::Failed => arco_ops::solve::SolverStatus::Unknown,
     };
 

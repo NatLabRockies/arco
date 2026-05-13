@@ -227,6 +227,21 @@ class Xpress(Solver):
         solver: str | None = None,
     ) -> None: ...
 
+class Scip(Solver):
+    def __init__(
+        self,
+        *,
+        presolve: bool | None = None,
+        threads: int | None = None,
+        tolerance: float | None = None,
+        time_limit: float | None = None,
+        mip_gap: float | None = None,
+        verbosity: int | None = None,
+        log_to_console: bool | None = None,
+        parameters: Mapping[str, str] | None = None,
+        solver: str | None = None,
+    ) -> None: ...
+
 class IndexSet:
     def __init__(
         self,

@@ -293,7 +293,7 @@ arco <command> [options]
 | `arco export <file>`        | Export as LP or MPS format                            |
 | `arco debug <file>`         | Open an interactive IPython debug shell               |
 | `arco solver show`          | Show the active solver backend                        |
-| `arco solver set <backend>` | Set the solver backend (`highs` or `xpress`)          |
+| `arco solver set <backend>` | Set the solver backend (`highs`, `scip`, or `xpress`) |
 
 ### Examples
 
@@ -463,6 +463,7 @@ Language & CLI
 Solvers
 
 - HiGHS (embedded) — open-source LP/MIP solver out of the box
+- [SCIP](https://www.scipopt.org/) (embedded via [russcip](https://github.com/scipopt/russcip)) — native LP/MIP solver
 - Xpress (optional) — commercial solver support
 - LP / MPS export — debug models in external tools
 - Warm starting — reuse solutions across sequential solves
@@ -564,7 +565,7 @@ graph LR
 | `arco-diagnostics`     | Shared diagnostics/provenance vocabulary                      |
 | `arco-tools`           | Memory instrumentation and diagnostics helpers                |
 | `arco-highs`           | Embedded HiGHS adapter                                        |
-| `arco-scip`            | SCIP adapter (external-process flow)                          |
+| `arco-scip`            | Embedded native SCIP adapter via `russcip`                    |
 | `arco-ipopt`           | IPOPT adapter crate                                           |
 | `arco-xpress`          | Xpress adapter crate                                          |
 | `arco-builtin-solvers` | Builtin solver-family wiring utilities                        |
