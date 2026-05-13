@@ -30,8 +30,8 @@ install-path = "CARGO_HOME"
 dispatch-releases = true
 # Build only the required packages, and individually
 precise-builds = true
-# Whether to install an updater program
-install-updater = true
+# Self-update is handled by `arco self update`.
+install-updater = false
 # Extra setup steps injected into dist build-local-artifacts jobs
 github-build-setup = "../dist-build-setup.yml"
 

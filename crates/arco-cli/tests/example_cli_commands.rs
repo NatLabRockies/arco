@@ -125,6 +125,22 @@ fn version_flag_prints_arco_version() {
 }
 
 #[test]
+fn self_update_without_dist_receipt_reports_standalone_requirement() {
+    let output = run_cli(&["self", "update"]);
+    assert!(
+        !output.status.success(),
+        "self update should fail without a cargo-dist receipt\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("Self-update is only available for arco binaries installed via the standalone installation scripts")
+    );
+}
+
+#[test]
 fn kdl_check_json_succeeds_for_valid_model() {
     let model_path = example_path("examples/capacity-expansion/input.kdl");
     let model = model_path

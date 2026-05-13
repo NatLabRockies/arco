@@ -4,3 +4,4 @@ pub mod debug_shell;
 pub mod driver;
 mod driver_kdl;
 mod driver_summary;
+pub mod self_update;

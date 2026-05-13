@@ -288,6 +288,7 @@ arco <command> [options]
 | `arco validate <file>`      | Validate a `.kdl` file without solving                |
 | `arco kdl check <file>`     | Validate a `.kdl` file with optional JSON diagnostics |
 | `arco --version`            | Print the installed Arco CLI version                  |
+| `arco self update`          | Update a standalone installer build                   |
 | `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters)  |
 | `arco print-model <file>`   | Print the algebraic model sent to the solver          |
 | `arco export <file>`        | Export as LP or MPS format                            |
