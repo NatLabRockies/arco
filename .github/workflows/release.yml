@@ -40,12 +40,6 @@ permissions:
 # will be marked as a prerelease.
 on:
   pull_request:
-  workflow_call:
-    inputs:
-      tag:
-        description: Release Tag
-        required: true
-        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -141,6 +135,10 @@ jobs:
           fi
       - name: Use rustup to set correct Rust version
         run: rustup update "1.85" --no-self-update && rustup default "1.85"
+      - name: "Install uv for solver runtime setup"
+        uses: "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
+        with:
+          "version": "0.9.4"
       - name: "Setup solver runtime (xpress)"
         run: |
           set -euo pipefail
@@ -174,6 +172,17 @@ jobs:
           patch_script="$RUNNER_TEMP/arco-scip-source-patch.cmake"
           toolchain_file="$RUNNER_TEMP/arco-musl-toolchain.cmake"
 
+          if command -v x86_64-unknown-linux-musl-gcc >/dev/null 2>&1; then
+            musl_cc="$(command -v x86_64-unknown-linux-musl-gcc)"
+            musl_cxx="$(command -v x86_64-unknown-linux-musl-g++)"
+          elif command -v x86_64-linux-musl-gcc >/dev/null 2>&1; then
+            musl_cc="$(command -v x86_64-linux-musl-gcc)"
+            musl_cxx="$(command -v x86_64-linux-musl-g++)"
+          else
+            echo "Could not find a musl C/C++ compiler in PATH" >&2
+            exit 1
+          fi
+
           cat > "$patch_script" <<'EOF'
           set(_arco_soplex_cmake "${CMAKE_SOURCE_DIR}/soplex/CMakeLists.txt")
           if(EXISTS "${_arco_soplex_cmake}")
@@ -183,14 +192,59 @@ jobs:
             file(WRITE "${_arco_soplex_cmake}" "${_arco_soplex_contents}")
             message(STATUS "Arco: disabled Soplex test targets for musl static linking")
           endif()
+
+          set(_arco_soplex_src_cmake "${CMAKE_SOURCE_DIR}/soplex/src/CMakeLists.txt")
+          if(EXISTS "${_arco_soplex_src_cmake}")
+            file(READ "${_arco_soplex_src_cmake}" _arco_soplex_src_contents)
+            set(_arco_soplex_shared_decl [[add_library(libsoplexshared SHARED ${sources})]])
+            set(_arco_soplex_static_decl [[add_library(libsoplexshared STATIC ${sources})]])
+            if(_arco_soplex_src_contents MATCHES "add_library\\(libsoplexshared SHARED")
+              string(REPLACE "${_arco_soplex_shared_decl}" "${_arco_soplex_static_decl}" _arco_soplex_src_contents "${_arco_soplex_src_contents}")
+              if(_arco_soplex_src_contents MATCHES "add_library\\(libsoplexshared SHARED")
+                message(FATAL_ERROR "Arco: failed to replace Soplex shared library declaration")
+              endif()
+              message(STATUS "Arco: forced Soplex shared target to static for musl static linking")
+            elseif(_arco_soplex_src_contents MATCHES "add_library\\(libsoplexshared STATIC")
+              message(STATUS "Arco: Soplex shared target is already static for musl static linking")
+            else()
+              message(FATAL_ERROR "Arco: expected Soplex shared/static library declaration was not found")
+            endif()
+
+            string(REPLACE "install(TARGETS soplex libsoplex" "install(TARGETS libsoplex" _arco_soplex_src_contents "${_arco_soplex_src_contents}")
+            if(_arco_soplex_src_contents MATCHES "install\\(TARGETS soplex")
+              message(FATAL_ERROR "Arco: failed to remove Soplex executable install target")
+            endif()
+            file(WRITE "${_arco_soplex_src_cmake}" "${_arco_soplex_src_contents}")
+            message(STATUS "Arco: removed Soplex executable install target for musl static linking")
+          endif()
+
+          set(_arco_scip_src_cmake "${CMAKE_SOURCE_DIR}/scip/src/CMakeLists.txt")
+          if(EXISTS "${_arco_scip_src_cmake}")
+            file(READ "${_arco_scip_src_cmake}" _arco_scip_src_contents)
+            string(REPLACE "install(TARGETS scip libscip" "install(TARGETS libscip" _arco_scip_src_contents "${_arco_scip_src_contents}")
+            string(REPLACE "export(TARGETS scip libscip" "export(TARGETS libscip" _arco_scip_src_contents "${_arco_scip_src_contents}")
+            if(_arco_scip_src_contents MATCHES "install\\(TARGETS scip")
+              message(FATAL_ERROR "Arco: failed to remove SCIP executable install target")
+            endif()
+            file(WRITE "${_arco_scip_src_cmake}" "${_arco_scip_src_contents}")
+            message(STATUS "Arco: removed SCIP executable install target for musl static linking")
+          endif()
           EOF
 
           cat > "$toolchain_file" <<EOF
+          set(CMAKE_SYSTEM_NAME Linux)
+          set(CMAKE_SYSTEM_PROCESSOR x86_64)
+          set(CMAKE_C_COMPILER "$musl_cc")
+          set(CMAKE_CXX_COMPILER "$musl_cxx")
+          set(CMAKE_ASM_COMPILER "$musl_cc")
           set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "$patch_script")
           set(CMAKE_PROJECT_INCLUDE "$patch_script")
           EOF
 
           {
+            echo "CC_x86_64_unknown_linux_musl=$musl_cc"
+            echo "CXX_x86_64_unknown_linux_musl=$musl_cxx"
+            echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=$musl_cc"
             echo "CMAKE_TOOLCHAIN_FILE=$toolchain_file"
             echo "CMAKE_TOOLCHAIN_FILE_x86_64_unknown_linux_musl=$toolchain_file"
           } >> "$GITHUB_ENV"

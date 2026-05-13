@@ -24,6 +24,9 @@ targets = [
 ]
 # Which actions to run on pull requests
 pr-run-mode = "upload"
+# cargo-dist's MSI template generator currently emits whitespace-only blank lines
+# that repo hooks trim. The checked-in template is functionally identical.
+allow-dirty = ["msi"]
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Whether CI should trigger releases with dispatches instead of tag pushes

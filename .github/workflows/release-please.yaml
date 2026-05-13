@@ -46,11 +46,78 @@ jobs:
     name: Build and publish release
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
-      contents: write # Required because the called workflow uploads release artifacts to GitHub Releases.
-    uses: ./.github/workflows/release.yml
-    with:
-      tag: ${{ needs.release-please.outputs.tag_name }}
+      actions: write # Required to dispatch and inspect the cargo-dist workflow run.
+      contents: read
+    steps:
+      - name: Dispatch cargo-dist release
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run release.yml --ref main -f tag="$TAG"
+
+          for _ in {1..60}; do
+            run_id="$(gh run list \
+              --workflow release.yml \
+              --event workflow_dispatch \
+              --branch main \
+              --limit 20 \
+              --json databaseId,createdAt \
+              --jq ".[] | select(.createdAt >= \"$started_at\") | .databaseId" \
+              | head -n 1)"
+            if [[ -n "$run_id" ]]; then
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 5
+          done
+
+          echo "Timed out waiting for dispatched cargo-dist run" >&2
+          exit 1
+
+      - name: Wait for cargo-dist release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          while true; do
+            status="$(gh run view "$RUN_ID" --json status --jq '.status')"
+            if [[ "$status" == "completed" ]]; then
+              break
+            fi
+            sleep 30
+          done
+
+          conclusion="$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion')"
+          if [[ "$conclusion" != "success" ]]; then
+            gh run view "$RUN_ID"
+            exit 1
+          fi
+
+      - name: Download dist-manifest from cargo-dist run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh run download "$RUN_ID" --name artifacts-dist-manifest --dir cargo-dist-manifest
+
+      - name: Store dist-manifest for follow-up jobs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifacts-dist-manifest
+          path: cargo-dist-manifest/dist-manifest.json
+          retention-days: 3
 
   update-release-notes:
     name: Append install instructions
@@ -74,12 +141,12 @@ jobs:
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          install_body=$(jq -r '.announcement_github_body // empty' dist-manifest.json)
+          install_body="$(jq -r '.announcement_github_body // empty' dist-manifest.json)"
           if [[ -z "$install_body" ]]; then
             echo "No install instructions found in dist-manifest.json"
             exit 0
           fi
-          current_body=$(gh release view "$TAG" --json body --jq '.body')
+          current_body="$(gh release view "$TAG" --json body --jq '.body')"
           printf '%s\n\n---\n\n%s' "$current_body" "$install_body" > release-body.md
           gh release edit "$TAG" --notes-file release-body.md
 
