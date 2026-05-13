@@ -23,7 +23,7 @@ targets = [
   "x86_64-pc-windows-msvc",
 ]
 # Which actions to run on pull requests
-pr-run-mode = "upload"
+pr-run-mode = "plan"
 # cargo-dist's MSI template generator currently emits whitespace-only blank lines
 # that repo hooks trim. The checked-in template is functionally identical.
 allow-dirty = ["msi"]
