@@ -1,14 +1,20 @@
 # ReEDS benchmark
 
-Python-only Arco benchmark adapted from the ReEDS framework comparison. It builds a simplified single-vintage capacity-expansion LP with sparse active tech/region/year domains, transmission, ramping, emissions, and storage constraints.
+Small ReEDS-style KDL benchmark for capacity expansion and dispatch.
 
-Run from repo root:
+The KDL files are committed, but CSV inputs are generated into a temporary
+working directory so the repository does not carry generated data files.
+
+Run from the repository root:
+
+```bash
+REEDS_KDL_INPUT=$(uv run examples/reeds-benchmark/prepare_kdl_contract.py)
+cargo run -p arco-cli -- validate "$REEDS_KDL_INPUT"
+cargo run -p arco-cli -- run "$REEDS_KDL_INPUT" --compact
+```
+
+For comparison, the Python benchmark remains available:
 
 ```bash
 uv run examples/reeds-benchmark/formulation.py --size small --json
-uv run examples/reeds-benchmark/formulation.py --size medium --build-only --json
 ```
-
-Sizes: `small`, `medium`, `large`, `xlarge`.
-
-Use this example as the baseline for improving the Arco Python dense-array UX and reducing formulation LOC.

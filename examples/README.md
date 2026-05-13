@@ -58,7 +58,7 @@ cargo run --release -p arco-cli -- run \
 | DCOPF, PTDF formulation                | `examples/dcopf-ptdf/input.kdl`                                                      | The same OF3bus case written with PTDF flow equations for formulation comparison.                                                                     | Ready  |
 | Unit commitment                        | `examples/unit-commitment/input.kdl`                                                 | Mixed-integer unit commitment with startup, shutdown, ramping, and piecewise costs, adapted from PSOPTLIB UC.                                         | Ready  |
 | Dense LP benchmark                     | `examples/dense-lp/input.kdl`                                                        | Synthetic dense LP used to stress model construction and compare against the bundled Python formulation.                                              | Ready  |
-| ReEDS benchmark                        | `examples/reeds-benchmark/formulation.py`                                            | ReEDS-representative LP benchmark using Arco Python bindings, sparse active domains, ramping, storage, emissions, and transmission.                   | Ready  |
+| ReEDS benchmark                        | `examples/reeds-benchmark/input.kdl`                                                 | ReEDS-representative LP benchmark with exported sparse tuple domains plus a companion Python formulation for parity and benchmark comparison.         | Ready  |
 | SDOM                                   | `examples/sdom/input.kdl`                                                            | Storage deployment optimization with renewables, thermal capacity, storage sizing, and policy-style generation mix constraints.                       | Ready  |
 | Multi-period DC-OPF (24-bus)           | `examples/multi-period-optimal-power-flow/dc-opf-24bus-wind-load-shedding/input.kdl` | 24-hour DC optimal power flow on the IEEE 24-bus system with wind, ramping, load shedding, and curtailment. LP, solves with HiGHS.                    | Ready  |
 | Multi-period AC-OPF (24-bus)           | `examples/multi-period-optimal-power-flow/ac-opf-24bus-wind-load-shedding/input.kdl` | 24-hour AC optimal power flow on the IEEE 24-bus system with wind, ramping, load shedding, and curtailment. NLP, requires IPOPT (`--features ipopt`). | Ready  |
@@ -72,6 +72,8 @@ Some examples ship a Python formulation so you can compare the KDL model with a 
 uv run examples/dense-lp/formulation.py --solve --json
 uv run examples/sdom/formulation.py --solve --json
 uv run examples/reeds-benchmark/formulation.py --size small --json
+REEDS_KDL_INPUT=$(uv run examples/reeds-benchmark/prepare_kdl_contract.py)
+cargo run -p arco-cli -- validate "$REEDS_KDL_INPUT"
 ```
 
 For interactive exploration of dense-lp (inspect model, then solve from a REPL):
