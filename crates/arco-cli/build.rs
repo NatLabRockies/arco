@@ -1,71 +1,57 @@
 fn main() {
-    // When the xpress feature is enabled and a local runtime is present, embed
-    // an rpath hint so dlopen can find libxprs without extra env vars.
-    #[cfg(feature = "xpress")]
-    {
-        println!("cargo:rerun-if-env-changed=XPRESSDIR");
+    if target_family().as_deref() != Ok("unix") {
+        return;
+    }
 
-        let Some(dir) = detect_xpress_dir() else {
-            return;
-        };
-
-        if target_family().as_deref() == Some("unix") {
-            let lib_dir = format!("{dir}/lib");
-            println!("cargo:rustc-link-arg=-Wl,-rpath,{lib_dir}");
-        }
+    if let Ok(libscip_dir) = std::env::var("DEP_SCIP_LIBDIR") {
+        emit_arco_rpath(&libscip_dir);
+    }
+    for libscip_dir in bundled_scip_lib_dirs() {
+        emit_arco_rpath(&libscip_dir.display().to_string());
     }
 }
 
-#[cfg(feature = "xpress")]
-fn detect_xpress_dir() -> Option<String> {
-    if let Some(path) = std::env::var("XPRESSDIR")
-        .ok()
-        .filter(|value| !value.is_empty())
-    {
-        if std::path::Path::new(&path).exists() {
-            return Some(path);
-        }
-    }
-
-    let mut candidates = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = std::path::PathBuf::from(home);
-        candidates.push(home.join("User Apps").join("FICO Xpress").join("xpressmp"));
-        candidates.push(home.join("opt").join("xpressmp"));
-    }
-    if let Some(user_profile) = std::env::var_os("USERPROFILE") {
-        let user_profile = std::path::PathBuf::from(user_profile);
-        candidates.push(
-            user_profile
-                .join("AppData")
-                .join("Local")
-                .join("FICO Xpress")
-                .join("xpressmp"),
-        );
-    }
-    if let Some(program_files) = std::env::var_os("ProgramFiles") {
-        let program_files = std::path::PathBuf::from(program_files);
-        candidates.push(program_files.join("FICO Xpress").join("xpressmp"));
-    }
-    if let Some(program_files_x86) = std::env::var_os("ProgramFiles(x86)") {
-        let program_files_x86 = std::path::PathBuf::from(program_files_x86);
-        candidates.push(program_files_x86.join("FICO Xpress").join("xpressmp"));
-    }
-    candidates.extend([
-        std::path::PathBuf::from("/Applications/FICO Xpress/xpressmp"),
-        std::path::PathBuf::from("/Volumes/FICO Xpress Installer/FICO Xpress/xpressmp"),
-        std::path::PathBuf::from("/opt/xpressmp"),
-        std::path::PathBuf::from("/Library/xpressmp"),
-        std::path::PathBuf::from("C:\\xpressmp"),
-    ]);
-
-    candidates
-        .into_iter()
-        .find(|path| path.exists())
-        .map(|path| path.display().to_string())
+fn target_family() -> Result<String, std::env::VarError> {
+    std::env::var("CARGO_CFG_TARGET_FAMILY")
 }
 
-#[cfg(feature = "xpress")]
-fn target_family() -> Option<String> {
-    std::env::var("CARGO_CFG_TARGET_FAMILY").ok()
+fn emit_arco_rpath(path: &str) {
+    println!("cargo:rustc-link-arg-bin=arco=-Wl,-rpath,{path}");
+}
+
+fn bundled_scip_lib_dirs() -> Vec<std::path::PathBuf> {
+    let manifest_dir =
+        std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap_or_default());
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(std::path::Path::parent)
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or(manifest_dir);
+    let target_dir = repo_root.join("target");
+    let mut dirs = Vec::new();
+    for profile in ["debug", "release"] {
+        if let Some(path) = newest_bundled_scip_lib_dir(&target_dir.join(profile).join("build")) {
+            dirs.push(path);
+        }
+    }
+    dirs
+}
+
+fn newest_bundled_scip_lib_dir(build_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let entries = std::fs::read_dir(build_dir).ok()?;
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path().join("out").join("scip_install").join("lib");
+            if !path.join("libscip.dylib").exists() && !path.join("libscip.so").exists() {
+                return None;
+            }
+            let modified = path
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .ok()?;
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
 }
