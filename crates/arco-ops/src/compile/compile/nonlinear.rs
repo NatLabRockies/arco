@@ -643,7 +643,7 @@ fn compile_nonlinear_indexed_expr(
         let asset_name = string_filter_value(&resolved[0], &synthetic, entrypoint)?;
         let time = integer_time_index(&resolved[1], entrypoint)?;
 
-        if !(1..=program.sets.time.steps as i64).contains(&time)
+        if !(1..=program.time_steps() as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
         {
             if let Some(value) =
@@ -660,7 +660,7 @@ fn compile_nonlinear_indexed_expr(
 
     if let [FilterValue::Number(_)] = resolved.as_slice() {
         let time = integer_time_index(&resolved[0], entrypoint)?;
-        if !(1..=program.sets.time.steps as i64).contains(&time)
+        if !(1..=program.time_steps() as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
         {
             return Err(CompileError::InvalidFormulation {
