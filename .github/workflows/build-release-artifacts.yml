@@ -1,0 +1,129 @@
+name: Build release artifacts
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-local-artifacts:
+    name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
+    if: ${{ fromJson(inputs.plan).ci.github.artifacts_matrix.include != null }}
+    strategy:
+      fail-fast: false
+      # Target platforms/runners are computed by dist in release.yml.
+      # Each member of the matrix has the following arguments:
+      #
+      # - runner: the github runner
+      # - dist-args: cli flags to pass to dist
+      #
+      # Typically there will be:
+      # - N "local" tasks that build each platform's binaries and platform-specific installers
+      matrix: ${{ fromJson(inputs.plan).ci.github.artifacts_matrix }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container && matrix.container.image || null }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+      DIST_TAG_FLAG: ${{ fromJson(inputs.plan).announcement_tag_is_implicit == false && format('--tag={0}', fromJson(inputs.plan).announcement_tag) || '' }}
+    steps:
+      - name: enable windows longpaths
+        run: |
+          git config --global core.longpaths true
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Install Rust non-interactively if not already installed
+        if: ${{ matrix.container }}
+        run: |
+          if ! command -v cargo > /dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Use rustup to set correct Rust version
+        run: rustup update "1.85" --no-self-update && rustup default "1.85"
+      - name: "Install uv for solver runtime setup"
+        uses: "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
+        with:
+          "version": "0.9.4"
+      - name: "Setup solver runtime (xpress)"
+        run: |
+          set -euo pipefail
+          bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
+        shell: "bash"
+        env:
+          "XPRESS_SDK_LINUX_URL": "${{ vars.XPRESS_SDK_LINUX_URL }}"
+          "XPRESS_SDK_MACOS_URL": "${{ vars.XPRESS_SDK_MACOS_URL }}"
+          "XPRESS_SDK_WINDOWS_URL": "${{ vars.XPRESS_SDK_WINDOWS_URL }}"
+      - name: "Validate XPRESSDIR for xpress-enabled dist builds (unix)"
+        if: "runner.os != 'Windows'"
+        run: |
+          set -euo pipefail
+          if [[ -z "${XPRESSDIR:-}" ]]; then
+            echo "XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS." >&2
+            exit 1
+          fi
+        shell: "bash"
+      - name: "Validate XPRESSDIR for xpress-enabled dist builds (windows)"
+        if: "runner.os == 'Windows'"
+        run: |
+          if (-not $env:XPRESSDIR) {
+            Write-Error 'XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS.'
+          }
+        shell: "pwsh"
+      - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          key: ${{ join(matrix.targets, '-') }}
+          cache-provider: ${{ matrix.cache_provider }}
+      - name: Install dist (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh
+      - name: Install dist (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: irm https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.ps1 | iex
+      - name: Fetch local artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Build artifacts
+        env:
+          DIST_ARGS: ${{ matrix.dist_args }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r -a tag_args <<< "$DIST_TAG_FLAG"
+          read -r -a dist_args <<< "$DIST_ARGS"
+          dist build "${tag_args[@]}" --print=linkage --output-format=json "${dist_args[@]}" > dist-manifest.json
+          echo "dist ran successfully"
+      - id: cargo-dist
+        name: Post-build
+        # We force bash here just because github makes it really hard to get values up
+        # to "real" actions without writing to env-vars, and writing to env-vars has
+        # inconsistent syntax between shell and powershell.
+        shell: bash
+        run: |
+          # Parse out what we just built and upload it to scratch storage
+          {
+            echo "paths<<EOF"
+            dist print-upload-files-from-manifest --manifest dist-manifest.json
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          cp dist-manifest.json "$BUILD_MANIFEST_NAME"
+      - name: "Upload artifacts"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: artifacts-build-local-${{ join(matrix.targets, '_') }}
+          path: |
+            ${{ steps.cargo-dist.outputs.paths }}
+            ${{ env.BUILD_MANIFEST_NAME }}

@@ -143,8 +143,9 @@ Windows (PowerShell):
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.ps1 | iex"
 ```
 
-The installer places the `arco` binary in `~/.cargo/bin` and includes a
-self-updater (`arco-update`).
+The installer places the `arco` binary in the first available XDG-style user
+binary directory (`$XDG_BIN_HOME`, `$XDG_DATA_HOME/../bin`, then `~/.local/bin`).
+Use `arco self update` to update an installed CLI.
 
 > [!NOTE]
 > Linux `*-unknown-linux-gnu` artifacts require a recent glibc. If your system

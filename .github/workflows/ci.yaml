@@ -2,13 +2,19 @@ name: Continuous Integration
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - "crates/**"
       - "bindings/python/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "dist-workspace.toml"
       - "justfile"
       - ".github/workflows/ci.yaml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/release-please.yaml"
+      - ".github/workflows/publish-release.yml"
+      - ".github/workflows/build-release-artifacts.yml"
       - ".github/actions/**"
   push:
     branches:
@@ -18,8 +24,13 @@ on:
       - "bindings/python/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "dist-workspace.toml"
       - "justfile"
       - ".github/workflows/ci.yaml"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/release-please.yaml"
+      - ".github/workflows/publish-release.yml"
+      - ".github/workflows/build-release-artifacts.yml"
       - ".github/actions/**"
   workflow_dispatch:
 
@@ -37,6 +48,60 @@ env:
   RUST_TOOLCHAIN_VERSION: "1.85"
 
 jobs:
+  plan:
+    name: CI plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build-release-artifacts: ${{ steps.plan.outputs.build_release_artifacts }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Plan CI jobs
+        id: plan
+        shell: bash
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HAS_BUILD_RELEASE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'build:release') }}
+          HAS_BUILD_SKIP_RELEASE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'build:skip-release') }}
+        run: |
+          set -euo pipefail
+
+          [[ "$HAS_BUILD_RELEASE_LABEL" == "true" ]] && has_build_release_label=1
+          [[ "$HAS_BUILD_SKIP_RELEASE_LABEL" == "true" ]] && has_build_skip_release_label=1
+
+          base_sha="$BASE_SHA"
+          if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
+            base_sha="origin/main"
+          fi
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              dist-workspace.toml | \
+              rust-toolchain.toml | \
+              .github/workflows/release.yml | \
+              .github/workflows/release-please.yaml | \
+              .github/workflows/publish-release.yml | \
+              .github/workflows/build-release-artifacts.yml | \
+              scripts/setup_solver_runtime_env.sh)
+                release_build_changed=1
+                ;;
+            esac
+          done <<< "$(git diff --name-only "$base_sha"...HEAD)"
+
+          if [[ -z "${has_build_skip_release_label:-}" && ( -n "${release_build_changed:-}" || -n "${has_build_release_label:-}" ) ]]; then
+            build_release_artifacts=true
+          else
+            build_release_artifacts=false
+          fi
+
+          echo "build_release_artifacts=$build_release_artifacts" >> "$GITHUB_OUTPUT"
+
   version-consistency:
     name: Version consistency
     runs-on: ubuntu-latest
@@ -66,6 +131,41 @@ jobs:
           [[ -n "$pyproject_version" ]] || { echo "::error::Could not read version from pyproject.toml"; exit 1; }
           [[ "$cargo_version" == "$pyproject_version" ]] || { echo "::error::Version mismatch: Cargo.toml=$cargo_version pyproject.toml=$pyproject_version"; exit 1; }
           echo "Versions match: $cargo_version"
+
+  check-release:
+    name: Release workflow plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      manifest: ${{ steps.plan.outputs.manifest }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install dist
+        shell: bash
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh
+
+      - name: Check dist release plan
+        id: plan
+        run: |
+          dist plan --output-format=json > plan-dist-manifest.json
+          echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload dist manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifacts-plan-dist-manifest
+          path: plan-dist-manifest.json
+
+  build-release-artifacts:
+    name: Release artifact build
+    needs: [plan, check-release]
+    if: needs.plan.outputs.build-release-artifacts == 'true'
+    uses: ./.github/workflows/build-release-artifacts.yml
+    with:
+      plan: ${{ needs.check-release.outputs.manifest }}
 
   rust-fmt:
     name: Rust formatting
@@ -220,7 +320,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.10", "3.11", "3.12", "3.13", "3.14"]') }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:

@@ -36,7 +36,7 @@ jobs:
         run: |
           workflows=()
           while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) ! -name 'release.yml' -print)
-          uvx zizmor .github/actions .github/dependabot.yml "${workflows[@]}"
+          uvx zizmor --pedantic .github/actions .github/dependabot.yml "${workflows[@]}"
 
   actionlint:
     name: actionlint
