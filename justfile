@@ -74,7 +74,7 @@ kdl-overlay-check:
 
 [group: 'python']
 py-build-ci: py-licenses
-    uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist
+    uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml --features xpress -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist
     uv run --project bindings/python --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
 
 [group: 'python']

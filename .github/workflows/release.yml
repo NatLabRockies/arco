@@ -249,10 +249,6 @@ jobs:
             echo "CMAKE_TOOLCHAIN_FILE_x86_64_unknown_linux_musl=$toolchain_file"
           } >> "$GITHUB_ENV"
         shell: "bash"
-      - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
-        with:
-          key: ${{ join(matrix.targets, '-') }}
-          cache-provider: ${{ matrix.cache_provider }}
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest

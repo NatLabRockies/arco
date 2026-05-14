@@ -623,6 +623,10 @@ fn detect_xpress_dir_for_python() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.exists())
 }
 
+pub(crate) fn xpress_backend_enabled() -> bool {
+    cfg!(feature = "xpress")
+}
+
 fn solver_runtime_info_for_family(py: Python<'_>, family: &str) -> PyResult<Py<PyDict>> {
     let info = PyDict::new(py);
     info.set_item("family", family)?;
@@ -636,7 +640,7 @@ fn solver_runtime_info_for_family(py: Python<'_>, family: &str) -> PyResult<Py<P
             info.set_item("runtime_dir", xpress_dir)?;
             let configured = std::env::var("XPAUTH_PATH").ok();
             info.set_item("configured_license_path", configured)?;
-            info.set_item("backend_enabled", cfg!(feature = "xpress"))?;
+            info.set_item("backend_enabled", xpress_backend_enabled())?;
         }
         "highs" | "scip" | "ipopt" => {
             info.set_item("requires_license", false)?;
