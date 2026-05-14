@@ -27,7 +27,7 @@ fn emit_terminal_boundary_constraints(
             terms: vec![term(
                 &format!(
                     "{}[{},{}]",
-                    soc_signature.target, asset.name, program.sets.time.steps
+                    soc_signature.target, asset.name, program.time_steps()
                 ),
                 1.0,
             )],
@@ -99,25 +99,7 @@ fn infer_constraint_generation_bindings(
 }
 
 fn domain_is_time_like(program: &SemanticProgram, domain: &str) -> bool {
-    if domain == "time" || domain == "t" {
-        return true;
-    }
-    let set = program.set_registry.get(domain).or_else(|| {
-        program
-            .set_aliases
-            .get(domain)
-            .and_then(|canonical| program.set_registry.get(canonical))
-    });
-    let Some(set) = set else {
-        return false;
-    };
-    if set.values.len() != program.sets.time.steps || set.values.is_empty() {
-        return false;
-    }
-    set.values
-        .iter()
-        .enumerate()
-        .all(|(offset, value)| value.parse::<usize>().ok() == Some(offset + 1))
+    program.is_time_set_name(domain)
 }
 
 fn infer_constraint_binding_domains_from_body(

@@ -75,7 +75,6 @@ pub struct ExpectedSets {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ExpectedTimeSet {
     pub steps: usize,
-    pub resolution: String,
 }
 
 pub type ExpectedParameters = ResolvedParameters;
@@ -178,8 +177,7 @@ fn to_semantic_expectation(
                 .map(|set| set.values.clone())
                 .unwrap_or_default(),
             time: ExpectedTimeSet {
-                steps: program.sets.time.steps,
-                resolution: program.sets.time.resolution.to_string(),
+                steps: program.time_steps(),
             },
         },
         parameters: ExpectedParameters {
@@ -251,8 +249,7 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, BenchmarkEr
 mod tests {
     use super::*;
     use crate::compile::semantic::{
-        ResolvedChronology, ResolvedObjective, ResolvedParameters, ResolvedSet, ResolvedSets,
-        ResolvedTimeSet, SemanticProgram, TimeResolution,
+        ResolvedChronology, ResolvedObjective, ResolvedParameters, ResolvedSet, SemanticProgram,
     };
     use crate::kdl::algebra::Expr;
     use std::collections::BTreeMap;
@@ -260,13 +257,15 @@ mod tests {
     fn base_program() -> SemanticProgram {
         SemanticProgram {
             active_scenario: "Base".to_string(),
-            sets: ResolvedSets {
-                time: ResolvedTimeSet {
-                    steps: 24,
-                    resolution: TimeResolution::Hourly,
+            set_registry: BTreeMap::from([(
+                "time".to_string(),
+                ResolvedSet {
+                    values: (1..=24).map(|value| value.to_string()).collect(),
+                    tuple_components: None,
+                    tuple_component_domains: None,
+                    tuple_rows: None,
                 },
-            },
-            set_registry: BTreeMap::new(),
+            )]),
             set_aliases: BTreeMap::new(),
             set_params: BTreeMap::new(),
             parameters: ResolvedParameters::default(),

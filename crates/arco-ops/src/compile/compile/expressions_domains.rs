@@ -138,7 +138,7 @@ fn reduction_domain_values(
             .filter(|asset| asset.candidate)
             .map(|asset| FilterValue::String(asset.name.clone()))
             .collect()),
-        "time" => Ok((1..=program.sets.time.steps)
+        domain if program.is_time_set_name(domain) => Ok((1..=program.time_steps())
             .map(|time| FilterValue::Number(time as f64))
             .collect()),
         _ => {
@@ -441,7 +441,7 @@ fn linearize_indexed_expr(
         // normal 1..=steps range AND a variable family with matching
         // arity exists (so we know this target is a variable, not a
         // parameter that happens to be missing).
-        if !(1..=program.sets.time.steps as i64).contains(&time)
+        if !(1..=program.time_steps() as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
         {
             if let Some(value) =
@@ -458,7 +458,7 @@ fn linearize_indexed_expr(
 
     if let [FilterValue::Number(_)] = resolved.as_slice() {
         let time = integer_time_index(&resolved[0], entrypoint)?;
-        if !(1..=program.sets.time.steps as i64).contains(&time)
+        if !(1..=program.time_steps() as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
         {
             return Err(CompileError::InvalidFormulation {

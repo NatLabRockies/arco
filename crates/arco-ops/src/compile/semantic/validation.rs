@@ -7,8 +7,7 @@ use crate::compile::semantic::sets::{
 };
 use crate::compile::semantic::types::{
     FamilySignature, ResolvedChronology, ResolvedConstraint, ResolvedExpression, ResolvedObjective,
-    ResolvedParameters, ResolvedReport, ResolvedSets, ResolvedTimeSet, SemanticProgram,
-    TimeResolution, VariableDeclOverrides,
+    ResolvedParameters, ResolvedReport, SemanticProgram, VariableDeclOverrides,
 };
 use arco_kdl::algebra::parse_value_formula;
 use arco_kdl::source::{BoundExpr, ModelDecl, ScenarioDecl, SourceProgram, VariableKindDecl};
@@ -179,20 +178,8 @@ pub fn validate_program(
         }
     }
 
-    let time_steps = set_registry
-        .get("time")
-        .or_else(|| set_registry.get("t"))
-        .map_or(0, |set| set.values.len());
-    let resolved_sets = ResolvedSets {
-        time: ResolvedTimeSet {
-            steps: time_steps,
-            resolution: TimeResolution::default(),
-        },
-    };
-
     Ok(SemanticProgram {
         active_scenario: scenario.name.clone(),
-        sets: resolved_sets,
         set_registry,
         set_aliases: set_aliases.clone(),
         set_params: BTreeMap::new(),
