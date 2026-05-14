@@ -1,0 +1,4 @@
+area,tech,gen,bus,feasible,existing,mw_load
+north,solar,g1,b1,1,1,10
+north,wind,g2,b2,1,1,20
+north,solar,g3,b3,1,0,0

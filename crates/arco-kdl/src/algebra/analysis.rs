@@ -31,7 +31,7 @@ fn collect_named_dependencies(
     names: &mut BTreeSet<String>,
 ) {
     match expr {
-        Expr::Identifier(name) => {
+        Expr::Identifier(name) | Expr::String(name) => {
             if !bound.contains(name) {
                 names.insert(name.clone());
             }
@@ -71,7 +71,7 @@ fn collect_named_dependencies(
                 collect_named_dependencies(arg, bound, names);
             }
         }
-        Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) => {}
+        Expr::Number(_) | Expr::Boolean(_) => {}
     }
 }
 
@@ -101,4 +101,23 @@ fn index_mentions_previous_time(expr: &Expr) -> bool {
         } if matches!(left.as_ref(), Expr::Identifier(name) if name == "t")
             && matches!(right.as_ref(), Expr::Number(value) if value == "1")
     ) || expr_mentions_previous_time(expr)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_named_expression_dependencies_includes_quoted_expression_refs() {
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::String("dispatch_new_gen_per_bus[b]".to_string())),
+            right: Box::new(Expr::Identifier("mw_load_per_existing_bus".to_string())),
+        };
+
+        let dependencies = collect_named_expression_dependencies(&expr);
+
+        assert!(dependencies.contains("dispatch_new_gen_per_bus[b]"));
+        assert!(dependencies.contains("mw_load_per_existing_bus"));
+    }
 }

@@ -1,0 +1,84 @@
+data links source="data/links.csv" {
+  map generators from="gen"
+  map buses from="bus"
+
+  set area alias="a"
+  set tech alias="i"
+  set generators alias="g"
+  set buses alias="b"
+
+  set feasible_links {
+    index a { in area }
+    index i { in tech }
+    index g { in generators }
+    index b { in buses }
+    filter { feasible > 0 }
+  }
+
+  set feasible_existing_links {
+    index a { in area }
+    index i { in tech }
+    index g { in generators }
+    index b { in buses }
+    filter { existing > 0 }
+  }
+
+  param mw_load {
+    index a
+    index i
+    index g
+    index b
+  }
+
+  param mw_load_per_existing_bus from=mw_load index=b reduce=sum {
+    filter { existing > 0 }
+  }
+}
+
+projection "b_new" {
+  from "feasible_links"
+  to "b"
+}
+
+projection "b_exist" {
+  from "feasible_existing_links"
+  to "b"
+}
+
+model SparseNetInjection {
+  control dispatch_new_gen lower=0 {
+    index feasible_links
+  }
+
+  control dispatch_existent_gen lower=0 {
+    index feasible_existing_links
+  }
+
+  expression "dispatch_new_gen_per_bus[b]" {
+    reduce "b_new" {
+      sum "dispatch_new_gen"
+    }
+  }
+
+  expression "dispatch_existent_gen_per_bus[b]" {
+    reduce "b_exist" {
+      sum "dispatch_existent_gen"
+    }
+  }
+
+  expression "net_injection_existing_bus[b]" {
+    "dispatch_new_gen_per_bus[b]"
+      + "dispatch_existent_gen_per_bus[b]"
+      - mw_load_per_existing_bus
+  }
+
+  constraint "test" {
+    "net_injection_existing_bus[b]" >= 100.0
+  }
+
+  minimize total_dispatch { 0 }
+}
+
+scenario SparseNetInjectionDay {
+  use SparseNetInjection
+}

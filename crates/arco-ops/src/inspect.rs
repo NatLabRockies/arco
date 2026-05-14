@@ -734,8 +734,7 @@ fn build_uses(
     variable_targets: &BTreeSet<String>,
     parameter_targets: &BTreeSet<String>,
 ) -> Vec<UseRef> {
-    let mut targets = BTreeSet::new();
-    collect_indexed_targets(expr, &mut targets);
+    let targets = collect_named_targets(expr);
 
     let mut uses = Vec::new();
     for target in &targets {
@@ -769,13 +768,24 @@ fn collect_parameter_targets(
     variable_targets: &BTreeSet<String>,
 ) -> BTreeSet<String> {
     let set_targets: BTreeSet<String> = program.set_registry.keys().cloned().collect();
+    let set_alias_targets: BTreeSet<String> = program
+        .set_aliases
+        .keys()
+        .chain(program.set_aliases.values())
+        .cloned()
+        .collect();
+    let expression_targets: BTreeSet<String> = program
+        .active_expressions
+        .iter()
+        .map(|expression| expression.name.clone())
+        .collect();
     let mut targets = BTreeSet::new();
 
     for constraint in &program.active_constraints {
         match &constraint.expression {
             ConstraintBody::Comparison { left, right, .. } => {
-                collect_indexed_targets(left, &mut targets);
-                collect_indexed_targets(right, &mut targets);
+                targets.extend(collect_named_targets(left));
+                targets.extend(collect_named_targets(right));
             }
             ConstraintBody::Range {
                 lower,
@@ -783,27 +793,32 @@ fn collect_parameter_targets(
                 upper,
                 ..
             } => {
-                collect_indexed_targets(lower, &mut targets);
-                collect_indexed_targets(middle, &mut targets);
-                collect_indexed_targets(upper, &mut targets);
+                targets.extend(collect_named_targets(lower));
+                targets.extend(collect_named_targets(middle));
+                targets.extend(collect_named_targets(upper));
             }
         }
         if let Some(condition) = &constraint.generation_filter {
-            collect_indexed_targets(condition, &mut targets);
+            targets.extend(collect_named_targets(condition));
         }
     }
 
-    collect_indexed_targets(&program.active_objective.expression, &mut targets);
+    targets.extend(collect_named_targets(&program.active_objective.expression));
     for report in &program.active_reports {
-        collect_indexed_targets(&report.formula, &mut targets);
+        targets.extend(collect_named_targets(&report.formula));
     }
     for expression in &program.active_expressions {
-        collect_indexed_targets(&expression.formula, &mut targets);
+        targets.extend(collect_named_targets(&expression.formula));
     }
 
     targets
         .into_iter()
-        .filter(|t| !variable_targets.contains(t) && !set_targets.contains(t))
+        .filter(|target| {
+            !variable_targets.contains(target)
+                && !set_targets.contains(target)
+                && !set_alias_targets.contains(target)
+                && !expression_targets.contains(target)
+        })
         .collect()
 }
 
@@ -833,6 +848,10 @@ fn collect_indexed_targets(expr: &Expr, out: &mut BTreeSet<String>) {
         }
         Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) | Expr::Identifier(_) => {}
     }
+}
+
+fn collect_named_targets(expr: &Expr) -> BTreeSet<String> {
+    arco_kdl::algebra::collect_named_expression_dependencies(expr)
 }
 
 // ─── Rendering ───────────────────────────────────────────────────
@@ -866,6 +885,110 @@ pub fn render_toml(payload: &InspectPayload) -> Result<String, toml::ser::Error>
 
 pub fn render_json(payload: &InspectPayload) -> Result<String, serde_json::Error> {
     serde_json::to_string_pretty(payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compile::semantic::{
+        ResolvedConstraint, ResolvedExpression, ResolvedObjective, ResolvedParameters, ResolvedSet,
+        SemanticProgram,
+    };
+    use arco_kdl::algebra::{ComparisonOp, ConstraintBody, Expr};
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
+    #[test]
+    fn inspect_infers_parameters_from_active_indexed_expression_graph() {
+        let active_expressions = vec![
+            ResolvedExpression {
+                name: "dispatch_existent_gen_per_bus[b]".to_string(),
+                formula_text: "0".to_string(),
+                formula: Expr::Number("0".to_string()),
+            },
+            ResolvedExpression {
+                name: "dispatch_new_gen_per_bus[b]".to_string(),
+                formula_text: "0".to_string(),
+                formula: Expr::Number("0".to_string()),
+            },
+            ResolvedExpression {
+                name: "net_injection_existing_bus[b]".to_string(),
+                formula_text: "\"dispatch_new_gen_per_bus[b]\" + \"dispatch_existent_gen_per_bus[b]\" - mw_load_per_existing_bus".to_string(),
+                formula: Expr::Binary {
+                    op: algebra::BinaryOp::Subtract,
+                    left: Box::new(Expr::Binary {
+                        op: algebra::BinaryOp::Add,
+                        left: Box::new(Expr::String("dispatch_new_gen_per_bus[b]".to_string())),
+                        right: Box::new(Expr::String("dispatch_existent_gen_per_bus[b]".to_string())),
+                    }),
+                    right: Box::new(Expr::Identifier("mw_load_per_existing_bus".to_string())),
+                },
+            },
+        ];
+
+        let active_constraints = vec![ResolvedConstraint {
+            name: "test".to_string(),
+            source_kind: "model".to_string(),
+            source_name: "SparseNetInjection".to_string(),
+            diagnostic_id: "SparseNetInjection.test".to_string(),
+            expression_text: "\"net_injection_existing_bus[b]\" >= 100.0".to_string(),
+            expression: ConstraintBody::Comparison {
+                op: ComparisonOp::GreaterEqual,
+                left: Expr::String("net_injection_existing_bus[b]".to_string()),
+                right: Expr::Number("100.0".to_string()),
+            },
+            generation_bindings: Vec::new(),
+            generation_filter_text: None,
+            generation_filter: None,
+        }];
+
+        let payload = build_inspect_payload(
+            Path::new("examples/sparse-net-injection/input.kdl"),
+            &SemanticProgram {
+                active_scenario: "SparseNetInjectionDay".to_string(),
+                set_registry: BTreeMap::from([(
+                    "buses".to_string(),
+                    ResolvedSet {
+                        values: vec!["b1".to_string(), "b2".to_string(), "b3".to_string()],
+                        tuple_components: None,
+                        tuple_component_domains: None,
+                        tuple_rows: None,
+                    },
+                )]),
+                set_aliases: BTreeMap::from([("b".to_string(), "buses".to_string())]),
+                set_params: BTreeMap::new(),
+                parameters: ResolvedParameters::default(),
+                variable_families: vec![],
+                variable_overrides: BTreeMap::new(),
+                chronology: Default::default(),
+                active_constraints,
+                active_expressions,
+                active_objective: ResolvedObjective {
+                    name: "total_dispatch".to_string(),
+                    sense: crate::kdl::ObjectiveSense::Minimize,
+                    expression_text: "0".to_string(),
+                    expression: Expr::Number("0".to_string()),
+                },
+                active_reports: vec![],
+                active_variable_reports: vec![],
+                active_dual_reports: vec![],
+            },
+        );
+
+        assert_eq!(payload.meta.counts.expression, 3);
+        assert_eq!(payload.meta.counts.parameter, 1);
+        assert_eq!(payload.parameter[0].name, "mw_load_per_existing_bus");
+        assert_eq!(payload.expression[2].name, "net_injection_existing_bus[b]");
+        assert!(payload.expression[2].uses.iter().any(|use_ref| use_ref.name
+            == "mw_load_per_existing_bus"
+            && use_ref.kind == "parameter"));
+        assert_eq!(payload.constraint[0].lhs.len(), 1);
+        assert_eq!(
+            payload.constraint[0].lhs[0].name,
+            "net_injection_existing_bus[b]"
+        );
+        assert_eq!(payload.constraint[0].lhs[0].kind, "expression");
+    }
 }
 
 /// Walk the document and convert specific nested tables to inline form.

@@ -16,6 +16,12 @@ pub(super) fn build_constraint_records(
     set_sizes: &BTreeMap<&str, usize>,
     set_aliases: &BTreeMap<String, String>,
 ) -> Vec<ConstraintRecord> {
+    let expression_targets: BTreeSet<String> = program
+        .active_expressions
+        .iter()
+        .map(|expression| expression.name.clone())
+        .collect();
+
     program
         .active_constraints
         .iter()
@@ -27,6 +33,7 @@ pub(super) fn build_constraint_records(
                 program,
                 variable_targets,
                 parameter_targets,
+                &expression_targets,
                 set_sizes,
                 set_aliases,
             )
@@ -40,6 +47,7 @@ fn build_constraint_record(
     program: &SemanticProgram,
     variable_targets: &BTreeSet<String>,
     parameter_targets: &BTreeSet<String>,
+    expression_targets: &BTreeSet<String>,
     set_sizes: &BTreeMap<&str, usize>,
     set_aliases: &BTreeMap<String, String>,
 ) -> ConstraintRecord {
@@ -59,6 +67,7 @@ fn build_constraint_record(
                 left,
                 variable_targets,
                 parameter_targets,
+                expression_targets,
                 &symbol_to_set,
                 set_sizes,
                 set_aliases,
@@ -67,6 +76,7 @@ fn build_constraint_record(
                 right,
                 variable_targets,
                 parameter_targets,
+                expression_targets,
                 &symbol_to_set,
                 set_sizes,
                 set_aliases,
@@ -82,6 +92,7 @@ fn build_constraint_record(
                 middle,
                 variable_targets,
                 parameter_targets,
+                expression_targets,
                 &symbol_to_set,
                 set_sizes,
                 set_aliases,
@@ -164,6 +175,7 @@ fn build_term_refs(
     expr: &Expr,
     variable_targets: &BTreeSet<String>,
     parameter_targets: &BTreeSet<String>,
+    expression_targets: &BTreeSet<String>,
     symbol_to_set: &BTreeMap<&str, &str>,
     set_sizes: &BTreeMap<&str, usize>,
     set_aliases: &BTreeMap<String, String>,
@@ -176,6 +188,7 @@ fn build_term_refs(
             &term,
             variable_targets,
             parameter_targets,
+            expression_targets,
             symbol_to_set,
             set_sizes,
             set_aliases,
@@ -203,6 +216,7 @@ fn collect_term_refs_from_expr(
     expr: &Expr,
     variable_targets: &BTreeSet<String>,
     parameter_targets: &BTreeSet<String>,
+    expression_targets: &BTreeSet<String>,
     symbol_to_set: &BTreeMap<&str, &str>,
     set_sizes: &BTreeMap<&str, usize>,
     set_aliases: &BTreeMap<String, String>,
@@ -214,6 +228,8 @@ fn collect_term_refs_from_expr(
                 "variable"
             } else if parameter_targets.contains(target) {
                 "parameter"
+            } else if expression_targets.contains(target) {
+                "expression"
             } else {
                 "unknown"
             };
@@ -252,6 +268,27 @@ fn collect_term_refs_from_expr(
                 });
             }
         }
+        Expr::Identifier(name) | Expr::String(name) => {
+            let kind = if expression_targets.contains(name) {
+                "expression"
+            } else if variable_targets.contains(name) {
+                "variable"
+            } else if parameter_targets.contains(name) {
+                "parameter"
+            } else {
+                "unknown"
+            };
+
+            if kind != "unknown" && !out.iter().any(|reference| reference.name == *name) {
+                out.push(TermRef {
+                    name: name.clone(),
+                    kind: kind.to_string(),
+                    over: Vec::new(),
+                    reduction: None,
+                    reduce_over: Vec::new(),
+                });
+            }
+        }
         Expr::Reduction(reduction) => {
             let reduction_op = match reduction.op {
                 ReductionOp::Sum => "sum",
@@ -277,6 +314,7 @@ fn collect_term_refs_from_expr(
                     &body_term,
                     variable_targets,
                     parameter_targets,
+                    expression_targets,
                     &extended,
                     set_sizes,
                     set_aliases,
@@ -297,6 +335,7 @@ fn collect_term_refs_from_expr(
                 left,
                 variable_targets,
                 parameter_targets,
+                expression_targets,
                 symbol_to_set,
                 set_sizes,
                 set_aliases,
@@ -306,6 +345,7 @@ fn collect_term_refs_from_expr(
                 right,
                 variable_targets,
                 parameter_targets,
+                expression_targets,
                 symbol_to_set,
                 set_sizes,
                 set_aliases,
@@ -317,6 +357,7 @@ fn collect_term_refs_from_expr(
                 expr,
                 variable_targets,
                 parameter_targets,
+                expression_targets,
                 symbol_to_set,
                 set_sizes,
                 set_aliases,
@@ -329,6 +370,7 @@ fn collect_term_refs_from_expr(
                     arg,
                     variable_targets,
                     parameter_targets,
+                    expression_targets,
                     symbol_to_set,
                     set_sizes,
                     set_aliases,
@@ -336,12 +378,13 @@ fn collect_term_refs_from_expr(
                 );
             }
         }
-        Expr::Identifier(_) | Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) => {}
+        Expr::Number(_) | Expr::Boolean(_) => {}
         Expr::Comparison { left, right, .. } => {
             collect_term_refs_from_expr(
                 left,
                 variable_targets,
                 parameter_targets,
+                expression_targets,
                 symbol_to_set,
                 set_sizes,
                 set_aliases,
@@ -351,6 +394,7 @@ fn collect_term_refs_from_expr(
                 right,
                 variable_targets,
                 parameter_targets,
+                expression_targets,
                 symbol_to_set,
                 set_sizes,
                 set_aliases,
