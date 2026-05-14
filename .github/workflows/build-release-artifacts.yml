@@ -11,6 +11,29 @@ permissions:
   contents: read
 
 jobs:
+  package-vscode-extension:
+    name: package-vscode-extension
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Package VS Code extension
+        working-directory: tools/vscode-arco-kdl
+        run: |
+          set -euo pipefail
+          npm run check
+          npm run package
+          cp arco-kdl-vscode-*.vsix ../../arco-kdl-vscode.vsix
+      - name: Upload VS Code extension artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: artifacts-vscode-extension
+          path: arco-kdl-vscode.vsix
+
   build-local-artifacts:
     name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
     if: ${{ fromJson(inputs.plan).ci.github.artifacts_matrix.include != null }}
@@ -48,6 +71,10 @@ jobs:
           fi
       - name: Use rustup to set correct Rust version
         run: rustup update "1.85" --no-self-update && rustup default "1.85"
+      - name: Configure manylinux native dependency builds
+        if: ${{ matrix.container && contains(join(matrix.targets, ','), 'x86_64-unknown-linux-gnu') }}
+        shell: bash
+        run: bash ./scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
       - name: "Install uv for solver runtime setup"
         uses: "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
         with:
