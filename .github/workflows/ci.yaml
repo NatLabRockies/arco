@@ -19,6 +19,7 @@ on:
   push:
     branches:
       - main
+      - release-*
     paths:
       - "crates/**"
       - "bindings/python/**"
@@ -66,6 +67,7 @@ jobs:
         env:
           GH_EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          REF_NAME: ${{ github.base_ref || github.ref_name }}
           HAS_BUILD_RELEASE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'build:release') }}
           HAS_BUILD_SKIP_RELEASE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'build:skip-release') }}
         run: |
@@ -76,7 +78,7 @@ jobs:
 
           base_sha="$BASE_SHA"
           if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
-            base_sha="origin/main"
+            base_sha="origin/$REF_NAME"
           fi
 
           while IFS= read -r file; do
