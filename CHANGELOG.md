@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/NatLabRockies/arco/compare/v0.6.0...v0.6.1) (2026-05-15)
+
+
+### Bug Fixes
+
+* **ci:** limit PR Python matrix on release-0.6 ([#265](https://github.com/NatLabRockies/arco/issues/265)) ([a900603](https://github.com/NatLabRockies/arco/commit/a900603cecea38860dbd898d11d1c1f949d70beb))
+
 ## [0.6.0](https://github.com/NatLabRockies/arco/compare/v0.5.0...v0.6.0) (2026-05-13)
 
 
