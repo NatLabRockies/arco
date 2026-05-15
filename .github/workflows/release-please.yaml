@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 concurrency:
   group: release-please
@@ -42,82 +43,44 @@ jobs:
           manifest-file: .release-please-manifest.json
           target-branch: main
 
-  cargo-dist:
-    name: Build and publish release
+  prepare-cargo-dist-release:
+    name: Prepare cargo-dist release
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 5
     permissions:
-      actions: write # Required to dispatch and inspect the cargo-dist workflow run.
-      contents: read
+      contents: write # Required to let cargo-dist replace the draft release-please release.
     steps:
-      - name: Dispatch cargo-dist release
-        id: dispatch
+      - name: Remove release-please draft before cargo-dist publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          gh workflow run release.yml --ref main -f tag="$TAG"
+          if ! gh release view "$TAG" --json isDraft > release.json 2>/dev/null; then
+            exit 0
+          fi
 
-          for _ in {1..60}; do
-            run_id="$(gh run list \
-              --workflow release.yml \
-              --event workflow_dispatch \
-              --branch main \
-              --limit 20 \
-              --json databaseId,createdAt \
-              --jq ".[] | select(.createdAt >= \"$started_at\") | .databaseId" \
-              | head -n 1)"
-            if [[ -n "$run_id" ]]; then
-              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            sleep 5
-          done
-
-          echo "Timed out waiting for dispatched cargo-dist run" >&2
-          exit 1
-
-      - name: Wait for cargo-dist release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
-        run: |
-          set -euo pipefail
-          while true; do
-            status="$(gh run view "$RUN_ID" --json status --jq '.status')"
-            if [[ "$status" == "completed" ]]; then
-              break
-            fi
-            sleep 30
-          done
-
-          conclusion="$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion')"
-          if [[ "$conclusion" != "success" ]]; then
-            gh run view "$RUN_ID"
+          if [[ "$(jq -r '.isDraft' release.json)" != "true" ]]; then
+            echo "Release $TAG already exists and is not a draft; refusing to replace it." >&2
             exit 1
           fi
 
-      - name: Download dist-manifest from cargo-dist run
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
-        run: |
-          set -euo pipefail
-          gh run download "$RUN_ID" --name artifacts-dist-manifest --dir cargo-dist-manifest
+          gh release delete "$TAG" --yes
 
-      - name: Store dist-manifest for follow-up jobs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: artifacts-dist-manifest
-          path: cargo-dist-manifest/dist-manifest.json
-          retention-days: 3
+  cargo-dist:
+    name: Build and publish release
+    needs: [release-please, prepare-cargo-dist-release]
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/publish-release.yml
+    permissions:
+      attestations: write # Required by the called cargo-dist release workflow for artifact attestations.
+      contents: write # Required by the called cargo-dist release workflow to publish GitHub Release artifacts.
+      id-token: write # Required by the called cargo-dist release workflow for artifact attestations.
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
 
   update-release-notes:
     name: Append install instructions

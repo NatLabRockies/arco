@@ -5,49 +5,51 @@ members = ["cargo:."]
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
 cargo-dist-version = "0.31.0"
+# The archive format to use for non-windows builds (defaults .tar.xz)
+unix-archive = ".tar.gz"
 # Explicitly release only the CLI package from this workspace.
 packages = ["arco-cli"]
-# The preferred Rust toolchain to use in CI (rustup toolchain syntax)
-rust-toolchain-version = "1.85"
 # CI backends to support
 ci = "github"
+# Whether CI should include auto-generated code to build local artifacts
+build-local-artifacts = false
 # The installers to generate for each app
-installers = ["shell", "powershell", "msi"]
+installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
   "aarch64-apple-darwin",
   "aarch64-unknown-linux-gnu",
   "x86_64-apple-darwin",
   "x86_64-unknown-linux-gnu",
-  "x86_64-unknown-linux-musl",
   "x86_64-pc-windows-msvc",
 ]
 # Which actions to run on pull requests
-pr-run-mode = "plan"
-# cargo-dist's MSI template generator currently emits whitespace-only blank lines
-# that repo hooks trim. The checked-in template is functionally identical.
-allow-dirty = ["msi"]
+pr-run-mode = "skip"
+# Which phase dist should use to create the GitHub release
+github-release = "announce"
+# Whether to enable GitHub Attestations
+github-attestations = true
+# When to generate GitHub Attestations
+github-attestations-phase = "announce"
+# Local artifacts jobs to run in CI
+local-artifacts-jobs = ["./build-release-artifacts"]
 # Path that installers should place binaries in
-install-path = "CARGO_HOME"
+install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
 # Whether CI should trigger releases with dispatches instead of tag pushes
 dispatch-releases = true
 # Build only the required packages, and individually
 precise-builds = true
 # Self-update is handled by `arco self update`.
 install-updater = false
-# Extra setup steps injected into dist build-local-artifacts jobs
-github-build-setup = "../dist-build-setup.yml"
 
-# Use a container with musl toolchain pre-installed instead of downloading from musl.cc
-# The messense/rust-musl-cross image has the full musl cross-toolchain including C++
+# Build x86_64 Linux on a glibc 2.28 baseline for EL8/HPC compatibility.
 [dist.github-custom-runners.x86_64-unknown-linux-gnu]
 runner = "ubuntu-22.04"
-
-[dist.github-custom-runners.x86_64-unknown-linux-musl]
-container = { image = "messense/rust-musl-cross:x86_64-musl", host = "x86_64-unknown-linux-gnu" }
+container = { image = "quay.io/pypa/manylinux_2_28_x86_64", host = "x86_64-unknown-linux-gnu" }
 
 [dist.github-action-commits]
 "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
 "actions/upload-artifact" = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 "actions/download-artifact" = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+"actions/attest-build-provenance" = "a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32"
 "swatinem/rust-cache" = "e18b497796c12c097a38f9edb9d0641fb99eee32"
