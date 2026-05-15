@@ -1206,6 +1206,28 @@ available on all algebra-bearing nodes: `expression`, `constraint`, `minimize`,
 Expressions MAY reference other named expressions by identifier. Circular
 references MUST fail validation.
 
+Expressions also support generated-row form, analogous to generated
+constraints:
+
+```kdl
+expression net_injection_by_bus {
+  index b { in bus }
+  expression {
+    dispatch_new_gen_by_bus[b] + dispatch_existing_gen_by_bus[b] - mw_load[b]
+  }
+}
+```
+
+Rules for generated expressions:
+
+- `index` declares the expression-family index variables.
+- `if { ... }` is optional and filters generated expression rows.
+- Referencing a filtered-out generated-expression row contributes the neutral
+  zero value to the surrounding algebra expression.
+- expression references with explicit indices (for example,
+  `net_injection_by_bus[bb]`) MUST bind the declaration indices positionally.
+  Arity mismatches MUST fail validation/compilation with a clear diagnostic.
+
 Free variables in expression bodies (index variables that appear in indexed
 references but are not bound by a `for` clause in a reduction) are resolved at
 the point of use. When an expression is referenced inside a constraint with
