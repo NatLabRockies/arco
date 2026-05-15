@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      - release-*
+  workflow_dispatch:
 
 concurrency:
   group: release-please
@@ -40,15 +42,44 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
-          target-branch: main
+          target-branch: ${{ github.ref_name }}
+
+  prepare-cargo-dist-release:
+    name: Prepare cargo-dist release
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # Required to let cargo-dist replace the draft release-please release.
+    steps:
+      - name: Remove release-please draft before cargo-dist publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --json isDraft > release.json 2>/dev/null; then
+            exit 0
+          fi
+
+          if [[ "$(jq -r '.isDraft' release.json)" != "true" ]]; then
+            echo "Release $TAG already exists and is not a draft; refusing to replace it." >&2
+            exit 1
+          fi
+
+          gh release delete "$TAG" --yes
 
   cargo-dist:
     name: Build and publish release
-    needs: release-please
+    needs: [release-please, prepare-cargo-dist-release]
     if: needs.release-please.outputs.release_created == 'true'
+    uses: ./.github/workflows/publish-release.yml
     permissions:
-      contents: write # Required because the called workflow uploads release artifacts to GitHub Releases.
-    uses: ./.github/workflows/cargo-dist-release.yml
+      attestations: write # Required by the called cargo-dist release workflow for artifact attestations.
+      contents: write # Required by the called cargo-dist release workflow to publish GitHub Release artifacts.
+      id-token: write # Required by the called cargo-dist release workflow for artifact attestations.
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
 
@@ -74,12 +105,12 @@ jobs:
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          install_body=$(jq -r '.announcement_github_body // empty' dist-manifest.json)
+          install_body="$(jq -r '.announcement_github_body // empty' dist-manifest.json)"
           if [[ -z "$install_body" ]]; then
             echo "No install instructions found in dist-manifest.json"
             exit 0
           fi
-          current_body=$(gh release view "$TAG" --json body --jq '.body')
+          current_body="$(gh release view "$TAG" --json body --jq '.body')"
           printf '%s\n\n---\n\n%s' "$current_body" "$install_body" > release-body.md
           gh release edit "$TAG" --notes-file release-body.md
 
