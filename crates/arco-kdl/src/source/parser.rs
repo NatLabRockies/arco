@@ -8,10 +8,11 @@ use crate::source::ast::{
 use crate::source::error::SourceError;
 use crate::source::parser_constraints::{parse_constraint, parse_constraints};
 use crate::source::parser_helpers::{
-    ParseContext, algebra_error, algebra_text_from_node, declaration_indices, first_arg_string,
-    invalid_value_error, missing_node_error, optional_property_literal, optional_property_string,
-    parse_optimize, parse_optional_filter_expression, parse_reduce, positional_value,
-    property_string, unsupported_declaration_error,
+    ParseContext, algebra_error, algebra_text_from_node, child_arg_string, declaration_indices,
+    first_arg_string, invalid_value_error, missing_node_error, optional_property_literal,
+    optional_property_string, parse_constraint_index_binding, parse_optimize,
+    parse_optional_filter_expression, parse_reduce, positional_value, property_string,
+    unsupported_declaration_error,
 };
 use crate::source::surface::normalize_surface_syntax;
 use kdl::{KdlDocument, KdlError, KdlNode, KdlValue};
@@ -35,6 +36,8 @@ enum Declaration {
     In,
     Filter,
     Reduce,
+    If,
+    Formula,
     Bounds,
     Lower,
     Upper,
@@ -66,6 +69,8 @@ impl Declaration {
             "in" => Some(Self::In),
             "filter" => Some(Self::Filter),
             "reduce" => Some(Self::Reduce),
+            "if" => Some(Self::If),
+            "formula" => Some(Self::Formula),
             "bounds" => Some(Self::Bounds),
             "lower" => Some(Self::Lower),
             "upper" => Some(Self::Upper),
@@ -272,7 +277,8 @@ fn parse_include(node: &KdlNode, context: &ParseContext<'_>) -> Result<IncludeDe
     }
 
     let path = first_arg_string(node, 0, context)?;
-    if Path::new(&path).is_absolute() {
+    let include_path = Path::new(&path);
+    if include_path.is_absolute() || include_path.has_root() {
         return Err(include_error(
             node,
             "include paths must be relative to the entrypoint file".to_string(),
@@ -854,7 +860,41 @@ fn parse_expression(
     node: &KdlNode,
     context: &ParseContext<'_>,
 ) -> Result<ExpressionDecl, SourceError> {
-    let formula = algebra_text_from_node(node, context)?;
+    let mut generation_bindings = Vec::new();
+    let mut generation_filters = Vec::new();
+    let mut formula = optional_property_string(node, "expression", context)?;
+    if formula.is_none() {
+        formula = child_arg_string(node, "formula", 0, context).ok();
+    }
+
+    for child in node.iter_children() {
+        match Declaration::from_node(child) {
+            Some(Declaration::Index) => {
+                generation_bindings.push(parse_constraint_index_binding(child, context)?);
+            }
+            Some(Declaration::If) => {
+                generation_filters.push(property_string(child, "expression", context)?);
+            }
+            Some(Declaration::Expression) => {
+                formula = Some(algebra_text_from_node(child, context)?);
+            }
+            Some(Declaration::Formula) => {}
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
+            }
+        }
+    }
+
+    let formula = formula.ok_or_else(|| missing_node_error("expression", node, context))?;
+    let generation_filter = if generation_filters.is_empty() {
+        None
+    } else {
+        Some(generation_filters.join(" and "))
+    };
 
     if let Some((projection, op, target)) = parse_reduce_projection_formula(&formula) {
         let lowered = format!("__reduce_projection__(\"{projection}\", \"{op}\", \"{target}\")");
@@ -867,6 +907,13 @@ fn parse_expression(
                 op,
                 target,
             }),
+            generation_bindings,
+            parsed_generation_filter: generation_filter
+                .as_deref()
+                .map(parse_value_formula)
+                .transpose()
+                .map_err(|error| algebra_error(node, error.to_string(), context))?,
+            generation_filter,
         });
     }
 
@@ -876,6 +923,13 @@ fn parse_expression(
             .map_err(|error| algebra_error(node, error.to_string(), context))?,
         formula,
         abstraction: None,
+        generation_bindings,
+        parsed_generation_filter: generation_filter
+            .as_deref()
+            .map(parse_value_formula)
+            .transpose()
+            .map_err(|error| algebra_error(node, error.to_string(), context))?,
+        generation_filter,
     })
 }
 

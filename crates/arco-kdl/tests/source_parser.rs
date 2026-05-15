@@ -159,6 +159,26 @@ fn parses_expression_reduce_projection_block_form() -> Result<(), Box<dyn std::e
 }
 
 #[test]
+fn parses_generated_expression_with_index_and_expression_children()
+-> Result<(), Box<dyn std::error::Error>> {
+    let parsed =
+        parse_fixture("parses_generated_expression_with_index_and_expression_children.kdl")?;
+    let model = parsed.program.model("Dispatch").ok_or("missing model")?;
+    let expression = model
+        .expressions
+        .iter()
+        .find(|expr| expr.name == "net_injection_by_bus")
+        .ok_or("missing net_injection_by_bus expression")?;
+
+    assert_eq!(expression.generation_bindings.len(), 1);
+    assert_eq!(expression.generation_bindings[0].variable, "b");
+    assert_eq!(expression.generation_bindings[0].domain, "bus");
+    assert!(expression.generation_filter.is_none());
+
+    Ok(())
+}
+
+#[test]
 fn parse_program_file_expands_top_level_and_model_includes()
 -> Result<(), Box<dyn std::error::Error>> {
     let parsed = parse_program_file(&fixture_path("composition/input.kdl"))?;
