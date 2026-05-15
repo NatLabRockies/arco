@@ -232,6 +232,87 @@ fn kdl_check_json_reports_included_file_path() {
 }
 
 #[test]
+fn kdl_fmt_rewrites_unformatted_file() {
+    let root = unique_temp_dir("kdl-fmt-rewrite");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let file_path = root.join("input.kdl");
+    fs::write(&file_path, "node\tkey=1\n").expect("write unformatted kdl");
+
+    let file = file_path.to_str().expect("path to str");
+    let output = run_cli(&["kdl", "fmt", file]);
+    assert!(
+        output.status.success(),
+        "format should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let rewritten = fs::read_to_string(&file_path).expect("read formatted file");
+    assert!(rewritten.contains("node"));
+    assert!(rewritten.contains("key=1"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn kdl_fmt_check_fails_when_file_needs_changes() {
+    let root = unique_temp_dir("kdl-fmt-check");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let file_path = root.join("input.kdl");
+    fs::write(&file_path, "node\tkey=1\n").expect("write unformatted kdl");
+
+    let file = file_path.to_str().expect("path to str");
+    let output = run_cli(&["kdl", "fmt", "--check", file]);
+    assert!(
+        !output.status.success(),
+        "check should fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("would be reformatted"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn kdl_fmt_diff_prints_unified_diff() {
+    let root = unique_temp_dir("kdl-fmt-diff");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let file_path = root.join("input.kdl");
+    fs::write(&file_path, "node\tkey=1\n").expect("write unformatted kdl");
+
+    let file = file_path.to_str().expect("path to str");
+    let output = run_cli(&["kdl", "fmt", "--diff", file]);
+    assert!(
+        !output.status.success(),
+        "diff should fail with changes\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("---"));
+    assert!(stdout.contains("+++"));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn kdl_fmt_handles_arco_surface_syntax_file() {
+    let model_path = example_path("examples/dense-lp/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let output = run_cli(&["kdl", "fmt", "--check", model]);
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("Failed to parse KDL document"),
+        "kdl fmt should parse arco surface syntax\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn inspect_produces_valid_toml() {
     let model_path = example_path("examples/capacity-expansion/input.kdl");
     let model = model_path

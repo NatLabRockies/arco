@@ -9,12 +9,14 @@ use arco_cli::driver::{
     render_plain_driver_error, run_file_json_with_options_and_config, validate_file_only,
 };
 use arco_cli::self_update;
+use arco_kdl::source::format_program_text;
 use arco_ops::{ArcoOps, OpsExportFormat};
-use clap::{ArgAction, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use miette::IntoDiagnostic;
+use similar::TextDiff;
 use std::fs;
-use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::io::{IsTerminal, Read};
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(
@@ -108,6 +110,26 @@ enum KdlAction {
         #[arg(long, default_value = "text")]
         format: CheckFormat,
     },
+    /// Format KDL files (similar to `ruff format`)
+    Fmt(KdlFmtArgs),
+}
+
+#[derive(Args, Debug)]
+struct KdlFmtArgs {
+    /// Files or directories to format (defaults to current directory)
+    paths: Vec<PathBuf>,
+    /// Check if files are formatted; do not write changes
+    #[arg(long)]
+    check: bool,
+    /// Show a unified diff for required changes
+    #[arg(long)]
+    diff: bool,
+    /// Read KDL from stdin
+    #[arg(long)]
+    stdin: bool,
+    /// Optional display name for stdin source (used in diff headers)
+    #[arg(long)]
+    stdin_filename: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -232,6 +254,7 @@ fn handle_kdl_action(action: KdlAction) -> miette::Result<()> {
                 }
             }
         },
+        KdlAction::Fmt(args) => run_kdl_fmt(args)?,
     }
 
     Ok(())
@@ -285,6 +308,128 @@ fn handle_solver_action(action: SolverAction) -> miette::Result<()> {
             write_stdout_line(&format!("selection: {}", selection)).into_diagnostic()?;
             write_stdout_line(&format!("path: {}", path.display())).into_diagnostic()?;
         }
+    }
+
+    Ok(())
+}
+
+fn format_kdl_text(input: &str, path: Option<&Path>) -> miette::Result<String> {
+    format_program_text(input).map_err(|error| {
+        if let Some(path) = path {
+            miette::miette!(
+                "Failed to parse KDL document: {} ({})",
+                path.display(),
+                error
+            )
+        } else {
+            miette::miette!("Failed to parse KDL document")
+        }
+    })
+}
+
+fn collect_kdl_files(path: &Path, files: &mut Vec<PathBuf>) -> miette::Result<()> {
+    let metadata = fs::symlink_metadata(path).into_diagnostic()?;
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+
+    if metadata.is_file() {
+        if path.extension().is_some_and(|ext| ext == "kdl") {
+            files.push(path.to_path_buf());
+        }
+        return Ok(());
+    }
+
+    if metadata.is_dir() {
+        if let Some(name) = path.file_name().and_then(|value| value.to_str()) {
+            if matches!(name, ".git" | "target" | "node_modules" | ".uv-cache") {
+                return Ok(());
+            }
+        }
+
+        for entry in fs::read_dir(path).into_diagnostic()? {
+            let entry = entry.into_diagnostic()?;
+            collect_kdl_files(&entry.path(), files)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn print_unified_diff(label: &str, before: &str, after: &str) -> miette::Result<()> {
+    let diff = TextDiff::from_lines(before, after);
+    write_stdout_line(&format!("--- {label}")).into_diagnostic()?;
+    write_stdout_line(&format!("+++ {label}")).into_diagnostic()?;
+    for change in diff.unified_diff().header("", "").iter_hunks() {
+        write_stdout(change.to_string().as_bytes()).into_diagnostic()?;
+    }
+    Ok(())
+}
+
+fn run_kdl_fmt(args: KdlFmtArgs) -> miette::Result<()> {
+    if args.stdin || args.paths.iter().any(|path| path == Path::new("-")) {
+        let mut input = String::new();
+        std::io::stdin()
+            .read_to_string(&mut input)
+            .into_diagnostic()?;
+        let formatted = format_kdl_text(&input, None)?;
+
+        if args.check || args.diff {
+            if input != formatted {
+                if args.diff {
+                    let label = args.stdin_filename.as_deref().unwrap_or("stdin.kdl");
+                    print_unified_diff(label, &input, &formatted)?;
+                }
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+
+        write_stdout(formatted.as_bytes()).into_diagnostic()?;
+        return Ok(());
+    }
+
+    let roots = if args.paths.is_empty() {
+        vec![PathBuf::from(".")]
+    } else {
+        args.paths
+    };
+
+    let mut files = Vec::new();
+    for root in roots {
+        collect_kdl_files(&root, &mut files)?;
+    }
+
+    let mut changed_files = 0usize;
+
+    for file in files {
+        let input = fs::read_to_string(&file).into_diagnostic()?;
+        let formatted = format_kdl_text(&input, Some(&file))?;
+        if input == formatted {
+            continue;
+        }
+
+        changed_files += 1;
+
+        if args.diff {
+            let label = file.to_string_lossy().to_string();
+            print_unified_diff(&label, &input, &formatted)?;
+        }
+
+        if !args.check && !args.diff {
+            fs::write(&file, formatted).into_diagnostic()?;
+        }
+    }
+
+    if args.check || args.diff {
+        if changed_files > 0 {
+            write_stderr_line(&format!("{} file(s) would be reformatted", changed_files))
+                .into_diagnostic()?;
+            std::process::exit(1);
+        }
+        write_stderr_line("All files already formatted").into_diagnostic()?;
+    } else {
+        write_stderr_line(&format!("{} file(s) reformatted", changed_files)).into_diagnostic()?;
     }
 
     Ok(())
