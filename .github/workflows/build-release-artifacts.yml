@@ -128,9 +128,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          read -r -a tag_args <<< "$DIST_TAG_FLAG"
+          dist_cmd=(dist build --print=linkage --output-format=json)
+
+          if [[ -n "${DIST_TAG_FLAG:-}" ]]; then
+            read -r -a tag_args <<< "$DIST_TAG_FLAG"
+            dist_cmd+=("${tag_args[@]}")
+          fi
+
           read -r -a dist_args <<< "$DIST_ARGS"
-          dist build "${tag_args[@]}" --print=linkage --output-format=json "${dist_args[@]}" > dist-manifest.json
+          dist_cmd+=("${dist_args[@]}")
+
+          "${dist_cmd[@]}" > dist-manifest.json
           echo "dist ran successfully"
       - id: cargo-dist
         name: Post-build
