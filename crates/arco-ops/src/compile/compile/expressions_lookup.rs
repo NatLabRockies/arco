@@ -52,6 +52,20 @@ fn find_variable_family<'a>(
         .map(|(key, _)| key.as_str())
 }
 
+fn parameter_name_known(target: &str, program: &SemanticProgram, inputs: &ScenarioInputs) -> bool {
+    program.parameters.series.iter().any(|name| name == target)
+        || program.parameters.indexed.iter().any(|name| name == target)
+        || program.parameters.asset.iter().any(|name| name == target)
+        || inputs.series.contains_key(target)
+        || inputs.indexed.contains_key(target)
+        || inputs.asset_data.contains_key(target)
+        || inputs.generic_data.contains_key(target)
+        || program
+            .set_params
+            .values()
+            .any(|parameters| parameters.contains_key(target))
+}
+
 fn parameter_reference_expr(
     target: &str,
     resolved: &[FilterValue],

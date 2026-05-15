@@ -635,9 +635,46 @@ fn compile_nonlinear_indexed_expr(
     }
 
     if let Some(expression) = named_expressions.get(target) {
+        let mut scoped_bindings = bindings.clone();
+        if let Some(generation_bindings) = expression_generation_bindings(target, program) {
+            if !generation_bindings.is_empty() {
+                if !indices.is_empty() && generation_bindings.len() != resolved.len() {
+                    return Err(CompileError::InvalidFormulation {
+                        message: format!(
+                            "indexed expression `{target}` expects {} index value(s), received {}",
+                            generation_bindings.len(),
+                            resolved.len()
+                        ),
+                        path: entrypoint.to_path_buf(),
+                    });
+                }
+
+                if generation_bindings.len() == resolved.len() {
+                    for (binding, value) in generation_bindings.iter().zip(resolved.iter()) {
+                        scoped_bindings.insert(binding.variable.clone(), value.clone());
+                    }
+                }
+            }
+        }
+
+        if let Some(filter) = expression_generation_filter(target, program) {
+            if !evaluate_reduction_filter(
+                filter,
+                &scoped_bindings,
+                program,
+                inputs,
+                named_expressions,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            )? {
+                return Ok(NonlinearExpr::Constant(0.0));
+            }
+        }
+
         return compile_nonlinear_expr(
             expression,
-            bindings,
+            &scoped_bindings,
             program,
             inputs,
             named_expressions,
@@ -677,6 +714,14 @@ fn compile_nonlinear_indexed_expr(
                 path: entrypoint.to_path_buf(),
             });
         }
+    }
+
+    if !parameter_name_known(target, program, inputs) {
+        return Err(CompileError::MissingDeclaration {
+            kind: "parameter",
+            name: target.to_string(),
+            path: entrypoint.to_path_buf(),
+        });
     }
 
     let parameter_expr = parameter_reference_expr(target, &resolved, inputs, entrypoint)?;

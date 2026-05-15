@@ -234,6 +234,9 @@ pub(crate) fn resolve_active_model_expressions(
                     name: expression.name.clone(),
                     formula_text: expression.formula.clone(),
                     formula: expression.parsed_formula.clone(),
+                    generation_bindings: expression.generation_bindings.clone(),
+                    generation_filter_text: expression.generation_filter.clone(),
+                    generation_filter: expression.parsed_generation_filter.clone(),
                 })
         })
         .collect::<Vec<_>>();
