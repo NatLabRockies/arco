@@ -232,6 +232,28 @@ fn kdl_check_json_reports_included_file_path() {
 }
 
 #[test]
+fn print_model_succeeds_for_time_aliased_example() {
+    let model_path = example_path("examples/capacity-expansion/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let output = run_cli(&["print-model", model]);
+    assert!(
+        output.status.success(),
+        "print-model should succeed for a model using `set time alias=\"t\"`\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Min expansion_cost:"),
+        "expected algebraic model output\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn kdl_fmt_rewrites_unformatted_file() {
     let root = unique_temp_dir("kdl-fmt-rewrite");
     fs::create_dir_all(&root).expect("create temp dir");

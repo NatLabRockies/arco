@@ -88,16 +88,29 @@ impl SemanticProgram {
             .is_some_and(|(candidate, time_set)| std::ptr::eq(candidate, time_set))
     }
 
-    fn time_set(&self) -> Option<&ResolvedSet> {
-        self.resolve_set("time").or_else(|| self.resolve_set("t"))
+    pub fn resolve_set(&self, name: &str) -> Option<&ResolvedSet> {
+        if let Some(set) = self.set_registry.get(name) {
+            return Some(set);
+        }
+        if let Some(set) = self
+            .set_aliases
+            .get(name)
+            .and_then(|canonical| self.set_registry.get(canonical.as_str()))
+        {
+            return Some(set);
+        }
+        for (alias, canonical) in &self.set_aliases {
+            if canonical == name {
+                if let Some(set) = self.set_registry.get(alias.as_str()) {
+                    return Some(set);
+                }
+            }
+        }
+        None
     }
 
-    fn resolve_set(&self, name: &str) -> Option<&ResolvedSet> {
-        self.set_registry.get(name).or_else(|| {
-            self.set_aliases
-                .get(name)
-                .and_then(|canonical| self.set_registry.get(canonical))
-        })
+    fn time_set(&self) -> Option<&ResolvedSet> {
+        self.resolve_set("time").or_else(|| self.resolve_set("t"))
     }
 }
 
