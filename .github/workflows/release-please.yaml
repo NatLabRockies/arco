@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - release-*
   workflow_dispatch:
 
 concurrency:
@@ -41,7 +42,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
-          target-branch: main
+          target-branch: ${{ github.ref_name }}
 
   prepare-cargo-dist-release:
     name: Prepare cargo-dist release

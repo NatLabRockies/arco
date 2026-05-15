@@ -33,7 +33,7 @@ Every release version is shared across:
 
 | Workflow                 | Trigger                                                                               | Purpose                                                                                                                                   |
 | ------------------------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `release-please.yaml`    | `push` to `main`                                                                      | Maintains release PRs, creates tag + draft release, dispatches `cargo-dist-release.yml`, then builds and publishes Python package to PyPI |
+| `release-please.yaml`    | `push` to `main` and `release-*` maintenance branches                                 | Maintains release PRs, creates tag + draft release, dispatches `cargo-dist-release.yml`, then builds and publishes Python package to PyPI |
 | `cargo-dist-release.yml` | `workflow_dispatch` from `release-please.yaml` (with tag) or `pull_request` (dry-run) | Builds CLI artifacts via cargo-dist, uploads them to the draft release, and publishes it                                                  |
 
 ### Reusable workflow call
@@ -70,6 +70,20 @@ cargo-dist fails, nothing is published.
 
 `release-please` is the source of truth for release notes and changelog content.
 Changelog sections are configured in `.release-please-config.json`.
+
+## Maintenance Branches
+
+Arco supports maintenance release branches named `release-*` (for example
+`release-0.6`).
+
+- `main` is the next-development release lane.
+- A `release-*` branch is a patch-only maintenance lane for its version line.
+- `release-please.yaml` targets the branch it runs on, so each maintenance branch
+  reads its own branch-local `.release-please-config.json` and
+  `.release-please-manifest.json`.
+- Maintenance branches should usually cherry-pick only bug fixes and use an
+  `always-bump-patch` versioning strategy in their branch-local release-please
+  config.
 
 ## Failure Handling
 
@@ -111,7 +125,9 @@ release workflow before the release is made public.
 
 ## Forcing A Release Version
 
-Use `Release-As` only when an explicit one-off version override is necessary:
+Use `Release-As` only when an explicit one-off version override is necessary.
+It does not exclude already-merged features from the target branch's release
+contents:
 
 ```text
 chore(release): force 0.3.0

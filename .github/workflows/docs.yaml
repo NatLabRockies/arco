@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - main
+      - release-*
     paths:
       - "docs/**"
       - "scripts/test_docs_doctest.py"
