@@ -14,7 +14,7 @@ use crate::source::parser_helpers::{
     property_string, unsupported_declaration_error,
 };
 use crate::source::surface::normalize_surface_syntax;
-use kdl::{KdlDocument, KdlNode, KdlValue};
+use kdl::{KdlDocument, KdlError, KdlNode, KdlValue};
 use miette::NamedSource;
 use std::fs;
 use std::path::Path;
@@ -88,6 +88,13 @@ pub fn parse_program_file(path: &Path) -> Result<ParsedSource, SourceError> {
     info!(path = %path.display(), status = "ok", "parsing source file");
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
     parse_program_file_with_base(path, base_dir, true)
+}
+
+pub fn format_program_text(text: &str) -> Result<String, KdlError> {
+    let normalized = normalize_surface_syntax(text);
+    let mut document: KdlDocument = normalized.parse()?;
+    document.autoformat();
+    Ok(document.to_string())
 }
 
 pub fn parse_program_text(text: &str, path: &Path) -> Result<ParsedSource, SourceError> {

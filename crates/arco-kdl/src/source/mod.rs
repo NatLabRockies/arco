@@ -7,4 +7,4 @@ mod surface;
 
 pub use ast::*;
 pub use error::*;
-pub use parser::{parse_program_file, parse_program_text};
+pub use parser::{format_program_text, parse_program_file, parse_program_text};

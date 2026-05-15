@@ -141,28 +141,18 @@ fn reduction_domain_values(
         domain if program.is_time_set_name(domain) => Ok((1..=program.time_steps())
             .map(|time| FilterValue::Number(time as f64))
             .collect()),
-        _ => {
-            if let Some(set) = program.set_registry.get(domain) {
-                return Ok(set
-                    .values
+        _ => program
+            .resolve_set(domain)
+            .map(|set| {
+                set.values
                     .iter()
-                    .map(|v| FilterValue::String(v.clone()))
-                    .collect());
-            }
-            if let Some(canonical) = program.set_aliases.get(domain) {
-                if let Some(set) = program.set_registry.get(canonical.as_str()) {
-                    return Ok(set
-                        .values
-                        .iter()
-                        .map(|v| FilterValue::String(v.clone()))
-                        .collect());
-                }
-            }
-            Err(CompileError::InvalidFormulation {
+                    .map(|value| FilterValue::String(value.clone()))
+                    .collect()
+            })
+            .ok_or_else(|| CompileError::InvalidFormulation {
                 message: format!("unsupported reduction domain `{domain}`"),
                 path: entrypoint.to_path_buf(),
-            })
-        }
+            }),
     }
 }
 
