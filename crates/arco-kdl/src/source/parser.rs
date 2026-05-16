@@ -862,10 +862,9 @@ fn parse_expression(
 ) -> Result<ExpressionDecl, SourceError> {
     let mut generation_bindings = Vec::new();
     let mut generation_filters = Vec::new();
-    let mut formula = optional_property_string(node, "expression", context)?;
-    if formula.is_none() {
-        formula = child_arg_string(node, "formula", 0, context).ok();
-    }
+    let formula_from_property = optional_property_string(node, "expression", context)?;
+    let formula_from_formula_child = child_arg_string(node, "formula", 0, context).ok();
+    let mut formula_from_expression_child = None;
 
     for child in node.iter_children() {
         match Declaration::from_node(child) {
@@ -876,7 +875,15 @@ fn parse_expression(
                 generation_filters.push(property_string(child, "expression", context)?);
             }
             Some(Declaration::Expression) => {
-                formula = Some(algebra_text_from_node(child, context)?);
+                if formula_from_expression_child.is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "expression declarations support at most one `expression` child"
+                            .to_string(),
+                        context,
+                    ));
+                }
+                formula_from_expression_child = Some(algebra_text_from_node(child, context)?);
             }
             Some(Declaration::Formula) => {}
             _ => {
@@ -889,12 +896,36 @@ fn parse_expression(
         }
     }
 
-    let formula = formula.ok_or_else(|| missing_node_error("expression", node, context))?;
-    let generation_filter = if generation_filters.is_empty() {
-        None
-    } else {
-        Some(generation_filters.join(" and "))
-    };
+    let formula_source_count = [
+        formula_from_property.as_ref(),
+        formula_from_formula_child.as_ref(),
+        formula_from_expression_child.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .count();
+    if formula_source_count > 1 {
+        return Err(invalid_value_error(
+            node,
+            "expression declarations support only one formula source: `expression=...`, `formula ...`, or `expression { ... }`"
+                .to_string(),
+            context,
+        ));
+    }
+
+    if generation_filters.len() > 1 {
+        return Err(invalid_value_error(
+            node,
+            "expression declarations support at most one `if` child".to_string(),
+            context,
+        ));
+    }
+
+    let formula = formula_from_expression_child
+        .or(formula_from_property)
+        .or(formula_from_formula_child)
+        .ok_or_else(|| missing_node_error("expression", node, context))?;
+    let generation_filter = generation_filters.into_iter().next();
 
     if let Some((projection, op, target)) = parse_reduce_projection_formula(&formula) {
         let lowered = format!("__reduce_projection__(\"{projection}\", \"{op}\", \"{target}\")");
