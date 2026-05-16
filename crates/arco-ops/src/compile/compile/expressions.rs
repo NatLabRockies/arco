@@ -4,6 +4,7 @@ fn linearize_value_expr(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -24,7 +25,9 @@ fn linearize_value_expr(
                 )?));
             }
             if let Some(expression) = named_expressions.get(name) {
-                if let Some(generation_bindings) = expression_generation_bindings(name, program) {
+                if let Some(generation_bindings) =
+                    expression_generation_bindings(name, program, expression_generation_index)
+                {
                     if !generation_bindings.is_empty() {
                         return Err(CompileError::InvalidFormulation {
                             message: format!(
@@ -41,6 +44,7 @@ fn linearize_value_expr(
                     program,
                     inputs,
                     named_expressions,
+                    expression_generation_index,
                     variable_signatures,
                     instantiated_names,
                     entrypoint,
@@ -63,6 +67,7 @@ fn linearize_value_expr(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -74,6 +79,7 @@ fn linearize_value_expr(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -89,6 +95,7 @@ fn linearize_value_expr(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -99,6 +106,7 @@ fn linearize_value_expr(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -138,6 +146,7 @@ fn linearize_value_expr(
                         program,
                         inputs,
                         named_expressions,
+                        expression_generation_index,
                         variable_signatures,
                         instantiated_names,
                         entrypoint,
@@ -154,6 +163,7 @@ fn linearize_value_expr(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -199,6 +209,7 @@ fn linearize_reduction(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -216,6 +227,7 @@ fn linearize_reduction(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -230,6 +242,7 @@ fn linearize_reduction(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -277,6 +290,7 @@ fn evaluate_reduction_filter(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -288,6 +302,7 @@ fn evaluate_reduction_filter(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -298,6 +313,7 @@ fn evaluate_reduction_filter(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -321,6 +337,7 @@ fn evaluate_reduction_filter(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,

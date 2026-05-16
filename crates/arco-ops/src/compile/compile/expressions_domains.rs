@@ -386,6 +386,7 @@ fn linearize_indexed_expr(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -408,7 +409,9 @@ fn linearize_indexed_expr(
 
     if let Some(expression) = named_expressions.get(target) {
         let mut scoped_bindings = bindings.clone();
-        if let Some(generation_bindings) = expression_generation_bindings(target, program) {
+        if let Some(generation_bindings) =
+            expression_generation_bindings(target, program, expression_generation_index)
+        {
             if !generation_bindings.is_empty() {
                 if generation_bindings.len() != resolved.len() {
                     return Err(CompileError::InvalidFormulation {
@@ -429,13 +432,16 @@ fn linearize_indexed_expr(
             }
         }
 
-        if let Some(filter) = expression_generation_filter(target, program) {
+        if let Some(filter) =
+            expression_generation_filter(target, program, expression_generation_index)
+        {
             if !evaluate_reduction_filter(
                 filter,
                 &scoped_bindings,
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -450,6 +456,7 @@ fn linearize_indexed_expr(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -542,21 +549,35 @@ fn resolve_tuple_key_index(
     Some(resolved)
 }
 
+fn build_expression_generation_index(program: &SemanticProgram) -> ExpressionGenerationIndex {
+    program
+        .active_expressions
+        .iter()
+        .enumerate()
+        .map(|(index, expression)| (expression.name.clone(), index))
+        .collect()
+}
+
 fn expression_generation_bindings<'a>(
     name: &str,
     program: &'a SemanticProgram,
+    expression_generation_index: &ExpressionGenerationIndex,
 ) -> Option<&'a [arco_kdl::source::GenerationBinding]> {
+    let expression_index = *expression_generation_index.get(name)?;
     program
         .active_expressions
-        .iter()
-        .find(|expression| expression.name == name)
+        .get(expression_index)
         .map(|expression| expression.generation_bindings.as_slice())
 }
 
-fn expression_generation_filter<'a>(name: &str, program: &'a SemanticProgram) -> Option<&'a Expr> {
+fn expression_generation_filter<'a>(
+    name: &str,
+    program: &'a SemanticProgram,
+    expression_generation_index: &ExpressionGenerationIndex,
+) -> Option<&'a Expr> {
+    let expression_index = *expression_generation_index.get(name)?;
     program
         .active_expressions
-        .iter()
-        .find(|expression| expression.name == name)
+        .get(expression_index)
         .and_then(|expression| expression.generation_filter.as_ref())
 }

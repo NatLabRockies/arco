@@ -13,6 +13,7 @@ fn compile_algebra(
         .iter()
         .map(|family| (family.render(), family.clone()))
         .collect::<BTreeMap<_, _>>();
+    let expression_generation_index = build_expression_generation_index(program);
 
     let mut variable_instances =
         instantiate_variable_instances(program, inputs, &variable_signatures, entrypoint)?;
@@ -27,6 +28,7 @@ fn compile_algebra(
             program,
             inputs,
             &named_expressions,
+            &expression_generation_index,
             &variable_signatures,
             &instantiated_names,
             entrypoint,
@@ -44,6 +46,7 @@ fn compile_algebra(
             program,
             inputs,
             &named_expressions,
+            &expression_generation_index,
             &variable_signatures,
             &instantiated_names,
             entrypoint,
@@ -58,6 +61,7 @@ fn compile_algebra(
                     program,
                     inputs,
                     &named_expressions,
+                    &expression_generation_index,
                     &variable_signatures,
                     &instantiated_names,
                     entrypoint,
@@ -81,9 +85,7 @@ fn compile_algebra(
     // On a fallback-eligible failure, build the nonlinear problem and decide
     // whether the program actually needs the NLP path.
     let (linearized, mut constraints, objective, reports, nonlinear) = match linearized_sections {
-        Ok((constraints, objective, reports)) => {
-            (true, constraints, objective, reports, None)
-        }
+        Ok((constraints, objective, reports)) => (true, constraints, objective, reports, None),
         Err(CompileError::InvalidFormulation { message, .. }) => {
             if !nonlinear_fallback_required(&message) {
                 return Err(CompileError::InvalidFormulation {
@@ -96,6 +98,7 @@ fn compile_algebra(
                 program,
                 inputs,
                 &named_expressions,
+                &expression_generation_index,
                 &variable_signatures,
                 &instantiated_names,
                 entrypoint,
