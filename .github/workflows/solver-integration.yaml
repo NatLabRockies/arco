@@ -17,7 +17,7 @@ on:
   push:
     branches:
       - main
-      - release-*
+      - release/*
     paths:
       - "crates/**"
       - "bindings/python/**"
