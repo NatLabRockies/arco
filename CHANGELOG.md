@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/NatLabRockies/arco/compare/v0.6.2...v0.6.3) (2026-05-16)
+
+
+### Bug Fixes
+
+* **cli:** pin homedir on release-0.6 ([#270](https://github.com/NatLabRockies/arco/issues/270)) ([806aae5](https://github.com/NatLabRockies/arco/commit/806aae5742b7e092b3aca99fd5957bddea5b335a))
+
 ## [0.6.2](https://github.com/NatLabRockies/arco/compare/v0.6.1...v0.6.2) (2026-05-16)
 
 
