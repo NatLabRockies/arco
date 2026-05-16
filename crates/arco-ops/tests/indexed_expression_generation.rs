@@ -19,7 +19,6 @@ fn write_temp_workspace(
         .prefix("arco-ops-indexed-expression-")
         .tempdir()?;
     let root = workspace.path();
-    fs::create_dir_all(&root)?;
     for (relative_path, file_contents) in extra_files {
         let file_path = root.join(relative_path);
         if let Some(parent) = file_path.parent() {
