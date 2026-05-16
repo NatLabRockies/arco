@@ -570,6 +570,7 @@ package.json
 # End of https://www.toptal.com/developers/gitignore/api/c,vim,data,rust,venv,julia,linux,macos,python,windows,database,virtualenv,visualstudiocode,node
 
 # Generated during packaging from root licenses/
+bindings/python/BSD-3-Clause.txt
 bindings/python/licenses/
 
 # Local git worktrees
