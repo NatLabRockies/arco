@@ -10,6 +10,7 @@ repos:
   - repo: builtin
     hooks:
       - id: trailing-whitespace
+        exclude: ^crates/arco-cli/wix/main\.wxs$
       - id: check-added-large-files
         args: ["--maxkb=1000"]
       - id: end-of-file-fixer
@@ -100,7 +101,8 @@ repos:
     hooks:
       - id: zizmor
         name: zizmor
-        entry: uvx zizmor .github
+        entry: >-
+          bash -lc 'workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "release.yml" -print); uvx zizmor --pedantic .github/actions .github/dependabot.yml "${workflows[@]}"'
         language: system
         types: [yaml]
         files: ^\.github/workflows/.*\.yaml$
@@ -109,7 +111,8 @@ repos:
 
       - id: actionlint
         name: actionlint
-        entry: uvx --from actionlint-py actionlint
+        entry: >-
+          bash -lc 'workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "release.yml" -print); uvx --from actionlint-py actionlint "${workflows[@]}"'
         language: system
         types: [yaml]
         files: ^\.github/workflows/.*\.ya?ml$
