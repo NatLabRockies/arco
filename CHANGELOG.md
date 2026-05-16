@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/NatLabRockies/arco/compare/v0.6.1...v0.6.2) (2026-05-16)
+
+
+### Bug Fixes
+
+* **release:** reconcile cargo-dist workflow drift ([#268](https://github.com/NatLabRockies/arco/issues/268)) ([35a04d5](https://github.com/NatLabRockies/arco/commit/35a04d50f2c6e5130541d033d91d1032e9131820))
+
 ## [0.6.1](https://github.com/NatLabRockies/arco/compare/v0.6.0...v0.6.1) (2026-05-15)
 
 
