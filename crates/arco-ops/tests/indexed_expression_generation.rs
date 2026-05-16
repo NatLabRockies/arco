@@ -1,25 +1,24 @@
 use arco_ops::ArcoOps;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use tempfile::TempDir;
 
 fn issue_262_fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/issue-262/input.kdl")
 }
 
-fn write_temp_model(contents: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+fn write_temp_model(contents: &str) -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
     write_temp_workspace(contents, &[])
 }
 
 fn write_temp_workspace(
     contents: &str,
     extra_files: &[(&str, &str)],
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_nanos()
-        .to_string();
-    let root = std::env::temp_dir().join(format!("arco-ops-indexed-expression-{unique}"));
+) -> Result<(TempDir, PathBuf), Box<dyn std::error::Error>> {
+    let workspace = tempfile::Builder::new()
+        .prefix("arco-ops-indexed-expression-")
+        .tempdir()?;
+    let root = workspace.path();
     fs::create_dir_all(&root)?;
     for (relative_path, file_contents) in extra_files {
         let file_path = root.join(relative_path);
@@ -30,7 +29,7 @@ fn write_temp_workspace(
     }
     let path = root.join("input.kdl");
     fs::write(&path, contents)?;
-    Ok(path)
+    Ok((workspace, path))
 }
 
 #[test]
@@ -74,7 +73,7 @@ scenario "Base" {
 }
 "#;
 
-    let path = write_temp_model(model)?;
+    let (_workspace, path) = write_temp_model(model)?;
     let compiled = ArcoOps::compile_file(&path)?;
 
     assert!(!compiled.compiled_problem.algebra.constraints.is_empty());
@@ -121,7 +120,7 @@ scenario "Base" {
 }
 "#;
 
-    let path = write_temp_model(model)?;
+    let (_workspace, path) = write_temp_model(model)?;
     let error = ArcoOps::compile_file(&path)
         .expect_err("indexed expression arity mismatch should fail compilation");
     let error_message = error.to_string();
@@ -175,7 +174,8 @@ scenario "Base" {
 }
 "#;
 
-    let path = write_temp_workspace(model, &[("data/bus.csv", "bus,active\nb1,1\nb2,0\n")])?;
+    let (_workspace, path) =
+        write_temp_workspace(model, &[("data/bus.csv", "bus,active\nb1,1\nb2,0\n")])?;
     let compiled = ArcoOps::compile_file(&path)?;
 
     assert!(!compiled.compiled_problem.algebra.constraints.is_empty());
@@ -228,7 +228,7 @@ scenario "Base" {
 }
 "#;
 
-    let path = write_temp_model(model)?;
+    let (_workspace, path) = write_temp_model(model)?;
     let error = ArcoOps::compile_file(&path)
         .expect_err("unresolved identifier in generated expression should fail compilation");
     let message = error.to_string();
@@ -274,7 +274,8 @@ scenario "Base" {
 }
 "#;
 
-    let path = write_temp_workspace(model, &[("data/bus.csv", "bus,active\nb1,1\nb2,0\n")])?;
+    let (_workspace, path) =
+        write_temp_workspace(model, &[("data/bus.csv", "bus,active\nb1,1\nb2,0\n")])?;
     let compiled = ArcoOps::compile_file(&path)?;
 
     assert!(compiled.compiled_problem.algebra.nonlinear.is_some());
