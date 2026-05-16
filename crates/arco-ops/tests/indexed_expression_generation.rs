@@ -32,8 +32,8 @@ fn write_temp_workspace(
 }
 
 #[test]
-fn compiles_generated_indexed_expression_with_positional_index_binding()
--> Result<(), Box<dyn std::error::Error>> {
+fn compiles_generated_indexed_expression_with_positional_index_binding(
+) -> Result<(), Box<dyn std::error::Error>> {
     let model = r#"
 set "bus" {
   "b1"
@@ -132,7 +132,8 @@ scenario "Base" {
 }
 
 #[test]
-fn rejects_bare_reference_to_generated_indexed_expression() -> Result<(), Box<dyn std::error::Error>> {
+fn rejects_bare_reference_to_generated_indexed_expression() -> Result<(), Box<dyn std::error::Error>>
+{
     let model = r#"
 set "bus" {
   "b1"
@@ -239,8 +240,8 @@ fn compiles_issue_262_net_injection_ptdf_fixture() -> Result<(), Box<dyn std::er
 }
 
 #[test]
-fn rejects_generated_expression_with_unresolved_identifier()
--> Result<(), Box<dyn std::error::Error>> {
+fn rejects_generated_expression_with_unresolved_identifier(
+) -> Result<(), Box<dyn std::error::Error>> {
     let model = r#"
 set "bus" {
   "b1"
@@ -285,8 +286,8 @@ scenario "Base" {
 }
 
 #[test]
-fn compiles_filtered_generated_expression_in_nonlinear_objective()
--> Result<(), Box<dyn std::error::Error>> {
+fn compiles_filtered_generated_expression_in_nonlinear_objective(
+) -> Result<(), Box<dyn std::error::Error>> {
     let model = r#"
 data "bus_data" source="data/bus.csv" {
   set "bus"
@@ -330,8 +331,8 @@ scenario "Base" {
 }
 
 #[test]
-fn rejects_bare_reference_to_generated_indexed_expression_in_nonlinear_path()
--> Result<(), Box<dyn std::error::Error>> {
+fn rejects_bare_reference_to_generated_indexed_expression_in_nonlinear_path(
+) -> Result<(), Box<dyn std::error::Error>> {
     let model = r#"
 set "bus" {
   "b1"
@@ -365,9 +366,10 @@ scenario "Base" {
     let message = error.to_string();
 
     assert!(
-      message
-        .contains("indexed expression `net_injection_by_bus` expects 1 index value(s), received 0"),
-      "unexpected error message: {message}"
+        message.contains(
+            "indexed expression `net_injection_by_bus` expects 1 index value(s), received 0"
+        ),
+        "unexpected error message: {message}"
     );
 
     Ok(())
