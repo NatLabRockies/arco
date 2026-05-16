@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/NatLabRockies/arco/compare/v0.6.0...v0.6.1) (2026-05-16)
+
+
+### Documentation
+
+* **release:** define pre-1.0 release lanes ([#272](https://github.com/NatLabRockies/arco/issues/272)) ([01838a9](https://github.com/NatLabRockies/arco/commit/01838a9e8da5c592947b131845119d514b82f328))
+
 ## [0.6.0](https://github.com/NatLabRockies/arco/compare/v0.5.0...v0.6.0) (2026-05-13)
 
 
