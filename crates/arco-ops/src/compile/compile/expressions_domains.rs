@@ -410,7 +410,7 @@ fn linearize_indexed_expr(
         let mut scoped_bindings = bindings.clone();
         if let Some(generation_bindings) = expression_generation_bindings(target, program) {
             if !generation_bindings.is_empty() {
-                if !indices.is_empty() && generation_bindings.len() != resolved.len() {
+                if generation_bindings.len() != resolved.len() {
                     return Err(CompileError::InvalidFormulation {
                         message: format!(
                             "indexed expression `{target}` expects {} index value(s), received {}",

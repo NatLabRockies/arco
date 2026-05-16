@@ -24,6 +24,17 @@ fn linearize_value_expr(
                 )?));
             }
             if let Some(expression) = named_expressions.get(name) {
+                if let Some(generation_bindings) = expression_generation_bindings(name, program) {
+                    if !generation_bindings.is_empty() {
+                        return Err(CompileError::InvalidFormulation {
+                            message: format!(
+                                "indexed expression `{name}` expects {} index value(s), received 0",
+                                generation_bindings.len()
+                            ),
+                            path: entrypoint.to_path_buf(),
+                        });
+                    }
+                }
                 return linearize_value_expr(
                     expression,
                     bindings,

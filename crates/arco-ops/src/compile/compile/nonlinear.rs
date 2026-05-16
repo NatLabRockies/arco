@@ -443,6 +443,17 @@ fn compile_nonlinear_expr(
                 return Ok(NonlinearExpr::Constant(numeric));
             }
             if let Some(expression) = named_expressions.get(name) {
+                if let Some(generation_bindings) = expression_generation_bindings(name, program) {
+                    if !generation_bindings.is_empty() {
+                        return Err(CompileError::InvalidFormulation {
+                            message: format!(
+                                "indexed expression `{name}` expects {} index value(s), received 0",
+                                generation_bindings.len()
+                            ),
+                            path: entrypoint.to_path_buf(),
+                        });
+                    }
+                }
                 return compile_nonlinear_expr(
                     expression,
                     bindings,
@@ -638,7 +649,7 @@ fn compile_nonlinear_indexed_expr(
         let mut scoped_bindings = bindings.clone();
         if let Some(generation_bindings) = expression_generation_bindings(target, program) {
             if !generation_bindings.is_empty() {
-                if !indices.is_empty() && generation_bindings.len() != resolved.len() {
+                if generation_bindings.len() != resolved.len() {
                     return Err(CompileError::InvalidFormulation {
                         message: format!(
                             "indexed expression `{target}` expects {} index value(s), received {}",

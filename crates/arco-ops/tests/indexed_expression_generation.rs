@@ -132,6 +132,53 @@ scenario "Base" {
 }
 
 #[test]
+fn rejects_bare_reference_to_generated_indexed_expression() -> Result<(), Box<dyn std::error::Error>> {
+    let model = r#"
+set "bus" {
+  "b1"
+}
+
+model "Dispatch" {
+  control "dispatch_new" lower=0 {
+    index "b" in="bus"
+  }
+
+  expression "net_injection_by_bus" {
+    index "b" in="bus"
+    expression {
+      dispatch_new[b]
+    }
+  }
+
+  constraint "balance" {
+    expression {
+      net_injection_by_bus = 0
+    }
+  }
+
+  minimize "TotalCost" {
+    0
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}
+"#;
+
+    let (_workspace, path) = write_temp_model(model)?;
+    let error = ArcoOps::compile_file(&path)
+        .expect_err("bare reference to indexed generated expression should fail compilation");
+    let error_message = error.to_string();
+
+    assert!(error_message.contains(
+        "indexed expression `net_injection_by_bus` expects 1 index value(s), received 0"
+    ));
+
+    Ok(())
+}
+
+#[test]
 fn compiles_generated_indexed_expression_with_if_filter() -> Result<(), Box<dyn std::error::Error>>
 {
     let model = r#"
@@ -278,6 +325,50 @@ scenario "Base" {
     let compiled = ArcoOps::compile_file(&path)?;
 
     assert!(compiled.compiled_problem.algebra.nonlinear.is_some());
+
+    Ok(())
+}
+
+#[test]
+fn rejects_bare_reference_to_generated_indexed_expression_in_nonlinear_path()
+-> Result<(), Box<dyn std::error::Error>> {
+    let model = r#"
+set "bus" {
+  "b1"
+}
+
+model "Dispatch" {
+  control "dispatch_new" lower=0 {
+    index "b" in="bus"
+  }
+
+  expression "net_injection_by_bus" {
+    index "b" in="bus"
+    expression {
+      0
+    }
+  }
+
+  minimize "TotalCost" {
+    sum(dispatch_new[bb] * dispatch_new[bb] for bb in bus) + net_injection_by_bus
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}
+"#;
+
+    let (_workspace, path) = write_temp_model(model)?;
+    let error = ArcoOps::compile_file(&path)
+        .expect_err("nonlinear compilation should reject bare indexed generated expression");
+    let message = error.to_string();
+
+    assert!(
+      message
+        .contains("indexed expression `net_injection_by_bus` expects 1 index value(s), received 0"),
+      "unexpected error message: {message}"
+    );
 
     Ok(())
 }
