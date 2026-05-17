@@ -203,6 +203,22 @@ fn rejects_generated_expression_with_conflicting_formula_sources() {
 }
 
 #[test]
+fn rejects_generated_expression_with_block_formula_child() {
+    let error = parse_fixture_error(
+        "rejects_generated_expression_with_block_formula_child.kdl",
+        "generated expression should reject block-form formula child",
+    );
+
+    let message = error.to_string();
+    assert!(
+        message.contains("formula")
+            && message.contains("expression declarations")
+            && message.contains("positional string form"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
 fn parse_program_file_expands_top_level_and_model_includes(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let parsed = parse_program_file(&fixture_path("composition/input.kdl"))?;

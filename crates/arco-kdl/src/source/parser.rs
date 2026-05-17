@@ -8,7 +8,7 @@ use crate::source::ast::{
 use crate::source::error::SourceError;
 use crate::source::parser_constraints::{parse_constraint, parse_constraints};
 use crate::source::parser_helpers::{
-    ParseContext, algebra_error, algebra_text_from_node, child_arg_string, declaration_indices,
+    ParseContext, algebra_error, algebra_text_from_node, declaration_indices,
     first_arg_string, invalid_value_error, missing_node_error, optional_property_literal,
     optional_property_string, parse_constraint_index_binding, parse_optimize,
     parse_optional_filter_expression, parse_reduce, positional_value, property_string,
@@ -863,7 +863,7 @@ fn parse_expression(
     let mut generation_bindings = Vec::new();
     let mut generation_filters = Vec::new();
     let formula_from_property = optional_property_string(node, "expression", context)?;
-    let formula_from_formula_child = child_arg_string(node, "formula", 0, context).ok();
+    let mut formula_from_formula_child = None;
     let mut formula_from_expression_child = None;
 
     for child in node.iter_children() {
@@ -885,7 +885,24 @@ fn parse_expression(
                 }
                 formula_from_expression_child = Some(algebra_text_from_node(child, context)?);
             }
-            Some(Declaration::Formula) => {}
+            Some(Declaration::Formula) => {
+                if formula_from_formula_child.is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "expression declarations support at most one `formula` child".to_string(),
+                        context,
+                    ));
+                }
+                if child.children().is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "`formula` children in expression declarations must use positional string form `formula \"...\"`; use `expression { ... }` for block algebra"
+                            .to_string(),
+                        context,
+                    ));
+                }
+                formula_from_formula_child = Some(first_arg_string(child, 0, context)?);
+            }
             _ => {
                 return Err(unsupported_declaration_error(
                     child,
