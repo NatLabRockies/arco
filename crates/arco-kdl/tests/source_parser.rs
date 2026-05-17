@@ -1,10 +1,10 @@
 mod common;
 
-use arco_kdl::source::{
-    parse_program_file, parse_program_text, BoundExpr, LiteralValue, ParsedSource, ReportKind,
-    SourceError,
-};
 use arco_kdl::ObjectiveSense;
+use arco_kdl::source::{
+    BoundExpr, LiteralValue, ParsedSource, ReportKind, SourceError, parse_program_file,
+    parse_program_text,
+};
 use common::{fixture_path, fixture_text};
 use std::path::PathBuf;
 
@@ -97,8 +97,8 @@ fn parses_scenario_reports_scalar_and_dual() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn parses_generated_constraint_with_index_if_and_expression_children(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn parses_generated_constraint_with_index_if_and_expression_children()
+-> Result<(), Box<dyn std::error::Error>> {
     let parsed =
         parse_fixture("parses_generated_constraint_with_index_if_and_expression_children.kdl")?;
     let model = parsed.program.model("Dispatch").ok_or("missing model")?;
@@ -132,8 +132,8 @@ fn parses_top_level_projection_declaration() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn parses_top_level_projection_declaration_with_domain_and_key_blocks(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn parses_top_level_projection_declaration_with_domain_and_key_blocks()
+-> Result<(), Box<dyn std::error::Error>> {
     let parsed =
         parse_fixture("parses_top_level_projection_declaration_with_domain_and_key_blocks.kdl")?;
     assert_eq!(parsed.program.projections.len(), 1);
@@ -159,8 +159,8 @@ fn parses_expression_reduce_projection_block_form() -> Result<(), Box<dyn std::e
 }
 
 #[test]
-fn parses_generated_expression_with_index_and_expression_children(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn parses_generated_expression_with_index_and_expression_children()
+-> Result<(), Box<dyn std::error::Error>> {
     let parsed =
         parse_fixture("parses_generated_expression_with_index_and_expression_children.kdl")?;
     let model = parsed.program.model("Dispatch").ok_or("missing model")?;
@@ -185,9 +185,11 @@ fn rejects_generated_expression_with_multiple_if_children() {
         "generated expression should reject multiple if children",
     );
 
-    assert!(error
-        .to_string()
-        .contains("expression declarations support at most one `if` child"));
+    assert!(
+        error
+            .to_string()
+            .contains("expression declarations support at most one `if` child")
+    );
 }
 
 #[test]
@@ -197,9 +199,11 @@ fn rejects_generated_expression_with_conflicting_formula_sources() {
         "generated expression should reject conflicting formula sources",
     );
 
-    assert!(error
-        .to_string()
-        .contains("expression declarations support only one formula source"));
+    assert!(
+        error
+            .to_string()
+            .contains("expression declarations support only one formula source")
+    );
 }
 
 #[test]
@@ -219,8 +223,8 @@ fn rejects_generated_expression_with_block_formula_child() {
 }
 
 #[test]
-fn parse_program_file_expands_top_level_and_model_includes(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn parse_program_file_expands_top_level_and_model_includes()
+-> Result<(), Box<dyn std::error::Error>> {
     let parsed = parse_program_file(&fixture_path("composition/input.kdl"))?;
     let program = parsed.program;
 
@@ -242,8 +246,8 @@ fn parse_program_file_expands_top_level_and_model_includes(
 }
 
 #[test]
-fn parse_program_text_preserves_include_declarations_without_expanding(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn parse_program_text_preserves_include_declarations_without_expanding()
+-> Result<(), Box<dyn std::error::Error>> {
     let text = fixture_text("composition/input.kdl")?;
     let parsed = parse_program_text(&text, &PathBuf::from("input.kdl"))?;
 

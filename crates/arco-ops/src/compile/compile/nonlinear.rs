@@ -687,24 +687,13 @@ fn compile_nonlinear_indexed_expr(
         if let Some(generation_bindings) =
             expression_generation_bindings(target, program, expression_generation_index)
         {
-            if !generation_bindings.is_empty() {
-                if generation_bindings.len() != resolved.len() {
-                    return Err(CompileError::InvalidFormulation {
-                        message: format!(
-                            "indexed expression `{target}` expects {} index value(s), received {}",
-                            generation_bindings.len(),
-                            resolved.len()
-                        ),
-                        path: entrypoint.to_path_buf(),
-                    });
-                }
-
-                if generation_bindings.len() == resolved.len() {
-                    for (binding, value) in generation_bindings.iter().zip(resolved.iter()) {
-                        scoped_bindings.insert(binding.variable.clone(), value.clone());
-                    }
-                }
-            }
+            bind_generated_expression_indices(
+                target,
+                generation_bindings,
+                &resolved,
+                &mut scoped_bindings,
+                entrypoint,
+            )?;
         }
 
         if let Some(filter) =

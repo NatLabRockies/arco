@@ -1,3 +1,32 @@
+fn bind_generated_expression_indices(
+    target: &str,
+    generation_bindings: &[arco_kdl::source::GenerationBinding],
+    resolved: &[FilterValue],
+    scoped_bindings: &mut LinearizationBindings,
+    entrypoint: &Path,
+) -> Result<(), CompileError> {
+    if generation_bindings.is_empty() {
+        return Ok(());
+    }
+
+    if generation_bindings.len() != resolved.len() {
+        return Err(CompileError::InvalidFormulation {
+            message: format!(
+                "indexed expression `{target}` expects {} index value(s), received {}",
+                generation_bindings.len(),
+                resolved.len()
+            ),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
+    for (binding, value) in generation_bindings.iter().zip(resolved.iter()) {
+        scoped_bindings.insert(binding.variable.clone(), value.clone());
+    }
+
+    Ok(())
+}
+
 fn candidate_instance_name(
     target: &str,
     resolved: &[FilterValue],
