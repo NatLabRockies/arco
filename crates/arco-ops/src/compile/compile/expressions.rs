@@ -1,3 +1,4 @@
+#[allow(clippy::too_many_arguments)]
 fn linearize_value_expr(
     expr: &Expr,
     bindings: &LinearizationBindings,
