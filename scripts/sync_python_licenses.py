@@ -15,8 +15,9 @@ def _repo_root() -> Path:
 
 def _sync_python_licenses(*, repo_root: Path) -> list[Path]:
     source_dir = repo_root / "licenses"
-    destination_dir = repo_root / "bindings" / "python" / "licenses"
-    destination_dir.mkdir(parents=True, exist_ok=True)
+    python_root = repo_root / "bindings" / "python"
+    license_dir = python_root / "licenses"
+    license_dir.mkdir(parents=True, exist_ok=True)
 
     copied: list[Path] = []
     for filename in LICENSE_FILENAMES:
@@ -25,9 +26,14 @@ def _sync_python_licenses(*, repo_root: Path) -> list[Path]:
             raise FileNotFoundError(
                 f"Required license file is missing: {source.as_posix()}"
             )
-        destination = destination_dir / filename
+        destination = license_dir / filename
         shutil.copy2(source, destination)
         copied.append(destination)
+
+        if filename == "BSD-3-Clause.txt":
+            root_destination = python_root / filename
+            shutil.copy2(source, root_destination)
+            copied.append(root_destination)
     return copied
 
 

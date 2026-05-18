@@ -9,7 +9,7 @@ description = "Python bindings for Arco optimization library"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "licenses/BSD-3-Clause.txt" }
-license-files = ["licenses/HiGHS-MIT.txt"]
+license-files = ["licenses/*.txt"]
 authors = [{ name = "Arco maintainers" }]
 maintainers = [{ name = "pesap", email = "pesap@users.noreply.github.com" }]
 keywords = ["optimization", "linear-programming", "mixed-integer-programming"]
@@ -39,7 +39,7 @@ Changelog = "https://github.com/NatLabRockies/arco/releases"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-include = ["arco/py.typed", "arco/arco.pyi", "arco/blocks.pyi"]
+include = ["arco/py.typed", "arco/arco.pyi", "arco/blocks.pyi", "BSD-3-Clause.txt"]
 python-source = "."
 
 [dependency-groups]
