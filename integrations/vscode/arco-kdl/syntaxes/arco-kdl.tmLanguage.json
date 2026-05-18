@@ -1,0 +1,153 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "arco KDL",
+  "scopeName": "source.arco-kdl",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#math-blocks" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#properties" },
+    { "include": "#operators" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.arco-kdl", "match": "//.*$" },
+        { "name": "comment.block.arco-kdl", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "identifiers": {
+      "patterns": [
+        {
+          "name": "variable.other.identifier.arco-kdl",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_-]*\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.declaration.arco-kdl",
+          "match": "\\b(?:include|data|map|alias|set|param|model|control|var|constraint|expression|expr|minimize|maximize|scenario|use|use_data|report|index|in|filter|if|bounds|lower|upper|slack|reduce|projection|from|to)\\b"
+        },
+        {
+          "name": "support.function.aggregate.arco-kdl",
+          "match": "\\b(?:sum|avg|min|max|first|last)\\b"
+        },
+        {
+          "name": "constant.language.arco-kdl",
+          "match": "\\b(?:true|false|null|inf|-inf)\\b"
+        }
+      ]
+    },
+    "math": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        {
+          "name": "keyword.control.arco-math",
+          "match": "\\b(?:for|in|if|and|or|not|reduce|projection|from|to)\\b"
+        },
+        {
+          "name": "support.function.aggregate.arco-math",
+          "match": "\\b(?:sum|avg|min|max|first|last)\\b"
+        },
+        {
+          "name": "keyword.operator.arco-math",
+          "match": "==|!=|<=|>=|=>|[=+\\-*/<>]"
+        },
+        {
+          "name": "punctuation.bracket.arco-math",
+          "match": "[\\[\\]()]"
+        },
+        {
+          "name": "variable.other.identifier.arco-math",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_-]*\\b"
+        }
+      ]
+    },
+    "math-blocks": {
+      "patterns": [
+        {
+          "name": "meta.embedded.block.arco-math",
+          "begin": "\\b(expression|expr|minimize|maximize|filter|if|lower|upper)\\b([^{};]*)\\{",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.declaration.arco-kdl" },
+            "2": { "name": "meta.block.header.arguments.arco-kdl" },
+            "0": { "name": "meta.block.header.arco-kdl" }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.block.end.arco-kdl" }
+          },
+          "patterns": [
+            { "include": "#math" }
+          ]
+        },
+        {
+          "name": "meta.embedded.block.arco-constraint-math",
+          "begin": "\\b(constraint)\\b([^{};]*)\\{(?=[^{}]*(?:[<>=!+\\-*/\\[]|\\b(?:sum|avg|min|max)\\b))",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.declaration.arco-kdl" },
+            "2": { "name": "meta.block.header.arguments.arco-kdl" },
+            "0": { "name": "meta.block.header.arco-kdl" }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": { "name": "punctuation.section.block.end.arco-kdl" }
+          },
+          "patterns": [
+            { "include": "#math" }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.arco-kdl",
+          "match": "\\b-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.assignment.arco-kdl", "match": "=" },
+        { "name": "keyword.operator.comparison.arco-kdl", "match": "==|!=|<=|>=|=>|[<>]" },
+        { "name": "keyword.operator.arithmetic.arco-kdl", "match": "[+\\-*/]" }
+      ]
+    },
+    "properties": {
+      "patterns": [
+        {
+          "name": "variable.parameter.property.arco-kdl",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_-]*(?=\\s*=)"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.arco-kdl",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "patterns": [
+            { "name": "constant.character.escape.arco-kdl", "match": "\\\\(?:[nrt\"\\\\]|u\\{[0-9A-Fa-f]+\\})" }
+          ]
+        },
+        {
+          "name": "string.quoted.double.arco-kdl",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            { "name": "constant.character.escape.arco-kdl", "match": "\\\\(?:[nrt\"\\\\]|u\\{[0-9A-Fa-f]+\\}|.)" }
+          ]
+        }
+      ]
+    }
+  }
+}

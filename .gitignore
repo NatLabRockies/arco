@@ -564,8 +564,11 @@ package-lock.yaml
 pnpm-lock.yaml
 yarn.lock
 package.json
-!tools/tree-sitter-arco-kdl/package.json
-!tools/tree-sitter-arco-kdl/package-lock.json
+!integrations/tree-sitter/arco-kdl/package.json
+!integrations/tree-sitter/arco-kdl/package-lock.json
+!integrations/vscode/arco-kdl/package.json
+!integrations/vscode/arco-kdl/scripts/
+!integrations/vscode/arco-kdl/scripts/install-local.js
 
 # End of https://www.toptal.com/developers/gitignore/api/c,vim,data,rust,venv,julia,linux,macos,python,windows,database,virtualenv,visualstudiocode,node
 

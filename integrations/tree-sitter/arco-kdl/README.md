@@ -93,7 +93,7 @@ local function register_arco_kdl()
   parser_config.arco_kdl = {
     install_info = {
       url = "https://github.com/NatLabRockies/arco.git",
-      location = "tools/tree-sitter-arco-kdl",
+      location = "integrations/tree-sitter/arco-kdl",
       revision = "3325d6f772077397b858ae2c54af24dd61aeefe9", -- pinned commit from fix/treesitter
       files = { "src/parser.c", "src/scanner.c" },
       queries = "queries",
@@ -160,7 +160,7 @@ Place cursor on `set` or `constraint`; you should see `@keyword.arco_kdl`.
 >
 > 1. Use a Tree-sitter VS Code extension that supports custom/local grammars,
 >    then register this grammar directory:
->    `tools/tree-sitter-arco-kdl`.
+>    `integrations/tree-sitter/arco-kdl`.
 > 2. Package this grammar as your own VS Code extension and contribute it for
 >    `.kdl` files.
 

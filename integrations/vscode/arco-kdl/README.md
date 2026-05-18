@@ -5,12 +5,19 @@ Minimal-setup VS Code support for arco KDL files.
 ## Features
 
 - registers `.kdl` files as `arco-kdl`
-- provides basic syntax highlighting
+- highlights KDL declarations, strings, properties, and Arco algebra/math blocks
 - validates open/saved KDL files with the canonical arco CLI
+- formats documents with the canonical arco CLI formatter
 - shows diagnostics from:
 
 ```sh
 arco kdl check <file> --format json
+```
+
+and formatting from:
+
+```sh
+arco kdl fmt --stdin --stdin-filename <file>
 ```
 
 The extension does not implement a second KDL parser. The Rust parser in
@@ -30,7 +37,7 @@ Prerequisites:
 One-command local install:
 
 ```sh
-cd tools/vscode-arco-kdl
+cd integrations/vscode/arco-kdl
 npm run install:local
 ```
 
@@ -43,7 +50,7 @@ VSCODE_CLI="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code
 Manual install:
 
 ```sh
-cd tools/vscode-arco-kdl
+cd integrations/vscode/arco-kdl
 npm run package
 code --install-extension arco-kdl-vscode-0.1.0.vsix --force
 ```
@@ -89,6 +96,8 @@ You can also run **arco KDL: Select arco CLI** from the Command Palette.
 1. Open a `.kdl` file.
 2. Run **arco KDL: Validate Current File** from the Command Palette.
 3. For an invalid file, VS Code should show diagnostics from the canonical CLI.
+4. Run **Format Document** or **arco KDL: Format Current File** to format with
+   the canonical CLI formatter.
 
 Direct CLI sanity check:
 
@@ -102,12 +111,24 @@ Expected valid output:
 { "valid": true, "diagnostics": [] }
 ```
 
+Formatter sanity check:
+
+```sh
+arco kdl fmt --check path/to/input.kdl
+```
+
 ## Development
 
-Syntax check extension scripts:
+Syntax check and unit-test extension scripts:
 
 ```sh
 npm run check
+```
+
+Enforce extension coverage:
+
+```sh
+npm run coverage
 ```
 
 Package only:

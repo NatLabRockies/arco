@@ -6,11 +6,11 @@ compiler.
 
 ## Ownership
 
-| Tool                         | Responsibility                                                       | Not responsible for                         |
-| ---------------------------- | -------------------------------------------------------------------- | ------------------------------------------- |
-| `crates/arco-kdl`            | Canonical parse, semantic validation, and compiler input model       | Editor highlighting                         |
-| `tools/tree-sitter-arco-kdl` | Fast editor parse for structure, highlighting, and injection ranges  | Semantic validation or full algebra parsing |
-| `tools/vscode-arco-kdl`      | VS Code language registration and diagnostics from the canonical CLI | Reimplementing KDL validation               |
+| Tool                                | Responsibility                                                                | Not responsible for                         |
+| ----------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------- |
+| `crates/arco-kdl`                   | Canonical parse, semantic validation, and compiler input model                | Editor highlighting                         |
+| `integrations/tree-sitter/arco-kdl` | Fast editor parse for structure, highlighting, and injection ranges           | Semantic validation or full algebra parsing |
+| `integrations/vscode/arco-kdl`      | VS Code language registration, formatting, and diagnostics from canonical CLI | Reimplementing KDL validation or formatting |
 
 ## Canonical validation
 
@@ -68,10 +68,19 @@ from `arco.kdl.checkCommand`, `ARCO_CLI`, workspace `target/{debug,release}`
 binaries, then PATH. If no CLI is found, it reports a warning with setup actions
 instead of guessing silently.
 
+The VS Code formatter also shells out to the canonical CLI:
+
+```sh
+arco kdl fmt --stdin --stdin-filename path/to/input.kdl
+```
+
+That keeps editor formatting behavior aligned with `arco kdl fmt` and avoids a
+second formatter implementation.
+
 Local install for VS Code users should stay one command:
 
 ```sh
-cd tools/vscode-arco-kdl
+cd integrations/vscode/arco-kdl
 npm run install:local
 ```
 
@@ -81,7 +90,8 @@ Use these checks for KDL tooling changes:
 
 ```sh
 cargo test -p arco-cli kdl_check_json --test example_cli_commands
-cd tools/tree-sitter-arco-kdl && npx tree-sitter test
+cd integrations/tree-sitter/arco-kdl && tree-sitter test
 scripts/check-kdl-overlay.sh
-cd tools/vscode-arco-kdl && npm run check
+cd integrations/vscode/arco-kdl && npm run check
+cd integrations/vscode/arco-kdl && npm run coverage
 ```

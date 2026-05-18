@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
-grammar_path="$repo_root/tools/tree-sitter-arco-kdl"
+grammar_path="$repo_root/integrations/tree-sitter/arco-kdl"
 
 if ! command -v tree-sitter >/dev/null 2>&1; then
   echo "tree-sitter CLI is required for KDL overlay checks." >&2

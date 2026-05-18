@@ -9,9 +9,11 @@ const LANGUAGE_ID = "arco-kdl";
 const DIAGNOSTIC_SOURCE = "arco-kdl";
 const CONFIGURATION_SECTION = "arco.kdl";
 const CHECK_ARGS = ["kdl", "check"];
+const FORMAT_ARGS = ["kdl", "fmt", "--stdin"];
 const JSON_FORMAT_ARGS = ["--format", "json"];
 const COMMANDS = {
   validateCurrentFile: "arcoKdl.validateCurrentFile",
+  formatCurrentFile: "arcoKdl.formatCurrentFile",
   selectCheckCommand: "arcoKdl.selectCheckCommand",
   showSetup: "arcoKdl.showSetup",
 };
@@ -34,9 +36,18 @@ function activate(context) {
       validateActiveDocument(diagnostics),
     ),
     vscode.commands.registerCommand(
+      COMMANDS.formatCurrentFile,
+      formatActiveDocument,
+    ),
+    vscode.commands.registerCommand(
       COMMANDS.selectCheckCommand,
       selectCheckCommand,
     ),
+    vscode.languages.registerDocumentFormattingEditProvider(LANGUAGE_ID, {
+      provideDocumentFormattingEdits(document) {
+        return formatDocument(document);
+      },
+    }),
     vscode.commands.registerCommand(COMMANDS.showSetup, showSetupDocument),
     vscode.workspace.onDidOpenTextDocument(validateOpenDocument),
     vscode.workspace.onDidSaveTextDocument((document) => {
@@ -148,6 +159,10 @@ function validateDocument(document, diagnostics) {
 }
 
 function resolveCheckCommand(document) {
+  return resolveArcoCommand(document);
+}
+
+function resolveArcoCommand(document) {
   const workspaceRoot = workspaceDirectory(document);
   return (
     configuration().get("checkCommand", "").trim() ||
@@ -156,6 +171,90 @@ function resolveCheckCommand(document) {
     findOnPath("arco") ||
     "arco"
   );
+}
+
+async function formatActiveDocument() {
+  const editor = vscode.window.activeTextEditor;
+  const document = editor?.document;
+  if (!editor || !document || !isArcoKdlDocument(document)) {
+    vscode.window.showInformationMessage("Open an arco KDL file to format it.");
+    return;
+  }
+
+  const edits = await formatDocument(document);
+  if (edits.length === 0) return;
+
+  const workspaceEdit = new vscode.WorkspaceEdit();
+  for (const edit of edits) {
+    workspaceEdit.replace(document.uri, edit.range, edit.newText);
+  }
+  await vscode.workspace.applyEdit(workspaceEdit);
+}
+
+function formatDocument(document) {
+  if (document.isUntitled) {
+    vscode.window.showWarningMessage("Save the arco KDL file before formatting.");
+    return [];
+  }
+
+  const command = resolveArcoCommand(document);
+  const args = [
+    ...FORMAT_ARGS,
+    "--stdin-filename",
+    document.fileName,
+  ];
+
+  return runArcoCommand(
+    command,
+    args,
+    document.getText(),
+    workspaceDirectory(document),
+  )
+    .then(({ stdout }) => {
+      if (stdout === document.getText()) return [];
+      return [vscode.TextEdit.replace(fullDocumentRange(document), stdout)];
+    })
+    .catch((error) => {
+      if (error.code === "ENOENT") {
+        showMissingCommandWarning(command);
+      } else {
+        vscode.window.showErrorMessage(
+          `arco KDL format failed: ${error.message}`,
+        );
+      }
+      return [];
+    });
+}
+
+function runArcoCommand(command, args, input, cwd) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, shell: false });
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr });
+        return;
+      }
+      const detail = stderr.trim() || stdout.trim() || `exit code ${code}`;
+      reject(new Error(detail));
+    });
+
+    child.stdin.end(input);
+  });
+}
+
+function fullDocumentRange(document) {
+  const lastLine = document.lineAt(document.lineCount - 1);
+  return new vscode.Range(new vscode.Position(0, 0), lastLine.range.end);
 }
 
 function findWorkspaceArco(workspaceRoot) {
@@ -324,4 +423,34 @@ async function showSetupDocument() {
   await vscode.window.showTextDocument(document);
 }
 
-module.exports = { activate, deactivate };
+module.exports = {
+  activate,
+  deactivate,
+  _test: {
+    candidateExecutableNames,
+    commandFailureDiagnostic,
+    diagnosticRange,
+    fileDiagnostic,
+    findOnPath,
+    findWorkspaceArco,
+    formatActiveDocument,
+    formatDocument,
+    fullDocumentRange,
+    invalidOutputDiagnostic,
+    isArcoKdlDocument,
+    isKdlCheckReport,
+    isKdlDiagnostic,
+    parseReport,
+    resolveArcoCommand,
+    runArcoCommand,
+    selectCheckCommand,
+    showMissingCommandWarning,
+    showSetupDocument,
+    toVsCodeDiagnostic,
+    validateActiveDocument,
+    validateDocument,
+    validateIfKdl,
+    validateOpenDocuments,
+    workspaceDirectory,
+  },
+};

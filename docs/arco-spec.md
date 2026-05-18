@@ -137,7 +137,7 @@ All other `{ ... }` blocks in Arco (children of `data`, `model`, `scenario`,
 standard KDL nodes and are parsed with normal KDL 2.0 rules.
 
 Editor support: The `tree-sitter-arco-kdl` grammar (see
-`tools/tree-sitter-arco-kdl/`) extends `tree-sitter-kdl` to recognize algebra
+`integrations/tree-sitter/arco-kdl/`) extends `tree-sitter-kdl` to recognize algebra
 blocks. Editors configured with this grammar parse Arco files without errors.
 The grammar exposes algebra content as `arco_math_text` nodes for language
 injection and syntax highlighting.

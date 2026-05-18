@@ -316,7 +316,7 @@ $ arco kdl check input.kdl --format json
 Install the local VS Code helper extension:
 
 ```bash
-cd tools/vscode-arco-kdl
+cd integrations/vscode/arco-kdl
 npm run install:local
 ```
 

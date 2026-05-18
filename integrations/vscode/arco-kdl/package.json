@@ -1,7 +1,7 @@
 {
   "name": "arco-kdl-vscode",
   "displayName": "arco KDL",
-  "description": "VS Code support for arco KDL validation and basic highlighting.",
+  "description": "VS Code support for arco KDL validation, formatting, and syntax highlighting.",
   "version": "0.1.0",
   "private": true,
   "publisher": "natlabrockies",
@@ -9,7 +9,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/NatLabRockies/arco.git",
-    "directory": "tools/vscode-arco-kdl"
+    "directory": "integrations/vscode/arco-kdl"
   },
   "files": [
     "extension.js",
@@ -29,6 +29,7 @@
   "activationEvents": [
     "onLanguage:arco-kdl",
     "onCommand:arcoKdl.validateCurrentFile",
+    "onCommand:arcoKdl.formatCurrentFile",
     "onCommand:arcoKdl.selectCheckCommand",
     "onCommand:arcoKdl.showSetup"
   ],
@@ -60,6 +61,10 @@
         "title": "arco KDL: Validate Current File"
       },
       {
+        "command": "arcoKdl.formatCurrentFile",
+        "title": "arco KDL: Format Current File"
+      },
+      {
         "command": "arcoKdl.selectCheckCommand",
         "title": "arco KDL: Select arco CLI"
       },
@@ -87,10 +92,25 @@
           "description": "Validate arco KDL files after edits."
         }
       }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "arcoKdl.validateCurrentFile",
+          "when": "resourceLangId == arco-kdl",
+          "group": "navigation@10"
+        },
+        {
+          "command": "arcoKdl.formatCurrentFile",
+          "when": "resourceLangId == arco-kdl",
+          "group": "navigation@11"
+        }
+      ]
     }
   },
   "scripts": {
-    "check": "node --check extension.js && node --check scripts/install-local.js",
+    "check": "node --check extension.js && node --check scripts/install-local.js && node --test test/*.test.js",
+    "coverage": "npx --yes c8 --check-coverage --lines 95 --functions 95 --branches 95 --statements 95 node --test test/*.test.js",
     "package": "npx --yes @vscode/vsce package --no-dependencies",
     "install:local": "npm run package && node scripts/install-local.js"
   }
