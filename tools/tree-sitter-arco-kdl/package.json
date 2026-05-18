@@ -4,11 +4,17 @@
   "private": true,
   "description": "Thin overlay grammar for Arco KDL surface syntax",
   "license": "MIT",
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test",
+    "query:highlights": "tree-sitter query --captures queries/highlights.scm examples/highlight_demo.kdl",
+    "query:injections": "tree-sitter query --captures queries/injections.scm examples/highlight_demo.kdl"
+  },
   "dependencies": {
     "tree-sitter-kdl": "^1.0.0"
   },
   "devDependencies": {
-    "tree-sitter-cli": "^0.21.0"
+    "tree-sitter-cli": "^0.26.8"
   },
   "main": "bindings/node"
 }

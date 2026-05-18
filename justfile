@@ -72,6 +72,15 @@ pre-commit-stage stage:
 kdl-overlay-check:
     ./scripts/check-kdl-overlay.sh
 
+[group: 'hygiene']
+kdl-nvim-test:
+    ./scripts/test-arco-kdl-nvim.sh
+
+[group: 'hygiene']
+kdl-editor-artifacts:
+    just kdl-nvim-test
+    ./scripts/package-kdl-editor-artifacts.sh
+
 [group: 'python']
 py-build-ci: py-licenses
     uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml --features xpress -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist

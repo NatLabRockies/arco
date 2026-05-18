@@ -6,11 +6,12 @@ compiler.
 
 ## Ownership
 
-| Tool                         | Responsibility                                                       | Not responsible for                         |
-| ---------------------------- | -------------------------------------------------------------------- | ------------------------------------------- |
-| `crates/arco-kdl`            | Canonical parse, semantic validation, and compiler input model       | Editor highlighting                         |
-| `tools/tree-sitter-arco-kdl` | Fast editor parse for structure, highlighting, and injection ranges  | Semantic validation or full algebra parsing |
-| `tools/vscode-arco-kdl`      | VS Code language registration and diagnostics from the canonical CLI | Reimplementing KDL validation               |
+| Tool                         | Responsibility                                                         | Not responsible for                         |
+| ---------------------------- | ---------------------------------------------------------------------- | ------------------------------------------- |
+| `crates/arco-kdl`            | Canonical parse, semantic validation, and compiler input model         | Editor highlighting                         |
+| `tools/tree-sitter-arco-kdl` | Fast editor parse for structure, highlighting, and injection ranges    | Semantic validation or full algebra parsing |
+| `tools/arco-kdl-nvim`        | Lazy.nvim-ready Neovim parser plugin wrapper around tree-sitter assets | Canonical KDL validation                    |
+| `tools/vscode-arco-kdl`      | VS Code language registration and diagnostics from the canonical CLI   | Reimplementing KDL validation               |
 
 ## Canonical validation
 
@@ -75,13 +76,31 @@ cd tools/vscode-arco-kdl
 npm run install:local
 ```
 
+Neovim users should be able to install directly with lazy.nvim from
+`tools/arco-kdl-nvim`:
+
+```lua
+{
+  "NatLabRockies/arco",
+  name = "arco-kdl-nvim",
+  dependencies = { "nvim-treesitter/nvim-treesitter" },
+  config = function(plugin)
+    vim.opt.runtimepath:prepend(plugin.dir .. "/tools/arco-kdl-nvim")
+    require("arco-kdl").setup()
+  end,
+}
+```
+
 ## Checks
 
 Use these checks for KDL tooling changes:
 
 ```sh
 cargo test -p arco-cli kdl_check_json --test example_cli_commands
-cd tools/tree-sitter-arco-kdl && npx tree-sitter test
+cd tools/tree-sitter-arco-kdl && npm test
+cd tools/tree-sitter-arco-kdl && npm run query:highlights && npm run query:injections
 scripts/check-kdl-overlay.sh
+just kdl-nvim-test
 cd tools/vscode-arco-kdl && npm run check
+just kdl-editor-artifacts
 ```

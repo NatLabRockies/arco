@@ -11,8 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  package-vscode-extension:
-    name: package-vscode-extension
+  package-kdl-editor-artifacts:
+    name: package-kdl-editor-artifacts
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -21,18 +21,18 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
-      - name: Package VS Code extension
-        working-directory: tools/vscode-arco-kdl
-        run: |
-          set -euo pipefail
-          npm run check
-          npm run package
-          cp arco-kdl-vscode-*.vsix ../../arco-kdl-vscode.vsix
+      - name: Package KDL editor artifacts
+        run: scripts/package-kdl-editor-artifacts.sh
       - name: Upload VS Code extension artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: artifacts-vscode-extension
-          path: arco-kdl-vscode.vsix
+          path: target/editor-artifacts/arco-kdl-vscode-0.1.0.vsix
+      - name: Upload Neovim tree-sitter artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: artifacts-nvim-treesitter
+          path: target/editor-artifacts/arco-kdl-nvim-0.1.0.tar.gz
 
   build-local-artifacts:
     name: build-local-artifacts (${{ join(matrix.targets, ', ') }})

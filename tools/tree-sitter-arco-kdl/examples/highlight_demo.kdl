@@ -8,6 +8,7 @@ set time alias=t {
 
 data generators source="data/generators.csv" {
   map gen from=generator
+  alias zone column=balancing_area
   param capacity_mw index=gen
   param fuel_cost from=cost_per_mwh index=gen
 
@@ -17,8 +18,13 @@ data generators source="data/generators.csv" {
   }
 }
 
+projection area_gen {
+  from { "generator_area" }
+  to { "area"; "gen" }
+}
+
 model dispatch_model {
-  control dispatch lower=0 {
+  var dispatch lower=0 {
     index gen
     index time
   }
@@ -27,6 +33,10 @@ model dispatch_model {
     index g { in gen }
     index t { in time }
     expression { dispatch[g,t] <= capacity_mw[g] }
+  }
+
+  constraint balance {
+    sum(dispatch[g,t] for g in gen) = demand[t]
   }
 
   minimize total_cost {

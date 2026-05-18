@@ -11,6 +11,11 @@ const PURE_MATH_NODE_NAMES = [
   "upper",
 ];
 
+const MIXED_MATH_NODE_NAMES = ["constraint"];
+
+const nodeNameChoice = (names) =>
+  names.length === 1 ? names[0] : choice(...names);
+
 const nodeShape = ($, { nameRule, childrenRule, fieldRule = $.node_field }) =>
   seq(
     alias(optional(seq("/-", repeat($._node_space))), $.node_comment),
@@ -91,7 +96,9 @@ module.exports = grammar(kdl, {
         }),
       ),
 
-    // Nodes whose { } body is always algebra text.
+    // Nodes whose { } body is always algebra text. To add a new Arco
+    // algebra-bearing predicate, add it to PURE_MATH_NODE_NAMES or
+    // MIXED_MATH_NODE_NAMES above and regenerate the parser.
     arco_pure_math_node: ($) =>
       prec(
         2,
@@ -106,7 +113,7 @@ module.exports = grammar(kdl, {
       prec(
         2,
         nodeShape($, {
-          nameRule: field("name", "constraint"),
+          nameRule: field("name", nodeNameChoice(MIXED_MATH_NODE_NAMES)),
           childrenRule: choice($.arco_constraint_math_children, $.node_children),
         }),
       ),

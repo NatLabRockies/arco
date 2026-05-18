@@ -32,7 +32,10 @@ correct contexts, giving editors clean parses with no red squiggles.
   with `index`, `if`, `expression` children), falling back to algebra text
   (simple form).
 - Exposes algebra text as `arco_math_text` so editor injections can apply a math
-  grammar for syntax highlighting.
+  grammar for syntax highlighting. Simple constraint bodies are exposed as
+  `arco_constraint_math_text` and use the same injection language.
+- Adding a future algebra-bearing predicate should be a small grammar-table
+  change in `grammar.js` followed by `npm run generate` and `npm test`.
 
 ## Highlight capture map (theme tuning)
 
@@ -57,6 +60,7 @@ fixture and verify these captures line-by-line before taking screenshots.
 Authored files:
 
 - `grammar.js`: overlay grammar source of truth
+- `package.json`: local Tree-sitter scripts and dependency pins
 - `src/scanner.c`: thin Arco wrapper for external tokens
 - `src/vendor/tree_sitter_kdl_external_scanner.inc`: vendored upstream KDL scanner
 - `queries/*.scm`: editor queries
@@ -73,7 +77,7 @@ When `grammar.js` changes, regenerate the parser artifacts with:
 
 ```sh
 npm install
-npx tree-sitter generate
+npm run generate
 ```
 
 Do not hand-edit `src/parser.c`. It is generated code.
@@ -85,7 +89,47 @@ Tree-sitter CLI/runtime version.
 
 ### Neovim
 
-With `nvim-treesitter`, add this minimal parser registration to your config:
+With lazy.nvim:
+
+```lua
+{
+  "NatLabRockies/arco",
+  name = "arco-kdl-nvim",
+  dependencies = { "nvim-treesitter/nvim-treesitter" },
+  config = function(plugin)
+    vim.opt.runtimepath:prepend(plugin.dir .. "/tools/arco-kdl-nvim")
+    require("arco-kdl").setup()
+  end,
+}
+```
+
+Then install the parser:
+
+```vim
+:TSInstall arco_kdl
+```
+
+For a local checkout, use:
+
+```lua
+{
+  dir = "/absolute/path/to/arco/tools/arco-kdl-nvim",
+  dependencies = { "nvim-treesitter/nvim-treesitter" },
+  config = function()
+    require("arco-kdl").setup()
+  end,
+}
+```
+
+Release/local artifact packaging also includes the same plugin:
+
+```sh
+just kdl-editor-artifacts
+tar -tf target/editor-artifacts/arco-kdl-nvim-0.1.0.tar.gz | head
+```
+
+For direct repository installs with `nvim-treesitter`, add this parser
+registration to your config:
 
 ```lua
 local function register_arco_kdl()
@@ -154,15 +198,17 @@ Place cursor on `set` or `constraint`; you should see `@keyword.arco_kdl`.
 
 ### VS Code
 
-> [!IMPORTANT]
-> This repository does **not** currently ship a ready-to-install VS Code
-> extension. You have two practical options:
->
-> 1. Use a Tree-sitter VS Code extension that supports custom/local grammars,
->    then register this grammar directory:
->    `tools/tree-sitter-arco-kdl`.
-> 2. Package this grammar as your own VS Code extension and contribute it for
->    `.kdl` files.
+Ready-to-install local artifact:
+
+```sh
+just kdl-editor-artifacts
+code --install-extension target/editor-artifacts/arco-kdl-vscode-0.1.0.vsix --force
+```
+
+The VS Code artifact packages the repository extension in
+`tools/vscode-arco-kdl`. VS Code uses TextMate grammars for built-in syntax
+coloring, so the extension ships a TextMate grammar aligned with the
+tree-sitter capture intent plus canonical CLI diagnostics.
 
 For either option, use these parser assets from this directory:
 
@@ -183,6 +229,15 @@ instead of generic KDL highlighting.
 - `queries/injections.scm`: marks `arco_math_text` for language injection.
 - `examples/highlight_demo.kdl`: semantic highlight fixture for theme tuning.
 - `test/corpus/arco_math.txt`: corpus examples for algebra-body parsing.
+
+## Checks
+
+```sh
+npm install
+npm test
+npm run query:highlights
+npm run query:injections
+```
 
 ## Notes
 
