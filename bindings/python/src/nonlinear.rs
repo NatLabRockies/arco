@@ -6,10 +6,10 @@
 
 use arco_ops::expression::Expr as LinearExpr;
 use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr, UnaryOp};
-use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
+use crate::py_modules::errors::{ConstraintTypeError, ExprTypeError};
 use crate::py_modules::expr::{PyConstraintExpr, PyExpr};
 use crate::py_modules::variable::PyVariable;
 
@@ -105,7 +105,7 @@ pub(crate) fn coerce_to_nl(ob: &Bound<'_, PyAny>) -> PyResult<NlExpr> {
     if let Ok(val) = ob.extract::<f64>() {
         return Ok(NlExpr::Constant(val));
     }
-    Err(PyTypeError::new_err(
+    Err(ExprTypeError::new_err(
         "expected NonlinearExpr, Expr, Variable, or numeric constant",
     ))
 }
@@ -394,7 +394,7 @@ pub(crate) fn coerce_to_nl_constraint(
     if let Ok(c) = ob.extract::<PyConstraintExpr>() {
         return Ok(linear_constraint_to_nl(&c));
     }
-    Err(PyValueError::new_err(
+    Err(ConstraintTypeError::new_err(
         "expected a NonlinearConstraintExpr or linear ConstraintExpr",
     ))
 }

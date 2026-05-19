@@ -43,95 +43,76 @@ def solve(
     t0 = time.perf_counter()
     model = arco.Model()
 
-    I = arco.IndexSet("i", members=techs)
-    R = arco.IndexSet("r", members=regions)
-    H = arco.IndexSet("h", members=hours)
-    T = arco.IndexSet("t", members=years)
+    I = arco.IndexSet(name="i", members=techs)
+    R = arco.IndexSet(name="r", members=regions)
+    H = arco.IndexSet(name="h", members=hours)
+    T = arco.IndexSet(name="t", members=years)
     H_ramp = H[:-1]
     R_from = R.alias("from")
     R_to = R.alias("to")
 
-    valcap = arco.param(data.valcap, I, R, T)
-    is_vre = arco.param(data.is_vre, I)
-    is_storage = arco.param(data.is_storage, I)
+    valcap = arco.param(data.valcap, axes=(I, R, T))
+    is_vre = arco.param(data.is_vre, axes=(I,))
+    is_storage = arco.param(data.is_storage, axes=(I,))
     is_dispatch = ~is_vre & ~is_storage
     storage_active = valcap & is_storage
     dispatch_active = valcap & is_dispatch
 
-    cf = arco.param(data.cf, I, R, H)
-    cap_init = arco.param(data.cap_init, I, R)
-    load = arco.param(data.load, R, H, T)
-    peak_load = arco.param(data.load.max(axis=1), R, T)
-    minloadfrac = arco.param(data.minloadfrac, I)
-    min_cf = arco.param(data.min_cf, I)
-    emit_rate = arco.param(data.emit_rate, I)
-    emit_cap = arco.param(data.emit_cap, T)
-    hours_weight = arco.param(data.hours_weight, H)
-    pvf = arco.param(data.pvf, T)
-    cost_inv = arco.param(data.cost_inv, I)
-    cost_op = arco.param(data.cost_op, I)
-    startcost = arco.param(data.startcost, I)
+    cf = arco.param(data.cf, axes=(I, R, H))
+    cap_init = arco.param(data.cap_init, axes=(I, R))
+    load = arco.param(data.load, axes=(R, H, T))
+    peak_load = arco.param(data.load.max(axis=1), axes=(R, T))
+    minloadfrac = arco.param(data.minloadfrac, axes=(I,))
+    min_cf = arco.param(data.min_cf, axes=(I,))
+    emit_rate = arco.param(data.emit_rate, axes=(I,))
+    emit_cap = arco.param(data.emit_cap, axes=(T,))
+    hours_weight = arco.param(data.hours_weight, axes=(H,))
+    pvf = arco.param(data.pvf, axes=(T,))
+    cost_inv = arco.param(data.cost_inv, axes=(I,))
+    cost_op = arco.param(data.cost_op, axes=(I,))
+    startcost = arco.param(data.startcost, axes=(I,))
 
-    route_active = arco.param(route_active_matrix, R_from, R_to)
-    transcap = arco.param(transcap_matrix, R_from, R_to)
+    route_active = arco.param(route_active_matrix, axes=(R_from, R_to))
+    transcap = arco.param(transcap_matrix, axes=(R_from, R_to))
 
     cap = model.add_variables(
-        I,
-        R,
-        T,
+        axes=(I, R, T),
         bounds=arco.NonNegativeFloat,
         active=valcap,
         name="CAP",
     )
     inv = model.add_variables(
-        I,
-        R,
-        T,
+        axes=(I, R, T),
         bounds=arco.NonNegativeFloat,
         active=valcap,
         name="INV",
     )
     gen = model.add_variables(
-        I,
-        R,
-        H,
-        T,
+        axes=(I, R, H, T),
         bounds=arco.NonNegativeFloat,
         active=valcap,
         name="GEN",
     )
     flow = model.add_variables(
-        R_from,
-        R_to,
-        H,
-        T,
-        bounds=arco.Bounds(0, transcap),
+        axes=(R_from, R_to, H, T),
+        bounds=arco.Bounds(lower=0, upper=transcap),
         active=route_active,
         name="FLOW",
     )
     rampup = model.add_variables(
-        I,
-        R,
-        H_ramp,
-        T,
+        axes=(I, R, H_ramp, T),
         bounds=arco.NonNegativeFloat,
         active=dispatch_active,
         name="RAMPUP",
     )
     charge = model.add_variables(
-        I,
-        R,
-        H,
-        T,
+        axes=(I, R, H, T),
         bounds=arco.NonNegativeFloat,
         active=storage_active,
         name="CHARGE",
     )
     soc = model.add_variables(
-        I,
-        R,
-        H,
-        T,
+        axes=(I, R, H, T),
         bounds=arco.NonNegativeFloat,
         active=storage_active,
         name="SOC",
@@ -151,13 +132,22 @@ def solve(
         name="eq_mingen",
     )
 
-    imports = ((1.0 - float(data.tranloss)) * flow) @ R_from
-    exports = flow @ R_to
-    net_flow = imports - exports
-    model.add_constraints(
-        (gen @ I) + net_flow - (charge @ I) == load,
-        name="eq_supply_demand_balance",
-    )
+    gen_by_region = gen @ I
+    charge_by_region = charge @ I
+    tranloss_factor = 1.0 - float(data.tranloss)
+    for r_idx, region in enumerate(regions):
+        for h_idx, hour in enumerate(hours):
+            for t_idx, year in enumerate(years):
+                imports = tranloss_factor * flow[:, r_idx, h_idx, t_idx].sum()
+                exports = flow[r_idx, :, h_idx, t_idx].sum()
+                model.add_constraint(
+                    gen_by_region[r_idx, h_idx, t_idx]
+                    + imports
+                    - exports
+                    - charge_by_region[r_idx, h_idx, t_idx]
+                    == load[r_idx, h_idx, t_idx],
+                    name=f"eq_supply_demand_balance[{region},{hour},{year}]",
+                )
     model.add_constraints(
         (cap @ I) >= (1.0 + float(data.prm)) * peak_load,
         name="eq_reserve_margin",
@@ -187,8 +177,7 @@ def solve(
         name="eq_charge_cap",
     )
     model.add_constraints(
-        np.roll(soc, -1, axis=H)
-        == soc + float(data.charge_eff) * charge - gen,
+        np.roll(soc, -1, axis=H) == soc + float(data.charge_eff) * charge - gen,
         active=storage_active,
         name="eq_soc",
     )

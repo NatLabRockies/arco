@@ -4,6 +4,8 @@ use arco_ops::expression::ComparisonSense;
 use arco_ops::modeling::{Sense, SimplifyLevel};
 use pyo3::prelude::*;
 
+use crate::py_modules::errors::ConstraintSenseError;
+
 /// Python enum for optimization sense
 #[pyclass(from_py_object, name = "Sense", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,8 +66,8 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyComparisonSense {
                 0 => Ok(PyComparisonSense::GreaterEqual),
                 1 => Ok(PyComparisonSense::LessEqual),
                 2 => Ok(PyComparisonSense::Equal),
-                _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "Invalid ComparisonSense value: {val}"
+                _ => Err(ConstraintSenseError::new_err(format!(
+                    "Invalid ComparisonSense value: {val}",
                 ))),
             };
         }
@@ -75,12 +77,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyComparisonSense {
                 "ge" | ">=" => Ok(PyComparisonSense::GreaterEqual),
                 "le" | "<=" => Ok(PyComparisonSense::LessEqual),
                 "eq" | "==" => Ok(PyComparisonSense::Equal),
-                _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+                _ => Err(ConstraintSenseError::new_err(format!(
                     "Invalid sense '{s}' (expected 'ge', 'le', 'eq', '>=', '<=', or '==')",
                 ))),
             };
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
+        Err(ConstraintSenseError::new_err(
             "expected ComparisonSense enum or string ('ge', 'le', 'eq', '>=', '<=', or '==')",
         ))
     }

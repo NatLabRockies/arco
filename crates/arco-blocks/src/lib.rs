@@ -3,8 +3,10 @@
 mod dag;
 mod error;
 mod execution_plan;
+mod retention;
 
 pub use crate::error::BlockError;
+pub use crate::retention::{ArtifactRetention, DropPolicy, retention_for_policy};
 
 /// Directed dependency edge: `(source, target)` means `target` depends on `source`.
 pub type DependencyEdge = (String, String);

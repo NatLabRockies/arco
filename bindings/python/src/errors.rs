@@ -33,6 +33,12 @@ pyo3::create_exception!(
     ArcoError,
     "Variable bounds are invalid."
 );
+pyo3::create_exception!(
+    arco,
+    VariableNotFoundError,
+    ArcoError,
+    "Variable name does not exist."
+);
 
 // Constraint errors
 pyo3::create_exception!(
@@ -46,6 +52,12 @@ pyo3::create_exception!(
     ConstraintInvalidBoundsError,
     ArcoError,
     "Constraint bounds are invalid."
+);
+pyo3::create_exception!(
+    arco,
+    ConstraintNotFoundError,
+    ArcoError,
+    "Constraint name does not exist."
 );
 
 // Objective errors
@@ -100,6 +112,12 @@ pyo3::create_exception!(
     SolverInternalError,
     ArcoError,
     "Internal solver error."
+);
+pyo3::create_exception!(
+    arco,
+    SolverNotAvailableError,
+    ArcoError,
+    "Requested solver backend is not available."
 );
 
 // CSC errors
@@ -164,6 +182,56 @@ pyo3::create_exception!(
 );
 pyo3::create_exception!(arco, ArrayOverflowError, ArcoError, "Array size overflow.");
 
+// Block composition errors
+pyo3::create_exception!(
+    arco,
+    BlockArtifactError,
+    ArcoError,
+    "Block artifact operation failed."
+);
+pyo3::create_exception!(
+    arco,
+    BlockContractError,
+    ArcoError,
+    "Block composition contract is invalid."
+);
+pyo3::create_exception!(
+    arco,
+    BlockResultError,
+    ArcoError,
+    "Block result lookup failed."
+);
+
+// Logging errors
+pyo3::create_exception!(
+    arco,
+    LoggingConfigError,
+    ArcoError,
+    "Logging configuration is invalid."
+);
+pyo3::create_exception!(
+    arco,
+    LoggingIoError,
+    ArcoError,
+    "Logging output could not be opened or written."
+);
+
+// Metadata conversion errors
+pyo3::create_exception!(
+    arco,
+    MetadataConversionError,
+    ArcoError,
+    "Metadata could not be converted to Python objects."
+);
+
+// Dependency errors
+pyo3::create_exception!(
+    arco,
+    DependencyMissingError,
+    ArcoError,
+    "A required optional dependency is missing."
+);
+
 // Constraint construction errors
 pyo3::create_exception!(
     arco,
@@ -218,6 +286,12 @@ pyo3::create_exception!(
     ArcoError,
     "Invalid IndexSet arguments."
 );
+pyo3::create_exception!(
+    arco,
+    IndexSetIndexError,
+    ArcoError,
+    "Index set index is out of bounds."
+);
 
 // Bounds validation errors
 pyo3::create_exception!(
@@ -233,6 +307,12 @@ pyo3::create_exception!(
     SlackBoundError,
     ArcoError,
     "Invalid slack bound specification."
+);
+pyo3::create_exception!(
+    arco,
+    SlackValueUnavailableError,
+    ArcoError,
+    "Slack value is unavailable before solve."
 );
 
 // CSC matrix errors (more specific than CscInvalidDataError)
@@ -318,7 +398,11 @@ pub fn generic_solver_error_to_py(e: arco_ops::solve::SolverError) -> PyErr {
         arco_ops::solve::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
         arco_ops::solve::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
         arco_ops::solve::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
-        arco_ops::solve::SolverError::SolverNotAvailable(_) => SolverInternalError::new_err(msg),
+        arco_ops::solve::SolverError::InvalidResultShape(_) => SolverInternalError::new_err(msg),
+        arco_ops::solve::SolverError::InvalidSettings(_) => SolverInvalidSettingError::new_err(msg),
+        arco_ops::solve::SolverError::SolverNotAvailable(_) => {
+            SolverNotAvailableError::new_err(msg)
+        }
         arco_ops::solve::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
         arco_ops::solve::SolverError::Diagnostic(_) => SolverInternalError::new_err(msg),
         arco_ops::solve::SolverError::SolveFailure { status } => {
@@ -354,12 +438,20 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         py.get_type::<VariableInvalidBoundsError>(),
     )?;
     m.add(
+        "VariableNotFoundError",
+        py.get_type::<VariableNotFoundError>(),
+    )?;
+    m.add(
         "ConstraintInvalidIdError",
         py.get_type::<ConstraintInvalidIdError>(),
     )?;
     m.add(
         "ConstraintInvalidBoundsError",
         py.get_type::<ConstraintInvalidBoundsError>(),
+    )?;
+    m.add(
+        "ConstraintNotFoundError",
+        py.get_type::<ConstraintNotFoundError>(),
     )?;
     m.add(
         "ObjectiveMissingError",
@@ -390,6 +482,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         py.get_type::<SolverIterationLimitError>(),
     )?;
     m.add("SolverInternalError", py.get_type::<SolverInternalError>())?;
+    m.add(
+        "SolverNotAvailableError",
+        py.get_type::<SolverNotAvailableError>(),
+    )?;
     m.add("CscInvalidDataError", py.get_type::<CscInvalidDataError>())?;
 
     // Expression errors
@@ -421,6 +517,27 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("ArrayDimensionError", py.get_type::<ArrayDimensionError>())?;
     m.add("ArrayOverflowError", py.get_type::<ArrayOverflowError>())?;
 
+    // Block composition errors
+    m.add("BlockArtifactError", py.get_type::<BlockArtifactError>())?;
+    m.add("BlockContractError", py.get_type::<BlockContractError>())?;
+    m.add("BlockResultError", py.get_type::<BlockResultError>())?;
+
+    // Logging errors
+    m.add("LoggingConfigError", py.get_type::<LoggingConfigError>())?;
+    m.add("LoggingIoError", py.get_type::<LoggingIoError>())?;
+
+    // Metadata errors
+    m.add(
+        "MetadataConversionError",
+        py.get_type::<MetadataConversionError>(),
+    )?;
+
+    // Dependency errors
+    m.add(
+        "DependencyMissingError",
+        py.get_type::<DependencyMissingError>(),
+    )?;
+
     // Constraint construction errors
     m.add("ConstraintTypeError", py.get_type::<ConstraintTypeError>())?;
     m.add(
@@ -447,10 +564,15 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "IndexSetArgumentError",
         py.get_type::<IndexSetArgumentError>(),
     )?;
+    m.add("IndexSetIndexError", py.get_type::<IndexSetIndexError>())?;
 
     // Bounds and slack errors
     m.add("BoundsInvalidError", py.get_type::<BoundsInvalidError>())?;
     m.add("SlackBoundError", py.get_type::<SlackBoundError>())?;
+    m.add(
+        "SlackValueUnavailableError",
+        py.get_type::<SlackValueUnavailableError>(),
+    )?;
 
     // CSC errors (more specific)
     m.add("CscDtypeError", py.get_type::<CscDtypeError>())?;
@@ -481,6 +603,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "VARIABLE_INVALID_BOUNDS",
         py.get_type::<VariableInvalidBoundsError>(),
     )?;
+    arco_error_type.setattr("VARIABLE_NOT_FOUND", py.get_type::<VariableNotFoundError>())?;
     arco_error_type.setattr(
         "CONSTRAINT_INVALID_ID",
         py.get_type::<ConstraintInvalidIdError>(),
@@ -488,6 +611,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     arco_error_type.setattr(
         "CONSTRAINT_INVALID_BOUNDS",
         py.get_type::<ConstraintInvalidBoundsError>(),
+    )?;
+    arco_error_type.setattr(
+        "CONSTRAINT_NOT_FOUND",
+        py.get_type::<ConstraintNotFoundError>(),
     )?;
     arco_error_type.setattr("OBJECTIVE_MISSING", py.get_type::<ObjectiveMissingError>())?;
     arco_error_type.setattr(
@@ -506,6 +633,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         py.get_type::<SolverIterationLimitError>(),
     )?;
     arco_error_type.setattr("SOLVER_INTERNAL", py.get_type::<SolverInternalError>())?;
+    arco_error_type.setattr(
+        "SOLVER_NOT_AVAILABLE",
+        py.get_type::<SolverNotAvailableError>(),
+    )?;
     arco_error_type.setattr("CSC_INVALID_DATA", py.get_type::<CscInvalidDataError>())?;
 
     // Expression errors
@@ -534,6 +665,27 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     arco_error_type.setattr("ARRAY_DIMENSION", py.get_type::<ArrayDimensionError>())?;
     arco_error_type.setattr("ARRAY_OVERFLOW", py.get_type::<ArrayOverflowError>())?;
 
+    // Block composition errors
+    arco_error_type.setattr("BLOCK_ARTIFACT_IO", py.get_type::<BlockArtifactError>())?;
+    arco_error_type.setattr("BLOCK_CONTRACT", py.get_type::<BlockContractError>())?;
+    arco_error_type.setattr("BLOCK_RESULT", py.get_type::<BlockResultError>())?;
+
+    // Logging errors
+    arco_error_type.setattr("LOGGING_CONFIG", py.get_type::<LoggingConfigError>())?;
+    arco_error_type.setattr("LOGGING_IO", py.get_type::<LoggingIoError>())?;
+
+    // Metadata errors
+    arco_error_type.setattr(
+        "METADATA_CONVERSION",
+        py.get_type::<MetadataConversionError>(),
+    )?;
+
+    // Dependency errors
+    arco_error_type.setattr(
+        "DEPENDENCY_MISSING",
+        py.get_type::<DependencyMissingError>(),
+    )?;
+
     // Constraint construction errors
     arco_error_type.setattr("CONSTRAINT_TYPE", py.get_type::<ConstraintTypeError>())?;
     arco_error_type.setattr(
@@ -554,10 +706,15 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     arco_error_type.setattr("INDEXSET_EMPTY", py.get_type::<IndexSetEmptyError>())?;
     arco_error_type.setattr("INDEXSET_TYPE", py.get_type::<IndexSetTypeError>())?;
     arco_error_type.setattr("INDEXSET_ARGUMENT", py.get_type::<IndexSetArgumentError>())?;
+    arco_error_type.setattr("INDEXSET_INDEX", py.get_type::<IndexSetIndexError>())?;
 
     // Bounds and slack errors
     arco_error_type.setattr("BOUNDS_INVALID", py.get_type::<BoundsInvalidError>())?;
     arco_error_type.setattr("SLACK_BOUND", py.get_type::<SlackBoundError>())?;
+    arco_error_type.setattr(
+        "SLACK_VALUE_UNAVAILABLE",
+        py.get_type::<SlackValueUnavailableError>(),
+    )?;
 
     // CSC errors (more specific)
     arco_error_type.setattr("CSC_DTYPE", py.get_type::<CscDtypeError>())?;

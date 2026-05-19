@@ -1,10 +1,12 @@
 //! Python wrapper for index sets.
 
 use crate::PyObject;
-use crate::py_modules::errors::{IndexSetArgumentError, IndexSetEmptyError, IndexSetTypeError};
+use crate::py_modules::errors::{
+    IndexSetArgumentError, IndexSetEmptyError, IndexSetIndexError, IndexSetTypeError,
+};
 use pyo3::IntoPyObject;
 use pyo3::prelude::*;
-use pyo3::types::PySlice;
+use pyo3::types::{PyList, PySlice};
 
 /// Internal representation of an index set member.
 #[derive(Debug, Clone)]
@@ -73,7 +75,7 @@ pub struct PyIndexSet {
 #[pymethods]
 impl PyIndexSet {
     #[new]
-    #[pyo3(signature = (name, *, size=None, members=None))]
+    #[pyo3(signature = (*, name, size=None, members=None))]
     fn new(name: String, size: Option<usize>, members: Option<Vec<PyObject>>) -> PyResult<Self> {
         match (size, members) {
             (Some(size), None) => {
@@ -148,7 +150,7 @@ impl PyIndexSet {
                 idx
             };
             if resolved < 0 || resolved as usize >= self.members.len() {
-                return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                return Err(IndexSetIndexError::new_err(format!(
                     "index {} out of range for IndexSet of size {}",
                     idx,
                     self.members.len()
@@ -184,6 +186,18 @@ impl PyIndexSet {
         Err(IndexSetTypeError::new_err(
             "IndexSet indices must be integers or slices",
         ))
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let items = self
+            .members
+            .iter()
+            .map(|member| member.to_pyobject(py))
+            .collect::<PyResult<Vec<PyObject>>>()?;
+        Ok(PyList::new(py, items)?
+            .call_method0("__iter__")?
+            .unbind()
+            .into())
     }
 
     fn __repr__(&self) -> String {

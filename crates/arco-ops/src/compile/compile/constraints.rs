@@ -76,7 +76,11 @@ fn compile_constraint_instances(
                 }
             }
         } else {
-            for scope in explicit_scopes.expect("explicit scopes must exist") {
+            for scope in explicit_constraint_scopes(
+                explicit_scopes,
+                &constraint.diagnostic_id,
+                entrypoint,
+            )? {
                 if let Some(filter) = &constraint.generation_filter {
                     match evaluate_reduction_filter(
                         filter,
@@ -130,6 +134,19 @@ fn compile_constraint_instances(
         }
     }
     Ok(constraints)
+}
+
+fn explicit_constraint_scopes(
+    explicit_scopes: Option<Vec<LinearizationBindings>>,
+    diagnostic_id: &str,
+    entrypoint: &Path,
+) -> Result<Vec<LinearizationBindings>, CompileError> {
+    explicit_scopes.ok_or_else(|| CompileError::InvalidFormulation {
+        message: format!(
+            "constraint `{diagnostic_id}` has explicit generation bindings but no expanded scopes"
+        ),
+        path: entrypoint.to_path_buf(),
+    })
 }
 
 fn constraint_scope_key(bindings: &LinearizationBindings, binding_order: &[String]) -> String {

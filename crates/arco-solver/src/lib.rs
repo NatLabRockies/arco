@@ -5,6 +5,7 @@
 
 mod backend;
 mod config;
+mod conformance;
 mod model_view_backend;
 mod preflight;
 mod profile;
@@ -16,7 +17,13 @@ mod types;
 
 pub use backend::SolverBackend as GenericSolverBackend;
 pub use config::SolverConfig;
-pub use model_view_backend::{ModelViewBackend, ModelViewBackendRegistry};
+pub use conformance::{
+    BackendConformanceReport, check_empty_model_rejected, check_no_objective_rejected,
+    check_small_lp, check_small_milp, small_lp_model, small_milp_model,
+};
+pub use model_view_backend::{
+    ModelViewBackend, ModelViewBackendRegistry, validate_model_view_solve_result,
+};
 pub use preflight::{
     PreflightError, SolverRequirements, preflight_model_view, preflight_selection,
 };

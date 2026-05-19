@@ -8,12 +8,20 @@ import arco
 
 def _objective_terms(expr: object) -> list[tuple[int, float]]:
     model = arco.Model()
-    i = arco.IndexSet("i", members=["a", "b"])
-    r = arco.IndexSet("r", members=["north", "south"])
-    t = arco.IndexSet("t", members=[2020, 2025])
-    inv = model.add_variables(i, r, t, bounds=arco.NonNegativeFloat, name="INV")
-    pvf = arco.param(np.array([0.95, 0.90]), t)
-    cost_inv = arco.param(np.array([10.0, 20.0]), i)
+    i = arco.IndexSet(name="i", members=["a", "b"])
+    r = arco.IndexSet(name="r", members=["north", "south"])
+    t = arco.IndexSet(name="t", members=[2020, 2025])
+    inv = model.add_variables(
+        axes=(
+            i,
+            r,
+            t,
+        ),
+        bounds=arco.NonNegativeFloat,
+        name="INV",
+    )
+    pvf = arco.param(np.array([0.95, 0.90]), axes=(t,))
+    cost_inv = arco.param(np.array([10.0, 20.0]), axes=(i,))
 
     target = expr(inv, pvf, cost_inv, i, r, t)
     model.minimize(target)
@@ -47,12 +55,34 @@ def test_total_reduction_equivalent_forms_match_coefficients() -> None:
     )
 
 
+def test_numpy_sum_rejects_unsupported_kwargs_with_array_type_code() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=["a", "b"])
+    x = model.add_variables(axes=(i,), bounds=arco.NonNegativeFloat, name="X")
+    codes = arco.diagnostic_codes()
+
+    with pytest.raises(arco.ArrayTypeError) as exc:
+        np.sum(x, axis=i, where=np.array([True, False]))
+
+    assert exc.value.code == codes["ARRAY_TYPE"]
+    assert arco.error_code(exc.value) == codes["ARRAY_TYPE"]
+    assert "unsupported keyword 'where'" in str(exc.value)
+
+
 def test_numpy_time_axis_equivalent_forms_match_shape() -> None:
     model = arco.Model()
-    i = arco.IndexSet("i", members=["a", "b"])
-    h = arco.IndexSet("h", members=[0, 1, 2])
-    t = arco.IndexSet("t", members=[2020, 2025])
-    gen = model.add_variables(i, h, t, bounds=arco.NonNegativeFloat, name="GEN")
+    i = arco.IndexSet(name="i", members=["a", "b"])
+    h = arco.IndexSet(name="h", members=[0, 1, 2])
+    t = arco.IndexSet(name="t", members=[2020, 2025])
+    gen = model.add_variables(
+        axes=(
+            i,
+            h,
+            t,
+        ),
+        bounds=arco.NonNegativeFloat,
+        name="GEN",
+    )
 
     ramp_a = np.diff(gen, axis=h)
     ramp_b = gen.diff(over=h)
@@ -79,13 +109,21 @@ def test_numpy_time_axis_equivalent_forms_match_shape() -> None:
 
 def test_alias_axes_keep_directed_pair_dimensions_distinct() -> None:
     model = arco.Model()
-    r = arco.IndexSet("r", members=["north", "south"])
+    r = arco.IndexSet(name="r", members=["north", "south"])
     r_from = r.alias("from")
     r_to = r.alias("to")
-    h = arco.IndexSet("h", members=[0, 1])
-    t = arco.IndexSet("t", members=[2020])
+    h = arco.IndexSet(name="h", members=[0, 1])
+    t = arco.IndexSet(name="t", members=[2020])
 
-    flow = model.add_variables(r_from, r_to, h, t, bounds=arco.NonNegativeFloat)
+    flow = model.add_variables(
+        axes=(
+            r_from,
+            r_to,
+            h,
+            t,
+        ),
+        bounds=arco.NonNegativeFloat,
+    )
     imports = flow @ r_from
     exports = flow @ r_to
 
@@ -99,14 +137,34 @@ def _constraint_signature(
     builder: object,
 ) -> tuple[list[tuple[int, float, float]], list[tuple[int, int, float]]]:
     model = arco.Model()
-    i = arco.IndexSet("i", members=["a", "b"])
-    r = arco.IndexSet("r", members=["north", "south"])
-    h = arco.IndexSet("h", members=[0, 1, 2])
-    t = arco.IndexSet("t", members=[2020, 2025])
+    i = arco.IndexSet(name="i", members=["a", "b"])
+    r = arco.IndexSet(name="r", members=["north", "south"])
+    h = arco.IndexSet(name="h", members=[0, 1, 2])
+    t = arco.IndexSet(name="t", members=[2020, 2025])
 
-    cap = model.add_variables(i, r, t, bounds=arco.NonNegativeFloat, name="CAP")
-    gen = model.add_variables(i, r, h, t, bounds=arco.NonNegativeFloat, name="GEN")
-    cf = arco.param(np.arange(12, dtype=float).reshape(2, 2, 3) / 10.0, i, r, h)
+    cap = model.add_variables(
+        axes=(
+            i,
+            r,
+            t,
+        ),
+        bounds=arco.NonNegativeFloat,
+        name="CAP",
+    )
+    gen = model.add_variables(
+        axes=(
+            i,
+            r,
+            h,
+            t,
+        ),
+        bounds=arco.NonNegativeFloat,
+        name="GEN",
+    )
+    cf = arco.param(
+        np.arange(12, dtype=float).reshape(2, 2, 3) / 10.0,
+        axes=(i, r, h),
+    )
 
     model.add_constraints(builder(gen, cap, cf), name="eq_cap_limit")
     snapshot = model.inspect(include_coeffs=True)
@@ -139,21 +197,24 @@ def test_axis_alignment_equivalent_forms_match_coefficients() -> None:
 
 def test_labeled_bounds_broadcast_over_missing_axes() -> None:
     model = arco.Model()
-    r = arco.IndexSet("r", members=["north", "south"])
+    r = arco.IndexSet(name="r", members=["north", "south"])
     r_from = r.alias("from")
     r_to = r.alias("to")
-    h = arco.IndexSet("h", members=[0, 1])
-    t = arco.IndexSet("t", members=[2020, 2025])
+    h = arco.IndexSet(name="h", members=[0, 1])
+    t = arco.IndexSet(name="t", members=[2020, 2025])
 
-    route_active = arco.param(np.array([[False, True], [True, False]]), r_from, r_to)
-    transcap = arco.param(np.array([[0.0, 12.0], [8.0, 0.0]]), r_from, r_to)
+    route_active = arco.param(
+        np.array([[False, True], [True, False]]),
+        axes=(r_from, r_to),
+    )
+    transcap = arco.param(
+        np.array([[0.0, 12.0], [8.0, 0.0]]),
+        axes=(r_from, r_to),
+    )
 
     _ = model.add_variables(
-        r_from,
-        r_to,
-        h,
-        t,
-        bounds=arco.Bounds(0, transcap),
+        axes=(r_from, r_to, h, t),
+        bounds=arco.Bounds(lower=0, upper=transcap),
         active=route_active,
         name="FLOW",
     )
@@ -181,8 +242,8 @@ def test_einsum_accepts_arco_array_operand() -> None:
 
 def test_einsum_rejects_output_labels_not_in_inputs() -> None:
     model = arco.Model()
-    i = arco.IndexSet("i", members=["a", "b"])
-    x = model.add_variables(i, bounds=arco.NonNegativeFloat)
+    i = arco.IndexSet(name="i", members=["a", "b"])
+    x = model.add_variables(axes=(i,), bounds=arco.NonNegativeFloat)
 
     with pytest.raises(arco.ArrayDimensionError):
         np.einsum("i->ij", x)
@@ -190,10 +251,20 @@ def test_einsum_rejects_output_labels_not_in_inputs() -> None:
 
 def test_array_array_ops_align_by_axis_labels_not_position() -> None:
     model = arco.Model()
-    i = arco.IndexSet("i", members=["a", "b"])
-    t = arco.IndexSet("t", members=[2020, 2025])
-    b = model.add_variables(t, i, bounds=arco.NonNegativeFloat, name="B")
-    weight = arco.param(np.array([[1.0, 2.0], [10.0, 20.0]]), i, t)
+    i = arco.IndexSet(name="i", members=["a", "b"])
+    t = arco.IndexSet(name="t", members=[2020, 2025])
+    b = model.add_variables(
+        axes=(
+            t,
+            i,
+        ),
+        bounds=arco.NonNegativeFloat,
+        name="B",
+    )
+    weight = arco.param(
+        np.array([[1.0, 2.0], [10.0, 20.0]]),
+        axes=(i, t),
+    )
 
     model.minimize((weight * b).sum())
     snapshot = model.inspect(include_coeffs=True)

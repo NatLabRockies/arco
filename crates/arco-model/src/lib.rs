@@ -20,7 +20,8 @@ pub use model::{
     CoefficientView, ConstraintView, CscInput, DefaultPrettyPrintAdapter, InspectOptions, Model,
     ModelError, ModelFingerprint, ModelPatch, ModelSnapshot, ModelView, ObjectiveView,
     PatchedModelView, PrettyBoundGroup, PrettyPrintAdapter, PrettyPrintOptions, PrettySection,
-    SlackView, SnapshotMetadata, StructuralFacts, VariableView, format_ascii_number,
+    SlackView, SnapshotMemoryEstimate, SnapshotMetadata, StructuralFacts, VariableView,
+    format_ascii_number,
 };
 
 pub use slack::{ElasticHandle, SlackBound, SlackHandle, SlackVariables};

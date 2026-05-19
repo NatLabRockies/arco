@@ -1520,6 +1520,12 @@ model bad {
 `scenario` is the low-level execution entrypoint. It wires a model to concrete
 data and activates execution.
 
+If a document contains exactly one runnable `model` declaration and no explicit
+`scenario`, implementations MAY infer a scenario whose name is the model name,
+whose `use` target is that model, and whose data/report lists are empty. A
+document with multiple models, scenario-specific data bindings, or reports MUST
+declare scenarios explicitly.
+
 ```
 scenario <name> {
   use <model_name>
@@ -1529,7 +1535,7 @@ scenario <name> {
 }
 ```
 
-Every `scenario` MUST contain exactly one `use` declaration. When multiple
+Every explicit `scenario` MUST contain exactly one `use` declaration. When multiple
 `scenario` declarations exist in a document, the execution order is
 implementation-defined. Implementations MAY execute scenarios in parallel or
 sequentially. Authors MUST NOT rely on declaration order or any implicit
@@ -2060,7 +2066,10 @@ Model structure:
 
 Scenario resolution:
 
-27. `scenario` MUST contain exactly one `use` declaration.
+27. Explicit `scenario` declarations MUST contain exactly one `use`
+    declaration. If no scenario is declared, implementations MAY infer one only
+    when the document contains exactly one runnable model and no
+    scenario-specific data or reports.
 28. `scenario use <model_name>` MUST resolve to an existing `model`.
 29. Scenario `data` binding names MUST match model `param` declarations.
 30. Scalar `report` targets MUST resolve to a declared `expression`, `control`,

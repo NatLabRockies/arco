@@ -336,7 +336,25 @@ fn collect_term_refs_from_expr(
                 );
             }
         }
-        Expr::Identifier(_) | Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) => {}
+        Expr::Identifier(target) => {
+            let kind = if variable_targets.contains(target) {
+                "variable"
+            } else if parameter_targets.contains(target) {
+                "parameter"
+            } else {
+                "unknown"
+            };
+            if kind != "unknown" && !out.iter().any(|r| r.name == *target) {
+                out.push(TermRef {
+                    name: target.clone(),
+                    kind: kind.to_string(),
+                    over: Vec::new(),
+                    reduction: None,
+                    reduce_over: Vec::new(),
+                });
+            }
+        }
+        Expr::Number(_) | Expr::String(_) | Expr::Boolean(_) => {}
         Expr::Comparison { left, right, .. } => {
             collect_term_refs_from_expr(
                 left,

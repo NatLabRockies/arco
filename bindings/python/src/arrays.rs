@@ -32,6 +32,62 @@ pub use variable_array::PyVariableArray;
 // Re-export compact types for use in lib.rs
 pub(crate) use constraint_array::CompactConstraintStorage;
 
+type LabeledOperand = (Vec<Py<PyIndexSet>>, Vec<f64>);
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ExpressionTermCounts {
+    pub linear: usize,
+    pub quadratic: usize,
+    pub cubic: usize,
+}
+
+impl ExpressionTermCounts {
+    pub fn estimated_term_bytes(self) -> usize {
+        self.linear * std::mem::size_of::<(VariableId, f64)>()
+            + self.quadratic * std::mem::size_of::<(VariableId, VariableId, f64)>()
+            + self.cubic * std::mem::size_of::<(VariableId, VariableId, VariableId, f64)>()
+    }
+}
+
+pub(crate) fn expression_term_counts(values: &[PyExpr]) -> ExpressionTermCounts {
+    values
+        .iter()
+        .fold(ExpressionTermCounts::default(), |mut counts, expr| {
+            counts.linear += expr.inner().linear_terms().len();
+            counts.quadratic += expr.inner().quadratic_terms().len();
+            counts.cubic += expr.inner().cubic_terms().len();
+            counts
+        })
+}
+
+pub(crate) fn set_solver_matrix_memory_estimate(
+    estimate: &Bound<'_, PyDict>,
+    variable_instances: usize,
+    coefficient_instances: usize,
+) -> PyResult<()> {
+    let memory = arco_ops::modeling::SnapshotMemoryEstimate::for_sparse_matrix(
+        variable_instances,
+        coefficient_instances,
+    );
+    estimate.set_item(
+        "estimated_solver_coefficient_value_bytes",
+        memory.coefficient_value_bytes,
+    )?;
+    estimate.set_item(
+        "estimated_solver_coefficient_index_bytes",
+        memory.coefficient_index_bytes,
+    )?;
+    estimate.set_item(
+        "estimated_solver_variable_column_pointer_bytes",
+        memory.variable_column_pointer_bytes,
+    )?;
+    estimate.set_item(
+        "estimated_solver_sparse_matrix_bytes",
+        memory.sparse_matrix_bytes,
+    )?;
+    Ok(())
+}
+
 /// Sum values along a specific axis in a flat row-major array.
 ///
 /// For an array with shape [d0, d1, ..., dn], summing over axis `k` produces
@@ -66,7 +122,9 @@ fn axis_spec_from_bound(index_set: &Bound<'_, PyIndexSet>) -> AxisSpec {
     AxisSpec::new(borrowed.name.clone(), borrowed.members.len())
 }
 
-fn labeled_shape_from_index_sets(index_sets: &[Py<PyIndexSet>]) -> PyResult<LabeledShape> {
+pub(crate) fn labeled_shape_from_index_sets(
+    index_sets: &[Py<PyIndexSet>],
+) -> PyResult<LabeledShape> {
     Python::attach(|py| {
         let axes = index_sets
             .iter()
@@ -76,10 +134,36 @@ fn labeled_shape_from_index_sets(index_sets: &[Py<PyIndexSet>]) -> PyResult<Labe
     })
 }
 
+pub(crate) fn labeled_shape_from_axes_attr(
+    obj: &Bound<'_, PyAny>,
+    label: &str,
+) -> PyResult<Option<LabeledShape>> {
+    let Ok(axes_obj) = obj.getattr("axes") else {
+        return Ok(None);
+    };
+    let axes_tuple = axes_obj.cast::<PyTuple>().map_err(|_| {
+        ArrayTypeError::new_err(format!(
+            "labeled {label} must expose axes as a tuple of IndexSet"
+        ))
+    })?;
+    let axes = axes_tuple
+        .iter()
+        .map(|axis| {
+            let axis = axis.cast::<PyIndexSet>().map_err(|_| {
+                ArrayTypeError::new_err(format!("labeled {label} must expose IndexSet axes"))
+            })?;
+            Ok(axis_spec_from_bound(axis))
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    LabeledShape::new(axes)
+        .map(Some)
+        .map_err(|err| ArrayDimensionError::new_err(err.to_string()))
+}
+
 fn extract_labeled_operand(
     py: Python<'_>,
     other: &Bound<'_, PyAny>,
-) -> PyResult<Option<(Vec<Py<PyIndexSet>>, Vec<f64>)>> {
+) -> PyResult<Option<LabeledOperand>> {
     let Ok(axes_obj) = other.getattr("axes") else {
         return Ok(None);
     };
@@ -186,22 +270,29 @@ fn parse_named_axes(
     py: Python<'_>,
     selection: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<usize>> {
-    let mut axes_to_sum = Vec::new();
+    let mut selected_axes = Vec::new();
 
     if let Ok(single) = selection.cast::<PyIndexSet>() {
-        axes_to_sum.push(core.find_axis(py, single)?);
+        selected_axes.push(core.find_axis(py, single)?);
     } else {
         let items: Vec<Bound<'_, PyAny>> = selection.try_iter()?.collect::<PyResult<Vec<_>>>()?;
         for item in &items {
             let index_set = item.cast::<PyIndexSet>().map_err(|_| {
                 ArrayTypeError::new_err("axis/over must be an IndexSet or tuple of IndexSets")
             })?;
-            axes_to_sum.push(core.find_axis(py, index_set)?);
+            selected_axes.push(core.find_axis(py, index_set)?);
         }
     }
 
+    let core_shape = labeled_shape_from_index_sets(&core.index_sets)?;
+    let selected_specs = selected_axes
+        .iter()
+        .map(|axis_idx| axis_spec_from_bound(core.index_sets[*axis_idx].bind(py)))
+        .collect::<Vec<_>>();
+    let mut axes_to_sum = core_shape
+        .axis_indices(selected_specs.iter())
+        .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
     axes_to_sum.sort_unstable();
-    axes_to_sum.dedup();
     axes_to_sum.reverse();
     Ok(axes_to_sum)
 }
@@ -665,6 +756,15 @@ impl CompactExprStorage {
         result
     }
 
+    /// Count expression terms without materializing each element.
+    pub fn term_counts(&self) -> ExpressionTermCounts {
+        ExpressionTermCounts {
+            linear: self.terms.len() * self.count,
+            quadratic: 0,
+            cubic: 0,
+        }
+    }
+
     /// Sum all elements to a single PyExpr.
     pub fn sum_all(&self) -> PyExpr {
         let linear = self.collect_linear_terms();
@@ -869,7 +969,7 @@ fn compare_array_rhs(
     if let Ok(rhs_values) = rhs.extract::<Vec<f64>>() {
         return core.compare_vec(&rhs_values, sense);
     }
-    Err(pyo3::exceptions::PyTypeError::new_err(
+    Err(ArrayTypeError::new_err(
         "comparison RHS must be a float, list of floats, VariableArray, ExprArray, labeled param, or IndexSet",
     ))
 }
@@ -1194,6 +1294,28 @@ fn extract_axis_kwarg<'py>(
     dict.get_item(name)
 }
 
+fn reject_unsupported_numpy_kwargs(
+    function_name: &str,
+    kwargs: &Bound<'_, PyAny>,
+    supported: &[&str],
+) -> PyResult<()> {
+    if kwargs.is_none() {
+        return Ok(());
+    }
+    let dict = kwargs.cast::<PyDict>()?;
+    for (key, value) in dict.iter() {
+        let key = key.extract::<String>()?;
+        if supported.contains(&key.as_str()) || value.is_none() {
+            continue;
+        }
+        return Err(ArrayTypeError::new_err(format!(
+            "np.{function_name} with Arco arrays supports only {}; unsupported keyword '{key}'",
+            supported.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 fn numpy_cumsum(
     py: Python<'_>,
     core: &LinearArrayCore,
@@ -1357,7 +1479,10 @@ fn array_function(
     let axis = extract_axis_kwarg(kwargs, "axis")?;
 
     match func_name.as_str() {
-        "sum" => array_sum(core, py, axis.as_ref()),
+        "sum" => {
+            reject_unsupported_numpy_kwargs("sum", kwargs, &["axis"])?;
+            array_sum(core, py, axis.as_ref())
+        }
         "cumsum" => numpy_cumsum(py, core, kwargs),
         "diff" => numpy_diff(py, core, kwargs),
         "roll" => numpy_roll(py, core, args, kwargs),
@@ -1905,8 +2030,18 @@ fn numpy_einsum(
             .iter()
             .enumerate()
             .map(|(axis, label)| {
-                coords[*label_positions.get(label).expect("einsum label")] * expr_strides[axis]
+                label_positions
+                    .get(label)
+                    .map(|position| coords[*position] * expr_strides[axis])
+                    .ok_or_else(|| {
+                        ArrayDimensionError::new_err(format!(
+                            "np.einsum label '{}' is missing from coefficient shape",
+                            label
+                        ))
+                    })
             })
+            .collect::<PyResult<Vec<_>>>()?
+            .into_iter()
             .sum::<usize>();
 
         let output_flat = if output_shape.is_empty() {
@@ -1916,21 +2051,44 @@ fn numpy_einsum(
                 .iter()
                 .enumerate()
                 .map(|(axis, label)| {
-                    coords[*label_positions.get(label).expect("einsum label")]
-                        * output_strides[axis]
+                    label_positions
+                        .get(label)
+                        .map(|position| coords[*position] * output_strides[axis])
+                        .ok_or_else(|| {
+                            ArrayDimensionError::new_err(format!(
+                                "np.einsum output label '{}' is missing from coefficient shape",
+                                label
+                            ))
+                        })
                 })
+                .collect::<PyResult<Vec<_>>>()?
+                .into_iter()
                 .sum::<usize>()
         };
-        output_values[output_flat].add_assign_owned(core.values[expr_flat].scale(coefficient));
+        let expr = core.values.get(expr_flat).ok_or_else(|| {
+            ArrayIndexError::new_err(format!(
+                "np.einsum expression flat index {} out of range for array of size {}",
+                expr_flat,
+                core.values.len()
+            ))
+        })?;
+        let output_len = output_values.len();
+        let output = output_values.get_mut(output_flat).ok_or_else(|| {
+            ArrayIndexError::new_err(format!(
+                "np.einsum output flat index {} out of range for array of size {}",
+                output_flat, output_len
+            ))
+        })?;
+        output.add_assign_owned(expr.scale(coefficient));
     }
 
     if output_shape.is_empty() {
-        return Ok(output_values
-            .pop()
-            .expect("einsum scalar result")
-            .into_pyobject(py)?
-            .into_any()
-            .unbind());
+        let Some(output) = output_values.pop() else {
+            return Err(ArrayDimensionError::new_err(
+                "np.einsum scalar result did not produce an expression",
+            ));
+        };
+        return Ok(output.into_pyobject(py)?.into_any().unbind());
     }
 
     let mut index_sets = Vec::with_capacity(output_term.len());

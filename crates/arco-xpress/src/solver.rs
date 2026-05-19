@@ -6,7 +6,7 @@ use crate::status;
 use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
 use arco_solver::{
     ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverDiagnostic, SolverError,
-    SolverModelStats,
+    SolverModelStats, validate_model_view_solve_result,
 };
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
@@ -385,8 +385,8 @@ fn clamp_bound(value: f64) -> f64 {
 fn ensure_non_negative_finite_setting(name: &str, value: Option<f64>) -> Result<(), SolverError> {
     if let Some(value) = value {
         if !value.is_finite() || value < 0.0 {
-            return Err(SolverError::SolverSpecific(format!(
-                "invalid solver setting: {name} must be finite and >= 0"
+            return Err(SolverError::InvalidSettings(format!(
+                "{name} must be finite and >= 0"
             )));
         }
     }
@@ -399,8 +399,8 @@ fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
     ensure_non_negative_finite_setting("tolerance", config.tolerance)?;
 
     if let Some(0) = config.threads {
-        return Err(SolverError::SolverSpecific(
-            "invalid solver setting: threads must be >= 1".to_string(),
+        return Err(SolverError::InvalidSettings(
+            "threads must be >= 1".to_string(),
         ));
     }
     Ok(())
@@ -794,6 +794,13 @@ pub fn solve_model_view(
     model: &(impl ModelView + ?Sized),
     config: &SolverConfig,
 ) -> Result<ModelViewSolveResult, SolverError> {
+    if model.num_variables() == 0 {
+        return Err(SolverError::EmptyModel);
+    }
+    if model.objective().sense.is_none() && model.objective().terms.is_empty() {
+        return Err(SolverError::NoObjective);
+    }
+
     let SolveArtifacts {
         solution,
         mut metadata,
@@ -814,7 +821,7 @@ pub fn solve_model_view(
         fingerprint_start.elapsed().as_secs_f64(),
     );
 
-    Ok(ModelViewSolveResult {
+    let result = ModelViewSolveResult {
         fingerprint,
         status: solution.core_status(),
         objective_value: solution.objective_value(),
@@ -823,7 +830,9 @@ pub fn solve_model_view(
         row_values: solution.row_values.clone(),
         constraint_duals: solution.constraint_duals().to_vec(),
         metadata,
-    })
+    };
+    validate_model_view_solve_result(model, &result)?;
+    Ok(result)
 }
 
 pub struct Solver<'model> {
@@ -835,6 +844,9 @@ impl<'model> Solver<'model> {
     pub fn new(model: &'model impl ModelView) -> Result<Self, SolverError> {
         if model.num_variables() == 0 {
             return Err(SolverError::EmptyModel);
+        }
+        if model.objective().sense.is_none() && model.objective().terms.is_empty() {
+            return Err(SolverError::NoObjective);
         }
         Ok(Self {
             model,
@@ -903,6 +915,7 @@ impl Solve for Solver<'_> {
 mod tests {
     use super::*;
     use arco_model::{Bounds, Constraint, Model, Objective, Variable};
+    use arco_solver::{check_empty_model_rejected, check_no_objective_rejected};
 
     fn build_simple_model() -> Model {
         let mut model = Model::new();
@@ -932,17 +945,30 @@ mod tests {
 
     #[test]
     fn model_view_backend_rejects_empty_model() {
-        let model = Model::new();
-        assert!(matches!(
-            solve_model_view(&model, &SolverConfig::new()),
-            Err(SolverError::EmptyModel)
-        ));
+        let backend = XpressModelViewBackend;
+        check_empty_model_rejected(&backend).expect("Xpress should reject empty model");
+    }
+
+    #[test]
+    fn model_view_backend_rejects_no_objective_model() {
+        let backend = XpressModelViewBackend;
+        check_no_objective_rejected(&backend).expect("Xpress should reject missing objective");
     }
 
     #[test]
     fn solver_wrapper_rejects_empty_model() {
         let model = Model::new();
         assert!(matches!(Solver::new(&model), Err(SolverError::EmptyModel)));
+    }
+
+    #[test]
+    fn solver_wrapper_rejects_no_objective_model() {
+        let mut model = Model::new();
+        model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("variable");
+
+        assert!(matches!(Solver::new(&model), Err(SolverError::NoObjective)));
     }
 
     #[test]
@@ -962,30 +988,34 @@ mod tests {
     fn reject_invalid_numeric_solver_settings() {
         let error = validate_solver_config(&SolverConfig::new().with_time_limit(-1.0))
             .expect_err("negative time_limit should be rejected");
-        assert!(
-            matches!(error, SolverError::SolverSpecific(message) if message.contains("time_limit"))
-        );
+        assert!(matches!(
+            error,
+            SolverError::InvalidSettings(message) if message == "time_limit must be finite and >= 0"
+        ));
 
         let error = validate_solver_config(&SolverConfig::new().with_mip_gap(f64::NAN))
             .expect_err("non-finite mip_gap should be rejected");
-        assert!(
-            matches!(error, SolverError::SolverSpecific(message) if message.contains("mip_gap"))
-        );
+        assert!(matches!(
+            error,
+            SolverError::InvalidSettings(message) if message == "mip_gap must be finite and >= 0"
+        ));
 
         let error = validate_solver_config(&SolverConfig::new().with_tolerance(-0.5))
             .expect_err("negative tolerance should be rejected");
-        assert!(
-            matches!(error, SolverError::SolverSpecific(message) if message.contains("tolerance"))
-        );
+        assert!(matches!(
+            error,
+            SolverError::InvalidSettings(message) if message == "tolerance must be finite and >= 0"
+        ));
     }
 
     #[test]
     fn reject_zero_threads() {
         let error = validate_solver_config(&SolverConfig::new().with_threads(0))
             .expect_err("zero threads should be rejected");
-        assert!(
-            matches!(error, SolverError::SolverSpecific(message) if message.contains("threads"))
-        );
+        assert!(matches!(
+            error,
+            SolverError::InvalidSettings(message) if message == "threads must be >= 1"
+        ));
     }
 
     #[test]

@@ -5,8 +5,8 @@ import arco
 
 def main() -> None:
     m = arco.Model()
-    x = m.add_variable(arco.Bounds(-5.0, 5.0), name="x")
-    y = m.add_variable(arco.Bounds(-5.0, 5.0), name="y")
+    x = m.add_variable(bounds=arco.Bounds(lower=-5.0, upper=5.0), name="x")
+    y = m.add_variable(bounds=arco.Bounds(lower=-5.0, upper=5.0), name="y")
 
     # f(x,y) = (1 - x)^2 + 100 * (y - x^2)^2
     one_minus_x = (
@@ -24,8 +24,8 @@ def main() -> None:
     res = m.solve(solver=arco.Ipopt(log_to_console=False))
     print("status:", res.status)
     print("objective:", res.objective_value)
-    print("x:", x.value)
-    print("y:", y.value)
+    print("x:", res.value(x))
+    print("y:", res.value(y))
 
 
 if __name__ == "__main__":

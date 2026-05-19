@@ -18,7 +18,7 @@ Use `arco.Bounds` to set lower and upper limits on a continuous decision variabl
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
->>> round(solution.get_primal(index=x), 6)
+>>> round(solution.value(x), 6)
 0.0
 ```
 
@@ -34,7 +34,7 @@ Pass `is_integer=True` to restrict a variable to integer values within its bound
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
->>> round(solution.get_primal(index=y), 6)
+>>> round(solution.value(y), 6)
 0.0
 ```
 
@@ -50,7 +50,7 @@ Pass `is_binary=True` to create a variable that takes only the values 0 or 1.
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
->>> round(solution.get_primal(index=z), 6)
+>>> round(solution.value(z), 6)
 1.0
 ```
 
@@ -126,7 +126,7 @@ Use the `==` operator to fix an expression to an exact value.
 Constraint('balance', Bounds(6, 6))
 >>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
->>> round(solution.get_primal(index=y), 6)
+>>> round(solution.value(y), 6)
 6.0
 ```
 
@@ -146,7 +146,7 @@ Pass a `bounds` argument instead of a comparison operator to constrain an expres
 Constraint('range', Bounds(3, 7))
 >>> model.minimize(x)
 >>> solution = model.solve(log_to_console=False)
->>> round(solution.get_primal(index=x), 6)
+>>> round(solution.value(x), 6)
 3.0
 ```
 
@@ -192,7 +192,7 @@ Use `model.solve()` to hand the model to the solver and inspect the results.
 
 ### Read variable values
 
-Use `solution.get_value()` to retrieve the optimal value of a variable by
+Use `solution.value()` to retrieve the optimal value of a variable by
 passing the variable object directly.
 
 ```python doctest
@@ -204,16 +204,16 @@ passing the variable object directly.
 Constraint('capacity', Bounds(-inf, 8))
 >>> model.maximize(2.0 * x + 3.0 * y)
 >>> solution = model.solve(log_to_console=False)
->>> round(solution.get_value(x), 6)
+>>> round(solution.value(x), 6)
 3.0
->>> round(solution.get_value(y), 6)
+>>> round(solution.value(y), 6)
 5.0
 ```
 
 ### Retrieve dual values and reduced costs
 
-Use `solution.get_dual()` for the shadow price of a constraint and
-`solution.get_reduced_cost()` for the reduced cost of a variable.
+Use `solution.dual()` for the shadow price of a constraint and
+`solution.reduced_cost()` for the reduced cost of a variable.
 
 ```python doctest
 >>> import arco
@@ -223,15 +223,20 @@ Use `solution.get_dual()` for the shadow price of a constraint and
 >>> con = model.add_constraint(x + y <= 8.0, name="capacity")
 >>> model.maximize(2.0 * x + 3.0 * y)
 >>> solution = model.solve(log_to_console=False)
->>> round(solution.get_dual(con), 6)
+>>> round(solution.dual(con), 6)
 2.0
->>> round(solution.get_reduced_cost(y), 6)
+>>> round(solution.reduced_cost(y), 6)
 1.0
 ```
 
 ### Warm start
 
-`primal_start` is planned for model-view solve paths but is not yet supported.
+`primal_start` is part of the solve signature, but current solve paths do not
+consume warm-start hints. Passing a non-empty warm-start vector raises
+`SolverInvalidSettingError` with diagnostic code
+`arco::solver::invalid_setting` instead of silently ignoring the hint. Callers
+can handle the unsupported option the same way as any other invalid solver
+setting, and empty hints remain accepted as a no-op.
 
 ```python doctest
 >>> import arco
@@ -242,6 +247,11 @@ Use `solution.get_dual()` for the shadow price of a constraint and
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
+>>> try:
+...     model.solve(primal_start=[(int(x), 1.0)], log_to_console=False)
+... except arco.SolverInvalidSettingError as exc:
+...     arco.error_code(exc)
+'arco::solver::invalid_setting'
 ```
 
 ---

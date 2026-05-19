@@ -14,6 +14,7 @@ publish = false
 workspace = true
 
 [dependencies]
+arco-diagnostics = { workspace = true }
 arco-model = { workspace = true }
 kdl = "6.5"
 miette = { version = "7", features = ["fancy"] }

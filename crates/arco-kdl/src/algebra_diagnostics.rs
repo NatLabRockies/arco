@@ -13,6 +13,7 @@
 /// ```
 
 use crate::algebra::ParseError;
+use arco_diagnostics::codes;
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceSpan};
 use std::fmt::Display;
 use thiserror::Error;
@@ -28,7 +29,7 @@ pub struct RichAlgebraError {
 
 impl Diagnostic for RichAlgebraError {
     fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
-        Some(Box::new("arco::algebra::parse_error"))
+        Some(Box::new(codes::ALGEBRA_PARSE_ERROR))
     }
 
     fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {

@@ -2,6 +2,7 @@
 // because derive-generated code no longer inherits item-level #[allow].
 #![allow(unused_assignments)]
 
+use arco_diagnostics::codes;
 use arco_ops::ArcoOps;
 use arco_ops::solve::{
     ResolvedSelection, SelectionError, SolverConfigDocument, SolverProfile, SolverRegistry,
@@ -10,6 +11,7 @@ use arco_ops::solve::{
 use miette::Diagnostic;
 use std::collections::BTreeMap;
 use std::env;
+use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -55,77 +57,83 @@ impl SolverConfigState {
     }
 }
 
-#[derive(Debug, Error, Diagnostic)]
+#[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("could not determine an arco config directory")]
-    #[diagnostic(
-        code(arco::config::missing_directory),
-        help("set ARCO_CONFIG_DIR, XDG_CONFIG_HOME, HOME, or APPDATA before running the command")
-    )]
     MissingConfigDirectory,
     #[error("could not determine current project directory")]
-    #[diagnostic(
-        code(arco::config::missing_project_directory),
-        help("run from a project directory or set ARCO_PROJECT_CONFIG_DIR")
-    )]
     MissingProjectDirectory,
     #[error("failed to read solver config {path}: {source}")]
-    #[diagnostic(
-        code(arco::config::io),
-        help("verify the config path exists and is readable")
-    )]
     Read {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
     #[error("failed to write solver config {path}: {source}")]
-    #[diagnostic(
-        code(arco::config::io),
-        help("verify the config directory is writable")
-    )]
     Write {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
     #[error("failed to parse solver config {path}: {source}")]
-    #[diagnostic(
-        code(arco::config::toml),
-        help("delete or repair the solver TOML config file and retry")
-    )]
     Parse {
         path: PathBuf,
         #[source]
         source: toml::de::Error,
     },
     #[error("failed to serialize solver config for {path}: {source}")]
-    #[diagnostic(
-        code(arco::config::toml),
-        help("inspect the solver configuration payload for unsupported values")
-    )]
     Serialize {
         path: PathBuf,
         #[source]
         source: toml::ser::Error,
     },
     #[error("invalid solver selection: {source}")]
-    #[diagnostic(
-        code(arco::config::selection),
-        help("choose a known family/profile name or update solver profiles in solver.toml")
-    )]
     InvalidSelection {
         #[source]
         source: SelectionError,
     },
     #[error("solver profile '{profile}' contains non-reference secret value for env var '{key}'")]
-    #[diagnostic(
-        code(arco::config::secret_reference_required),
-        help(
-            "store only references (for example ${{ENV_VAR}} or file:/path/to/secret) in solver profile environment values"
-        )
-    )]
     RawSecretValue { profile: String, key: String },
+}
+
+impl Diagnostic for ConfigError {
+    fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        match self {
+            Self::MissingConfigDirectory => Some(Box::new(codes::CONFIG_MISSING_DIRECTORY)),
+            Self::MissingProjectDirectory => {
+                Some(Box::new(codes::CONFIG_MISSING_PROJECT_DIRECTORY))
+            }
+            Self::Read { .. } | Self::Write { .. } => Some(Box::new(codes::CONFIG_IO)),
+            Self::Parse { .. } | Self::Serialize { .. } => Some(Box::new(codes::CONFIG_TOML)),
+            Self::InvalidSelection { .. } => Some(Box::new(codes::CONFIG_SELECTION)),
+            Self::RawSecretValue { .. } => Some(Box::new(codes::CONFIG_SECRET_REFERENCE_REQUIRED)),
+        }
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        match self {
+            Self::MissingConfigDirectory => Some(Box::new(
+                "set ARCO_CONFIG_DIR, XDG_CONFIG_HOME, HOME, or APPDATA before running the command",
+            )),
+            Self::MissingProjectDirectory => Some(Box::new(
+                "run from a project directory or set ARCO_PROJECT_CONFIG_DIR",
+            )),
+            Self::Read { .. } => Some(Box::new("verify the config path exists and is readable")),
+            Self::Write { .. } => Some(Box::new("verify the config directory is writable")),
+            Self::Parse { .. } => Some(Box::new(
+                "delete or repair the solver TOML config file and retry",
+            )),
+            Self::Serialize { .. } => Some(Box::new(
+                "inspect the solver configuration payload for unsupported values",
+            )),
+            Self::InvalidSelection { .. } => Some(Box::new(
+                "choose a known family/profile name or update solver profiles in solver.toml",
+            )),
+            Self::RawSecretValue { .. } => Some(Box::new(
+                "store only references (for example ${{ENV_VAR}} or file:/path/to/secret) in solver profile environment values",
+            )),
+        }
+    }
 }
 
 pub fn load_solver_config() -> Result<SolverConfigState, ConfigError> {

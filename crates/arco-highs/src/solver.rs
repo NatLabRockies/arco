@@ -2,7 +2,10 @@
 
 use crate::status::highs_model_status;
 use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
-use arco_solver::{ModelViewBackend, ModelViewSolveResult, SolverConfig, SolverStatusMapping};
+use arco_solver::{
+    ModelViewBackend, ModelViewSolveResult, SolverConfig, SolverStatusMapping,
+    validate_model_view_solve_result,
+};
 use highs::{ColProblem, Model as RawHighsModel, Row as HighsRow, Sense as HighsSense};
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -13,29 +16,29 @@ pub type SolverError = arco_solver::SolverError;
 fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
     if let Some(limit) = config.time_limit {
         if !limit.is_finite() || limit < 0.0 {
-            return Err(SolverError::SolverSpecific(
-                "invalid solver setting: time_limit must be finite and >= 0".to_string(),
+            return Err(SolverError::InvalidSettings(
+                "time_limit must be finite and >= 0".to_string(),
             ));
         }
     }
     if let Some(gap) = config.mip_gap {
         if !gap.is_finite() || gap < 0.0 {
-            return Err(SolverError::SolverSpecific(
-                "invalid solver setting: mip_gap must be finite and >= 0".to_string(),
+            return Err(SolverError::InvalidSettings(
+                "mip_gap must be finite and >= 0".to_string(),
             ));
         }
     }
     if let Some(tolerance) = config.tolerance {
         if !tolerance.is_finite() || tolerance < 0.0 {
-            return Err(SolverError::SolverSpecific(
-                "invalid solver setting: tolerance must be finite and >= 0".to_string(),
+            return Err(SolverError::InvalidSettings(
+                "tolerance must be finite and >= 0".to_string(),
             ));
         }
     }
     if let Some(threads) = config.threads {
         if threads == 0 {
-            return Err(SolverError::SolverSpecific(
-                "invalid solver setting: threads must be >= 1".to_string(),
+            return Err(SolverError::InvalidSettings(
+                "threads must be >= 1".to_string(),
             ));
         }
     }
@@ -108,6 +111,9 @@ pub fn solve_model_view(
 ) -> Result<ModelViewSolveResult, SolverError> {
     if model.num_variables() == 0 {
         return Err(SolverError::EmptyModel);
+    }
+    if model.objective().sense.is_none() && model.objective().terms.is_empty() {
+        return Err(SolverError::NoObjective);
     }
 
     let matrix_start = Instant::now();
@@ -245,7 +251,7 @@ pub fn solve_model_view(
         model.num_coefficients() as f64,
     );
 
-    Ok(ModelViewSolveResult {
+    let result = ModelViewSolveResult {
         fingerprint,
         status: mapped_status.to_solver_status(),
         objective_value,
@@ -254,7 +260,9 @@ pub fn solve_model_view(
         row_values,
         constraint_duals,
         metadata,
-    })
+    };
+    validate_model_view_solve_result(model, &result)?;
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -262,18 +270,66 @@ pub fn solve_model_view(
 mod tests {
     use super::*;
     use arco_model::{Bounds, Constraint, Model, ModelView, Objective, Sense, Variable};
+    use arco_solver::{
+        check_empty_model_rejected, check_no_objective_rejected, check_small_lp, check_small_milp,
+    };
 
     #[test]
     fn model_view_solver_rejects_empty_problem() {
-        let model = Model::new();
-        assert!(matches!(
-            solve_model_view(&model, &SolverConfig::new()),
-            Err(SolverError::EmptyModel)
-        ));
+        let backend = HighsModelViewBackend;
+        check_empty_model_rejected(&backend).expect("HiGHS should reject empty model");
+    }
+
+    #[test]
+    fn model_view_solver_rejects_no_objective_problem() {
+        let backend = HighsModelViewBackend;
+        check_no_objective_rejected(&backend).expect("HiGHS should reject missing objective");
+    }
+
+    #[test]
+    fn shared_solver_setting_validation_uses_stable_error_variant() {
+        for (config, expected) in [
+            (
+                SolverConfig::new().with_time_limit(-1.0),
+                "time_limit must be finite and >= 0",
+            ),
+            (
+                SolverConfig::new().with_mip_gap(f64::NAN),
+                "mip_gap must be finite and >= 0",
+            ),
+            (
+                SolverConfig::new().with_tolerance(-0.5),
+                "tolerance must be finite and >= 0",
+            ),
+            (SolverConfig::new().with_threads(0), "threads must be >= 1"),
+        ] {
+            let error = validate_solver_config(&config)
+                .expect_err("invalid shared setting should be rejected");
+
+            assert!(matches!(
+                error,
+                SolverError::InvalidSettings(message) if message == expected
+            ));
+        }
     }
 
     #[test]
     fn model_view_problem_solves_directly() {
+        let backend = HighsModelViewBackend;
+        let report =
+            check_small_lp(&backend, &SolverConfig::new()).expect("HiGHS should solve small LP");
+        let milp_report = check_small_milp(&backend, &SolverConfig::new())
+            .expect("HiGHS should solve small MILP");
+
+        assert_eq!(report.family, "highs");
+        assert_eq!(report.variables, 1);
+        assert_eq!(report.constraints, 1);
+        assert_eq!(report.coefficients, 1);
+        assert_eq!(milp_report.family, "highs");
+        assert_eq!(milp_report.variables, 1);
+        assert_eq!(milp_report.constraints, 1);
+        assert_eq!(milp_report.coefficients, 1);
+
         let mut model = Model::new();
         let x = model
             .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
@@ -302,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn model_view_solver_can_skip_fingerprint_and_solution_vectors() {
+    fn model_view_solver_rejects_missing_conformance_fields() {
         let mut model = Model::new();
         let x = model
             .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
@@ -323,15 +379,9 @@ mod tests {
         let config = SolverConfig::new()
             .with_parameter("arco.fingerprint", "false")
             .with_parameter("arco.extract_solution", "false");
-        let result = solve_model_view(&model, &config).expect("solve succeeds");
+        let error = solve_model_view(&model, &config)
+            .expect_err("missing fingerprint and primal values should fail conformance");
 
-        assert!(result.status.is_feasible());
-        assert_eq!(result.objective_value, 2.0);
-        assert_eq!(result.fingerprint, ModelFingerprint(0));
-        assert!(result.primal_values.is_empty());
-        assert!(result.variable_duals.is_empty());
-        assert!(result.row_values.is_empty());
-        assert!(result.constraint_duals.is_empty());
-        assert!(result.metadata.contains_key("highs_run_s"));
+        assert!(matches!(error, SolverError::InvalidResultShape(_)));
     }
 }

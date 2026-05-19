@@ -127,11 +127,14 @@ backend uses its own default.
 | `log_to_console` | `bool`  | Whether the solver prints progress to the console during a solve. |
 
 > [!NOTE]
-> Not every backend interprets every setting. If a setting does not apply to the
-> chosen backend it is silently ignored.
+> Not every backend interprets every setting. Arco validates shared settings at
+> construction and solve time, then applies each backend's documented mapping
+> below.
 >
 > `time_limit`, `mip_gap`, and `tolerance` must be finite and non-negative.
-> `threads` must be at least `1`.
+> `threads` must be at least `1`. Invalid values raise
+> `SolverInvalidSettingError` with diagnostic code
+> `arco::solver::invalid_setting`.
 
 ## Xpress (LP / MIP solver)
 
@@ -352,15 +355,15 @@ solution = model.solve(solver=selection, log_to_console=False)
 
 ### Settings mapping
 
-| Setting          | Xpress control    | Notes           |
-| ---------------- | ----------------- | --------------- |
-| `time_limit`     | `XPRS_MAXTIME`    |                 |
-| `mip_gap`        | `XPRS_MIPRELSTOP` |                 |
-| `tolerance`      | `XPRS_FEASTOL`    |                 |
-| `presolve`       | `XPRS_PRESOLVE`   | 1 = on, 0 = off |
-| `threads`        | `XPRS_THREADS`    |                 |
-| `log_to_console` | `XPRS_OUTPUTLOG`  | 1 = on, 0 = off |
-| `verbosity`      | --                | Ignored         |
+| Setting          | Xpress control    | Notes                                           |
+| ---------------- | ----------------- | ----------------------------------------------- |
+| `time_limit`     | `XPRS_MAXTIME`    |                                                 |
+| `mip_gap`        | `XPRS_MIPRELSTOP` |                                                 |
+| `tolerance`      | `XPRS_FEASTOL`    |                                                 |
+| `presolve`       | `XPRS_PRESOLVE`   | 1 = on, 0 = off                                 |
+| `threads`        | `XPRS_THREADS`    |                                                 |
+| `log_to_console` | `XPRS_OUTPUTLOG`  | 1 = on, 0 = off                                 |
+| `verbosity`      | --                | Unsupported; raises `SolverInvalidSettingError` |
 
 ## SCIP (embedded native LP / MIP solver)
 
@@ -450,17 +453,18 @@ solution = model.solve(solver=solver)
 ### Settings mapping
 
 The following table shows how `SolverSettings` map to IPOPT options. Settings
-that do not apply to IPOPT are silently ignored.
+without an IPOPT option are validated by Arco's shared solver-settings layer
+but are not forwarded to IPOPT.
 
-| Setting          | IPOPT option                 | Notes                     |
-| ---------------- | ---------------------------- | ------------------------- |
-| `time_limit`     | `max_cpu_time`               |                           |
-| `tolerance`      | `tol` + `constr_viol_tol`    |                           |
-| `verbosity`      | `print_level`                | Clamped to 0--12          |
-| `log_to_console` | `print_level` (0 when false) |                           |
-| `presolve`       | --                           | Ignored                   |
-| `threads`        | --                           | Ignored                   |
-| `mip_gap`        | --                           | Ignored (continuous only) |
+| Setting          | IPOPT option                 | Notes                                     |
+| ---------------- | ---------------------------- | ----------------------------------------- |
+| `time_limit`     | `max_cpu_time`               |                                           |
+| `tolerance`      | `tol` + `constr_viol_tol`    |                                           |
+| `verbosity`      | `print_level`                | Clamped to 0--12                          |
+| `log_to_console` | `print_level` (0 when false) |                                           |
+| `presolve`       | --                           | Validated, not forwarded                  |
+| `threads`        | --                           | Validated, not forwarded                  |
+| `mip_gap`        | --                           | Validated, not forwarded; continuous only |
 
 ---
 

@@ -44,10 +44,12 @@ point with self-contained examples you can copy and run.
 
 - [Building Optimization Models](how-to/building-optimization-models.md) -- variables, constraints, objectives, and solving in recipe form.
 - [Define Block Schemas](how-to/block-schemas.md) -- define typed block input/output contracts for block composition.
-- [Numpy Integration](how-to/numpy-integration.md) -- array arithmetic, element-wise bounds, indexing, and reduction operators.
+- [Numpy Integration](how-to/numpy-integration.md) -- array arithmetic, validated data-backed param arrays, indexing, and reductions.
 - [Configure Solver](how-to/configure-solver.md) -- solver objects, settings, and reusable configurations.
+- [Add a Solver Backend](how-to/add-solver-backend.md) -- add a solver through the shared ModelView and solver contracts.
 - [Debug Infeasibility](how-to/debug-infeasibility.md) -- use slacks and elastic constraints to diagnose infeasible models.
 - [Inspect a Model](how-to/inspect-model.md) -- examine model structure with snapshots before and after solving.
+- [Use Expert APIs](how-to/use-expert-apis.md) -- import/export sparse matrices and use raw solver-order vectors.
 - [Handle Errors](how-to/handle-errors.md) -- catch model-building exceptions and check solver outcomes.
 - [Enable Logging](how-to/enable-logging.md) -- configure Rust-side tracing and solver output.
 
@@ -66,3 +68,4 @@ the way it does.
 
 - [API Reference](reference/) -- type stubs, classes, and method signatures for the full Python API.
 - [Known Problems](contracts/known-problems.md) -- solver-correctness contract encoding canonical optimization problems with expected solutions.
+- [Migration Notes](migration/) -- intentional pre-1.0 API changes and old-to-new mappings.

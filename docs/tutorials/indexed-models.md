@@ -39,9 +39,9 @@ models easier to read.
 ## Variable arrays
 
 Once you have index sets, you can create a whole grid of variables in a single
-call. Pass IndexSets as positional arguments to `model.add_variables()` (note the plural),
-and arco returns a `VariableArray` whose shape matches the Cartesian product of
-the index sets.
+call. Pass IndexSets through the keyword-only `axes=` argument to
+`model.add_variables()` (note the plural), and arco returns a `VariableArray`
+whose shape matches the Cartesian product of the index sets.
 
 The `shape` attribute tells you the dimensions of the array, and the `sum()`
 method returns a linear expression that sums every variable in the array. This
@@ -52,7 +52,7 @@ is handy for quick objectives or aggregate constraints.
 >>> model = arco.Model()
 >>> T = arco.IndexSet(name="T", size=2)
 >>> G = arco.IndexSet(name="G", members=["solar", "wind", "gas"])
->>> gen = model.add_variables(T, G, bounds=arco.Bounds(lower=0.0, upper=100.0))
+>>> gen = model.add_variables(axes=(T, G), bounds=arco.Bounds(lower=0.0, upper=100.0))
 >>> gen.shape
 (2, 3)
 >>> model.minimize(gen.sum())
@@ -86,9 +86,9 @@ costs 30 per MW. Demand is 120 MW in the first period and 90 MW in the second.
 
 The first step is to create the model and the index sets, then call
 `add_variables` to get the generation array. Each variable represents the
-output of one generator in one time period, bounded between 0 and a placeholder
-upper bound of 100. We will tighten the upper bounds to the actual capacities
-using constraints.
+output of one generator in one time period. We create the array with a uniform
+nonnegative construction bound, then add explicit capacity constraints that
+carry the per-generator limits.
 
 Arco provides array-level operations that replace explicit loops. The
 `add_constraints` method (plural) accepts comparisons on whole arrays.
@@ -111,7 +111,7 @@ zips per-unit costs with the flattened variables and sums the products.
 >>> cost = {"solar": 0.0, "wind": 0.0, "gas": 30.0}
 >>> demand = [120.0, 90.0]
 >>>
->>> gen = model.add_variables(T, G, bounds=arco.Bounds(lower=0.0, upper=100.0))
+>>> gen = model.add_variables(axes=(T, G), bounds=arco.Bounds(lower=0.0, upper=100.0))
 >>>
 >>> caps = [capacity[g] for g in G.members] * T.size
 >>> _ = model.add_constraints(gen <= caps)

@@ -18,9 +18,9 @@ can hand to the solver as an objective.
 >>> import arco
 >>> import numpy as np
 >>> model = arco.Model()
->>> units = arco.IndexSet("unit", members=["solar", "wind", "gas"])
+>>> units = arco.IndexSet(name="unit", members=["solar", "wind", "gas"])
 >>> costs = np.array([0.0, 0.0, 30.0])
->>> gen = model.add_variables(units, bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
+>>> gen = model.add_variables(axes=(units,), bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
 >>> weighted = costs * gen
 >>> type(weighted).__name__
 'ExprArray'
@@ -43,9 +43,9 @@ to the mathematical notation.
 >>> import arco
 >>> import numpy as np
 >>> model = arco.Model()
->>> units = arco.IndexSet("unit", members=["solar", "wind", "gas"])
+>>> units = arco.IndexSet(name="unit", members=["solar", "wind", "gas"])
 >>> costs = np.array([5.0, 3.0, 30.0])
->>> gen = model.add_variables(units, bounds=arco.Bounds(lower=0.0, upper=100.0))
+>>> gen = model.add_variables(axes=(units,), bounds=arco.Bounds(lower=0.0, upper=100.0))
 >>> _ = model.add_constraints(gen >= [40.0, 40.0, 0.0])
 >>> model.minimize(np.dot(costs, gen))
 >>> solution = model.solve(log_to_console=False)
@@ -63,10 +63,10 @@ variables created by `add_variables`, so each variable gets its own range.
 >>> import arco
 >>> import numpy as np
 >>> model = arco.Model()
->>> units = arco.IndexSet("unit", size=3)
+>>> units = arco.IndexSet(name="unit", size=3)
 >>> lo = np.array([0.0, 10.0, 20.0])
 >>> hi = np.array([100.0, 200.0, 300.0])
->>> p = model.add_variables(units, bounds=arco.Bounds(lo, hi), name="power")
+>>> p = model.add_variables(axes=(units,), bounds=arco.Bounds(lower=lo, upper=hi), name="power")
 >>> [v.bounds for v in p.variables]
 [Bounds(lower=0, upper=100), Bounds(lower=10, upper=200), Bounds(lower=20, upper=300)]
 ```
@@ -74,6 +74,45 @@ variables created by `add_variables`, so each variable gets its own range.
 This replaces the pattern of looping over indices and calling `add_variable`
 one at a time. The resulting `VariableArray` works with all the numpy
 operations described in this guide.
+
+## Validated data-backed arrays
+
+When you load values from CSV/dataframe pipelines, keep validation outside the
+core modeling calls and pass only shape-checked arrays into
+`arco.param(values, *, axes=..., name=...)`. This keeps data-contract errors
+separate from model-construction and solver errors.
+
+```python doctest
+>>> import arco
+>>> import numpy as np
+>>> plant = arco.IndexSet(name="plant", members=["north", "south"])
+>>> hour = arco.IndexSet(name="hour", members=[0, 1, 2])
+>>> expected_shape = (2, 3)
+>>> demand_values = np.array([[10.0, 9.5, 9.0], [8.0, 7.5, 7.0]])
+>>> demand_values.shape == expected_shape
+True
+>>> demand = arco.param(demand_values, axes=(plant, hour), name="demand")
+>>> demand.shape
+(2, 3)
+```
+
+```python doctest
+>>> import arco
+>>> import numpy as np
+>>> plant = arco.IndexSet(name="plant", members=["north", "south"])
+>>> hour = arco.IndexSet(name="hour", members=[0, 1, 2])
+>>> expected_shape = (2, 3)
+>>> bad_values = np.array([10.0, 9.5, 9.0])
+>>> try:
+...     if bad_values.shape != expected_shape:
+...         raise ValueError(
+...             f"demand shape mismatch: expected {expected_shape}, got {bad_values.shape}"
+...         )
+...     _ = arco.param(bad_values, axes=(plant, hour), name="demand")
+... except ValueError as exc:
+...     "shape mismatch" in str(exc)
+True
+```
 
 ## Indexing and slicing
 
@@ -85,9 +124,9 @@ any multi-element selection returns a `VariableArray`.
 >>> import arco
 >>> import numpy as np
 >>> model = arco.Model()
->>> rows = arco.IndexSet("row", size=4)
->>> cols = arco.IndexSet("col", size=3)
->>> x = model.add_variables(rows, cols, bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> rows = arco.IndexSet(name="row", size=4)
+>>> cols = arco.IndexSet(name="col", size=3)
+>>> x = model.add_variables(axes=(rows, cols), bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> x[0, 1]
 Variable(1, Bounds(0, 10))
 >>> x[1:3, 0:2].shape
@@ -111,9 +150,9 @@ always a flat `VariableArray`, regardless of the original dimensionality.
 >>> import arco
 >>> import numpy as np
 >>> model = arco.Model()
->>> rows = arco.IndexSet("row", size=4)
->>> cols = arco.IndexSet("col", size=3)
->>> x = model.add_variables(rows, cols, bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> rows = arco.IndexSet(name="row", size=4)
+>>> cols = arco.IndexSet(name="col", size=3)
+>>> x = model.add_variables(axes=(rows, cols), bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> mask = np.array([[True,False,True],[False,True,False],[True,False,True],[False,True,False]])
 >>> x[mask].shape
 (6,)
@@ -127,10 +166,10 @@ your data, then apply it to the variable array.
 >>> import arco
 >>> import numpy as np
 >>> model = arco.Model()
->>> rows = arco.IndexSet("row", size=3)
->>> cols = arco.IndexSet("col", size=3)
+>>> rows = arco.IndexSet(name="row", size=3)
+>>> cols = arco.IndexSet(name="col", size=3)
 >>> G = np.array([[1, 0, 1], [0, 1, 0], [1, 0, 1]])
->>> x = model.add_variables(rows, cols, bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> x = model.add_variables(axes=(rows, cols), bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> active = x[G == 1]
 >>> active.shape
 (5,)
@@ -154,9 +193,9 @@ no dimensions remain).
 ```python doctest
 >>> import arco
 >>> model = arco.Model()
->>> i = arco.IndexSet("row", size=3)
->>> j = arco.IndexSet("col", size=4)
->>> x = model.add_variables(i, j, bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> i = arco.IndexSet(name="row", size=3)
+>>> j = arco.IndexSet(name="col", size=4)
+>>> x = model.add_variables(axes=(i, j), bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> x.sum(over=j).shape
 (3,)
 >>> (x >> j).shape
@@ -176,9 +215,9 @@ exhausted, the result is a scalar `Expr`.
 ```python doctest
 >>> import arco
 >>> model = arco.Model()
->>> i = arco.IndexSet("row", size=3)
->>> j = arco.IndexSet("col", size=4)
->>> x = model.add_variables(i, j, bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> i = arco.IndexSet(name="row", size=3)
+>>> j = arco.IndexSet(name="col", size=4)
+>>> x = model.add_variables(axes=(i, j), bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> row_sums = x >> j
 >>> row_sums.shape
 (3,)
@@ -189,13 +228,19 @@ exhausted, the result is a scalar `Expr`.
 
 You can also pass multiple index sets to `.sum(over=...)` to reduce several
 dimensions at once. Passing no argument sums everything to a scalar.
+Repeated named axes are rejected with an `ArrayDimensionError` instead of being
+silently ignored, so reduction shape mistakes fail before solve.
+Arco array reductions intentionally support the named-axis `axis=` contract and
+reject NumPy-only reduction keywords such as `where` with `ArrayTypeError`,
+because those options would otherwise be easy to miss in symbolic or parameter
+array expressions.
 
 ```python doctest
 >>> import arco
 >>> model = arco.Model()
->>> i = arco.IndexSet("row", size=3)
->>> j = arco.IndexSet("col", size=4)
->>> x = model.add_variables(i, j, bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> i = arco.IndexSet(name="row", size=3)
+>>> j = arco.IndexSet(name="col", size=4)
+>>> x = model.add_variables(axes=(i, j), bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> total = x.sum()
 >>> type(total).__name__
 'Expr'
@@ -203,6 +248,18 @@ dimensions at once. Passing no argument sums everything to a scalar.
 >>> solution = model.solve(log_to_console=False)
 >>> round(solution.objective_value, 6)
 0.0
+>>> try:
+...     import numpy as np
+...     np.sum(x, axis=i, where=[True, False, True])
+... except arco.ArrayTypeError as exc:
+...     "unsupported keyword 'where'" in str(exc)
+True
+>>> p = arco.param([1.0, 2.0, 3.0], axes=(i,))
+>>> try:
+...     np.sum(p, axis=i, where=[True, False, True])
+... except arco.ArrayTypeError as exc:
+...     "unsupported keyword 'where'" in str(exc)
+True
 ```
 
 ## Element-wise addition
@@ -215,9 +272,9 @@ each element is the sum of the corresponding variables. This works with both
 >>> import arco
 >>> import numpy as np
 >>> model = arco.Model()
->>> units = arco.IndexSet("unit", size=3)
->>> supply = model.add_variables(units, bounds=arco.Bounds(lower=0.0, upper=50.0))
->>> backup = model.add_variables(units, bounds=arco.Bounds(lower=0.0, upper=20.0))
+>>> units = arco.IndexSet(name="unit", size=3)
+>>> supply = model.add_variables(axes=(units,), bounds=arco.Bounds(lower=0.0, upper=50.0))
+>>> backup = model.add_variables(axes=(units,), bounds=arco.Bounds(lower=0.0, upper=20.0))
 >>> combined = supply + backup
 >>> type(combined).__name__
 'ExprArray'
@@ -239,9 +296,9 @@ reverses the column order. Both return `ExprArray` objects.
 >>> import arco
 >>> import numpy as np
 >>> model = arco.Model()
->>> rows = arco.IndexSet("row", size=3)
->>> cols = arco.IndexSet("col", size=3)
->>> x = model.add_variables(rows, cols, bounds=arco.Bounds(lower=0.0, upper=10.0))
+>>> rows = arco.IndexSet(name="row", size=3)
+>>> cols = arco.IndexSet(name="col", size=3)
+>>> x = model.add_variables(axes=(rows, cols), bounds=arco.Bounds(lower=0.0, upper=10.0))
 >>> diag = np.diag(x)
 >>> diag.shape
 (3,)

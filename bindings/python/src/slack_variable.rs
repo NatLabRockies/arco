@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 
 use crate::PyObject;
 use crate::py_modules::constraint::PyConstraint;
+use crate::py_modules::errors::SlackValueUnavailableError;
 
 /// A slack variable returned by `add_slack()`.
 ///
@@ -81,7 +82,7 @@ impl PySlackVariable {
         let model = self.model.bind(py);
         let last_solution = model.getattr("_last_solution")?;
         if last_solution.is_none() {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            return Err(SlackValueUnavailableError::new_err(
                 "SlackVariable.value is only available after solve()",
             ));
         }

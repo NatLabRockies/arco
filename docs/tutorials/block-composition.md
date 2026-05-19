@@ -19,6 +19,7 @@ Each block has:
 
 - A build function decorated with `@block` from `arco`.
 - An extract function that reads the solved result and returns the output schema.
+- An optional `ctx` object for handles the block needs during extraction.
 
 ```python doctest
 >>> from dataclasses import dataclass
@@ -42,26 +43,28 @@ Each block has:
 ...     level: float
 >>>
 >>> @block
-... def build_supply(model: arco.Model, data: SupplyIn) -> None:
+... def build_supply(model: arco.Model, data: SupplyIn, ctx) -> None:
 ...     x = model.add_variable(
 ...         bounds=arco.Bounds(lower=0.0, upper=data.capacity),
 ...         name="supply",
 ...     )
+...     ctx["level"] = x
 ...     model.minimize(x)
 >>>
->>> def extract_supply(result, data: SupplyIn) -> SupplyOut:
-...     return SupplyOut(level=result.get_primal(index=0))
+>>> def extract_supply(result, data: SupplyIn, ctx) -> SupplyOut:
+...     return SupplyOut(level=result.value(ctx["level"]))
 >>>
 >>> @block
-... def build_demand(model: arco.Model, data: DemandIn) -> None:
+... def build_demand(model: arco.Model, data: DemandIn, ctx) -> None:
 ...     y = model.add_variable(
 ...         bounds=arco.Bounds(lower=data.supply_level, upper=100.0),
 ...         name="demand",
 ...     )
+...     ctx["level"] = y
 ...     model.minimize(y)
 >>>
->>> def extract_demand(result, data: DemandIn) -> DemandOut:
-...     return DemandOut(level=result.get_primal(index=0))
+>>> def extract_demand(result, data: DemandIn, ctx) -> DemandOut:
+...     return DemandOut(level=result.value(ctx["level"]))
 ```
 
 ## Compose and link blocks
@@ -90,20 +93,22 @@ Register blocks with `model.add_block()` and link fields with `.out` and `.in_`.
 ...     level: float
 >>>
 >>> @block
-... def build_supply(model: arco.Model, data: SupplyIn) -> None:
+... def build_supply(model: arco.Model, data: SupplyIn, ctx) -> None:
 ...     x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=data.capacity), name="supply")
+...     ctx["level"] = x
 ...     model.minimize(x)
 >>>
->>> def extract_supply(result, data: SupplyIn) -> SupplyOut:
-...     return SupplyOut(level=result.get_primal(index=0))
+>>> def extract_supply(result, data: SupplyIn, ctx) -> SupplyOut:
+...     return SupplyOut(level=result.value(ctx["level"]))
 >>>
 >>> @block
-... def build_demand(model: arco.Model, data: DemandIn) -> None:
+... def build_demand(model: arco.Model, data: DemandIn, ctx) -> None:
 ...     y = model.add_variable(bounds=arco.Bounds(lower=data.supply_level, upper=100.0), name="demand")
+...     ctx["level"] = y
 ...     model.minimize(y)
 >>>
->>> def extract_demand(result, data: DemandIn) -> DemandOut:
-...     return DemandOut(level=result.get_primal(index=0))
+>>> def extract_demand(result, data: DemandIn, ctx) -> DemandOut:
+...     return DemandOut(level=result.value(ctx["level"]))
 >>>
 >>> model = arco.Model()
 >>> supply = model.add_block(
@@ -121,8 +126,43 @@ True
 ```
 
 For composed models, inspect `result.blocks[...]` for block-level objective
-values and vectors. The top-level `result.status` is an aggregate over all
-blocks.
+values and vectors. Use `result.blocks.statuses()` for a compact per-stage
+health check, or `result.blocks.report()` for an ordered stage report with
+status, objective value, and result vector sizes. Use
+`result.blocks.report_json()` when the same report needs to be written to an
+operations log or artifact store. The top-level `result.status` is an aggregate
+over all blocks.
+
+`result.blocks` also supports `len(result.blocks)` and
+`"stage_name" in result.blocks` for lightweight orchestration checks, and
+iterates over stage names in execution order.
+Use `result.blocks.get("stage_name")` when an optional stage may be absent.
+Missing stage lookups such as `result.blocks["missing"]` raise
+`arco.BlockResultError` with diagnostic code `arco::block::result`.
+
+Use `result.blocks.diagnostics()` when operations tooling needs one stable
+row per stage with status, objective value, result-vector counts, model counts,
+and pre-solve memory estimates. `diagnostics_json()` returns the same payload
+for logs or workflow artifacts.
+
+Use `result.blocks.artifact_manifest()` to plan retained per-stage artifacts
+without writing files or reaching into block internals. The default
+`policy="summary"` retains stage diagnostics and compact solution summaries;
+`policy="model"` also marks model snapshots for retention, and `policy="none"`
+records that no per-stage artifacts should be kept. Unknown policy values
+raise `arco.BlockContractError`. `artifact_manifest_json()` returns the same
+manifest as JSON for operations logs or artifact stores.
+Cycles in block links use the same `BlockContractError` path because the block
+graph cannot be scheduled until the cycle is removed.
+
+Use `result.blocks.write_artifacts(path, policy="summary")` when the composed
+solve should leave an on-disk artifact bundle. The writer creates a
+`manifest.json` file plus one ordered directory per block. The default policy
+writes `stage_diagnostics.json` and compact `solution_summary.json` files.
+`policy="model"` also writes a compact `model_snapshot.json` for each block,
+including counts and memory estimates without exposing internal storage.
+Filesystem or encoding failures raise `arco.BlockArtifactError` with diagnostic
+code `arco::block::artifact_io`.
 
 ## Validation guarantees
 
@@ -130,10 +170,17 @@ Arco validates the typed block contract at registration and link time:
 
 - Build function must be decorated with `@block` from `arco.blocks`.
 - Build function signature must be `(model, data)` or `(model, data, ctx)`.
+- Build functions must mutate the provided model and return `None`.
 - `data` type must be a `dataclass` or `pydantic.BaseModel`.
 - Extract function signature must be `(solution, data)` or `(solution, data, ctx)`.
 - Extract return type must be a `dataclass` or `pydantic.BaseModel`.
 - Link source and target field types must match.
+- Unknown block ports accessed through `block.input("...")`,
+  `block.output("...")`, `block.in_`, or `block.out` are contract errors.
+
+These failures raise `arco.BlockContractError` with diagnostic code
+`arco::block::contract`, so applications can catch one stable Arco error for
+block authoring and linking mistakes.
 
 ## Next steps
 

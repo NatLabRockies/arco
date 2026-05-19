@@ -2,9 +2,11 @@ use crate::compile::semantic::{FamilySignature, SemanticProgram, VariableDeclOve
 use crate::kdl::ObjectiveSense;
 use crate::kdl::algebra::{self, ConstraintBody, Expr};
 use crate::kdl::source::VariableKindDecl;
+use arco_model::SnapshotMemoryEstimate;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use thiserror::Error;
 
 mod modeling;
 
@@ -37,14 +39,18 @@ pub struct Meta {
     pub entrypoint: String,
     pub scenario: String,
     pub counts: Counts,
+    pub memory: SnapshotMemoryEstimate,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Counts {
     pub set: usize,
     pub variable: usize,
+    pub variable_instances: usize,
     pub parameter: usize,
     pub constraint: usize,
+    pub constraint_instances: usize,
+    pub coefficient_instances: usize,
     pub expression: usize,
 }
 
@@ -78,6 +84,7 @@ pub struct VariableRecord {
     pub id: usize,
     pub name: String,
     pub kind: String,
+    pub instances: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lower: Option<BoundValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -220,6 +227,10 @@ pub fn build_inspect_payload(entrypoint: &Path, program: &SemanticProgram) -> In
         &set_sizes,
         &program.set_aliases,
     );
+    let coefficient_instances = constraint_records
+        .iter()
+        .map(estimate_constraint_coefficient_instances)
+        .sum();
     // Build objective record
     let objective_record =
         modeling::build_objective_record(program, &variable_targets, &parameter_targets);
@@ -230,6 +241,17 @@ pub fn build_inspect_payload(entrypoint: &Path, program: &SemanticProgram) -> In
     // Build chronology
     let chronology = modeling::build_chronology(program);
 
+    let variable_instances = variable_records
+        .iter()
+        .map(variable_record_instance_count)
+        .sum();
+    let constraint_instances = constraint_records
+        .iter()
+        .map(|record| record.instances)
+        .sum();
+    let memory =
+        SnapshotMemoryEstimate::for_sparse_matrix(variable_instances, coefficient_instances);
+
     InspectPayload {
         meta: Meta {
             entrypoint: entrypoint.display().to_string(),
@@ -237,10 +259,14 @@ pub fn build_inspect_payload(entrypoint: &Path, program: &SemanticProgram) -> In
             counts: Counts {
                 set: set_records.len(),
                 variable: variable_records.len(),
+                variable_instances,
                 parameter: parameter_records.len(),
                 constraint: constraint_records.len(),
+                constraint_instances,
+                coefficient_instances,
                 expression: expression_records.len(),
             },
+            memory,
         },
         set: set_records,
         variable: variable_records,
@@ -251,6 +277,41 @@ pub fn build_inspect_payload(entrypoint: &Path, program: &SemanticProgram) -> In
         report: report_records,
         chronology,
     }
+}
+
+fn variable_record_instance_count(record: &VariableRecord) -> usize {
+    record.instances
+}
+
+fn estimate_constraint_coefficient_instances(record: &ConstraintRecord) -> usize {
+    let variable_terms = record
+        .lhs
+        .iter()
+        .chain(&record.rhs)
+        .filter(|term| term.kind == "variable")
+        .map(term_coefficient_fanout)
+        .sum::<usize>();
+    record.instances.saturating_mul(variable_terms)
+}
+
+fn term_coefficient_fanout(term: &TermRef) -> usize {
+    let reduction_fanout = term
+        .reduce_over
+        .iter()
+        .filter_map(|set_ref| {
+            term.over
+                .iter()
+                .find(|binding| binding.alias.as_deref() == Some(set_ref.name.as_str()))
+                .or_else(|| {
+                    term.over
+                        .iter()
+                        .find(|binding| binding.name == set_ref.name)
+                })
+        })
+        .map(|binding| binding.size)
+        .product::<usize>()
+        .max(1);
+    reduction_fanout
 }
 
 // ─── Set builder ─────────────────────────────────────────────────
@@ -357,12 +418,44 @@ fn build_variable_records(
                 id,
                 name: family.target.clone(),
                 kind,
+                instances: family_instance_count(family, program, set_sizes, &program.set_aliases),
                 lower,
                 upper,
                 set: build_family_set_bindings(family, program, set_sizes, &program.set_aliases),
             }
         })
         .collect()
+}
+
+fn family_instance_count(
+    family: &FamilySignature,
+    program: &SemanticProgram,
+    set_sizes: &BTreeMap<&str, usize>,
+    set_aliases: &BTreeMap<String, String>,
+) -> usize {
+    let mut seen_tuple_domains = BTreeSet::new();
+    let mut instances = 1usize;
+
+    for index in &family.indices {
+        let set_name = family
+            .index_domains
+            .get(index)
+            .map_or(index.as_str(), String::as_str);
+        let canonical = canonical_set_name(set_name, set_aliases);
+        let Some(resolved_set) = program.set_registry.get(canonical) else {
+            continue;
+        };
+
+        if resolved_set.tuple_rows.is_some() {
+            if seen_tuple_domains.insert(canonical) {
+                instances = instances.saturating_mul(resolved_set_cardinality(resolved_set));
+            }
+        } else {
+            instances = instances.saturating_mul(lookup_set_size(set_sizes, set_aliases, set_name));
+        }
+    }
+
+    instances
 }
 
 fn variable_domain(
@@ -850,14 +943,21 @@ const INLINE_ARRAY_FIELDS: &[&str] = &[
     "reduce_over",
     "subset_of",
     "counts",
+    "memory",
 ];
 
-pub fn render_toml(payload: &InspectPayload) -> Result<String, toml::ser::Error> {
+#[derive(Debug, Error)]
+pub enum InspectRenderError {
+    #[error("failed to serialize inspect payload as TOML: {0}")]
+    Serialize(#[from] toml::ser::Error),
+    #[error("failed to parse inspect TOML for inline formatting: {0}")]
+    InlineFormat(#[from] toml_edit::TomlError),
+}
+
+pub fn render_toml(payload: &InspectPayload) -> Result<String, InspectRenderError> {
     let raw = toml::to_string_pretty(payload)?;
     // Parse into a document so we can mark nested tables as inline
-    let mut doc: toml_edit::DocumentMut = raw
-        .parse()
-        .expect("toml::to_string_pretty should produce valid TOML");
+    let mut doc: toml_edit::DocumentMut = raw.parse()?;
 
     inlinify_document(&mut doc);
 

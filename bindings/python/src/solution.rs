@@ -1,10 +1,10 @@
 //! Python wrapper for solver solutions.
 
-use crate::py_modules::errors::SolverIndexError;
+use crate::py_modules::errors::{SolverIndexError, SolverTypeError};
 use arco_ops::solve::{Solution, SolverStatus};
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
+use pyo3::types::{PyAny, PyBool, PyInt};
 
 use crate::PyObject;
 use crate::py_modules::arrays::PyVariableArray;
@@ -63,6 +63,134 @@ impl PySolveResult {
     pub fn inner(&self) -> &Solution {
         &self.inner
     }
+
+    fn value_for_variable(
+        &self,
+        py: Python<'_>,
+        variable: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        if let Ok(var) = variable.extract::<PyRef<'_, PyVariable>>() {
+            let index = var.var_id as usize;
+            let value = self.inner.get_primal(index).ok_or_else(|| {
+                SolverIndexError::new_err(format!(
+                    "Variable index {} out of bounds for {} primal values",
+                    index,
+                    self.inner.primal_values.len()
+                ))
+            })?;
+            return Ok(value.into_pyobject(py)?.into_any().unbind());
+        }
+        if let Ok(arr) = variable.extract::<PyRef<'_, PyVariableArray>>() {
+            let variable_slots = arr.get_variable_slots();
+            let shape = arr.get_shape();
+            let mut values = Vec::with_capacity(variable_slots.len());
+            for slot in variable_slots {
+                if let Some(var) = slot {
+                    let index = var.var_id as usize;
+                    let value = self.inner.get_primal(index).ok_or_else(|| {
+                        SolverIndexError::new_err(format!(
+                            "Variable index {} out of bounds for {} primal values",
+                            index,
+                            self.inner.primal_values.len()
+                        ))
+                    })?;
+                    values.push(value);
+                } else {
+                    values.push(f64::NAN);
+                }
+            }
+            let np = py.import("numpy")?;
+            let flat = PyList::new(py, &values)?;
+            let array = np.call_method1("array", (flat,))?;
+            let shape_tuple = PyList::new(py, shape)?;
+            let reshaped = array.call_method1("reshape", (shape_tuple,))?;
+            return Ok(reshaped.unbind());
+        }
+        Err(SolverTypeError::new_err(
+            "value() expects a Variable or VariableArray",
+        ))
+    }
+
+    fn dual_for_constraint(&self, constraint: PyRef<'_, PyConstraint>) -> PyResult<f64> {
+        let index = constraint.constraint_id as usize;
+        self.inner.get_constraint_dual(index).ok_or_else(|| {
+            SolverIndexError::new_err(format!(
+                "Constraint index {} out of bounds for {} constraint duals",
+                index,
+                self.inner.constraint_duals.len()
+            ))
+        })
+    }
+
+    fn reduced_cost_for_variable(&self, variable: PyRef<'_, PyVariable>) -> PyResult<f64> {
+        let index = variable.var_id as usize;
+        self.inner.get_variable_dual(index).ok_or_else(|| {
+            SolverIndexError::new_err(format!(
+                "Variable index {} out of bounds for {} variable duals",
+                index,
+                self.inner.variable_duals.len()
+            ))
+        })
+    }
+
+    fn slack_for_constraint(&self, constraint: PyRef<'_, PyConstraint>) -> PyResult<f64> {
+        let index = constraint.constraint_id as usize;
+        let activity = self.inner.get_row_value(index).ok_or_else(|| {
+            SolverIndexError::new_err(format!(
+                "Constraint index {} out of bounds for {} row values",
+                index,
+                self.inner.row_values.len()
+            ))
+        })?;
+        let bounds = constraint.constraint_bounds;
+        let lower = bounds.lower;
+        let upper = bounds.upper;
+        let slack = if lower.is_finite() && upper.is_finite() {
+            // Ranged constraint: return minimum slack to nearest bound
+            (upper - activity).min(activity - lower)
+        } else if upper.is_finite() {
+            // expr <= ub
+            upper - activity
+        } else if lower.is_finite() {
+            // expr >= lb
+            activity - lower
+        } else {
+            // Free constraint (no bounds): slack is infinite
+            f64::INFINITY
+        };
+        Ok(slack)
+    }
+
+    fn parse_index(index: &Bound<'_, PyAny>) -> PyResult<usize> {
+        if index.is_instance_of::<PyBool>() {
+            return Err(SolverTypeError::new_err(
+                "index must be an integer for raw result accessors",
+            ));
+        }
+        let signed_any = index.call_method0("__index__").map_err(|_| {
+            SolverTypeError::new_err("index must be an integer for raw result accessors")
+        })?;
+        if !signed_any.is_instance_of::<PyInt>() {
+            return Err(SolverTypeError::new_err(
+                "index must be an integer for raw result accessors",
+            ));
+        }
+        if signed_any.is_instance_of::<PyBool>() {
+            return Err(SolverTypeError::new_err(
+                "index must be an integer for raw result accessors",
+            ));
+        }
+        let signed = signed_any.extract::<isize>().map_err(|_| {
+            SolverIndexError::new_err("Index out of bounds for raw result accessors")
+        })?;
+        if signed < 0 {
+            return Err(SolverIndexError::new_err(format!(
+                "Index {} out of bounds for raw result accessors",
+                signed
+            )));
+        }
+        Ok(signed as usize)
+    }
 }
 
 #[pymethods]
@@ -84,70 +212,20 @@ impl PySolveResult {
     /// For a single Variable, returns a float.
     /// For a VariableArray, returns a numpy ndarray.
     #[pyo3(signature = (variable, /))]
-    fn get_value(&self, py: Python<'_>, variable: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        if let Ok(var) = variable.extract::<PyRef<'_, PyVariable>>() {
-            let index = var.var_id as usize;
-            let value = self.inner.get_primal(index).ok_or_else(|| {
-                PyRuntimeError::new_err(format!(
-                    "Variable index {} out of bounds for {} primal values",
-                    index,
-                    self.inner.primal_values.len()
-                ))
-            })?;
-            return Ok(value.into_pyobject(py)?.into_any().unbind());
-        }
-        if let Ok(arr) = variable.extract::<PyRef<'_, PyVariableArray>>() {
-            let variables = arr.get_variable_refs();
-            let shape = arr.get_shape();
-            let mut values = Vec::with_capacity(variables.len());
-            for var in variables {
-                let index = var.var_id as usize;
-                let value = self.inner.get_primal(index).ok_or_else(|| {
-                    PyRuntimeError::new_err(format!(
-                        "Variable index {} out of bounds for {} primal values",
-                        index,
-                        self.inner.primal_values.len()
-                    ))
-                })?;
-                values.push(value);
-            }
-            // Create numpy array with the correct shape
-            let np = py.import("numpy")?;
-            let flat = PyList::new(py, &values)?;
-            let array = np.call_method1("array", (flat,))?;
-            let shape_tuple = PyList::new(py, shape)?;
-            let reshaped = array.call_method1("reshape", (shape_tuple,))?;
-            return Ok(reshaped.unbind());
-        }
-        Err(PyRuntimeError::new_err(
-            "get_value() expects a Variable or VariableArray",
-        ))
+    fn value(&self, py: Python<'_>, variable: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        self.value_for_variable(py, variable)
     }
 
     /// Get the dual value (shadow price) for a constraint.
     #[pyo3(signature = (constraint))]
-    fn get_dual(&self, constraint: PyRef<'_, PyConstraint>) -> PyResult<f64> {
-        let index = constraint.constraint_id as usize;
-        self.inner.get_constraint_dual(index).ok_or_else(|| {
-            PyRuntimeError::new_err(format!(
-                "Constraint index {} out of bounds for {} constraint duals",
-                index,
-                self.inner.constraint_duals.len()
-            ))
-        })
+    fn dual(&self, constraint: PyRef<'_, PyConstraint>) -> PyResult<f64> {
+        self.dual_for_constraint(constraint)
     }
 
     /// Get the reduced cost for a variable.
     #[pyo3(signature = (variable))]
-    fn get_reduced_cost(&self, variable: PyRef<'_, PyVariable>) -> PyResult<f64> {
-        let index = variable.var_id as usize;
-        self.inner.get_variable_dual(index).ok_or_else(|| {
-            PyRuntimeError::new_err(format!(
-                "Variable index {} out of bounds for {} variable duals",
-                index,
-                self.inner.variable_duals.len()
-            ))
-        })
+    fn reduced_cost(&self, variable: PyRef<'_, PyVariable>) -> PyResult<f64> {
+        self.reduced_cost_for_variable(variable)
     }
 
     /// Get the slack value for a constraint.
@@ -157,35 +235,11 @@ impl PySolveResult {
     /// - For `expr >= lb`: slack = activity - lb
     /// - For ranged constraints: min(ub - activity, activity - lb)
     #[pyo3(signature = (constraint))]
-    fn get_slack(&self, constraint: PyRef<'_, PyConstraint>) -> PyResult<f64> {
-        let index = constraint.constraint_id as usize;
-        let activity = self.inner.get_row_value(index).ok_or_else(|| {
-            PyRuntimeError::new_err(format!(
-                "Constraint index {} out of bounds for {} row values",
-                index,
-                self.inner.row_values.len()
-            ))
-        })?;
-        let bounds = constraint.constraint_bounds;
-        let lower = bounds.lower;
-        let upper = bounds.upper;
-        let slack = if lower.is_finite() && upper.is_finite() {
-            // Ranged constraint: return minimum slack to nearest bound
-            (upper - activity).min(activity - lower)
-        } else if upper.is_finite() {
-            // expr <= ub
-            upper - activity
-        } else if lower.is_finite() {
-            // expr >= lb
-            activity - lower
-        } else {
-            // Free constraint (no bounds) — slack is infinite
-            f64::INFINITY
-        };
-        Ok(slack)
+    fn slack(&self, constraint: PyRef<'_, PyConstraint>) -> PyResult<f64> {
+        self.slack_for_constraint(constraint)
     }
 
-    // Backward-compatible accessors retained for existing Python callers.
+    // Expert raw-vector accessors for integrations that already track solver order.
 
     /// Get primal values as a list.
     #[getter]
@@ -207,7 +261,8 @@ impl PySolveResult {
 
     /// Get a specific primal value by index.
     #[pyo3(signature = (*, index))]
-    fn get_primal(&self, index: usize) -> PyResult<f64> {
+    fn get_primal(&self, index: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let index = Self::parse_index(index)?;
         let len = self.inner.primal_values.len();
         self.inner.get_primal(index).ok_or_else(|| {
             SolverIndexError::new_err(format!(
@@ -219,7 +274,8 @@ impl PySolveResult {
 
     /// Get a specific variable dual value by index.
     #[pyo3(signature = (*, index))]
-    fn get_variable_dual(&self, index: usize) -> PyResult<f64> {
+    fn get_variable_dual(&self, index: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let index = Self::parse_index(index)?;
         let len = self.inner.variable_duals.len();
         self.inner.get_variable_dual(index).ok_or_else(|| {
             SolverIndexError::new_err(format!(
@@ -231,7 +287,8 @@ impl PySolveResult {
 
     /// Get a specific constraint dual value by index.
     #[pyo3(signature = (*, index))]
-    fn get_constraint_dual(&self, index: usize) -> PyResult<f64> {
+    fn get_constraint_dual(&self, index: &Bound<'_, PyAny>) -> PyResult<f64> {
+        let index = Self::parse_index(index)?;
         let len = self.inner.constraint_duals.len();
         self.inner.get_constraint_dual(index).ok_or_else(|| {
             SolverIndexError::new_err(format!(

@@ -8,41 +8,74 @@ remaining migration debt tracked in ADR chunk checklists. This page tracks the
 ## Shipped core shape
 
 ```text
-Interaction surfaces
-  arco-cli
-  arco-python ──► arco-blocks (block composition)
-        │              │
-        └──────┬───────┘
-               ▼
-arco-ops (stable interaction facade)
+User surfaces
+  bindings/python (arco-python)
+  crates/arco-cli
         │
-        ├── arco-arrays  binding-agnostic labeled-array planning + sparse mask broadcast
-        ├── arco-kdl      KDL parsing + source AST + primitive documents
-        ├── arco-model    primitive model + indexed data + document DTOs
-        ├── arco-validate model-view validation/reporting
-        ├── arco-solver   solver selection/preflight/contracts
-        ├── arco-format  portable DTOs + LP/MPS exports over model views
-        └── concrete solver adapters (adapter-neutral registry wiring)
+        ├──────────────► crates/arco-blocks
+        │                         │
+        └──────────────┬──────────┘
+                       ▼
+Runtime facade
+  crates/arco-ops
+        │
+        ├── Semantic/data construction: crates/arco-kdl
+        ├── Validation/reporting:      crates/arco-validate
+        ├── Labeled axes/arrays:       crates/arco-arrays
+        ├── Primitive model contract:  crates/arco-model
+        ├── Portable/export DTOs:      crates/arco-format
+        ├── Solver contracts:          crates/arco-solver
+        └── Solver registry/adapters:  crates/arco-builtin-solvers
+                                      crates/arco-highs
+                                      crates/arco-ipopt
+                                      crates/arco-xpress
+                                      crates/arco-scip
 ```
 
 ## Crate responsibilities (current)
 
-- `arco-model`: canonical primitive model APIs (`ModelBuilder`, `FrozenModel`,
-  `ModelView`, `ModelPatch`), indexed-data primitives, and primitive document
-  DTOs.
-- `arco-arrays`: reusable labeled-axis array primitives used by bindings for
-  axis identity, broadcast planning, sparse active-mask expansion, and
-  fail-fast shape validation.
-- `arco-kdl`: KDL parser/AST/diagnostics plus document-only primitive builders
-  for `IndexedData` and primitive document shells; it does not lower algebra to
-  solve-ready models.
-- `arco-validate`: user-facing validation over model views.
-- `arco-solver`: solver-facing contracts, selection, and preflight.
-- `arco-ops`: stable interaction facade used by CLI, Python core APIs,
-  and block composition. LP/MPS problem export uses stable ops DTO boundaries;
-  KDL document construction remains in `arco-kdl`.
-- `arco-blocks`: block composition layer over `arco-ops`; Python imports it only
-  for block-specific APIs.
+- `arco-model`: primitive model contract. Owns variables/controls, bounds,
+  expressions, constraints, objectives, model snapshots, sparse import/export,
+  `ModelView`, `ModelPatch`, indexed-data primitives, and primitive document
+  DTOs. This layer stays independent of Python, KDL, CLI, blocks, and
+  solver-specific behavior.
+- `arco-arrays`: labeled-axis and sparse-array semantics. Owns axis identity,
+  parameter alignment, broadcast planning, reductions, sparse active-mask
+  expansion, tuple-domain planning, and fail-fast shape validation.
+- `arco-kdl`: semantic/data construction for KDL. Owns parsing, source
+  diagnostics, primitive document construction, data binding, and scenario
+  inference. It should produce normalized artifacts instead of leaking parser
+  structures into user surfaces or solvers.
+- `arco-validate`: user-facing validation and reporting over model views.
+- `arco-solver`: solver contracts, capability metadata, selection, preflight,
+  shared configuration, status mapping, and backend traits.
+- `arco-ops`: stable runtime facade used by CLI, Python core APIs, and block
+  composition. It owns solve orchestration, validation routing, inspection
+  routing, solver selection, result mapping, and stable DTO boundaries.
+- `arco-blocks`: block composition, typed input/output contracts, stage
+  diagnostics, and swappability checks. Blocks compose public model/runtime
+  APIs instead of reaching into primitive storage.
+- `arco-builtin-solvers` and concrete solver crates: built-in solver
+  registration and backend-specific capability, configuration, result, status,
+  runtime/license, and diagnostic mapping. Solver adapters consume
+  `ModelView`/DTO contracts so adding a backend does not change Python, KDL,
+  block, or primitive model APIs.
+
+## API ladder architecture rules
+
+- User surfaces own ergonomics, examples, command/API naming, and error
+  presentation. They should stay thin over shared contracts.
+- Reusable blocks and domain-specific helpers must build on public model APIs
+  rather than mutating internals.
+- Advanced raw IDs, sparse matrix import/export, and solver-specific settings
+  remain available as expert APIs, but beginner paths should use named model
+  objects, axes, inspection, and result accessors.
+- Memory behavior is part of the public contract. Sparse active masks and tuple
+  domains should remain visible through shape/count inspection before solve,
+  and convenience layers must not hide accidental dense expansion.
+- Adding a solver should stay confined to solver contracts, runtime
+  registration, and a concrete backend crate unless a shared contract is
+  genuinely missing.
 
 ## Transitional seams still present
 

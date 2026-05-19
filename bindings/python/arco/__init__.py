@@ -19,6 +19,89 @@ _ARCO_BLOCK_NAME_ATTR = "__arco_block_name__"
 _ARCO_BLOCK_INPUT_SCHEMA_ATTR = "__arco_block_input_schema__"
 _ARCO_BLOCK_INPUT_FIELDS_ATTR = "__arco_block_input_fields__"
 _ARCO_BLOCK_EXPECTS_CTX_ATTR = "__arco_block_expects_ctx__"
+_SHARED_DIAGNOSTIC_CODES = _arco._diagnostic_codes()
+
+_ERROR_CODES = {
+    "ModelEmptyError": _SHARED_DIAGNOSTIC_CODES["MODEL_EMPTY"],
+    "VariableInvalidIdError": _SHARED_DIAGNOSTIC_CODES["VARIABLE_INVALID_ID"],
+    "VariableInvalidBoundsError": _SHARED_DIAGNOSTIC_CODES["VARIABLE_INVALID_BOUNDS"],
+    "VariableNotFoundError": _SHARED_DIAGNOSTIC_CODES["VARIABLE_NOT_FOUND"],
+    "ConstraintInvalidIdError": _SHARED_DIAGNOSTIC_CODES["CONSTRAINT_INVALID_ID"],
+    "ConstraintInvalidBoundsError": _SHARED_DIAGNOSTIC_CODES[
+        "CONSTRAINT_INVALID_BOUNDS"
+    ],
+    "ConstraintNotFoundError": _SHARED_DIAGNOSTIC_CODES["CONSTRAINT_NOT_FOUND"],
+    "ObjectiveMissingError": _SHARED_DIAGNOSTIC_CODES["OBJECTIVE_MISSING"],
+    "ObjectiveAlreadySetError": _SHARED_DIAGNOSTIC_CODES["OBJECTIVE_ALREADY_SET"],
+    "SlackInvalidPenaltyError": _SHARED_DIAGNOSTIC_CODES["SLACK_INVALID_PENALTY"],
+    "SolverInfeasibleError": _SHARED_DIAGNOSTIC_CODES["SOLVER_INFEASIBLE"],
+    "SolverUnboundedError": _SHARED_DIAGNOSTIC_CODES["SOLVER_UNBOUNDED"],
+    "SolverTimeLimitError": _SHARED_DIAGNOSTIC_CODES["SOLVER_TIME_LIMIT"],
+    "SolverIterationLimitError": _SHARED_DIAGNOSTIC_CODES["SOLVER_ITERATION_LIMIT"],
+    "SolverInternalError": _SHARED_DIAGNOSTIC_CODES["SOLVER_INTERNAL"],
+    "SolverNotAvailableError": _SHARED_DIAGNOSTIC_CODES["SOLVER_NOT_AVAILABLE"],
+    "CscInvalidDataError": _SHARED_DIAGNOSTIC_CODES["CSC_INVALID_DATA"],
+    "ExprDivisionByZeroError": _SHARED_DIAGNOSTIC_CODES["EXPR_DIVISION_BY_ZERO"],
+    "ExprNotSingleVariableError": _SHARED_DIAGNOSTIC_CODES["EXPR_NOT_SINGLE_VARIABLE"],
+    "ExprCoefficientError": _SHARED_DIAGNOSTIC_CODES["EXPR_COEFFICIENT"],
+    "ExprConstantOffsetError": _SHARED_DIAGNOSTIC_CODES["EXPR_CONSTANT_OFFSET"],
+    "ExprTypeError": _SHARED_DIAGNOSTIC_CODES["EXPR_TYPE"],
+    "ArrayShapeMismatchError": _SHARED_DIAGNOSTIC_CODES["ARRAY_SHAPE_MISMATCH"],
+    "ArrayIndexError": _SHARED_DIAGNOSTIC_CODES["ARRAY_INDEX"],
+    "ArrayTypeError": _SHARED_DIAGNOSTIC_CODES["ARRAY_TYPE"],
+    "ArrayDimensionError": _SHARED_DIAGNOSTIC_CODES["ARRAY_DIMENSION"],
+    "ArrayOverflowError": _SHARED_DIAGNOSTIC_CODES["ARRAY_OVERFLOW"],
+    "BlockArtifactError": _SHARED_DIAGNOSTIC_CODES["BLOCK_ARTIFACT_IO"],
+    "BlockContractError": _SHARED_DIAGNOSTIC_CODES["BLOCK_CONTRACT"],
+    "BlockResultError": _SHARED_DIAGNOSTIC_CODES["BLOCK_RESULT"],
+    "LoggingConfigError": _SHARED_DIAGNOSTIC_CODES["LOGGING_CONFIG"],
+    "LoggingIoError": _SHARED_DIAGNOSTIC_CODES["LOGGING_IO"],
+    "MetadataConversionError": _SHARED_DIAGNOSTIC_CODES["METADATA_CONVERSION"],
+    "ConstraintTypeError": _SHARED_DIAGNOSTIC_CODES["CONSTRAINT_TYPE"],
+    "ConstraintBoundsMissingError": _SHARED_DIAGNOSTIC_CODES[
+        "CONSTRAINT_BOUNDS_MISSING"
+    ],
+    "ConstraintSenseError": _SHARED_DIAGNOSTIC_CODES["CONSTRAINT_SENSE"],
+    "SolverInvalidSettingError": _SHARED_DIAGNOSTIC_CODES["SOLVER_INVALID_SETTING"],
+    "SolverIndexError": _SHARED_DIAGNOSTIC_CODES["SOLVER_INDEX"],
+    "SolverTypeError": _SHARED_DIAGNOSTIC_CODES["SOLVER_TYPE"],
+    "IndexSetEmptyError": _SHARED_DIAGNOSTIC_CODES["INDEX_SET_EMPTY"],
+    "IndexSetTypeError": _SHARED_DIAGNOSTIC_CODES["INDEX_SET_TYPE"],
+    "IndexSetArgumentError": _SHARED_DIAGNOSTIC_CODES["INDEX_SET_ARGUMENT"],
+    "IndexSetIndexError": _SHARED_DIAGNOSTIC_CODES["INDEX_SET_INDEX"],
+    "BoundsInvalidError": _SHARED_DIAGNOSTIC_CODES["BOUNDS_INVALID"],
+    "SlackBoundError": _SHARED_DIAGNOSTIC_CODES["SLACK_BOUND"],
+    "SlackValueUnavailableError": _SHARED_DIAGNOSTIC_CODES["SLACK_VALUE_UNAVAILABLE"],
+    "CscDtypeError": _SHARED_DIAGNOSTIC_CODES["CSC_DTYPE"],
+    "CscDimensionError": _SHARED_DIAGNOSTIC_CODES["CSC_DIMENSION"],
+    "CscContiguityError": _SHARED_DIAGNOSTIC_CODES["CSC_CONTIGUITY"],
+    "CscNegativeIndexError": _SHARED_DIAGNOSTIC_CODES["CSC_NEGATIVE_INDEX"],
+    "DependencyMissingError": _SHARED_DIAGNOSTIC_CODES["DEPENDENCY_MISSING"],
+    "ModelBinaryBoundsError": _SHARED_DIAGNOSTIC_CODES["MODEL_BINARY_BOUNDS"],
+    "ObjectiveIndexError": _SHARED_DIAGNOSTIC_CODES["OBJECTIVE_INDEX"],
+}
+
+
+def diagnostic_codes() -> dict[str, str]:
+    return dict(_SHARED_DIAGNOSTIC_CODES)
+
+
+__all__.append("diagnostic_codes")
+
+
+def _install_error_codes() -> None:
+    for name, code in _ERROR_CODES.items():
+        cls = getattr(_arco, name, None)
+        if cls is not None and not hasattr(cls, "code"):
+            setattr(cls, "code", code)
+
+
+def error_code(exc: BaseException) -> str | None:
+    code = getattr(exc, "code", None)
+    return code if isinstance(code, str) else None
+
+
+_install_error_codes()
 
 
 _PydanticBaseModel: type[object] | None
@@ -50,34 +133,42 @@ def _schema_fields(schema: type[object]) -> dict[str, object]:
             name: getattr(field, "annotation", object)
             for name, field in schema.model_fields.items()
         }
-    raise TypeError(
+    raise _arco.BlockContractError(
         "block: input schema must be a dataclass or pydantic BaseModel type"
     )
 
 
 def _decorate_block(*, func: _BlockFnT, name: str | None) -> _BlockFnT:
     if not callable(func):
-        raise TypeError("block: expected a callable")
+        raise _arco.BlockContractError("block: expected a callable")
 
     signature = inspect.signature(func)
     params = list(signature.parameters.values())
     if len(params) not in (2, 3):
-        raise TypeError("block: expected signature (model, data) or (model, data, ctx)")
+        raise _arco.BlockContractError(
+            "block: expected signature (model, data) or (model, data, ctx)"
+        )
 
     for param in params:
         if param.kind in (
             inspect.Parameter.VAR_POSITIONAL,
             inspect.Parameter.VAR_KEYWORD,
         ):
-            raise TypeError("block: variadic *args/**kwargs are not supported")
+            raise _arco.BlockContractError(
+                "block: variadic *args/**kwargs are not supported"
+            )
         if param.kind is inspect.Parameter.KEYWORD_ONLY:
-            raise TypeError("block: keyword-only parameters are not supported")
+            raise _arco.BlockContractError(
+                "block: keyword-only parameters are not supported"
+            )
 
     data_annotation = params[1].annotation
     if data_annotation is inspect.Signature.empty:
-        raise TypeError("block: data parameter must include a schema annotation")
+        raise _arco.BlockContractError(
+            "block: data parameter must include a schema annotation"
+        )
     if not _is_supported_schema_type(data_annotation):
-        raise TypeError(
+        raise _arco.BlockContractError(
             "block: input schema must be a dataclass or pydantic BaseModel type"
         )
 
@@ -132,6 +223,10 @@ class ParamArray:
     @property
     def values(self) -> object:
         return self._values
+
+    @property
+    def name(self) -> str | None:
+        return self._name
 
     def __array__(self, dtype: object = None, copy: object = None) -> object:
         import numpy as np
@@ -280,7 +375,7 @@ class ParamArray:
         new_values = np.diff(np.asarray(self._values), axis=idx)
         new_axes = list(self._axes)
         members = new_axes[idx].members[1:]
-        new_axes[idx] = _arco.IndexSet(new_axes[idx].name, members=members)
+        new_axes[idx] = _arco.IndexSet(name=new_axes[idx].name, members=members)
         return ParamArray(_values=new_values, _axes=tuple(new_axes), _name=self._name)
 
     def roll(self, *, shift: int, over: object) -> ParamArray:
@@ -307,22 +402,42 @@ class ParamArray:
         kwargs = kwargs or {}
         name = getattr(func, "__name__", "")
         if name == "sum":
+            _reject_unsupported_numpy_kwargs("sum", kwargs, ("axis",))
             return self.sum(over=kwargs.get("axis"))
         if name == "cumsum":
+            _reject_unsupported_numpy_kwargs("cumsum", kwargs, ("axis",))
             return self.cumsum(over=kwargs.get("axis"))
         if name == "diff":
+            _reject_unsupported_numpy_kwargs("diff", kwargs, ("axis",))
             return self.diff(over=kwargs.get("axis"))
         if name == "roll":
+            _reject_unsupported_numpy_kwargs("roll", kwargs, ("axis", "shift"))
             return self.roll(
                 shift=int(args[1] if len(args) > 1 else kwargs.get("shift", 0)),
                 over=kwargs.get("axis"),
             )
         if name == "concatenate":
+            _reject_unsupported_numpy_kwargs("concatenate", kwargs, ("axis",))
             arrays = tuple(args[0])
             return _concatenate_params(arrays, kwargs.get("axis"))
         if name == "einsum":
             return _param_einsum(*args, **kwargs)
         return np.asarray(self._values).__array_function__(func, _types, args, kwargs)
+
+
+def _reject_unsupported_numpy_kwargs(
+    function_name: str,
+    kwargs: dict[str, object],
+    supported: tuple[str, ...],
+) -> None:
+    for key, value in kwargs.items():
+        if key in supported or value is None:
+            continue
+        supported_text = ", ".join(supported)
+        raise _arco.ArrayTypeError(
+            f"np.{function_name} with Arco arrays supports only "
+            f"{supported_text}; unsupported keyword {key!r}"
+        )
 
 
 def _axis_key(axis: object) -> tuple[str, int]:
@@ -413,7 +528,7 @@ def _slice_axes(axes: tuple[object, ...], index: object) -> tuple[object, ...]:
         if isinstance(part, int):
             continue
         members = axis.members[part]
-        out.append(_arco.IndexSet(axis.name, members=members))
+        out.append(_arco.IndexSet(name=axis.name, members=members))
     return tuple(out)
 
 
@@ -450,7 +565,7 @@ def _concatenate_params(arrays: tuple[object, ...], axis: object | None) -> Para
     for param in params:
         concat_members.extend(param.axes[axis_index].members)
     new_axes[axis_index] = _arco.IndexSet(
-        first.axes[axis_index].name, members=concat_members
+        name=first.axes[axis_index].name, members=concat_members
     )
     return ParamArray(_values=values, _axes=tuple(new_axes), _name=first._name)
 
@@ -465,21 +580,30 @@ def _param_einsum(subscripts: object, *operands: object, **kwargs: object) -> ob
     return np.einsum(subscripts, *dense_operands, **kwargs)
 
 
-def param(values: object, *axes: object, name: str | None = None) -> ParamArray:
+def param(
+    values: object,
+    *,
+    axes: tuple[object, ...],
+    name: str | None = None,
+) -> ParamArray:
     try:
         import numpy as np
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise RuntimeError("arco.param requires numpy") from exc
+        raise _arco.DependencyMissingError("arco.param requires numpy") from exc
 
     np_values = np.asarray(values)
 
-    if np_values.ndim != len(axes):
+    resolved_axes = tuple(axes)
+
+    if np_values.ndim != len(resolved_axes):
         raise _arco.ArrayDimensionError(
-            f"values.ndim ({np_values.ndim}) must equal len(axes) ({len(axes)})"
+            f"values.ndim ({np_values.ndim}) must equal len(axes) ({len(resolved_axes)})"
         )
 
     seen_axes: set[str] = set()
-    for idx, (axis, dim_size) in enumerate(zip(axes, np_values.shape, strict=True)):
+    for idx, (axis, dim_size) in enumerate(
+        zip(resolved_axes, np_values.shape, strict=True)
+    ):
         if not isinstance(axis, _arco.IndexSet):
             raise _arco.ArrayTypeError(
                 f"axis {idx} must be IndexSet, got {type(axis).__name__}"
@@ -494,7 +618,7 @@ def param(values: object, *axes: object, name: str | None = None) -> ParamArray:
                 f"axis {axis.name!r} size ({axis.size}) does not match dimension size ({dim_size})"
             )
 
-    return ParamArray(_values=np_values, _axes=tuple(axes), _name=name)
+    return ParamArray(_values=np_values, _axes=resolved_axes, _name=name)
 
 
 if "block" not in __all__:
@@ -503,3 +627,5 @@ if "ParamArray" not in __all__:
     __all__.append("ParamArray")
 if "param" not in __all__:
     __all__.append("param")
+if "error_code" not in __all__:
+    __all__.append("error_code")

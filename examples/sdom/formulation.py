@@ -67,24 +67,25 @@ class SdomData:
     mw_to_kw: float = 1000.0
 
 
-
 def _read_rows(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
-
 
 
 def _read_time_series(path: Path, *, value_field: str) -> dict[int, float]:
     return {int(row["t"]): float(row[value_field]) for row in _read_rows(path)}
 
 
-
 def load_data(*, base_dir: Path | None = None) -> SdomData:
     resolved_base_dir = base_dir or Path(__file__).resolve().parent / "data"
 
     demand = _read_time_series(resolved_base_dir / "demand.csv", value_field="demand")
-    nuclear_mw = _read_time_series(resolved_base_dir / "nuclear.csv", value_field="nuclear_mw")
-    hydro_mw = _read_time_series(resolved_base_dir / "hydro.csv", value_field="hydro_mw")
+    nuclear_mw = _read_time_series(
+        resolved_base_dir / "nuclear.csv", value_field="nuclear_mw"
+    )
+    hydro_mw = _read_time_series(
+        resolved_base_dir / "hydro.csv", value_field="hydro_mw"
+    )
     other_renewables_mw = _read_time_series(
         resolved_base_dir / "other_renewables.csv",
         value_field="other_renewables_mw",
@@ -93,17 +94,25 @@ def load_data(*, base_dir: Path | None = None) -> SdomData:
 
     wind_rows = _read_rows(resolved_base_dir / "wind_plants.csv")
     wind_plants = [row["plant_id"] for row in wind_rows]
-    wind_max_capacity = {row["plant_id"]: float(row["max_capacity"]) for row in wind_rows}
+    wind_max_capacity = {
+        row["plant_id"]: float(row["max_capacity"]) for row in wind_rows
+    }
     wind_capex_m = {row["plant_id"]: float(row["capex_m"]) for row in wind_rows}
     wind_fom_m = {row["plant_id"]: float(row["fom_m"]) for row in wind_rows}
-    wind_trans_cost = {row["plant_id"]: float(row["trans_cap_cost"]) for row in wind_rows}
+    wind_trans_cost = {
+        row["plant_id"]: float(row["trans_cap_cost"]) for row in wind_rows
+    }
 
     solar_rows = _read_rows(resolved_base_dir / "solar_plants.csv")
     solar_plants = [row["plant_id"] for row in solar_rows]
-    solar_max_capacity = {row["plant_id"]: float(row["max_capacity"]) for row in solar_rows}
+    solar_max_capacity = {
+        row["plant_id"]: float(row["max_capacity"]) for row in solar_rows
+    }
     solar_capex_m = {row["plant_id"]: float(row["capex_m"]) for row in solar_rows}
     solar_fom_m = {row["plant_id"]: float(row["fom_m"]) for row in solar_rows}
-    solar_trans_cost = {row["plant_id"]: float(row["trans_cap_cost"]) for row in solar_rows}
+    solar_trans_cost = {
+        row["plant_id"]: float(row["trans_cap_cost"]) for row in solar_rows
+    }
 
     wind_cf = {
         (int(row["t"]), row["plant_id"]): float(row["wind_cf"])
@@ -185,56 +194,79 @@ def load_data(*, base_dir: Path | None = None) -> SdomData:
     )
 
 
-
 def build_model(*, data: SdomData) -> arco.Model:
     model = arco.Model()
 
-    time = arco.IndexSet("time", size=len(data.times))
-    wind_plant = arco.IndexSet("wind_plant", size=len(data.wind_plants))
-    solar_plant = arco.IndexSet("solar_plant", size=len(data.solar_plants))
-    storage_tech = arco.IndexSet("storage_tech", size=len(data.storage_techs))
-    thermal_unit = arco.IndexSet("thermal_unit", size=len(data.thermal_units))
+    time = arco.IndexSet(name="time", size=len(data.times))
+    wind_plant = arco.IndexSet(name="wind_plant", size=len(data.wind_plants))
+    solar_plant = arco.IndexSet(name="solar_plant", size=len(data.solar_plants))
+    storage_tech = arco.IndexSet(name="storage_tech", size=len(data.storage_techs))
+    thermal_unit = arco.IndexSet(name="thermal_unit", size=len(data.thermal_units))
 
     wind_cap_frac = model.add_variables(
-        wind_plant,
+        axes=(wind_plant,),
         bounds=arco.Bounds(lower=0.0, upper=1.0),
         name="wind_cap_frac",
     )
     solar_cap_frac = model.add_variables(
-        solar_plant,
+        axes=(solar_plant,),
         bounds=arco.Bounds(lower=0.0, upper=1.0),
         name="solar_cap_frac",
     )
 
-    wind_gen = model.add_variables(time, bounds=arco.NonNegativeFloat, name="wind_gen")
-    wind_curtail = model.add_variables(time, bounds=arco.NonNegativeFloat, name="wind_curtail")
-    solar_gen = model.add_variables(time, bounds=arco.NonNegativeFloat, name="solar_gen")
-    solar_curtail = model.add_variables(time, bounds=arco.NonNegativeFloat, name="solar_curtail")
+    wind_gen = model.add_variables(
+        axes=(time,), bounds=arco.NonNegativeFloat, name="wind_gen"
+    )
+    wind_curtail = model.add_variables(
+        axes=(time,), bounds=arco.NonNegativeFloat, name="wind_curtail"
+    )
+    solar_gen = model.add_variables(
+        axes=(time,), bounds=arco.NonNegativeFloat, name="solar_gen"
+    )
+    solar_curtail = model.add_variables(
+        axes=(time,), bounds=arco.NonNegativeFloat, name="solar_curtail"
+    )
 
-    pc = model.add_variables(time, storage_tech, bounds=arco.NonNegativeFloat, name="pc")
-    pd = model.add_variables(time, storage_tech, bounds=arco.NonNegativeFloat, name="pd")
-    soc = model.add_variables(time, storage_tech, bounds=arco.NonNegativeFloat, name="soc")
+    pc = model.add_variables(
+        axes=(time, storage_tech), bounds=arco.NonNegativeFloat, name="pc"
+    )
+    pd = model.add_variables(
+        axes=(time, storage_tech), bounds=arco.NonNegativeFloat, name="pd"
+    )
+    soc = model.add_variables(
+        axes=(time, storage_tech), bounds=arco.NonNegativeFloat, name="soc"
+    )
 
-    pcha = model.add_variables(storage_tech, bounds=arco.NonNegativeFloat, name="pcha")
-    pdis = model.add_variables(storage_tech, bounds=arco.NonNegativeFloat, name="pdis")
-    ecap = model.add_variables(storage_tech, bounds=arco.NonNegativeFloat, name="ecap")
+    pcha = model.add_variables(
+        axes=(storage_tech,), bounds=arco.NonNegativeFloat, name="pcha"
+    )
+    pdis = model.add_variables(
+        axes=(storage_tech,), bounds=arco.NonNegativeFloat, name="pdis"
+    )
+    ecap = model.add_variables(
+        axes=(storage_tech,), bounds=arco.NonNegativeFloat, name="ecap"
+    )
     storage_binary = model.add_variables(
-        time,
-        storage_tech,
+        axes=(time, storage_tech),
         bounds=arco.Binary,
         name="storage_binary",
     )
 
-    thermal_cap = model.add_variables(thermal_unit, bounds=arco.NonNegativeFloat, name="thermal_cap")
+    thermal_cap = model.add_variables(
+        axes=(thermal_unit,), bounds=arco.NonNegativeFloat, name="thermal_cap"
+    )
     thermal_gen = model.add_variables(
-        time,
-        thermal_unit,
+        axes=(time, thermal_unit),
         bounds=arco.NonNegativeFloat,
         name="thermal_gen",
     )
-    hydro_gen = model.add_variables(time, bounds=arco.NonNegativeFloat, name="hydro_gen")
+    hydro_gen = model.add_variables(
+        axes=(time,), bounds=arco.NonNegativeFloat, name="hydro_gen"
+    )
 
-    sqrt_efficiency = {tech: math.sqrt(data.efficiency[tech]) for tech in data.storage_techs}
+    sqrt_efficiency = {
+        tech: math.sqrt(data.efficiency[tech]) for tech in data.storage_techs
+    }
     time_indices = range(len(data.times))
     first_time_index = 0
     last_time_index = len(data.times) - 1
@@ -254,36 +286,61 @@ def build_model(*, data: SdomData) -> arco.Model:
         for plant_index, plant in enumerate(data.solar_plants)
     )
     wind_fom = sum(
-        data.wind_fom_m[plant] * data.mw_to_kw * data.wind_max_capacity[plant] * wind_cap_frac[plant_index]
+        data.wind_fom_m[plant]
+        * data.mw_to_kw
+        * data.wind_max_capacity[plant]
+        * wind_cap_frac[plant_index]
         for plant_index, plant in enumerate(data.wind_plants)
     )
     solar_fom = sum(
-        data.solar_fom_m[plant] * data.mw_to_kw * data.solar_max_capacity[plant] * solar_cap_frac[plant_index]
+        data.solar_fom_m[plant]
+        * data.mw_to_kw
+        * data.solar_max_capacity[plant]
+        * solar_cap_frac[plant_index]
         for plant_index, plant in enumerate(data.solar_plants)
     )
     storage_power_capex = sum(
         data.storage_crf[tech]
         * (
-            data.mw_to_kw * data.cost_ratio[tech] * data.p_capex[tech] * pcha[storage_index]
-            + data.mw_to_kw * (1.0 - data.cost_ratio[tech]) * data.p_capex[tech] * pdis[storage_index]
+            data.mw_to_kw
+            * data.cost_ratio[tech]
+            * data.p_capex[tech]
+            * pcha[storage_index]
+            + data.mw_to_kw
+            * (1.0 - data.cost_ratio[tech])
+            * data.p_capex[tech]
+            * pdis[storage_index]
         )
         for storage_index, tech in enumerate(data.storage_techs)
     )
     storage_energy_capex = sum(
-        data.storage_crf[tech] * data.mw_to_kw * data.e_capex[tech] * ecap[storage_index]
+        data.storage_crf[tech]
+        * data.mw_to_kw
+        * data.e_capex[tech]
+        * ecap[storage_index]
         for storage_index, tech in enumerate(data.storage_techs)
     )
     storage_fixed_om = sum(
-        data.mw_to_kw * data.cost_ratio[tech] * data.storage_fom[tech] * pcha[storage_index]
-        + data.mw_to_kw * (1.0 - data.cost_ratio[tech]) * data.storage_fom[tech] * pdis[storage_index]
+        data.mw_to_kw
+        * data.cost_ratio[tech]
+        * data.storage_fom[tech]
+        * pcha[storage_index]
+        + data.mw_to_kw
+        * (1.0 - data.cost_ratio[tech])
+        * data.storage_fom[tech]
+        * pdis[storage_index]
         for storage_index, tech in enumerate(data.storage_techs)
     )
     storage_var_om = sum(
-        data.storage_vom[tech] * sum(pd[time_index, storage_index] for time_index in time_indices)
+        data.storage_vom[tech]
+        * sum(pd[time_index, storage_index] for time_index in time_indices)
         for storage_index, tech in enumerate(data.storage_techs)
     )
     thermal_total_capex = sum(
-        data.thermal_crf[unit] * data.thermal_capex[unit] * data.mw_to_kw * thermal_cap[unit_index]
+        data.thermal_crf[unit]
+        * data.thermal_capex[unit]
+        * data.mw_to_kw
+        * thermal_cap[unit_index]
         for unit_index, unit in enumerate(data.thermal_units)
     )
     thermal_total_fom = sum(
@@ -291,36 +348,54 @@ def build_model(*, data: SdomData) -> arco.Model:
         for unit_index, unit in enumerate(data.thermal_units)
     )
     thermal_fuel_cost = sum(
-        data.fuel_cost[unit] * data.heat_rate[unit] * sum(thermal_gen[time_index, unit_index] for time_index in time_indices)
+        data.fuel_cost[unit]
+        * data.heat_rate[unit]
+        * sum(thermal_gen[time_index, unit_index] for time_index in time_indices)
         for unit_index, unit in enumerate(data.thermal_units)
     )
     thermal_var_om = sum(
-        data.thermal_vom[unit] * sum(thermal_gen[time_index, unit_index] for time_index in time_indices)
+        data.thermal_vom[unit]
+        * sum(thermal_gen[time_index, unit_index] for time_index in time_indices)
         for unit_index, unit in enumerate(data.thermal_units)
     )
 
     total_vre_cost = wind_capex + solar_capex + wind_fom + solar_fom
-    total_storage_cost = storage_power_capex + storage_energy_capex + storage_fixed_om + storage_var_om
-    total_thermal_cost = thermal_total_capex + thermal_total_fom + thermal_fuel_cost + thermal_var_om
+    total_storage_cost = (
+        storage_power_capex + storage_energy_capex + storage_fixed_om + storage_var_om
+    )
+    total_thermal_cost = (
+        thermal_total_capex + thermal_total_fom + thermal_fuel_cost + thermal_var_om
+    )
 
     for time_index, time_value in enumerate(data.times):
         model.add_constraint(
             data.demand[time_value]
-            + sum(pc[time_index, storage_index] for storage_index in range(len(data.storage_techs)))
-            - sum(pd[time_index, storage_index] for storage_index in range(len(data.storage_techs)))
+            + sum(
+                pc[time_index, storage_index]
+                for storage_index in range(len(data.storage_techs))
+            )
+            - sum(
+                pd[time_index, storage_index]
+                for storage_index in range(len(data.storage_techs))
+            )
             - data.nuclear_mw[time_value]
             - hydro_gen[time_index]
             - data.other_renewables_mw[time_value]
             - solar_gen[time_index]
             - wind_gen[time_index]
-            - sum(thermal_gen[time_index, unit_index] for unit_index in range(len(data.thermal_units)))
+            - sum(
+                thermal_gen[time_index, unit_index]
+                for unit_index in range(len(data.thermal_units))
+            )
             == 0.0,
             name=f"supply_balance[{time_value}]",
         )
         model.add_constraint(
             wind_gen[time_index] + wind_curtail[time_index]
             == sum(
-                data.wind_cf[(time_value, plant)] * data.wind_max_capacity[plant] * wind_cap_frac[plant_index]
+                data.wind_cf[(time_value, plant)]
+                * data.wind_max_capacity[plant]
+                * wind_cap_frac[plant_index]
                 for plant_index, plant in enumerate(data.wind_plants)
             ),
             name=f"wind_balance[{time_value}]",
@@ -328,7 +403,9 @@ def build_model(*, data: SdomData) -> arco.Model:
         model.add_constraint(
             solar_gen[time_index] + solar_curtail[time_index]
             == sum(
-                data.solar_cf[(time_value, plant)] * data.solar_max_capacity[plant] * solar_cap_frac[plant_index]
+                data.solar_cf[(time_value, plant)]
+                * data.solar_max_capacity[plant]
+                * solar_cap_frac[plant_index]
                 for plant_index, plant in enumerate(data.solar_plants)
             ),
             name=f"solar_balance[{time_value}]",
@@ -340,7 +417,8 @@ def build_model(*, data: SdomData) -> arco.Model:
 
         for storage_index, tech in enumerate(data.storage_techs):
             model.add_constraint(
-                pc[time_index, storage_index] <= data.max_p[tech] * storage_binary[time_index, storage_index],
+                pc[time_index, storage_index]
+                <= data.max_p[tech] * storage_binary[time_index, storage_index],
                 name=f"charge_binary_limit[{time_value},{tech}]",
             )
             model.add_constraint(
@@ -385,7 +463,9 @@ def build_model(*, data: SdomData) -> arco.Model:
             - pd[first_time_index, storage_index] / sqrt_efficiency[tech],
             name=f"soc_balance_initial[{tech}]",
         )
-        for previous_time_index, current_time_index in zip(time_indices, list(time_indices)[1:]):
+        for previous_time_index, current_time_index in zip(
+            time_indices, list(time_indices)[1:]
+        ):
             current_time_value = data.times[current_time_index]
             model.add_constraint(
                 soc[current_time_index, storage_index]
@@ -409,16 +489,19 @@ def build_model(*, data: SdomData) -> arco.Model:
                 name=f"charge_equals_discharge[{tech}]",
             )
         model.add_constraint(
-            ecap[storage_index] >= data.min_duration[tech] * pdis[storage_index] / sqrt_efficiency[tech],
+            ecap[storage_index]
+            >= data.min_duration[tech] * pdis[storage_index] / sqrt_efficiency[tech],
             name=f"min_energy_capacity[{tech}]",
         )
         model.add_constraint(
-            ecap[storage_index] <= data.max_duration[tech] * pdis[storage_index] / sqrt_efficiency[tech],
+            ecap[storage_index]
+            <= data.max_duration[tech] * pdis[storage_index] / sqrt_efficiency[tech],
             name=f"max_energy_capacity[{tech}]",
         )
         model.add_constraint(
             sum(pd[time_index, storage_index] for time_index in time_indices)
-            <= (data.max_cycles[tech] / data.storage_lifetime[tech]) * ecap[storage_index],
+            <= (data.max_cycles[tech] / data.storage_lifetime[tech])
+            * ecap[storage_index],
             name=f"max_cycle_year[{tech}]",
         )
 
@@ -426,11 +509,9 @@ def build_model(*, data: SdomData) -> arco.Model:
     return model
 
 
-
 def solve_model(*, model: arco.Model) -> arco.Solution:
     solver = arco.HiGHS(log_to_console=False)
     return model.solve(solver=solver)
-
 
 
 class SdomPayload(TypedDict):
@@ -445,10 +526,15 @@ class SdomPayload(TypedDict):
     is_optimal: NotRequired[bool]
     objective_value: NotRequired[float]
 
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build or solve SDOM with Arco Python bindings")
+    parser = argparse.ArgumentParser(
+        description="Build or solve SDOM with Arco Python bindings"
+    )
     parser.add_argument("--solve", action="store_true", help="Solve after building")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable output")
+    parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable output"
+    )
     args = parser.parse_args()
 
     data = load_data()

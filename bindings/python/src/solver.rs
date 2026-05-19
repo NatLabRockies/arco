@@ -120,6 +120,15 @@ impl SolverSettings {
     }
 }
 
+pub(crate) fn validate_backend_settings(backend: &str, settings: &SolverSettings) -> PyResult<()> {
+    if backend == "xpress" && settings.verbosity.is_some() {
+        return Err(SolverInvalidSettingError::new_err(
+            "verbosity is not supported by the Xpress backend",
+        ));
+    }
+    Ok(())
+}
+
 fn extract_optional<T: for<'a, 'py> FromPyObject<'a, 'py, Error = PyErr>>(
     value: &Bound<'_, PyAny>,
 ) -> PyResult<Option<T>> {
@@ -301,6 +310,7 @@ impl PySolver {
     #[pyo3(
         signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         presolve: Option<bool>,
         threads: Option<u32>,
@@ -381,6 +391,7 @@ impl PyHiGHS {
     #[pyo3(
         signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         presolve: Option<bool>,
         threads: Option<u32>,
@@ -432,6 +443,7 @@ impl PyXpress {
     #[pyo3(
         signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         presolve: Option<bool>,
         threads: Option<u32>,
@@ -453,6 +465,7 @@ impl PyXpress {
             log_to_console,
             merge_solver_parameter(parameters, solver),
         )?;
+        validate_backend_settings("xpress", &settings)?;
         Ok((PyXpress, PySolver { settings }))
     }
 
@@ -464,6 +477,7 @@ impl PyXpress {
     ) -> PyResult<Py<Self>> {
         let base = slf.into_super();
         let settings = apply_solver_updates(base.settings.clone(), update)?;
+        validate_backend_settings("xpress", &settings)?;
         Py::new(py, (PyXpress, PySolver { settings }))
     }
 
@@ -483,6 +497,7 @@ impl PyScip {
     #[pyo3(
         signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         presolve: Option<bool>,
         threads: Option<u32>,

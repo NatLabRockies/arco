@@ -56,50 +56,43 @@ Install the CLI:
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/NatLabRockies/arco/releases/latest/download/arco-cli-installer.sh | sh
 ```
 
-Write an optimization model using the low-level KDL profile:
+Build the smallest model first: produce at least five total units, with `x >= 1`
+and `y >= 2`, while minimizing `3x + 2y`.
+
+Python:
+
+```python
+import arco
+
+model = arco.Model()
+x = model.add_variable(bounds=arco.Bounds(lower=1.0, upper=float("inf")), name="x")
+y = model.add_variable(bounds=arco.Bounds(lower=2.0, upper=float("inf")), name="y")
+
+model.add_constraint(x + y >= 5.0, name="demand")
+model.minimize(3.0 * x + 2.0 * y)
+
+solution = model.solve(log_to_console=False)
+
+assert solution.is_optimal()
+assert round(solution.objective_value, 6) == 11.0
+assert round(solution.value(x), 6) == 1.0
+assert round(solution.value(y), 6) == 4.0
+```
+
+KDL:
 
 ```kdl
 // input.kdl
-set time {
-  "1"
-  "2"
-  "3"
-}
-data units source="data/units.csv" {
-  map asset_id from="asset"
-  set asset_id alias="a"
-  param variable_cost from="cost" index="asset_id"
-}
-model GeneratorAllocation {
-  set asset_id alias="a"
-  set time alias="t"
-  param variable_cost index="asset_id"
-  control dispatch lower=0 {
-    index asset_id
-    index time
-  }
-  constraint capacity_limit {
-    index a { in asset_id }
-    index t { in time }
-    expression {
-      dispatch[a,t] <= 10
-    }
-  }
-  minimize TotalCost {
-    sum(variable_cost[a] * dispatch[a,t] for a in asset_id for t in time)
-  }
-}
-scenario GeneratorAllocationDay {
-  use GeneratorAllocation
-}
-```
+model first_model {
+  control x lower=1
+  control y lower=2
 
-Supply `data/units.csv`:
+  constraint demand {
+    expression { x + y >= 5 }
+  }
 
-```csv
-asset,cost
-GenA,10
-GenB,12
+  minimize total_cost { (3 * x) + (2 * y) }
+}
 ```
 
 Solve it:
@@ -110,22 +103,26 @@ arco run input.kdl --compact
 
 ```json
 {
+  "backend": "arco-rust-highs",
   "solve_status": "optimal",
-  "active_scenario": "GeneratorAllocationDay",
+  "active_scenario": "first_model",
   "objective": {
-    "name": "TotalCost",
-    "sense": "minimize",
-    "value": 0.0
+    "name": "total_cost",
+    "sense": "Minimize",
+    "value": 11.0
   },
   "reports": [],
-  "counts": { "parameters": 1, "variables": 1, "constraints": 1 },
-  "timing": { "total_ms": 8.48 }
+  "counts": { "parameters": 0, "variables": 2, "constraints": 1 },
+  "timing": { "peak_memory_bytes": 15564800 }
 }
 ```
 
 > [!NOTE]
 > Arco embeds the HiGHS solver. No external solver installation or
 > configuration required.
+
+For indexed models, data files, and sparse variable arrays, continue with the
+[tutorials](./docs/tutorials/) and [how-to guides](./docs/how-to/).
 
 ## Installation
 
@@ -205,6 +202,11 @@ The supported profile is low-level and explicit:
 - model-level `set`, `param`, `control`, `expression`, `constraint`, and one objective
 - scenario-level `use`, optional `data` bindings, and `report`
 
+For a file with exactly one runnable model and no explicit scenario, Arco
+infers a scenario with the same name as the model. Add an explicit `scenario`
+when the file contains multiple models, scenario-specific data bindings, or
+reports.
+
 Large formulations can be split across files with entrypoint-owned includes:
 
 ```kdl
@@ -283,19 +285,19 @@ The `arco` CLI compiles and solves KDL optimization models.
 arco <command> [options]
 ```
 
-| Command                     | Description                                           |
-| :-------------------------- | :---------------------------------------------------- |
-| `arco run <file>`           | Compile and solve a `.kdl` formulation                |
-| `arco validate <file>`      | Validate a `.kdl` file without solving                |
-| `arco kdl check <file>`     | Validate a `.kdl` file with optional JSON diagnostics |
-| `arco --version`            | Print the installed Arco CLI version                  |
-| `arco self update`          | Update a standalone installer build                   |
-| `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters)  |
-| `arco print-model <file>`   | Print the algebraic model sent to the solver          |
-| `arco export <file>`        | Export as LP or MPS format                            |
-| `arco debug <file>`         | Open an interactive IPython debug shell               |
-| `arco solver show`          | Show the active solver backend                        |
-| `arco solver set <backend>` | Set the solver backend (`highs`, `scip`, or `xpress`) |
+| Command                     | Description                                               |
+| :-------------------------- | :-------------------------------------------------------- |
+| `arco run <file>`           | Compile and solve a `.kdl` formulation                    |
+| `arco validate <file>`      | Validate a `.kdl` file without solving                    |
+| `arco kdl check <file>`     | Validate KDL, with JSON and optional data materialization |
+| `arco --version`            | Print the installed Arco CLI version                      |
+| `arco self update`          | Update a standalone installer build                       |
+| `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters)      |
+| `arco print-model <file>`   | Print the algebraic model sent to the solver              |
+| `arco export <file>`        | Export as LP or MPS format                                |
+| `arco debug <file>`         | Open an interactive IPython debug shell                   |
+| `arco solver show`          | Show the active solver backend                            |
+| `arco solver set <backend>` | Set the solver backend (`highs`, `scip`, or `xpress`)     |
 
 ### Examples
 
@@ -310,6 +312,13 @@ Emit machine-readable diagnostics for editors:
 
 ```bash
 $ arco kdl check input.kdl --format json
+{"valid":true,"diagnostics":[]}
+```
+
+Check CSV-backed data contracts without solving:
+
+```bash
+$ arco kdl check input.kdl --format json --materialize-data
 {"valid":true,"diagnostics":[]}
 ```
 
@@ -350,7 +359,9 @@ arco export input.kdl --format lp --output model.lp
 
 Use `-v` for info-level tracing, `-vv` for debug-level. Pass `--compact` to
 `arco run` to omit full variable value arrays from the JSON output. Use
-`--filter-variable` or `--filter-asset` to narrow results.
+`--filter-variable` or `--filter-asset` to narrow results. The `counts`
+section reports lowered variable and constraint instances, not only KDL
+declaration templates, so it reflects the problem size handed to the solver.
 
 ## Language Bindings
 
@@ -401,17 +412,18 @@ import arco
 
 model = arco.Model()
 
-plants = model.add_index_set(["NYC", "LA", "CHI"])
-products = model.add_index_set(range(5))
+plants = arco.IndexSet(name="plant", members=["NYC", "LA", "CHI"])
+products = arco.IndexSet(name="product", members=range(5))
 
 production = model.add_variables(
-    index_sets=[plants, products],
-    bounds=arco.Bounds(lower=0, upper=100),
+    axes=(plants, products),
+    bounds=arco.Bounds(lower=0.0, upper=100.0),
     name="production"
 )
 
-total_by_plant = production.sum(axis=1)
-model.add_constraint(total_by_plant >= 10)
+total_by_plant = production.sum(over=products)
+model.add_constraints(total_by_plant >= 10.0, name="minimum_output")
+model.minimize(production.sum(), name="total_output")
 
 solution = model.solve()
 ```
@@ -428,21 +440,33 @@ from dataclasses import dataclass
 import arco
 from arco import block
 
-@dataclass
+@dataclass(slots=True)
 class FacilityInput:
     capacity: float
     demand: float
 
+@dataclass(slots=True)
+class FacilityOutput:
+    output: float
+
 @block
-def facility_block(model, data: FacilityInput):
-    x = model.add_variable(lb=0, ub=data.capacity, name="output")
+def facility_block(model: arco.Model, data: FacilityInput, ctx) -> None:
+    x = model.add_variable(
+        bounds=arco.Bounds(lower=0.0, upper=data.capacity),
+        name="output",
+    )
+    ctx["output"] = x
     model.add_constraint(x >= data.demand)
     model.minimize(x)
-    return {"output": x}
+
+def extract_facility(result, data: FacilityInput, ctx) -> FacilityOutput:
+    return FacilityOutput(output=result.value(ctx["output"]))
 
 model = arco.Model()
 block_handle = model.add_block(
-    facility_block, FacilityInput(capacity=100, demand=50)
+    facility_block,
+    data=FacilityInput(capacity=100.0, demand=50.0),
+    extract=extract_facility,
 )
 solution = model.solve()
 ```
@@ -468,7 +492,7 @@ Solvers
 - [SCIP](https://www.scipopt.org/) (embedded via [russcip](https://github.com/scipopt/russcip)) — native LP/MIP solver
 - Xpress (optional) — commercial solver support
 - LP / MPS export — debug models in external tools
-- Warm starting — reuse solutions across sequential solves
+- Stable solver option diagnostics — unsupported warm starts fail with typed errors instead of being ignored
 
 Performance & Tooling
 

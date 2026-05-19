@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyDict, PyList, PyTuple};
 
 use crate::PyObject;
 use crate::py_modules::errors::{ArrayDimensionError, ArrayIndexError, ExprDivisionByZeroError};
@@ -11,8 +11,9 @@ use super::indexing::{
     slice_indices, sliced_2d_index_sets, sliced_and_index_sets,
 };
 use crate::py_modules::arrays::{
-    CompactExprStorage, ComparisonSense, ExprArrayStorage, LinearArrayCore, PyConstraintArray,
-    array_cumsum, array_diff, array_roll, compare_with_compact_fallback, try_extract_compact,
+    CompactExprStorage, ComparisonSense, ExprArrayStorage, ExpressionTermCounts, LinearArrayCore,
+    PyConstraintArray, array_cumsum, array_diff, array_roll, compare_with_compact_fallback,
+    expression_term_counts, set_solver_matrix_memory_estimate, try_extract_compact,
 };
 
 /// A multi-dimensional array of linear expressions.
@@ -132,11 +133,11 @@ impl PyExprArray {
         }
 
         let mut selections = Vec::with_capacity(shape.len());
-        for axis in 0..shape.len() {
+        for (axis, axis_len) in shape.iter().copied().enumerate() {
             if axis < tuple.len() {
-                selections.push(resolve_axis_index(&tuple.get_item(axis)?, shape[axis])?);
+                selections.push(resolve_axis_index(&tuple.get_item(axis)?, axis_len)?);
             } else {
-                selections.push(AxisIndex::Range((0..shape[axis]).collect()));
+                selections.push(AxisIndex::Range((0..axis_len).collect()));
             }
         }
         let (flat_indices, out_shape) = selected_flat_indices(shape, &selections);
@@ -167,6 +168,20 @@ impl PyExprArray {
                 index_sets,
                 shape,
             } => storage.to_core(index_sets, shape).values,
+        }
+    }
+
+    fn storage_kind(&self) -> &'static str {
+        match &self.storage {
+            ExprArrayStorage::Compact { .. } => "compact",
+            ExprArrayStorage::Full(_) => "full",
+        }
+    }
+
+    fn term_counts(&self) -> ExpressionTermCounts {
+        match &self.storage {
+            ExprArrayStorage::Compact { storage, .. } => storage.term_counts(),
+            ExprArrayStorage::Full(core) => expression_term_counts(&core.values),
         }
     }
 }
@@ -331,8 +346,37 @@ impl PyExprArray {
         self.get_values()
     }
 
+    fn memory_estimate(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let term_counts = self.term_counts();
+        let dense_slots = self.storage.count();
+        let estimate = PyDict::new(py);
+        estimate.set_item("storage", self.storage_kind())?;
+        estimate.set_item("dense_slots", dense_slots)?;
+        estimate.set_item("active_slots", dense_slots)?;
+        estimate.set_item("inactive_slots", 0usize)?;
+        estimate.set_item("active_density", if dense_slots == 0 { 0.0 } else { 1.0 })?;
+        estimate.set_item("linear_terms", term_counts.linear)?;
+        estimate.set_item("quadratic_terms", term_counts.quadratic)?;
+        estimate.set_item("cubic_terms", term_counts.cubic)?;
+        estimate.set_item("estimated_term_bytes", term_counts.estimated_term_bytes())?;
+        estimate.set_item(
+            "estimated_dense_linear_term_bytes",
+            term_counts.estimated_term_bytes(),
+        )?;
+        estimate.set_item("estimated_inactive_linear_term_bytes", 0usize)?;
+        set_solver_matrix_memory_estimate(&estimate, dense_slots, term_counts.linear)?;
+        Ok(estimate.into_any().unbind())
+    }
+
     fn __len__(&self) -> usize {
         self.storage.count()
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        Ok(PyList::new(py, self.get_values())?
+            .call_method0("__iter__")?
+            .unbind()
+            .into())
     }
 
     #[pyo3(signature = (ufunc, method, *inputs, **kwargs))]
@@ -382,7 +426,7 @@ impl PyExprArray {
                 .get(idx)
                 .cloned()
                 .ok_or_else(|| {
-                    pyo3::exceptions::PyIndexError::new_err(format!(
+                    ArrayIndexError::new_err(format!(
                         "index {} out of range for array of size {}",
                         idx,
                         core.values.len()

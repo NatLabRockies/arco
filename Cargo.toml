@@ -34,6 +34,7 @@ arco-xpress = { path = "crates/arco-xpress" }
 arco-tools = { path = "crates/arco-tools" }
 arco-blocks = { path = "crates/arco-blocks" }
 arco-builtin-solvers = { path = "crates/arco-builtin-solvers" }
+arco-diagnostics = { path = "crates/arco-diagnostics" }
 arco-kdl = { path = "crates/arco-kdl" }
 arco-cli = { path = "crates/arco-cli" }
 arco-model = { path = "crates/arco-model" }

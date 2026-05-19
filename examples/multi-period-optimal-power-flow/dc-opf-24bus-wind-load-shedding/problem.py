@@ -83,7 +83,8 @@ def main() -> None:
     for g in gens:
         for tt in periods:
             pg[g, tt] = m.add_variable(
-                arco.Bounds(pmin[g] / SBASE, pmax[g] / SBASE), name=f"pg[{g},{tt}]"
+                bounds=arco.Bounds(lower=pmin[g] / SBASE, upper=pmax[g] / SBASE),
+                name=f"pg[{g},{tt}]",
             )
 
     # Voltage angle. Slack bus pinned to 0 via fixed bounds.
@@ -92,10 +93,10 @@ def main() -> None:
     for i in buses:
         for tt in periods:
             if is_slack[i]:
-                bnd = arco.Bounds(0.0, 0.0)
+                bnd = arco.Bounds(lower=0.0, upper=0.0)
             else:
-                bnd = arco.Bounds(-half_pi, half_pi)
-            delta[i, tt] = m.add_variable(bnd, name=f"delta[{i},{tt}]")
+                bnd = arco.Bounds(lower=-half_pi, upper=half_pi)
+            delta[i, tt] = m.add_variable(bounds=bnd, name=f"delta[{i},{tt}]")
 
     pw: dict[tuple[int, int], arco.Variable] = {}
     pc: dict[tuple[int, int], arco.Variable] = {}
@@ -103,11 +104,15 @@ def main() -> None:
     for i in buses:
         for tt in periods:
             wcap = wcap_mw[i] * wind_cf[tt] / SBASE
-            pw[i, tt] = m.add_variable(arco.Bounds(0.0, wcap), name=f"pw[{i},{tt}]")
-            pc[i, tt] = m.add_variable(arco.Bounds(0.0, wcap), name=f"pc[{i},{tt}]")
+            pw[i, tt] = m.add_variable(
+                bounds=arco.Bounds(lower=0.0, upper=wcap), name=f"pw[{i},{tt}]"
+            )
+            pc[i, tt] = m.add_variable(
+                bounds=arco.Bounds(lower=0.0, upper=wcap), name=f"pc[{i},{tt}]"
+            )
             shed_cap = demand_scale[tt] * pd_mw[i] / SBASE
             lsh[i, tt] = m.add_variable(
-                arco.Bounds(0.0, shed_cap), name=f"lsh[{i},{tt}]"
+                bounds=arco.Bounds(lower=0.0, upper=shed_cap), name=f"lsh[{i},{tt}]"
             )
 
     # Per-line flow.
@@ -116,7 +121,7 @@ def main() -> None:
         lim = line["limit"] / SBASE
         for tt in periods:
             flow[line["id"], tt] = m.add_variable(
-                arco.Bounds(-lim, lim), name=f"flow[{line['id']},{tt}]"
+                bounds=arco.Bounds(lower=-lim, upper=lim), name=f"flow[{line['id']},{tt}]"
             )
 
     # ------------------------------------------------------------------

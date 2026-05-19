@@ -7,6 +7,11 @@ pub mod execution;
 mod execution_backends;
 pub mod inspect;
 
+/// Stable diagnostic vocabulary exposed through the ops seam.
+pub mod diagnostics {
+    pub use arco_diagnostics::codes;
+}
+
 use crate::compile::compile::{LinearTerm as TargetLinearTerm, SolveTarget};
 use crate::compile::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
@@ -22,12 +27,13 @@ use arco_format::{
 };
 use arco_kdl as kdl;
 use arco_kdl::PrimitiveBuildError;
-use arco_kdl::source::{ParsedSource, SourceError, parse_program_file};
+use arco_kdl::source::{ParsedSource, SourceError, format_program_text, parse_program_file};
 /// Stable model-facing vocabulary exposed through the ops seam.
 pub mod modeling {
     pub use arco_model::{
         ElasticHandle, InspectOptions, Model, ModelPatch, ModelSnapshot, ModelView, Objective,
-        PatchedModelView, Sense, SimplifyLevel, SlackBound, SlackHandle, Variable,
+        PatchedModelView, Sense, SimplifyLevel, SlackBound, SlackHandle, SnapshotMemoryEstimate,
+        SnapshotMetadata, Variable,
     };
 
     /// Model-core types intentionally surfaced through ops.
@@ -148,6 +154,11 @@ impl ArcoOps {
     /// Load and parse a KDL model file.
     pub fn load_file(path: &Path) -> Result<ParsedSource, OpsSourceError> {
         parse_program_file(path)
+    }
+
+    /// Format KDL source text through the canonical formatter.
+    pub fn format_kdl_text(text: &str) -> Result<String, String> {
+        format_program_text(text).map_err(|error| error.to_string())
     }
 
     /// Check a KDL model file through semantic validation.
@@ -654,7 +665,7 @@ mod tests {
 
         assert!(!report.is_valid());
         assert_eq!(report.issues.len(), 1);
-        assert_eq!(report.issues[0].code, "TARGET_EMPTY_VARIABLE_SET");
+        assert_eq!(report.issues[0].code, "arco::target::empty_variable_set");
     }
 
     #[test]

@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use crate::PyObject;
 use crate::py_modules::errors::{
     ExprCoefficientError, ExprConstantOffsetError, ExprDivisionByZeroError,
-    ExprNotSingleVariableError,
+    ExprNotSingleVariableError, ExprTypeError,
 };
 use crate::py_modules::variable::PyVariable;
 
@@ -30,7 +30,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ExprLike {
         if let Ok(val) = ob.extract::<f64>() {
             return Ok(ExprLike(PyExpr::from_expr(Expr::from_constant(val))));
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
+        Err(ExprTypeError::new_err(
             "expected an Expr, Variable, or numeric constant",
         ))
     }
@@ -257,7 +257,7 @@ impl PyExpr {
         if let Ok(scalar) = other.extract::<f64>() {
             return Ok(self.scale(scalar).into_pyobject(py)?.unbind().into());
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
+        Err(ExprTypeError::new_err(
             "expected a numeric scalar, Variable, Expr, or NonlinearExpr",
         ))
     }
@@ -287,7 +287,7 @@ impl PyExpr {
         if let Ok(scalar) = other.extract::<f64>() {
             return Ok(self.scale(scalar).into_pyobject(py)?.unbind().into());
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
+        Err(ExprTypeError::new_err(
             "expected a numeric scalar, Variable, Expr, or NonlinearExpr",
         ))
     }

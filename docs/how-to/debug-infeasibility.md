@@ -55,13 +55,15 @@ want to relax, and the penalty cost to `model.add_slack()`.
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
->>> round(solution.get_primal(index=x), 6)
+>>> round(solution.value(x), 6)
 2.0
 ```
 
 The solver found an optimal solution by violating the `"difficult"` constraint.
 The variable `x` sits at its upper bound of 2 rather than the required 5,
 confirming that this constraint is the source of the conflict.
+Read `slack.value` after `solve()` to inspect the violation amount; reading it
+before solve raises `arco.SlackValueUnavailableError`.
 
 > [!NOTE]
 > Start with a high penalty so the solver only activates the slack when strictly
@@ -87,7 +89,7 @@ returns a list of `SlackVariable` objects.
 >>> solution = model.solve(log_to_console=False)
 >>> solution.status
 SolutionStatus.OPTIMAL
->>> round(solution.get_primal(index=0), 6)
+>>> round(solution.value(x), 6)
 10.0
 ```
 

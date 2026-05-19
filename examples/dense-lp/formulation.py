@@ -18,7 +18,6 @@ from typing import NotRequired, TypedDict, Callable
 import arco
 
 
-
 class DenseLpPayload(TypedDict):
     example: str
     n: int
@@ -69,12 +68,12 @@ def build_model(
     resolved_row_values, resolved_n = _resolve_row_values(n=n, row_values=row_values)
 
     model = arco.Model()
-    row = arco.IndexSet("row", members=resolved_row_values)
-    col = arco.IndexSet("col", members=list(range(resolved_n)))
+    row = arco.IndexSet(name="row", members=resolved_row_values)
+    col = arco.IndexSet(name="col", members=list(range(resolved_n)))
     bounds = arco.Bounds(lower=-1.0e20, upper=1.0e20)
 
-    x = model.add_variables(row, col, bounds=bounds, name="x")
-    y = model.add_variables(row, col, bounds=bounds, name="y")
+    x = model.add_variables(axes=(row, col), bounds=bounds, name="x")
+    y = model.add_variables(axes=(row, col), bounds=bounds, name="y")
 
     model.add_constraints(x - y >= row, name="difference_floor")
     model.add_constraints(x + y >= 0.0, name="balance_floor")
@@ -148,6 +147,7 @@ def main() -> int:
         }
     )
     return 0
+
 
 if __name__ == "__main__":
     main()

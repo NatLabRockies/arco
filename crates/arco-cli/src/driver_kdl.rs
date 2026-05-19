@@ -10,6 +10,12 @@ pub struct KdlCheckOutcome {
     pub json: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum KdlCheckMode {
+    Structural,
+    Materialized,
+}
+
 #[derive(Debug, Serialize, PartialEq)]
 struct KdlCheckReport {
     valid: bool,
@@ -31,9 +37,12 @@ struct KdlDiagnostic {
     help: Option<String>,
 }
 
-pub fn kdl_check_file_json(path: &Path) -> Result<KdlCheckOutcome, DriverError> {
-    let report = match ArcoOps::check_file(path) {
-        Ok(_) => KdlCheckReport {
+pub fn kdl_check_file_json(
+    path: &Path,
+    mode: KdlCheckMode,
+) -> Result<KdlCheckOutcome, DriverError> {
+    let report = match check_file(path, mode) {
+        Ok(()) => KdlCheckReport {
             valid: true,
             diagnostics: Vec::new(),
         },
@@ -50,6 +59,13 @@ pub fn kdl_check_file_json(path: &Path) -> Result<KdlCheckOutcome, DriverError> 
     })?;
 
     Ok(KdlCheckOutcome { valid, json })
+}
+
+pub fn check_file(path: &Path, mode: KdlCheckMode) -> Result<(), OpsCompileError> {
+    match mode {
+        KdlCheckMode::Structural => ArcoOps::check_file(path).map(|_| ()),
+        KdlCheckMode::Materialized => ArcoOps::compile_file(path).map(|_| ()),
+    }
 }
 
 fn pipeline_error_diagnostic(path: &Path, error: &OpsCompileError) -> KdlDiagnostic {

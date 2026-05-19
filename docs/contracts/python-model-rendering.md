@@ -68,7 +68,7 @@ This file encodes rendering guarantees for the Python API as executable doctests
 >>> model = arco.Model()
 >>> t = arco.IndexSet(name="T", size=2)
 >>> g = arco.IndexSet(name="G", members=["solar", "wind", "gas"])
->>> gen = model.add_variables(t, g, bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
+>>> gen = model.add_variables(axes=(t, g), bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
 >>> capacity = {"solar": 50.0, "wind": 80.0, "gas": 100.0}
 >>> caps = [capacity[name] for name in g.members] * t.size
 >>> _ = model.add_constraints(gen <= caps)
@@ -93,14 +93,14 @@ This file encodes rendering guarantees for the Python API as executable doctests
 ```python doctest
 >>> import numpy as np
 >>> import arco
->>> i = arco.IndexSet("i", members=["a", "b"])
->>> t = arco.IndexSet("t", members=[2020, 2025, 2030])
+>>> i = arco.IndexSet(name="i", members=["a", "b"])
+>>> t = arco.IndexSet(name="t", members=[2020, 2025, 2030])
 >>> t_alias = t.alias("t_to")
 >>> t_alias.name
 't_to'
 >>> t_alias.members == t.members
 True
->>> p = arco.param(np.arange(6).reshape(2, 3), i, t)
+>>> p = arco.param(np.arange(6).reshape(2, 3), axes=(i, t))
 >>> p.shape
 (2, 3)
 >>> tuple(ax.name for ax in p.axes)
@@ -111,11 +111,11 @@ True
 >>> import numpy as np
 >>> import arco
 >>> model = arco.Model()
->>> i = arco.IndexSet("i", members=["a", "b"])
->>> r = arco.IndexSet("r", members=["north", "south"])
->>> h = arco.IndexSet("h", members=[0, 1])
->>> active = arco.param(np.array([[True, False], [False, True]]), i, r)
->>> gen = model.add_variables(i, r, h, bounds=arco.NonNegativeFloat, active=active, name="gen")
+>>> i = arco.IndexSet(name="i", members=["a", "b"])
+>>> r = arco.IndexSet(name="r", members=["north", "south"])
+>>> h = arco.IndexSet(name="h", members=[0, 1])
+>>> active = arco.param(np.array([[True, False], [False, True]]), axes=(i, r))
+>>> gen = model.add_variables(axes=(i, r, h), bounds=arco.NonNegativeFloat, active=active, name="gen")
 >>> model.num_variables
 4
 >>> np.sum(gen, axis=i).shape

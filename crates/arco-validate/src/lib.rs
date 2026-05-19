@@ -1,6 +1,6 @@
 //! Canonical model validation seam for Arco.
 
-use arco_diagnostics::{Diagnostic, DiagnosticCode, DiagnosticReport, Severity};
+use arco_diagnostics::{Diagnostic, DiagnosticCode, DiagnosticReport, Severity, codes};
 use arco_model::ModelView;
 use std::collections::BTreeMap;
 
@@ -75,7 +75,7 @@ pub fn validate_model_view(model: &impl ModelView) -> ValidationReport {
     let mut report = ValidationReport::new();
     if model.num_variables() == 0 {
         report.push(ValidationIssue::error(
-            "MODEL_EMPTY_VARIABLE_SET",
+            codes::MODEL_EMPTY,
             "model has no decision variables",
         ));
     }
@@ -84,7 +84,7 @@ pub fn validate_model_view(model: &impl ModelView) -> ValidationReport {
         if let Some(variable) = model.variable(variable_id) {
             if !bounds_are_valid(variable.bounds.lower, variable.bounds.upper) {
                 report.push(ValidationIssue::error(
-                    "MODEL_INVALID_VARIABLE_BOUNDS",
+                    codes::VARIABLE_INVALID_BOUNDS,
                     format!("variable {} has invalid bounds", variable_id.inner()),
                 ));
             }
@@ -115,7 +115,7 @@ pub fn validate_solve_target(has_variables: bool) -> ValidationReport {
     let mut report = ValidationReport::new();
     if !has_variables {
         report.push(ValidationIssue::error(
-            "TARGET_EMPTY_VARIABLE_SET",
+            codes::TARGET_EMPTY_VARIABLE_SET,
             "target has no decision variables",
         ));
     }
@@ -202,7 +202,7 @@ mod tests {
 
         assert!(!report.is_valid());
         assert_eq!(report.issues.len(), 1);
-        assert_eq!(report.issues[0].code, "TARGET_EMPTY_VARIABLE_SET");
+        assert_eq!(report.issues[0].code, "arco::target::empty_variable_set");
         assert_eq!(report.issues[0].message, "target has no decision variables");
     }
 
@@ -220,7 +220,7 @@ mod tests {
         let report = validate_model_view(&model);
 
         assert!(!report.is_valid());
-        assert_eq!(report.issues[0].code, "MODEL_EMPTY_VARIABLE_SET");
+        assert_eq!(report.issues[0].code, "arco::model::empty");
         assert!(diagnose_model_view(&model).has_errors());
     }
 

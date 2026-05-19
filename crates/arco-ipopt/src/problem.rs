@@ -1,4 +1,8 @@
-//! IPOPT model-view adapter placeholder.
+//! IPOPT model-view validation for the target-based backend.
+//!
+//! The target-based IPOPT backend currently exposes capability checks and
+//! structured unavailable errors while nonlinear solve execution remains on the
+//! legacy nonlinear path.
 
 use arco_model::{ModelView, VariableId};
 use arco_solver::SolverError;

@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 use crate::PyObject;
 use crate::py_modules::bounds::{BoundsSpec, PyBounds};
-use crate::py_modules::errors::ExprDivisionByZeroError;
+use crate::py_modules::errors::{ExprDivisionByZeroError, ExprTypeError};
 use crate::py_modules::expr::{PyExpr, nl_or_linear_compare};
 
 /// A decision variable returned by `add_variable()`.
@@ -257,7 +257,7 @@ impl PyVariable {
                 .unbind()
                 .into());
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
+        Err(ExprTypeError::new_err(
             "expected a numeric scalar, Variable, Expr, or NonlinearExpr",
         ))
     }
@@ -291,7 +291,7 @@ impl PyVariable {
                 .unbind()
                 .into());
         }
-        Err(pyo3::exceptions::PyTypeError::new_err(
+        Err(ExprTypeError::new_err(
             "expected a numeric scalar, Variable, Expr, or NonlinearExpr",
         ))
     }
@@ -319,7 +319,7 @@ impl PyVariable {
         nl_or_linear_compare(py, &self.to_expr(), rhs, ComparisonSense::Equal)
     }
 
-    // Kept for compatibility with code that treats Variable as a raw ID.
+    // Expert escape hatch for APIs that require solver-order variable IDs.
 
     fn __int__(&self) -> u32 {
         self.var_id

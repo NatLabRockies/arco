@@ -11,6 +11,7 @@ use crate::compile::semantic::types::{
 };
 use arco_kdl::algebra::parse_value_formula;
 use arco_kdl::source::{BoundExpr, ModelDecl, ScenarioDecl, SourceProgram, VariableKindDecl};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use tracing::info;
@@ -43,8 +44,8 @@ pub fn validate_program(
             path: entrypoint.to_path_buf(),
         })?;
 
-    validate_scenario_data_bindings_match_known_params(scenario, model, program, entrypoint)?;
-    validate_model_parameters_resolved(scenario, model, program, entrypoint)?;
+    validate_scenario_data_bindings_match_known_params(&scenario, model, program, entrypoint)?;
+    validate_model_parameters_resolved(&scenario, model, program, entrypoint)?;
     validate_unique_model_declarations(model, entrypoint)?;
 
     let mut seen_data_bindings = BTreeSet::new();
@@ -68,7 +69,7 @@ pub fn validate_program(
             name: constraint.name.clone(),
             source_kind: "model".to_string(),
             source_name: model.name.clone(),
-            diagnostic_id: constraint_diagnostic_id(constraint, model, scenario),
+            diagnostic_id: constraint_diagnostic_id(constraint, model, &scenario),
             expression_text: constraint.expression.clone(),
             expression: constraint.parsed_expression.clone(),
             generation_bindings: constraint.generation_bindings.clone(),
@@ -85,7 +86,7 @@ pub fn validate_program(
     };
 
     let (mut active_reports, active_dual_reports, mut active_variable_reports) =
-        resolve_model_scenario_reports(model, scenario, &active_constraints, entrypoint)?;
+        resolve_model_scenario_reports(model, &scenario, &active_constraints, entrypoint)?;
     let mut active_expressions = resolve_active_model_expressions(
         model,
         &active_objective,
@@ -466,12 +467,20 @@ fn lower_reduce_projection_expression_by_name(
 fn resolve_scenario<'a>(
     program: &'a SourceProgram,
     entrypoint: &Path,
-) -> Result<&'a ScenarioDecl, SemanticError> {
+) -> Result<Cow<'a, ScenarioDecl>, SemanticError> {
     match program.scenarios.len() {
-        0 => Err(SemanticError::MissingScenario {
-            path: entrypoint.to_path_buf(),
-        }),
-        1 => Ok(&program.scenarios[0]),
+        0 => match program.models.as_slice() {
+            [model] => Ok(Cow::Owned(ScenarioDecl {
+                name: model.name.clone(),
+                data: Vec::new(),
+                model_use: Some(model.name.clone()),
+                reports: Vec::new(),
+            })),
+            _ => Err(SemanticError::MissingScenario {
+                path: entrypoint.to_path_buf(),
+            }),
+        },
+        1 => Ok(Cow::Borrowed(&program.scenarios[0])),
         count => Err(SemanticError::ScenarioCount {
             count,
             path: entrypoint.to_path_buf(),

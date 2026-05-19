@@ -43,7 +43,9 @@ def test_xpress_solver_object_solves_model() -> None:
 
     try:
         result = build_model().solve(solver=arco.Xpress(log_to_console=False))
-    except Exception as exc:  # pragma: no cover - environment dependent
+    except (
+        arco.SolverNotAvailableError
+    ) as exc:  # pragma: no cover - environment dependent
         message = str(exc)
         if "Xpress license initialization failed" in message:
             pytest.skip(message)
@@ -64,7 +66,9 @@ def test_xpress_solver_selection_family_solves_model() -> None:
 
     try:
         result = build_model().solve(solver=arco.SolverSelection.family("xpress"))
-    except Exception as exc:  # pragma: no cover - environment dependent
+    except (
+        arco.SolverNotAvailableError
+    ) as exc:  # pragma: no cover - environment dependent
         message = str(exc)
         if "Xpress license initialization failed" in message:
             pytest.skip(message)
@@ -78,5 +82,7 @@ def test_xpress_constructor_fails_fast_when_backend_disabled() -> None:
     if HAS_XPRESS_BACKEND:
         pytest.skip("xpress backend enabled in this build")
 
-    with pytest.raises(Exception, match="built without the xpress feature"):
+    with pytest.raises(
+        arco.SolverNotAvailableError, match="built without the xpress feature"
+    ):
         build_model().solve(solver=arco.Xpress(log_to_console=False))

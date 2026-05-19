@@ -17,8 +17,10 @@ solver.
 SolutionStatus.OPTIMAL
 ```
 
-If you omit the `level` argument, `enable_logging()` reads the `RUST_LOG`
-environment variable when set and falls back to `"error"` when it is not.
+If you omit the `level` argument, `enable_logging()` reads the `ARCO_TRACE`
+environment variable when set and falls back to `"off"` when it is not.
+Invalid filters or `ARCO_LOG_FORMAT` values raise `arco.LoggingConfigError`.
+Log-file open failures from `ARCO_LOG_FILE` raise `arco.LoggingIoError`.
 
 ## Solver console output
 

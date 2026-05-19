@@ -115,7 +115,7 @@ gives you a convenient boolean check.
 
 Once you have confirmed the solution is optimal, you can read the objective
 value and the value of each decision variable. Use `solution.objective_value`
-for the objective and `solution.get_primal(index=var)` for individual variable
+for the objective and `solution.value(var)` for individual variable
 values. Because the solver works in floating point, it is good practice to round
 results before comparing them.
 
@@ -134,9 +134,9 @@ Constraint('demand', Bounds(5, inf))
 SolutionStatus.OPTIMAL
 >>> round(solution.objective_value, 6)
 11.0
->>> round(solution.get_primal(index=x), 6)
+>>> round(solution.value(x), 6)
 1.0
->>> round(solution.get_primal(index=y), 6)
+>>> round(solution.value(y), 6)
 4.0
 ```
 

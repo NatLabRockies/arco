@@ -12,11 +12,11 @@ pub struct CscInput<'a> {
     pub num_variables: usize,
     pub col_ptrs: &'a [usize],
     pub row_indices: &'a [usize],
-    pub values: &'a [f32],
-    pub var_lower: &'a [f32],
-    pub var_upper: &'a [f32],
-    pub con_lower: &'a [f32],
-    pub con_upper: &'a [f32],
+    pub values: &'a [f64],
+    pub var_lower: &'a [f64],
+    pub var_upper: &'a [f64],
+    pub con_lower: &'a [f64],
+    pub con_upper: &'a [f64],
     pub is_integer: &'a [bool],
 }
 
@@ -79,8 +79,8 @@ impl Model {
         model.set_expr_simplify(simplify_level)?;
 
         for idx in 0..num_variables {
-            let lower = var_lower[idx] as f64;
-            let upper = var_upper[idx] as f64;
+            let lower = var_lower[idx];
+            let upper = var_upper[idx];
             if !bounds_are_valid(lower, upper) {
                 return Err(ModelError::InvalidVariableBounds { lower, upper });
             }
@@ -92,8 +92,8 @@ impl Model {
         }
 
         for idx in 0..num_constraints {
-            let lower = con_lower[idx] as f64;
-            let upper = con_upper[idx] as f64;
+            let lower = con_lower[idx];
+            let upper = con_upper[idx];
             if !bounds_are_valid(lower, upper) {
                 return Err(ModelError::InvalidConstraintBounds { lower, upper });
             }
@@ -121,7 +121,7 @@ impl Model {
                         reason: format!("row index out of bounds at position {idx}"),
                     });
                 }
-                let coefficient = values[idx] as f64;
+                let coefficient = values[idx];
                 if !coefficient_is_valid(coefficient) {
                     return Err(ModelError::InvalidCscData {
                         reason: format!(

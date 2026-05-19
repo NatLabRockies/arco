@@ -187,7 +187,7 @@ fn lookup_variable_index(
 
 fn build_ipython_script(path: &Path, model: &PythonModelData) -> String {
     format!(
-        "from pathlib import Path\n\nimport arco\n\nmodel_path = Path(r{path})\nmodel = arco.Model.from_csc(\n    num_constraints={num_constraints},\n    num_variables={num_variables},\n    col_ptrs={col_ptrs},\n    row_indices={row_indices},\n    values={values},\n    var_lower={var_lower},\n    var_upper={var_upper},\n    con_lower={con_lower},\n    con_upper={con_upper},\n    is_integer={is_integer},\n)\nfor index, name in enumerate({variable_names}):\n    model.set_variable_name(index, name=name)\nfor index, name in enumerate({constraint_names}):\n    model.set_constraint_name(index, name=name)\nmodel.set_objective(\n    arco.Sense.{objective_sense},\n    {objective_terms},\n    name={objective_name},\n)\nobjective_constant = {objective_constant}\n",
+        "from pathlib import Path\n\nimport arco\n\nmodel_path = Path(r{path})\nmodel = arco.Model.from_csc(\n    num_constraints={num_constraints},\n    num_variables={num_variables},\n    col_ptrs={col_ptrs},\n    row_indices={row_indices},\n    values={values},\n    var_lower={var_lower},\n    var_upper={var_upper},\n    con_lower={con_lower},\n    con_upper={con_upper},\n    is_integer={is_integer},\n)\nfor index, name in enumerate({variable_names}):\n    model.set_variable_name(index=index, name=name)\nfor index, name in enumerate({constraint_names}):\n    model.set_constraint_name(index=index, name=name)\nmodel.set_objective(\n    sense=arco.Sense.{objective_sense},\n    terms={objective_terms},\n    name={objective_name},\n)\nobjective_constant = {objective_constant}\n",
         path = format_python_string(&path.display().to_string()),
         num_constraints = model.constraint_names.len(),
         num_variables = model.variable_names.len(),
@@ -452,12 +452,14 @@ mod tests {
         assert!(script.contains("is_integer=[False]"));
         // Variable name is embedded in the enumerate call.
         assert!(script.contains(r#"["dispatch[Battery1,1]"]"#));
+        assert!(script.contains("model.set_variable_name(index=index, name=name)"));
         // Constraint name is embedded in the enumerate call.
         assert!(script.contains(r#"["limit[Battery1,1]"]"#));
+        assert!(script.contains("model.set_constraint_name(index=index, name=name)"));
         // Objective sense and term: MINIMIZE with coefficient 1.0 on variable 0.
         // Rust serializes 1.0f64 as "1" via to_string().
-        assert!(script.contains("arco.Sense.MINIMIZE"));
-        assert!(script.contains("[(0, 1)]"));
+        assert!(script.contains("sense=arco.Sense.MINIMIZE"));
+        assert!(script.contains("terms=[(0, 1)]"));
         assert!(script.contains(r#"name="cost""#));
         assert!(script.contains("objective_constant = 0"));
     }

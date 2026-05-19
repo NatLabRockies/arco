@@ -1,7 +1,6 @@
 //! Logging and diagnostics functions.
 
 use arco_ops::ArcoOps;
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::env;
@@ -11,17 +10,18 @@ use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::PyObject;
+use crate::py_modules::errors::{LoggingConfigError, LoggingIoError};
 
 fn open_log_file(path: &str) -> PyResult<File> {
     OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
-        .map_err(|err| PyRuntimeError::new_err(format!("Failed to open log file: {err}")))
+        .map_err(|err| LoggingIoError::new_err(format!("Failed to open log file: {err}")))
 }
 
 fn map_init_err<E: std::fmt::Display>(err: E) -> PyErr {
-    PyRuntimeError::new_err(format!("Failed to initialize logging: {err}"))
+    LoggingConfigError::new_err(format!("Failed to initialize logging: {err}"))
 }
 
 /// Enable structured logging for Arco.
@@ -44,7 +44,7 @@ pub fn enable_logging(level: Option<String>) -> PyResult<bool> {
         EnvFilter::default().add_directive(LevelFilter::OFF.into())
     } else {
         EnvFilter::try_new(&level_value)
-            .map_err(|err| PyRuntimeError::new_err(format!("Invalid log filter: {err}")))?
+            .map_err(|err| LoggingConfigError::new_err(format!("Invalid log filter: {err}")))?
     };
 
     let format = env::var("ARCO_LOG_FORMAT").unwrap_or_else(|_| "pretty".to_string());
@@ -52,7 +52,7 @@ pub fn enable_logging(level: Option<String>) -> PyResult<bool> {
     let use_json = format.eq_ignore_ascii_case("json");
 
     if !use_json && !format.eq_ignore_ascii_case("pretty") {
-        return Err(PyRuntimeError::new_err(
+        return Err(LoggingConfigError::new_err(
             "Invalid ARCO_LOG_FORMAT (expected 'json' or 'pretty')",
         ));
     }
