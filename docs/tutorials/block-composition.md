@@ -19,7 +19,7 @@ Each block has:
 
 - A build function decorated with `@block` from `arco`.
 - An extract function that reads the solved result and returns the output schema.
-- An optional `ctx` object for handles the block needs during extraction.
+- An optional `ctx` object to hold handles the block needs during extraction.
 
 ```python doctest
 >>> from dataclasses import dataclass

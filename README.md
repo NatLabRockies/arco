@@ -537,6 +537,7 @@ graph LR
     end
 
     subgraph Primitives["Primitives"]
+        ARRAYS["arco-arrays"]
         MODEL["arco-model"]
         SOLVER["arco-solver"]
         FORMAT["arco-format"]
@@ -558,6 +559,7 @@ graph LR
 
     OPS --> KDL
     OPS --> VALIDATE
+    OPS --> ARRAYS
     OPS --> MODEL
     OPS --> SOLVER
     OPS --> FORMAT
@@ -585,6 +587,7 @@ graph LR
 | `arco-kdl`             | KDL parser and authoring surface for primitive builds         |
 | `arco-validate`        | Validation and diagnostics reporting over model views         |
 | `arco-runtime`         | Runtime execution support utilities                           |
+| `arco-arrays`          | Indexed array/table primitives used across modeling surfaces  |
 | `arco-model`           | Primitive model construction, IDs, views, and documents       |
 | `arco-solver`          | Solver-agnostic abstractions, registry, selection, preflight  |
 | `arco-format`          | Portable format/export primitives and LP/MPS writer contracts |
