@@ -163,7 +163,7 @@ def test_expert_from_csc_invalid_dtype_uses_typed_code() -> None:
         raise AssertionError("expected invalid CSC dtype payload to fail")
 
 
-def test_expert_from_csc_nested_numpy_values_use_typed_dtype_code() -> None:
+def test_expert_from_csc_nested_numpy_values_use_typed_dimension_code() -> None:
     codes = arco.diagnostic_codes()
 
     try:
@@ -179,14 +179,14 @@ def test_expert_from_csc_nested_numpy_values_use_typed_dtype_code() -> None:
             con_upper=[math.inf],
             is_integer=[False],
         )
-    except arco.CscDtypeError as exc:
-        assert exc.code == codes["CSC_DTYPE"]
-        assert arco.error_code(exc) == codes["CSC_DTYPE"]
+    except arco.CscDimensionError as exc:
+        assert exc.code == codes["CSC_DIMENSION"]
+        assert arco.error_code(exc) == codes["CSC_DIMENSION"]
     else:  # pragma: no cover
         raise AssertionError("expected nested CSC values payload to fail")
 
 
-def test_expert_from_csc_mismatched_nnz_lengths_use_typed_invalid_data_code() -> None:
+def test_expert_from_csc_noncontiguous_values_use_typed_contiguity_code() -> None:
     codes = arco.diagnostic_codes()
     noncontiguous_values = np.array([1.0, 999.0, 1.0], dtype=np.float64)[::2]
 
@@ -203,9 +203,9 @@ def test_expert_from_csc_mismatched_nnz_lengths_use_typed_invalid_data_code() ->
             con_upper=[math.inf],
             is_integer=[False],
         )
-    except arco.CscInvalidDataError as exc:
-        assert exc.code == codes["CSC_INVALID_DATA"]
-        assert arco.error_code(exc) == codes["CSC_INVALID_DATA"]
+    except arco.CscContiguityError as exc:
+        assert exc.code == codes["CSC_CONTIGUITY"]
+        assert arco.error_code(exc) == codes["CSC_CONTIGUITY"]
     else:  # pragma: no cover
         raise AssertionError("expected mismatched CSC nnz payload to fail")
 
