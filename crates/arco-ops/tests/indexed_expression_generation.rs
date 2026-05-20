@@ -81,6 +81,45 @@ scenario "Base" {
 }
 
 #[test]
+fn compiles_reduction_over_model_time_alias() -> Result<(), Box<dyn std::error::Error>> {
+    let model = r#"
+set "t" {
+  "1"
+  "2"
+}
+
+model "Dispatch" {
+  set "time" alias="t"
+
+  control "x" lower=0 {
+    index "tt" in="time"
+  }
+
+  constraint "balance" {
+    expression {
+      sum(x[tt] for tt in time) >= 0
+    }
+  }
+
+  minimize "TotalCost" {
+    0
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}
+"#;
+
+    let (_workspace, path) = write_temp_model(model)?;
+    let compiled = ArcoOps::compile_file(&path)?;
+
+    assert!(!compiled.compiled_problem.algebra.constraints.is_empty());
+
+    Ok(())
+}
+
+#[test]
 fn rejects_generated_indexed_expression_arity_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let model = r#"
 set "bus" {
