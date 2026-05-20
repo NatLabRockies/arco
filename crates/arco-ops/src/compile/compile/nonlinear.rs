@@ -603,16 +603,36 @@ fn compile_nonlinear_reduction(
     entrypoint: &Path,
 ) -> Result<NonlinearExpr, CompileError> {
     let tuple_reduction_domain = tuple_reduction_domain_name(&reduction.bindings, program);
-    let expanded =
-        expand_reduction_bindings(&reduction.bindings, bindings, inputs, program, entrypoint)?;
     let mut total = NonlinearExpr::Constant(0.0);
     let mut matched_scope_count = 0usize;
 
-    'outer: for scope in expanded {
-        for filter in &reduction.filters {
-            if !evaluate_reduction_filter(
-                filter,
-                &scope,
+    for_each_reduction_scope(
+        &reduction.bindings,
+        bindings,
+        inputs,
+        program,
+        entrypoint,
+        |scope| {
+            for filter in &reduction.filters {
+                if !evaluate_reduction_filter(
+                    filter,
+                    scope,
+                    program,
+                    inputs,
+                    named_expressions,
+                    expression_generation_index,
+                    variable_signatures,
+                    instantiated_names,
+                    entrypoint,
+                )? {
+                    return Ok(());
+                }
+            }
+
+            matched_scope_count += 1;
+            let value = compile_nonlinear_expr(
+                &reduction.body,
+                scope,
                 program,
                 inputs,
                 named_expressions,
@@ -620,29 +640,16 @@ fn compile_nonlinear_reduction(
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
-            )? {
-                continue 'outer;
-            }
-        }
-
-        matched_scope_count += 1;
-        let value = compile_nonlinear_expr(
-            &reduction.body,
-            &scope,
-            program,
-            inputs,
-            named_expressions,
-            expression_generation_index,
-            variable_signatures,
-            instantiated_names,
-            entrypoint,
-        )?;
-        total = NonlinearExpr::Binary {
-            op: BinaryOp::Add,
-            left: Box::new(total),
-            right: Box::new(value),
-        };
-    }
+            )?;
+            let previous_total = std::mem::replace(&mut total, NonlinearExpr::Constant(0.0));
+            total = NonlinearExpr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(previous_total),
+                right: Box::new(value),
+            };
+            Ok(())
+        },
+    )?;
 
     if matched_scope_count == 0 {
         if let Some(domain) = tuple_reduction_domain {
@@ -683,10 +690,29 @@ fn compile_nonlinear_indexed_expr(
     }
 
     if let Some(expression) = named_expressions.get(target) {
+        let generation_bindings =
+            expression_generation_bindings(target, program, expression_generation_index);
+        let generation_filter =
+            expression_generation_filter(target, program, expression_generation_index);
+        let requires_scoped_bindings = generation_filter.is_some()
+            || generation_bindings.is_some_and(|bindings| !bindings.is_empty());
+
+        if !requires_scoped_bindings {
+            return compile_nonlinear_expr(
+                expression,
+                bindings,
+                program,
+                inputs,
+                named_expressions,
+                expression_generation_index,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            );
+        }
+
         let mut scoped_bindings = bindings.clone();
-        if let Some(generation_bindings) =
-            expression_generation_bindings(target, program, expression_generation_index)
-        {
+        if let Some(generation_bindings) = generation_bindings {
             bind_generated_expression_indices(
                 target,
                 generation_bindings,
@@ -696,9 +722,7 @@ fn compile_nonlinear_indexed_expr(
             )?;
         }
 
-        if let Some(filter) =
-            expression_generation_filter(target, program, expression_generation_index)
-        {
+        if let Some(filter) = generation_filter {
             if !evaluate_reduction_filter(
                 filter,
                 &scoped_bindings,

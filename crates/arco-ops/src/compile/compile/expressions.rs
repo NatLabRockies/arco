@@ -216,15 +216,36 @@ fn linearize_reduction(
     entrypoint: &Path,
 ) -> Result<AffineExpr, CompileError> {
     let tuple_reduction_domain = tuple_reduction_domain_name(&reduction.bindings, program);
-    let expanded =
-        expand_reduction_bindings(&reduction.bindings, bindings, inputs, program, entrypoint)?;
     let mut total = AffineExpr::default();
     let mut matched_scope_count = 0usize;
-    'outer: for scope in expanded {
-        for filter in &reduction.filters {
-            if !evaluate_reduction_filter(
-                filter,
-                &scope,
+
+    for_each_reduction_scope(
+        &reduction.bindings,
+        bindings,
+        inputs,
+        program,
+        entrypoint,
+        |scope| {
+            for filter in &reduction.filters {
+                if !evaluate_reduction_filter(
+                    filter,
+                    scope,
+                    program,
+                    inputs,
+                    named_expressions,
+                    expression_generation_index,
+                    variable_signatures,
+                    instantiated_names,
+                    entrypoint,
+                )? {
+                    return Ok(());
+                }
+            }
+
+            matched_scope_count += 1;
+            total.add_assign(linearize_value_expr(
+                &reduction.body,
+                scope,
                 program,
                 inputs,
                 named_expressions,
@@ -232,23 +253,10 @@ fn linearize_reduction(
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
-            )? {
-                continue 'outer;
-            }
-        }
-        matched_scope_count += 1;
-        total.add_assign(linearize_value_expr(
-            &reduction.body,
-            &scope,
-            program,
-            inputs,
-            named_expressions,
-            expression_generation_index,
-            variable_signatures,
-            instantiated_names,
-            entrypoint,
-        )?);
-    }
+            )?);
+            Ok(())
+        },
+    )?;
     if matched_scope_count == 0 {
         if let Some(domain) = tuple_reduction_domain {
             return Err(CompileError::EmptyTupleReduction {
@@ -348,122 +356,186 @@ fn evaluate_reduction_filter(
     }
 }
 
-fn expand_reduction_bindings(
+fn for_each_reduction_scope<F>(
     bindings: &[arco_kdl::algebra::Binding],
     current: &LinearizationBindings,
     inputs: &ScenarioInputs,
     program: &SemanticProgram,
     entrypoint: &Path,
-) -> Result<Vec<LinearizationBindings>, CompileError> {
+    mut visit: F,
+) -> Result<(), CompileError>
+where
+    F: FnMut(&LinearizationBindings) -> Result<(), CompileError>,
+{
     let reverse_aliases = build_reverse_alias_lookup(program);
 
-    if let Some(first) = bindings.first() {
-        let same_domain = bindings
-            .iter()
-            .all(|binding| binding.domain == first.domain);
-        let name_bindings = bindings
-            .iter()
-            .map(|binding| match &binding.pattern {
-                arco_kdl::algebra::BindingPattern::Name(name) => Some(name.clone()),
-                arco_kdl::algebra::BindingPattern::Tuple(_) => None,
-            })
-            .collect::<Option<Vec<_>>>();
+    if emit_tuple_reduction_scopes(bindings, current, program, entrypoint, &mut visit)? {
+        return Ok(());
+    }
 
-        if same_domain {
-            if let (Some(names), Some(set)) =
-                (name_bindings, program.set_registry.get(&first.domain))
-            {
-                if let (Some(tuple_components), Some(tuple_rows)) =
-                    (set.tuple_components.as_ref(), set.tuple_rows.as_ref())
-                {
-                    let mut component_to_binding = BTreeMap::new();
-                    for name in &names {
-                        let component =
-                            name.strip_suffix("_r").unwrap_or(name.as_str()).to_string();
-                        component_to_binding.insert(component, name.clone());
-                    }
+    let mut scope = current.clone();
+    visit_reduction_binding_scopes(
+        bindings,
+        0,
+        &mut scope,
+        inputs,
+        program,
+        &reverse_aliases,
+        entrypoint,
+        &mut visit,
+    )
+}
 
-                    let mut scopes = Vec::new();
-                    for row in tuple_rows {
-                        if row.len() != tuple_components.len() {
-                            return Err(CompileError::InvalidFormulation {
-                                message: format!(
-                                    "tuple row arity mismatch in reduction over `{}`: expected `{}`, received `{}`",
-                                    first.domain,
-                                    tuple_components.len(),
-                                    row.len()
-                                ),
-                                path: entrypoint.to_path_buf(),
-                            });
-                        }
+fn emit_tuple_reduction_scopes<F>(
+    bindings: &[arco_kdl::algebra::Binding],
+    current: &LinearizationBindings,
+    program: &SemanticProgram,
+    entrypoint: &Path,
+    visit: &mut F,
+) -> Result<bool, CompileError>
+where
+    F: FnMut(&LinearizationBindings) -> Result<(), CompileError>,
+{
+    let Some(first) = bindings.first() else {
+        return Ok(false);
+    };
 
-                        let mut scope = current.clone();
-                        let mut matches_anchor = true;
-                        for (component, value) in tuple_components.iter().zip(row.iter()) {
-                            if let Some(binding_name) = component_to_binding.get(component) {
-                                scope.insert(
-                                    binding_name.clone(),
-                                    FilterValue::String(value.clone()),
-                                );
-                                continue;
-                            }
+    let same_domain = bindings
+        .iter()
+        .all(|binding| binding.domain == first.domain);
+    let name_bindings = bindings
+        .iter()
+        .map(|binding| match &binding.pattern {
+            arco_kdl::algebra::BindingPattern::Name(name) => Some(name.clone()),
+            arco_kdl::algebra::BindingPattern::Tuple(_) => None,
+        })
+        .collect::<Option<Vec<_>>>();
 
-                            if let Some(existing) = current.values.get(component) {
-                                let tuple_value = FilterValue::String(value.clone());
-                                if existing != &tuple_value {
-                                    matches_anchor = false;
-                                    break;
-                                }
-                            }
-                        }
+    if !same_domain {
+        return Ok(false);
+    }
 
-                        if matches_anchor {
-                            scopes.push(scope);
-                        }
-                    }
+    let (Some(names), Some(set)) = (name_bindings, program.set_registry.get(&first.domain)) else {
+        return Ok(false);
+    };
+    let (Some(tuple_components), Some(tuple_rows)) =
+        (set.tuple_components.as_ref(), set.tuple_rows.as_ref())
+    else {
+        return Ok(false);
+    };
 
-                    if !scopes.is_empty() {
-                        return Ok(scopes);
-                    }
+    let mut component_to_binding = BTreeMap::new();
+    for name in &names {
+        let component = name.strip_suffix("_r").unwrap_or(name.as_str()).to_string();
+        component_to_binding.insert(component, name.clone());
+    }
+
+    let mut emitted = false;
+    for row in tuple_rows {
+        if row.len() != tuple_components.len() {
+            return Err(CompileError::InvalidFormulation {
+                message: format!(
+                    "tuple row arity mismatch in reduction over `{}`: expected `{}`, received `{}`",
+                    first.domain,
+                    tuple_components.len(),
+                    row.len()
+                ),
+                path: entrypoint.to_path_buf(),
+            });
+        }
+
+        let mut scope = current.clone();
+        let mut matches_anchor = true;
+        for (component, value) in tuple_components.iter().zip(row.iter()) {
+            if let Some(binding_name) = component_to_binding.get(component) {
+                scope.insert(binding_name.clone(), FilterValue::String(value.clone()));
+                continue;
+            }
+
+            if let Some(existing) = current.values.get(component) {
+                let tuple_value = FilterValue::String(value.clone());
+                if existing != &tuple_value {
+                    matches_anchor = false;
+                    break;
                 }
             }
         }
+
+        if matches_anchor {
+            emitted = true;
+            visit(&scope)?;
+        }
     }
 
-    let mut scopes = vec![current.clone()];
+    Ok(emitted)
+}
 
-    for binding in bindings {
-        let mut next = Vec::new();
-        for scope in &scopes {
-            match &binding.pattern {
-                arco_kdl::algebra::BindingPattern::Name(name) => {
-                    let values = reduction_values_for_binding_scope(
-                        binding.domain.as_str(),
-                        name,
-                        scope,
-                        inputs,
-                        program,
-                        &reverse_aliases,
-                        entrypoint,
-                    )?;
-                    for value in &values {
-                        let mut scoped = scope.clone();
-                        scoped.insert(name.clone(), value.clone());
-                        next.push(scoped);
+fn visit_reduction_binding_scopes<F>(
+    bindings: &[arco_kdl::algebra::Binding],
+    binding_index: usize,
+    scope: &mut LinearizationBindings,
+    inputs: &ScenarioInputs,
+    program: &SemanticProgram,
+    reverse_aliases: &BTreeMap<&str, &str>,
+    entrypoint: &Path,
+    visit: &mut F,
+) -> Result<(), CompileError>
+where
+    F: FnMut(&LinearizationBindings) -> Result<(), CompileError>,
+{
+    let Some(binding) = bindings.get(binding_index) else {
+        return visit(scope);
+    };
+
+    match &binding.pattern {
+        arco_kdl::algebra::BindingPattern::Name(name) => {
+            let values = reduction_values_for_binding_scope(
+                binding.domain.as_str(),
+                name,
+                scope,
+                inputs,
+                program,
+                reverse_aliases,
+                entrypoint,
+            )?;
+
+            for value in values {
+                let previous = scope.values.get_mut(name).map(|slot| std::mem::replace(slot, value.clone()));
+                if previous.is_none() {
+                    scope.insert(name.clone(), value);
+                }
+
+                visit_reduction_binding_scopes(
+                    bindings,
+                    binding_index + 1,
+                    scope,
+                    inputs,
+                    program,
+                    reverse_aliases,
+                    entrypoint,
+                    visit,
+                )?;
+
+                if let Some(previous) = previous {
+                    if let Some(slot) = scope.values.get_mut(name) {
+                        *slot = previous;
+                    }
+                } else {
+                    scope.values.remove(name);
+                    if scope.order.last().is_some_and(|last| last == name) {
+                        scope.order.pop();
+                    } else {
+                        scope.order.retain(|binding_name| binding_name != name);
                     }
                 }
-                arco_kdl::algebra::BindingPattern::Tuple(_) => {
-                    return Err(CompileError::InvalidFormulation {
-                        message: "tuple reduction bindings are not lowered yet".to_string(),
-                        path: entrypoint.to_path_buf(),
-                    });
-                }
             }
+            Ok(())
         }
-        scopes = next;
+        arco_kdl::algebra::BindingPattern::Tuple(_) => Err(CompileError::InvalidFormulation {
+            message: "tuple reduction bindings are not lowered yet".to_string(),
+            path: entrypoint.to_path_buf(),
+        }),
     }
-
-    Ok(scopes)
 }
 
 fn reduction_values_for_binding_scope(
