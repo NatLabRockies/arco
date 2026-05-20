@@ -17,8 +17,11 @@ def _run_arco_cli(args: list[str], *, config_dir: Path) -> dict[str, object]:
     env = os.environ.copy()
     env["ARCO_CONFIG_DIR"] = str(config_dir)
     env["ARCO_PROJECT_CONFIG_DIR"] = str(config_dir)
-    completed = subprocess.run(
-        [
+    cli_bin = env.get("ARCO_CLI_BIN")
+    command = (
+        [cli_bin, *args]
+        if cli_bin
+        else [
             "cargo",
             "run",
             "--quiet",
@@ -29,7 +32,10 @@ def _run_arco_cli(args: list[str], *, config_dir: Path) -> dict[str, object]:
             "arco",
             "--",
             *args,
-        ],
+        ]
+    )
+    completed = subprocess.run(
+        command,
         cwd=ROOT,
         env=env,
         check=True,
