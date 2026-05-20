@@ -28,9 +28,14 @@ import pathlib
 import xpresslibs
 
 root = pathlib.Path(xpresslibs.__file__).resolve().parent
-lib_dir = root / "lib"
-if not lib_dir.is_dir():
-    raise SystemExit(f"missing Xpress lib dir: {lib_dir}")
+runtime_candidates = (
+    root / "lib" / "libxprs.so",
+    root / "lib" / "libxprs.dylib",
+    root / "bin" / "xprs.dll",
+)
+if not any(candidate.is_file() for candidate in runtime_candidates):
+    checked = ", ".join(str(candidate) for candidate in runtime_candidates)
+    raise SystemExit(f"missing Xpress runtime library; checked: {checked}")
 
 xpress_spec = importlib.util.find_spec("xpress")
 if xpress_spec is None or xpress_spec.origin is None:
