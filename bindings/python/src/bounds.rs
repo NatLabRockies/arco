@@ -4,7 +4,6 @@ use crate::PyObject;
 use crate::py_modules::errors::BoundsInvalidError;
 use arco_ops::modeling::types::Bounds;
 use pyo3::Borrowed;
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 /// Resolved bound specification extracted from any Python bounds argument.
@@ -36,7 +35,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for BoundsSpec {
             }
             // Array bounds cannot convert to scalar BoundsSpec
         }
-        Err(PyRuntimeError::new_err(
+        Err(BoundsInvalidError::new_err(
             "ARCO_BOUNDS_002: expected a Bounds or bound constant (e.g. NonNegativeFloat, Binary)",
         ))
     }
@@ -89,20 +88,16 @@ impl PyBounds {
 #[pymethods]
 impl PyBounds {
     #[new]
-    #[pyo3(signature = (lo=None, hi=None, *, lower=None, upper=None))]
+    #[pyo3(signature = (*, lower=None, upper=None))]
     fn new(
         _py: Python<'_>,
-        lo: Option<&Bound<'_, PyAny>>,
-        hi: Option<&Bound<'_, PyAny>>,
         lower: Option<&Bound<'_, PyAny>>,
         upper: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let low_obj = lo.or(lower).ok_or_else(|| {
-            PyRuntimeError::new_err("Bounds() requires lower bound (positional or lower=)")
-        })?;
-        let high_obj = hi.or(upper).ok_or_else(|| {
-            PyRuntimeError::new_err("Bounds() requires upper bound (positional or upper=)")
-        })?;
+        let low_obj =
+            lower.ok_or_else(|| BoundsInvalidError::new_err("Bounds() requires lower= bound"))?;
+        let high_obj =
+            upper.ok_or_else(|| BoundsInvalidError::new_err("Bounds() requires upper= bound"))?;
 
         // Try scalar f64 first
         if let (Ok(low), Ok(high)) = (low_obj.extract::<f64>(), high_obj.extract::<f64>()) {

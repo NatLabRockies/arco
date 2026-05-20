@@ -55,7 +55,7 @@ full dump, call `model.pprint()`.
 >>> model = arco.Model()
 >>> t = arco.IndexSet(name="T", size=2)
 >>> g = arco.IndexSet(name="G", members=["solar", "wind", "gas"])
->>> gen = model.add_variables(t, g, bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
+>>> gen = model.add_variables(axes=(t, g), bounds=arco.Bounds(lower=0.0, upper=100.0), name="gen")
 >>> capacity = {"solar": 50.0, "wind": 80.0, "gas": 100.0}
 >>> caps = [capacity[name] for name in g.members] * t.size
 >>> _ = model.add_constraints(gen <= caps)
@@ -99,7 +99,7 @@ confirm the model matches your data.
 >>> capacity = {"solar": 50.0, "wind": 80.0, "gas": 100.0}
 >>> demand = [120.0, 90.0]
 >>>
->>> gen = model.add_variables(T, G, bounds=arco.Bounds(lower=0.0, upper=100.0))
+>>> gen = model.add_variables(axes=(T, G), bounds=arco.Bounds(lower=0.0, upper=100.0))
 >>> caps = [capacity[g] for g in G.members] * T.size
 >>> cap_cons = model.add_constraints(gen <= caps)
 >>> demand_cons = model.add_constraints(gen.sum(over=G) >= demand)
@@ -139,11 +139,86 @@ programmatically.
 2
 >>> snapshot.metadata.constraints
 1
+>>> snapshot.metadata.coefficients
+2
+>>> snapshot.metadata.memory.coefficient_value_bytes
+16
+>>> snapshot.metadata.memory.sparse_matrix_bytes >= 16
+True
 >>> [v.name for v in snapshot.variables]
 ['x', 'y']
 >>> snapshot.constraints[0].name
 'balance'
 ```
+
+For sparse arrays created with an `active=` mask, inspect the array before
+solving to compare the dense shape with the variables actually created.
+
+```python doctest
+>>> import arco
+>>> import numpy as np
+>>> model = arco.Model()
+>>> i = arco.IndexSet(name="i", members=[0, 1])
+>>> r = arco.IndexSet(name="r", members=[0, 1])
+>>> h = arco.IndexSet(name="h", members=[0, 1])
+>>> active = np.array([[True, False], [False, True]])
+>>> dispatch = model.add_variables(axes=(i, r, h), bounds=arco.NonNegativeFloat, active=active)
+>>> dispatch.shape
+(2, 2, 2)
+>>> dispatch.dense_count
+8
+>>> dispatch.active_count
+4
+>>> dispatch.memory_estimate()["inactive_slots"]
+4
+>>> dispatch.memory_estimate()["active_density"]
+0.5
+>>> dispatch.memory_estimate()["linear_terms"]
+4
+>>> dispatch.memory_estimate()["estimated_dense_linear_term_bytes"] > dispatch.memory_estimate()["estimated_term_bytes"]
+True
+>>> dispatch.memory_estimate()["estimated_solver_sparse_matrix_bytes"] < dispatch.memory_estimate()["estimated_dense_linear_term_bytes"]
+True
+>>> model.inspect().metadata.variables
+4
+>>> model.inspect().metadata.memory.sparse_matrix_bytes > 0
+True
+```
+
+`memory_estimate()` also works on expression arrays. It reports the current
+array storage kind, dense slots, active and inactive slots, active density,
+expression term counts, estimated in-memory term bytes, and a solver-oriented
+sparse matrix byte estimate before the expression is lowered into constraints
+or an objective. The solver-oriented fields use the same
+value/index/column-pointer accounting as `model.inspect().metadata.memory`,
+with `estimated_solver_sparse_matrix_bytes` as the total planning estimate.
+
+When solved, `result.value(dispatch)` preserves the dense indexed shape and
+uses `nan` for inactive entries. This keeps array coordinates stable while
+making inactive points visible in downstream NumPy code.
+
+## CLI pre-solve size checks
+
+For KDL models, use `arco inspect --json` before solving to check declaration
+counts, expanded instance counts, coefficient estimates, and conservative
+sparse-matrix memory estimates.
+
+```sh
+arco inspect examples/capacity-expansion/input.kdl --json
+```
+
+The `meta.counts` object distinguishes declarations from expanded instances:
+`variable` and `constraint` count KDL declarations, while
+`variable_instances`, `constraint_instances`, and `coefficient_instances`
+estimate the lowered model size. The `meta.memory.sparse_matrix_bytes` field
+estimates value, index, and column-pointer bytes for a sparse matrix view of
+the constraints. Treat this as a no-solve planning signal; concrete solver
+backends may allocate additional internal structures.
+
+For tuple-domain variables, `variable_instances` and each variable record's
+`instances` field count tuple rows, not the Cartesian product of tuple
+component domains. The component sizes remain visible in the variable's `set`
+bindings so you can review the domain shape without inflating memory estimates.
 
 ## Solution summary
 
@@ -177,46 +252,12 @@ Solution Summary
 With `verbose=True`, the output includes variable values, dual prices, and
 solver work statistics.
 
-## Export sparse matrix formats
+## Expert sparse exports
 
-Use `export_csc()`, `export_crs()`, and `export_coo()` to get the constraint
-matrix in sparse formats. This is useful for interoperability with scipy,
-numpy, or custom analysis tools.
-
-```python doctest
->>> import arco
->>> model = arco.Model()
->>> x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=5.0))
->>> _ = model.add_constraint(x >= 1.0)
->>> model.minimize(x)
->>> csc = model.export_csc()
->>> sorted(csc.keys())
-['col_ptrs', 'row_indices', 'shape', 'values']
->>> csc["shape"]
-(1, 1)
->>> len(csc["col_ptrs"]) == model.num_variables + 1
-True
->>> all(isinstance(idx, int) for idx in csc["row_indices"])
-True
->>> crs = model.export_crs()
->>> sorted(crs.keys())
-['col_indices', 'row_ptrs', 'shape', 'values']
->>> crs["shape"]
-(1, 1)
->>> len(crs["row_ptrs"]) == model.num_constraints + 1
-True
->>> all(isinstance(idx, int) for idx in crs["col_indices"])
-True
->>> coo = model.export_coo()
->>> sorted(coo.keys())
-['cols', 'rows', 'shape', 'values']
->>> coo["shape"]
-(1, 1)
->>> len(coo["rows"]) == len(coo["cols"]) == len(coo["values"])
-True
->>> all(isinstance(idx, int) for idx in coo["rows"] + coo["cols"])
-True
-```
+When you need raw solver-order sparse matrix exports (`export_csc`,
+`export_crs`, `export_coo`) for integration code, use the dedicated expert
+guide: [Use Expert APIs](./use-expert-apis.md). This inspect guide keeps the
+default debug workflow centered on named objects and `inspect(...)` output.
 
 ---
 

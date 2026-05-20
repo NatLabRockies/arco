@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyDict, PyList, PyTuple};
 
 use crate::PyObject;
 use crate::py_modules::bounds::BoundsSpec;
@@ -16,9 +16,10 @@ use super::indexing::{
     slice_indices, sliced_2d_index_sets, sliced_and_index_sets,
 };
 use super::{
-    CompactExprStorage, ComparisonSense, PyConstraintArray, PyExprArray, array_add, array_cumsum,
-    array_diff, array_function, array_mul, array_neg, array_reduce, array_roll, array_rsub,
-    array_sub, array_sum, array_truediv, array_ufunc, compare_with_compact_fallback,
+    CompactExprStorage, ComparisonSense, ExpressionTermCounts, PyConstraintArray, PyExprArray,
+    array_add, array_cumsum, array_diff, array_function, array_mul, array_neg, array_reduce,
+    array_roll, array_rsub, array_sub, array_sum, array_truediv, array_ufunc,
+    compare_with_compact_fallback, expression_term_counts, set_solver_matrix_memory_estimate,
     try_extract_compact,
 };
 
@@ -62,7 +63,7 @@ enum VariableStorage {
 }
 
 /// A multi-dimensional array of decision variables.
-/// Created by `Model.add_variables(T, G, bounds=...)`. Any operation on it produces ExprArray.
+/// Created by `Model.add_variables(axes=(T, G), bounds=...)`. Any operation produces ExprArray.
 #[pyclass(name = "VariableArray")]
 pub struct PyVariableArray {
     storage: VariableStorage,
@@ -154,14 +155,48 @@ impl PyVariableArray {
         }
     }
 
+    fn active_len(&self) -> usize {
+        match &self.storage {
+            VariableStorage::Compact(c) => c.count,
+            VariableStorage::Full(f) => f
+                .variables
+                .iter()
+                .filter(|variable| variable.is_some())
+                .count(),
+        }
+    }
+
+    fn storage_kind(&self) -> &'static str {
+        match &self.storage {
+            VariableStorage::Compact(_) => "compact",
+            VariableStorage::Full(_) => "full",
+        }
+    }
+
+    fn term_counts(&self) -> ExpressionTermCounts {
+        match &self.storage {
+            VariableStorage::Compact(compact) => {
+                CompactExprStorage::from_variable_array(compact.start_var_id, compact.count)
+                    .term_counts()
+            }
+            VariableStorage::Full(full) => expression_term_counts(&full.core.values),
+        }
+    }
+
     /// Clone index_sets (requires GIL).
     fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
         Python::attach(|py| self.index_sets.iter().map(|s| s.clone_ref(py)).collect())
     }
 
     /// Create a 1D subarray from a list of flat indices.
-    fn subarray_from_indices(&self, indices: &[usize]) -> PyVariableArray {
-        let vals = indices.iter().map(|&i| self.expr_at(i).unwrap()).collect();
+    fn subarray_from_indices(&self, indices: &[usize]) -> PyResult<PyVariableArray> {
+        let vals = indices
+            .iter()
+            .map(|&i| {
+                self.expr_at(i)
+                    .ok_or_else(|| ArrayIndexError::new_err(format!("flat index {i} out of range")))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
         let vars = indices.iter().map(|&i| self.variable_at(i)).collect();
         let index_sets = Python::attach(|py| {
             if self.shape.len() == 1 && self.index_sets.len() == 1 {
@@ -176,7 +211,12 @@ impl PyVariableArray {
                 Vec::new()
             }
         });
-        PyVariableArray::new_sparse(index_sets, vec![indices.len()], vals, vars)
+        Ok(PyVariableArray::new_sparse(
+            index_sets,
+            vec![indices.len()],
+            vals,
+            vars,
+        ))
     }
 
     /// Reconstruct a PyVariable for the given flat index.
@@ -228,6 +268,21 @@ impl PyVariableArray {
                         compact.var_name_at(i),
                         compact.bounds_spec,
                     )
+                })
+                .collect(),
+        }
+    }
+
+    pub fn get_variable_slots(&self) -> Vec<Option<PyVariable>> {
+        match &self.storage {
+            VariableStorage::Full(full) => full.variables.clone(),
+            VariableStorage::Compact(compact) => (0..compact.count)
+                .map(|i| {
+                    Some(PyVariable::new(
+                        compact.var_id_at(i),
+                        compact.var_name_at(i),
+                        compact.bounds_spec,
+                    ))
                 })
                 .collect(),
         }
@@ -337,7 +392,12 @@ impl PyVariableArray {
                     for &r in row_indices {
                         for &c in col_indices {
                             let flat_idx = r * ncols + c;
-                            vals.push(self.expr_at(flat_idx).unwrap());
+                            vals.push(self.expr_at(flat_idx).ok_or_else(|| {
+                                ArrayIndexError::new_err(format!(
+                                    "flat index {} out of range",
+                                    flat_idx
+                                ))
+                            })?);
                             vars.push(self.variable_at(flat_idx));
                         }
                     }
@@ -389,8 +449,12 @@ impl PyVariableArray {
 
         let vals = flat_indices
             .iter()
-            .map(|&idx| self.expr_at(idx).unwrap())
-            .collect::<Vec<_>>();
+            .map(|&idx| {
+                self.expr_at(idx).ok_or_else(|| {
+                    ArrayIndexError::new_err(format!("flat index {} out of range", idx))
+                })
+            })
+            .collect::<PyResult<Vec<_>>>()?;
         let vars = flat_indices
             .iter()
             .map(|&idx| self.variable_at(idx))
@@ -537,6 +601,52 @@ impl PyVariableArray {
     fn shape(&self, py: Python<'_>) -> PyResult<PyObject> {
         Ok(PyTuple::new(py, self.shape.clone())?.into())
     }
+
+    #[getter]
+    fn dense_count(&self) -> usize {
+        self.len()
+    }
+
+    #[getter]
+    fn active_count(&self) -> usize {
+        self.active_len()
+    }
+
+    fn memory_estimate(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let term_counts = self.term_counts();
+        let dense_slots = self.len();
+        let active_slots = self.active_len();
+        let inactive_slots = dense_slots.saturating_sub(active_slots);
+        let active_density = if dense_slots == 0 {
+            0.0
+        } else {
+            active_slots as f64 / dense_slots as f64
+        };
+        let linear_term_bytes = std::mem::size_of::<(VariableId, f64)>();
+        let estimated_dense_linear_term_bytes = dense_slots.saturating_mul(linear_term_bytes);
+        let estimated_inactive_linear_term_bytes = inactive_slots.saturating_mul(linear_term_bytes);
+        let estimate = PyDict::new(py);
+        estimate.set_item("storage", self.storage_kind())?;
+        estimate.set_item("dense_slots", dense_slots)?;
+        estimate.set_item("active_slots", active_slots)?;
+        estimate.set_item("inactive_slots", inactive_slots)?;
+        estimate.set_item("active_density", active_density)?;
+        estimate.set_item("linear_terms", term_counts.linear)?;
+        estimate.set_item("quadratic_terms", term_counts.quadratic)?;
+        estimate.set_item("cubic_terms", term_counts.cubic)?;
+        estimate.set_item("estimated_term_bytes", term_counts.estimated_term_bytes())?;
+        estimate.set_item(
+            "estimated_dense_linear_term_bytes",
+            estimated_dense_linear_term_bytes,
+        )?;
+        estimate.set_item(
+            "estimated_inactive_linear_term_bytes",
+            estimated_inactive_linear_term_bytes,
+        )?;
+        set_solver_matrix_memory_estimate(&estimate, active_slots, term_counts.linear)?;
+        Ok(estimate.into_any().unbind())
+    }
+
     #[getter]
     fn values(&self) -> Vec<PyExpr> {
         self.get_values()
@@ -547,6 +657,29 @@ impl PyVariableArray {
     fn __len__(&self) -> usize {
         self.len()
     }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let mut items = Vec::with_capacity(self.len());
+        for idx in 0..self.len() {
+            if let Some(variable) = self.variable_at(idx) {
+                items.push(variable.into_pyobject(py)?.into_any().unbind());
+            } else {
+                let expr = self.expr_at(idx).ok_or_else(|| {
+                    ArrayIndexError::new_err(format!(
+                        "index {} out of range for array of size {}",
+                        idx,
+                        self.len()
+                    ))
+                })?;
+                items.push(expr.into_pyobject(py)?.into_any().unbind());
+            }
+        }
+        Ok(PyList::new(py, items)?
+            .call_method0("__iter__")?
+            .unbind()
+            .into())
+    }
+
     #[pyo3(signature = (ufunc, method, *inputs, **kwargs))]
     fn __array_ufunc__(
         &self,
@@ -591,7 +724,7 @@ impl PyVariableArray {
 
         if let Ok(idx) = index.extract::<usize>() {
             if idx >= self.len() {
-                return Err(pyo3::exceptions::PyIndexError::new_err(format!(
+                return Err(ArrayIndexError::new_err(format!(
                     "index {} out of range for array of size {}",
                     idx,
                     self.len()
@@ -601,7 +734,7 @@ impl PyVariableArray {
                 return Ok(variable.into_pyobject(py)?.into_any().unbind());
             }
             let expr = self.expr_at(idx).ok_or_else(|| {
-                pyo3::exceptions::PyIndexError::new_err(format!(
+                ArrayIndexError::new_err(format!(
                     "index {} out of range for array of size {}",
                     idx,
                     self.len()
@@ -611,13 +744,13 @@ impl PyVariableArray {
         }
 
         if let Some(mask_indices) = maybe_boolean_mask_indices(py, index, self.len())? {
-            let result = self.subarray_from_indices(&mask_indices);
+            let result = self.subarray_from_indices(&mask_indices)?;
             return Ok(result.into_pyobject(py)?.into_any().unbind());
         }
 
         if let Ok(slice) = index.cast::<pyo3::types::PySlice>() {
             let selected = slice_indices(slice, self.len())?;
-            let result = self.subarray_from_indices(&selected);
+            let result = self.subarray_from_indices(&selected)?;
             return Ok(result.into_pyobject(py)?.into_any().unbind());
         }
 

@@ -120,8 +120,12 @@ py-sync:
     cd bindings/python && uv sync
 
 [group: 'python']
-py-test: py-dev
-    uv run --project bindings/python --with pytest pytest bindings/python/tests -v
+py-cli-build:
+    cargo build -p arco-cli --no-default-features --bin arco
+
+[group: 'python']
+py-test: py-dev py-cli-build
+    cli_bin="$PWD/target/debug/arco"; if [[ ! -x "$cli_bin" && -x "$cli_bin.exe" ]]; then cli_bin="$cli_bin.exe"; fi; ARCO_CLI_BIN="$cli_bin" uv run --project bindings/python --with pytest pytest bindings/python/tests -v
 
 [group: 'python']
 py-type:

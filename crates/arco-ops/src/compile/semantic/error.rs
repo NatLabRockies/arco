@@ -9,7 +9,9 @@ pub enum SemanticError {
     #[error("no scenario is available for semantic validation in {path}")]
     #[diagnostic(
         code(arco::semantic::missing_scenario),
-        help("add a `scenario` declaration")
+        help(
+            "add a `scenario` declaration, or keep a single runnable model so Arco can infer one"
+        )
     )]
     MissingScenario { path: PathBuf },
 

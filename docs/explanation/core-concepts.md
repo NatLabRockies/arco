@@ -32,7 +32,7 @@ After normalization, the solver backend takes over. It consumes the normalized r
 
 The model remains frozen after solving. You can inspect the solution, extract values, and analyze the results, but you cannot add new variables or constraints without creating a new model. This immutability allows Arco to make strong guarantees about memory stability. Once normalized, the matrix structure will not change, so solution views can safely reference internal storage without fear of invalidation.
 
-For problems that require multiple solves with small variations, Arco provides block composition. Rather than rebuilding a model from scratch, you can define blocks that represent subproblems, then compose them into larger workflows. This preserves the normalization work across solves and allows warm-starting the solver from previous solutions.
+For problems that require multiple related solves, Arco provides block composition. You can define blocks that represent subproblems, compose them into larger workflows, inspect each stage, and pass structured outputs between stages. Warm-start vectors have an explicit solve-setting contract: empty starts are accepted as no-ops, and non-empty `primal_start` inputs raise a typed solver-setting error instead of being ignored.
 
 Type stability and error handling
 

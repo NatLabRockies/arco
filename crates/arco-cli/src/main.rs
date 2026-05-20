@@ -5,11 +5,10 @@ use arco_cli::cli_io::{
 use arco_cli::config::{load_solver_config, save_solver_selection};
 use arco_cli::debug_shell::launch_ipython;
 use arco_cli::driver::{
-    RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
+    KdlCheckMode, RunOptions, inspect_file_report, kdl_check_file_json, print_file_model,
     render_plain_driver_error, run_file_json_with_options_and_config, validate_file_only,
 };
 use arco_cli::self_update;
-use arco_kdl::source::format_program_text;
 use arco_ops::{ArcoOps, OpsExportFormat};
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use miette::IntoDiagnostic;
@@ -109,6 +108,9 @@ enum KdlAction {
         path: PathBuf,
         #[arg(long, default_value = "text")]
         format: CheckFormat,
+        /// Compile far enough to materialize CSV-backed data contracts
+        #[arg(long)]
+        materialize_data: bool,
     },
     /// Format KDL files (similar to `ruff format`)
     Fmt(KdlFmtArgs),
@@ -238,16 +240,22 @@ fn main() -> miette::Result<()> {
 
 fn handle_kdl_action(action: KdlAction) -> miette::Result<()> {
     match action {
-        KdlAction::Check { path, format } => match format {
+        KdlAction::Check {
+            path,
+            format,
+            materialize_data,
+        } => match format {
             CheckFormat::Text => {
-                write_stdout_line(&validate_file_only(
+                let mode = kdl_check_mode(materialize_data);
+                write_stdout_line(&arco_cli::driver::validate_file(
                     &path,
                     ColorMode::from(should_colorize_stdout(std::io::stdout().is_terminal())),
+                    mode,
                 )?)
                 .into_diagnostic()?;
             }
             CheckFormat::Json => {
-                let outcome = kdl_check_file_json(&path)?;
+                let outcome = kdl_check_file_json(&path, kdl_check_mode(materialize_data))?;
                 write_stdout_line(&outcome.json).into_diagnostic()?;
                 if !outcome.valid {
                     std::process::exit(1);
@@ -258,6 +266,14 @@ fn handle_kdl_action(action: KdlAction) -> miette::Result<()> {
     }
 
     Ok(())
+}
+
+fn kdl_check_mode(materialize_data: bool) -> KdlCheckMode {
+    if materialize_data {
+        KdlCheckMode::Materialized
+    } else {
+        KdlCheckMode::Structural
+    }
 }
 
 fn export_model(
@@ -314,7 +330,7 @@ fn handle_solver_action(action: SolverAction) -> miette::Result<()> {
 }
 
 fn format_kdl_text(input: &str, path: Option<&Path>) -> miette::Result<String> {
-    format_program_text(input).map_err(|error| {
+    ArcoOps::format_kdl_text(input).map_err(|error| {
         if let Some(path) = path {
             miette::miette!(
                 "Failed to parse KDL document: {} ({})",

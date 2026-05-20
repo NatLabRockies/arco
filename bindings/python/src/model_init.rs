@@ -37,11 +37,11 @@ pub(crate) fn from_csc_model(
 ) -> PyResult<PyModel> {
     let col_ptrs = helpers::extract_indices(col_ptrs, "col_ptrs")?;
     let row_indices = helpers::extract_indices(row_indices, "row_indices")?;
-    let values = helpers::extract_f32(values, "values")?;
-    let var_lower = helpers::extract_f32(var_lower, "var_lower")?;
-    let var_upper = helpers::extract_f32(var_upper, "var_upper")?;
-    let con_lower = helpers::extract_f32(con_lower, "con_lower")?;
-    let con_upper = helpers::extract_f32(con_upper, "con_upper")?;
+    let values = helpers::extract_f64(values, "values")?;
+    let var_lower = helpers::extract_f64(var_lower, "var_lower")?;
+    let var_upper = helpers::extract_f64(var_upper, "var_upper")?;
+    let con_lower = helpers::extract_f64(con_lower, "con_lower")?;
+    let con_upper = helpers::extract_f64(con_upper, "con_upper")?;
     let is_integer = helpers::extract_bool(is_integer, "is_integer")?;
     let simplify_level = simplify_level.map(Into::into).unwrap_or_default();
 

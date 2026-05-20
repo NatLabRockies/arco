@@ -1,11 +1,12 @@
 use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim, style_error_label};
 use crate::config::{ConfigError, SolverConfigState, load_solver_config};
-pub use crate::driver_kdl::{KdlCheckOutcome, kdl_check_file_json};
+pub use crate::driver_kdl::{KdlCheckMode, KdlCheckOutcome, kdl_check_file_json};
 pub use crate::driver_summary::{
     DualReportSummary, DualReportValueSummary, ObjectiveSummary, ProblemCounts, ReportSummary,
     RunSummary, TimingSummary, VariableSummary, VariableValueSummary,
 };
 use crate::driver_summary::{summarize_variables, trim_family_prefix};
+use arco_diagnostics::codes;
 use arco_ops::execution::{ExecutionError, SolveStatus, render_problem_model};
 use arco_ops::solve::{ResolvedSelection, SolverDiagnostic, SolverProfile};
 use arco_ops::{ArcoOps, OpsCompileError};
@@ -71,7 +72,10 @@ fn render_solver_diagnostic(
             model,
         } => format!(
             "{} {solver} size limit exceeded\n  --> solver backend: {backend}\n   |\n   = model: rows={}, columns={}, nonzeros={}, rows+columns={}, limit={limit}\n   = help: reduce variables/constraints, switch solver (`arco solver set highs`), or use a higher-limit license\n   = note: operation={operation}, rc={return_code}",
-            style_error_label("error[arco::solver::model_size_limit]:", color_mode),
+            style_error_label(
+                &format!("error[{}]:", codes::SOLVER_MODEL_SIZE_LIMIT),
+                color_mode
+            ),
             model.constraints,
             model.variables,
             model.coefficients,
@@ -83,11 +87,9 @@ fn render_solver_diagnostic(
 impl Diagnostic for DriverError {
     fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
         match self {
-            Self::Json { .. } => Some(Box::new("arco::driver::json")),
-            Self::BackendNotAvailable { .. } => {
-                Some(Box::new("arco::driver::backend_not_available"))
-            }
-            Self::InspectFormat { .. } => Some(Box::new("arco::driver::inspect_format")),
+            Self::Json { .. } => Some(Box::new(codes::DRIVER_JSON)),
+            Self::BackendNotAvailable { .. } => Some(Box::new(codes::DRIVER_BACKEND_NOT_AVAILABLE)),
+            Self::InspectFormat { .. } => Some(Box::new(codes::DRIVER_INSPECT_FORMAT)),
             Self::Pipeline { .. } | Self::Execution { .. } | Self::Config { .. } => None,
         }
     }
@@ -287,8 +289,8 @@ fn run_file_with_options_and_profile(
         variables,
         counts: ProblemCounts {
             parameters: compiled.compiled_problem.parameters.len(),
-            variables: compiled.compiled_problem.variables.len(),
-            constraints: compiled.compiled_problem.constraints.len(),
+            variables: compiled.compiled_problem.algebra.variable_instances.len(),
+            constraints: compiled.compiled_problem.algebra.constraints.len(),
         },
         timing: TimingSummary {
             parse_ms: compiled.timing.parse.as_secs_f64() * 1000.0,
@@ -307,14 +309,18 @@ pub fn print_file_model(path: &Path) -> Result<String, DriverError> {
 }
 
 pub fn validate_file_only(path: &Path, color_mode: ColorMode) -> Result<String, DriverError> {
+    validate_file(path, color_mode, KdlCheckMode::Structural)
+}
+
+pub fn validate_file(
+    path: &Path,
+    color_mode: ColorMode,
+    mode: KdlCheckMode,
+) -> Result<String, DriverError> {
     let started = Instant::now();
-    let validated = ArcoOps::check_file(path)?;
+    crate::driver_kdl::check_file(path, mode)?;
     let elapsed_ms = started.elapsed().as_millis();
-    Ok(format_validate_success(
-        &validated.entrypoint,
-        elapsed_ms,
-        color_mode,
-    ))
+    Ok(format_validate_success(path, elapsed_ms, color_mode))
 }
 
 fn format_validate_success(path: &Path, elapsed_ms: u128, color_mode: ColorMode) -> String {
@@ -335,8 +341,8 @@ pub fn inspect_file_report(path: &Path, json_output: bool) -> Result<String, Dri
         });
     }
 
-    arco_ops::inspect::render_toml(&payload).map_err(|_| DriverError::InspectFormat {
-        message: "failed to serialize inspect payload as TOML".to_string(),
+    arco_ops::inspect::render_toml(&payload).map_err(|source| DriverError::InspectFormat {
+        message: source.to_string(),
     })
 }
 
@@ -362,6 +368,7 @@ mod tests {
     use super::{format_validate_success, render_plain_driver_error};
     use crate::driver::DriverError;
     use crate::driver_kdl::span_line_column;
+    use arco_diagnostics::codes;
     use arco_ops::execution::ExecutionError;
     use arco_ops::solve::{SolverDiagnostic, SolverError, SolverModelStats};
     use miette::SourceSpan;
@@ -405,9 +412,10 @@ mod tests {
         let rendered = render_plain_driver_error(&error, crate::cli_io::ColorMode::Disabled)
             .expect("solver diagnostics should render as plain CLI reports");
 
-        assert!(rendered.starts_with(
-            "error[arco::solver::model_size_limit]: Xpress Community Edition size limit exceeded"
-        ));
+        assert!(rendered.starts_with(&format!(
+            "error[{}]: Xpress Community Edition size limit exceeded",
+            codes::SOLVER_MODEL_SIZE_LIMIT
+        )));
         assert!(rendered.contains("  --> solver backend: arco-rust-xpress"));
         assert!(rendered.contains("   |"));
         assert!(rendered.contains(

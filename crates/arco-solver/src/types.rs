@@ -110,6 +110,8 @@ pub enum SolverError {
     NoObjective,
     InvalidObjectiveSense,
     InvalidVariableId(u32),
+    InvalidResultShape(String),
+    InvalidSettings(String),
     SolverNotAvailable(String),
     SolveFailure { status: SolverStatus },
     Diagnostic(SolverDiagnostic),
@@ -123,6 +125,8 @@ impl SolverError {
             SolverError::NoObjective => "SOLVER_NO_OBJECTIVE",
             SolverError::InvalidObjectiveSense => "SOLVER_INVALID_OBJECTIVE_SENSE",
             SolverError::InvalidVariableId(_) => "SOLVER_INVALID_VARIABLE_ID",
+            SolverError::InvalidResultShape(_) => "SOLVER_INVALID_RESULT_SHAPE",
+            SolverError::InvalidSettings(_) => "SOLVER_INVALID_SETTINGS",
             SolverError::SolverNotAvailable(_) => "SOLVER_NOT_AVAILABLE",
             SolverError::SolveFailure { .. } => "SOLVER_SOLVE_FAILURE",
             SolverError::Diagnostic(_) => "SOLVER_DIAGNOSTIC",
@@ -141,6 +145,12 @@ impl std::fmt::Display for SolverError {
             }
             SolverError::InvalidVariableId(id) => {
                 write!(f, "[{}] Variable ID {} does not exist", self.code(), id)
+            }
+            SolverError::InvalidResultShape(msg) => {
+                write!(f, "[{}] Invalid solver result shape: {}", self.code(), msg)
+            }
+            SolverError::InvalidSettings(msg) => {
+                write!(f, "[{}] Invalid solver settings: {}", self.code(), msg)
             }
             SolverError::SolverNotAvailable(msg) => {
                 write!(f, "[{}] Solver not available: {}", self.code(), msg)

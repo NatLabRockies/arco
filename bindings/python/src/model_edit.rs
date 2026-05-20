@@ -4,7 +4,7 @@ use crate::{
     BoundsSpec, PyConstraintArray, PyExpr, PyIndexSet, PyModel, PyVariable, PyVariableArray,
     bounds_from_sense, extract_objective_terms,
 };
-use arco_arrays::{AxisSpec, BroadcastPlan, LabeledShape};
+use arco_arrays::BroadcastPlan;
 use arco_ops::expression::{ComparisonSense, ConstraintId, Expr, VariableId};
 use arco_ops::modeling::types::Bounds;
 use arco_ops::modeling::{Objective, Sense, Variable};
@@ -19,39 +19,18 @@ impl PyModel {
         total: usize,
         label: &str,
     ) -> PyResult<Vec<f64>> {
-        if let Ok(axes_obj) = obj.getattr("axes") {
+        if obj.getattr("axes").is_ok() {
             let values_obj = obj.getattr("values").map_err(|_| {
                 errors::ArrayTypeError::new_err(format!(
                     "labeled {label} must expose a values attribute"
                 ))
             })?;
-            let axes_tuple = axes_obj.cast::<pyo3::types::PyTuple>().map_err(|_| {
-                errors::ArrayTypeError::new_err(format!(
-                    "labeled {label} must expose axes as a tuple of IndexSet"
-                ))
-            })?;
-            let mut source_axes = Vec::with_capacity(axes_tuple.len());
-            for axis in axes_tuple.iter() {
-                let axis = axis.cast::<PyIndexSet>().map_err(|_| {
-                    errors::ArrayTypeError::new_err(format!(
-                        "labeled {label} must expose IndexSet axes"
-                    ))
-                })?;
-                let borrowed = axis.borrow();
-                source_axes.push(AxisSpec::new(borrowed.name.clone(), borrowed.members.len()));
-            }
-            let source_shape = LabeledShape::new(source_axes)
-                .map_err(|err| errors::ArrayDimensionError::new_err(err.to_string()))?;
-            let target_shape = LabeledShape::new(
-                index_sets
-                    .iter()
-                    .map(|index_set| {
-                        let borrowed = index_set.bind(obj.py()).borrow();
-                        AxisSpec::new(borrowed.name.clone(), borrowed.members.len())
-                    })
-                    .collect(),
-            )
-            .map_err(|err| errors::ArrayDimensionError::new_err(err.to_string()))?;
+            let Some(source_shape) = arrays::labeled_shape_from_axes_attr(obj, label)? else {
+                return Err(errors::ArrayTypeError::new_err(format!(
+                    "labeled {label} must expose axes as IndexSet values"
+                )));
+            };
+            let target_shape = arrays::labeled_shape_from_index_sets(index_sets)?;
             let plan = BroadcastPlan::new(source_shape, target_shape)
                 .map_err(|err| errors::ArrayShapeMismatchError::new_err(err.to_string()))?;
 
@@ -112,39 +91,20 @@ impl PyModel {
         }
 
         if let Some(index_sets) = index_sets {
-            if let Ok(axes_obj) = active_obj.getattr("axes") {
+            if active_obj.getattr("axes").is_ok() {
                 let values_obj = active_obj.getattr("values").map_err(|_| {
                     errors::ArrayTypeError::new_err(
                         "labeled active masks must expose a values attribute",
                     )
                 })?;
-                let axes_tuple = axes_obj.cast::<pyo3::types::PyTuple>().map_err(|_| {
-                    errors::ArrayTypeError::new_err(
-                        "labeled active masks must expose axes as a tuple of IndexSet",
-                    )
-                })?;
-                let mut source_axes = Vec::with_capacity(axes_tuple.len());
-                for axis in axes_tuple.iter() {
-                    let axis = axis.cast::<PyIndexSet>().map_err(|_| {
-                        errors::ArrayTypeError::new_err(
-                            "labeled active masks must expose IndexSet axes",
-                        )
-                    })?;
-                    let borrowed = axis.borrow();
-                    source_axes.push(AxisSpec::new(borrowed.name.clone(), borrowed.members.len()));
-                }
-                let source_shape = LabeledShape::new(source_axes)
-                    .map_err(|err| errors::ArrayDimensionError::new_err(err.to_string()))?;
-                let target_shape = LabeledShape::new(
-                    index_sets
-                        .iter()
-                        .map(|index_set| {
-                            let borrowed = index_set.bind(active_obj.py()).borrow();
-                            AxisSpec::new(borrowed.name.clone(), borrowed.members.len())
-                        })
-                        .collect(),
-                )
-                .map_err(|err| errors::ArrayDimensionError::new_err(err.to_string()))?;
+                let Some(source_shape) =
+                    arrays::labeled_shape_from_axes_attr(active_obj, "active masks")?
+                else {
+                    return Err(errors::ArrayTypeError::new_err(
+                        "labeled active masks must expose axes as IndexSet values",
+                    ));
+                };
+                let target_shape = arrays::labeled_shape_from_index_sets(index_sets)?;
                 let plan = BroadcastPlan::new(source_shape, target_shape)
                     .map_err(|err| errors::ArrayShapeMismatchError::new_err(err.to_string()))?;
 
@@ -326,6 +286,7 @@ impl PyModel {
                 Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
                 sense,
                 &[],
+                name,
             ));
         }
 
@@ -358,6 +319,7 @@ impl PyModel {
             Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
             sense,
             &filtered_rhs,
+            name,
         ))
     }
 
@@ -386,6 +348,7 @@ impl PyModel {
                 Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
                 sense,
                 &[],
+                name,
             ));
         }
 
@@ -418,6 +381,7 @@ impl PyModel {
             Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
             sense,
             &filtered_rhs,
+            name,
         ))
     }
 
@@ -503,6 +467,7 @@ impl PyModel {
                 Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
                 sense,
                 &[],
+                name,
             ));
         }
 
@@ -519,6 +484,7 @@ impl PyModel {
             Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
             sense,
             &filtered_rhs,
+            name,
         ))
     }
 

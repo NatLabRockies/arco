@@ -61,6 +61,39 @@ pub struct SnapshotMetadata {
     pub variables: usize,
     pub constraints: usize,
     pub coefficients: usize,
+    pub memory: SnapshotMemoryEstimate,
+}
+
+/// Conservative memory estimate for sparse matrix storage.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct SnapshotMemoryEstimate {
+    pub coefficient_value_bytes: usize,
+    pub coefficient_index_bytes: usize,
+    pub variable_column_pointer_bytes: usize,
+    pub sparse_matrix_bytes: usize,
+}
+
+impl SnapshotMemoryEstimate {
+    pub fn for_sparse_matrix(variable_instances: usize, coefficient_instances: usize) -> Self {
+        const VALUE_BYTES: usize = std::mem::size_of::<f64>();
+        const INDEX_BYTES: usize = std::mem::size_of::<usize>();
+
+        let coefficient_value_bytes = coefficient_instances.saturating_mul(VALUE_BYTES);
+        let coefficient_index_bytes = coefficient_instances.saturating_mul(INDEX_BYTES);
+        let variable_column_pointer_bytes = variable_instances
+            .saturating_add(1)
+            .saturating_mul(INDEX_BYTES);
+        let sparse_matrix_bytes = coefficient_value_bytes
+            .saturating_add(coefficient_index_bytes)
+            .saturating_add(variable_column_pointer_bytes);
+
+        Self {
+            coefficient_value_bytes,
+            coefficient_index_bytes,
+            variable_column_pointer_bytes,
+            sparse_matrix_bytes,
+        }
+    }
 }
 
 /// A complete snapshot of a model.
@@ -229,6 +262,10 @@ impl Model {
                 variables: self.num_variables(),
                 constraints: self.num_constraints(),
                 coefficients: self.num_coefficients(),
+                memory: SnapshotMemoryEstimate::for_sparse_matrix(
+                    self.num_variables(),
+                    self.num_coefficients(),
+                ),
             },
         }
     }

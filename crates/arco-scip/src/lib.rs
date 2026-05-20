@@ -9,7 +9,7 @@ use arco_format::{
 use arco_model::{ModelView, VariableId};
 use arco_solver::{
     ModelViewBackend, ModelViewSolveResult, SolverCapabilityModel, SolverConfig, SolverError,
-    SolverFamily, SolverRegistry, SolverStatus,
+    SolverFamily, SolverRegistry, SolverStatus, validate_model_view_solve_result,
 };
 use miette::Diagnostic;
 use russcip::{Model, ProblemOrSolving, Solution, Status, VarType, WithSolutions};
@@ -54,6 +54,9 @@ pub fn solve_model_view_with_options(
 ) -> Result<ModelViewSolveResult, SolverError> {
     if model.num_variables() == 0 {
         return Err(SolverError::EmptyModel);
+    }
+    if model.objective().sense.is_none() && model.objective().terms.is_empty() {
+        return Err(SolverError::NoObjective);
     }
 
     let portable = portable_problem_from_model_view(model);
@@ -102,7 +105,7 @@ pub fn solve_model_view_with_options(
         }
     }
 
-    Ok(ModelViewSolveResult {
+    let result = ModelViewSolveResult {
         fingerprint: model.fingerprint(),
         status: match output.status {
             SolveStatus::Optimal => SolverStatus::Optimal,
@@ -116,7 +119,9 @@ pub fn solve_model_view_with_options(
         row_values,
         constraint_duals: Vec::new(),
         metadata: Default::default(),
-    })
+    };
+    validate_model_view_solve_result(model, &result)?;
+    Ok(result)
 }
 
 pub fn register_solver_family(registry: &mut SolverRegistry) {
@@ -528,7 +533,10 @@ fn evaluate_scip_linear_report(
 mod tests {
     use super::*;
     use arco_format::{PortableLinearTerm, PortableVariableInstance};
-    use arco_solver::{SolverRegistry, SolverTransport};
+    use arco_solver::{
+        SolverRegistry, SolverTransport, check_empty_model_rejected, check_no_objective_rejected,
+        check_small_lp, check_small_milp,
+    };
 
     #[test]
     fn register_solver_family_registers_embedded_family() {
@@ -590,13 +598,37 @@ mod tests {
     #[test]
     fn model_view_backend_rejects_empty_problem_before_scip_solve() {
         let backend = ScipModelViewBackend;
-        let model = arco_model::Model::new();
+        check_empty_model_rejected(&backend).expect("SCIP should reject empty model");
+    }
 
-        let error = backend
-            .solve_model_view(&model, &SolverConfig::default())
-            .expect_err("empty model should fail before invoking SCIP");
+    #[test]
+    fn model_view_backend_rejects_no_objective_problem_before_scip_solve() {
+        let backend = ScipModelViewBackend;
+        check_no_objective_rejected(&backend).expect("SCIP should reject missing objective");
+    }
 
-        assert!(matches!(error, SolverError::EmptyModel));
+    #[test]
+    fn model_view_backend_solves_shared_small_lp() {
+        let backend = ScipModelViewBackend;
+        let report =
+            check_small_lp(&backend, &SolverConfig::default()).expect("SCIP should solve small LP");
+
+        assert_eq!(report.family, FAMILY_NAME);
+        assert_eq!(report.variables, 1);
+        assert_eq!(report.constraints, 1);
+        assert_eq!(report.coefficients, 1);
+    }
+
+    #[test]
+    fn model_view_backend_solves_shared_small_milp() {
+        let backend = ScipModelViewBackend;
+        let report = check_small_milp(&backend, &SolverConfig::default())
+            .expect("SCIP should solve small MILP");
+
+        assert_eq!(report.family, FAMILY_NAME);
+        assert_eq!(report.variables, 1);
+        assert_eq!(report.constraints, 1);
+        assert_eq!(report.coefficients, 1);
     }
 
     #[test]

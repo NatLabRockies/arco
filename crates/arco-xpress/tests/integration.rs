@@ -1,7 +1,14 @@
 use arco_model::{Bounds, Constraint, Model, Objective, Sense, Variable};
-use arco_solver::{SolverConfig, SolverError};
-use arco_xpress::{Solver, detect_xpress_dir, solve_model_view};
+use arco_solver::{SolverConfig, SolverError, check_small_lp, check_small_milp};
+use arco_xpress::{Solver, XpressModelViewBackend, detect_xpress_dir};
 use std::path::PathBuf;
+
+fn assert_close(actual: f64, expected: f64) {
+    assert!(
+        (actual - expected).abs() < 1e-9,
+        "expected {actual} to be within tolerance of {expected}"
+    );
+}
 
 fn build_simple_model() -> Model {
     let mut model = Model::new();
@@ -32,25 +39,51 @@ fn local_xpress_dir() -> Option<PathBuf> {
 }
 
 #[test]
-fn model_view_smoke_solves_with_local_xpress_install() {
+fn model_view_shared_small_lp_conformance_with_local_xpress_install() {
     let Some(_xpress_dir) = local_xpress_dir() else {
         return;
     };
 
-    let model = build_simple_model();
-    let result = match solve_model_view(&model, &SolverConfig::new().with_log_to_console(false)) {
-        Ok(result) => result,
+    let backend = XpressModelViewBackend;
+    let report = match check_small_lp(&backend, &SolverConfig::new().with_log_to_console(false)) {
+        Ok(report) => report,
         Err(SolverError::SolverSpecific(message))
             if message.contains("Xpress license initialization failed") =>
         {
             return;
         }
-        Err(error) => panic!("xpress solve succeeds: {error:?}"),
+        Err(error) => panic!("xpress shared small-LP conformance succeeds: {error:?}"),
     };
 
-    assert!(result.status.is_feasible());
-    assert_eq!(result.objective_value, 2.0);
-    assert_eq!(result.primal_values, vec![1.0]);
+    assert_eq!(report.family, "xpress");
+    assert_close(report.objective_value, 2.0);
+    assert_eq!(report.variables, 1);
+    assert_eq!(report.constraints, 1);
+    assert_eq!(report.coefficients, 1);
+}
+
+#[test]
+fn model_view_shared_small_milp_conformance_with_local_xpress_install() {
+    let Some(_xpress_dir) = local_xpress_dir() else {
+        return;
+    };
+
+    let backend = XpressModelViewBackend;
+    let report = match check_small_milp(&backend, &SolverConfig::new().with_log_to_console(false)) {
+        Ok(report) => report,
+        Err(SolverError::SolverSpecific(message))
+            if message.contains("Xpress license initialization failed") =>
+        {
+            return;
+        }
+        Err(error) => panic!("xpress shared small-MILP conformance succeeds: {error:?}"),
+    };
+
+    assert_eq!(report.family, "xpress");
+    assert_close(report.objective_value, 1.0);
+    assert_eq!(report.variables, 1);
+    assert_eq!(report.constraints, 1);
+    assert_eq!(report.coefficients, 1);
 }
 
 #[test]
@@ -73,6 +106,6 @@ fn solver_wrapper_smoke_solves_with_local_xpress_install() {
     };
 
     assert!(solution.is_feasible());
-    assert_eq!(solution.objective_value(), 2.0);
+    assert_close(solution.objective_value(), 2.0);
     assert_eq!(solution.primal_values(), &[1.0]);
 }

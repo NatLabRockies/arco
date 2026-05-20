@@ -7,7 +7,9 @@ pub use crate::py_modules::handles::{PyElasticHandle, PySlackHandle};
 pub use crate::py_modules::index_set::PyIndexSet;
 pub use crate::py_modules::model_blocks::{PyBlockHandle, PyBlockPorts, PyBlockResults};
 pub use crate::py_modules::slack_variable::PySlackVariable;
-pub use crate::py_modules::snapshot::{PyModelSnapshot, PySnapshotMetadata};
+pub use crate::py_modules::snapshot::{
+    PyModelSnapshot, PySnapshotMemoryEstimate, PySnapshotMetadata,
+};
 pub use crate::py_modules::solution::{PySolutionStatus, PySolveResult};
 #[cfg(feature = "ipopt")]
 pub use crate::py_modules::solver::PyIpopt;

@@ -1,10 +1,16 @@
+use crate::py_modules::errors::{BlockArtifactError, BlockContractError, BlockResultError};
+use crate::py_modules::serde_bridge;
 use crate::{BlockPort, PyModel, PyObject, PySolveResult};
-use arco_blocks::build_execution_levels;
+use arco_blocks::{DropPolicy, build_execution_levels, retention_for_policy};
+use arco_ops::modeling::{InspectOptions, ModelSnapshot};
+use arco_ops::solve::Solution;
 use arco_ops::solve::SolverStatus;
-use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::{PyDict, PyList, PyType};
+use serde_json::{Value, json};
 use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 const ARCO_BLOCK_MARKER_ATTR: &str = "__arco_block_marker__";
 const ARCO_BLOCK_NAME_ATTR: &str = "__arco_block_name__";
@@ -23,7 +29,7 @@ pub struct PyBlockPorts {
 impl PyBlockPorts {
     fn __getattr__(&self, key: &str) -> PyResult<BlockPort> {
         if !self.keys.contains(key) {
-            return Err(PyKeyError::new_err(format!(
+            return Err(BlockContractError::new_err(format!(
                 "Unknown {} port '{}.{}'",
                 self.kind, self.block_name, key
             )));
@@ -64,7 +70,7 @@ impl PyBlockHandle {
     /// Get an input port reference for linking.
     fn input(&self, key: String) -> PyResult<BlockPort> {
         if !self.input_keys.contains(&key) {
-            return Err(PyKeyError::new_err(format!(
+            return Err(BlockContractError::new_err(format!(
                 "Unknown input port '{}.{}'",
                 self.name, key
             )));
@@ -75,7 +81,7 @@ impl PyBlockHandle {
     /// Get an output port reference for linking.
     fn output(&self, key: String) -> PyResult<BlockPort> {
         if !self.output_keys.contains(&key) {
-            return Err(PyKeyError::new_err(format!(
+            return Err(BlockContractError::new_err(format!(
                 "Unknown output port '{}.{}'",
                 self.name, key
             )));
@@ -122,6 +128,151 @@ impl PyBlockHandle {
 pub struct PyBlockResults {
     /// Ordered mapping: block_name -> SolveResult
     results: Vec<(String, Py<PySolveResult>)>,
+    artifacts: Vec<BlockRunArtifacts>,
+}
+
+#[derive(Clone)]
+struct BlockRunArtifacts {
+    name: String,
+    model_snapshot: Value,
+    solution_summary: Value,
+}
+
+impl PyBlockResults {
+    fn report_rows(&self, py: Python<'_>) -> Vec<Value> {
+        self.results
+            .iter()
+            .enumerate()
+            .map(|(order, (name, result))| {
+                let borrowed = result.borrow(py);
+                let inner = borrowed.inner();
+                json!({
+                    "order": order,
+                    "name": name,
+                    "status": inner.status_string().to_uppercase(),
+                    "objective_value": inner.objective_value,
+                    "variable_count": inner.primal_values.len(),
+                    "constraint_count": inner.constraint_duals.len(),
+                })
+            })
+            .collect()
+    }
+
+    fn diagnostic_rows(&self) -> Vec<Value> {
+        self.artifacts
+            .iter()
+            .enumerate()
+            .map(|(order, artifacts)| {
+                stage_diagnostics_artifact(
+                    order,
+                    &artifacts.name,
+                    &artifacts.model_snapshot,
+                    &artifacts.solution_summary,
+                )
+            })
+            .collect()
+    }
+
+    fn artifact_manifest_rows(&self, policy: DropPolicy) -> Vec<Value> {
+        let retention = retention_for_policy(policy);
+        let mut artifacts = Vec::new();
+        if retention.keep_diagnostics {
+            artifacts.push("stage_diagnostics");
+        }
+        if retention.keep_model {
+            artifacts.push("model_snapshot");
+        }
+        if retention.keep_solution {
+            artifacts.push("solution_summary");
+        }
+
+        self.results
+            .iter()
+            .enumerate()
+            .map(|(order, (name, _))| {
+                json!({
+                    "order": order,
+                    "name": name,
+                    "artifacts": artifacts,
+                })
+            })
+            .collect()
+    }
+
+    fn write_artifact_rows(&self, directory: &Path, policy: DropPolicy) -> PyResult<Vec<Value>> {
+        let retention = retention_for_policy(policy);
+        fs::create_dir_all(directory).map_err(|err| {
+            BlockArtifactError::new_err(format!(
+                "failed to create block artifact directory '{}': {err}",
+                directory.display()
+            ))
+        })?;
+
+        let mut rows = Vec::new();
+        for (order, artifacts) in self.artifacts.iter().enumerate() {
+            let block_dir_name = format!(
+                "{order:03}-{}",
+                sanitize_artifact_path_part(&artifacts.name)
+            );
+            let block_dir = directory.join(&block_dir_name);
+            fs::create_dir_all(&block_dir).map_err(|err| {
+                BlockArtifactError::new_err(format!(
+                    "failed to create block artifact directory '{}': {err}",
+                    block_dir.display()
+                ))
+            })?;
+
+            let mut files = Vec::new();
+            if retention.keep_diagnostics {
+                let relative_path = format!("{block_dir_name}/stage_diagnostics.json");
+                let stage_diagnostics = stage_diagnostics_artifact(
+                    order,
+                    &artifacts.name,
+                    &artifacts.model_snapshot,
+                    &artifacts.solution_summary,
+                );
+                write_json_file(&directory.join(&relative_path), &stage_diagnostics)?;
+                files.push(json!({
+                    "artifact": "stage_diagnostics",
+                    "path": relative_path,
+                }));
+            }
+            if retention.keep_model {
+                let relative_path = format!("{block_dir_name}/model_snapshot.json");
+                write_json_file(&directory.join(&relative_path), &artifacts.model_snapshot)?;
+                files.push(json!({
+                    "artifact": "model_snapshot",
+                    "path": relative_path,
+                }));
+            }
+            if retention.keep_solution {
+                let relative_path = format!("{block_dir_name}/solution_summary.json");
+                write_json_file(&directory.join(&relative_path), &artifacts.solution_summary)?;
+                files.push(json!({
+                    "artifact": "solution_summary",
+                    "path": relative_path,
+                }));
+            }
+
+            rows.push(json!({
+                "order": order,
+                "name": artifacts.name,
+                "files": files,
+            }));
+        }
+
+        let manifest = json!({
+            "policy": drop_policy_name(policy),
+            "blocks": rows,
+        });
+        write_json_file(&directory.join("manifest.json"), &manifest)?;
+        let Some(blocks) = manifest.get("blocks").and_then(Value::as_array) else {
+            return Err(BlockArtifactError::new_err(
+                "block artifact manifest must contain block rows",
+            ));
+        };
+        Ok(blocks.clone())
+    }
 }
 
 #[pymethods]
@@ -131,7 +282,7 @@ impl PyBlockResults {
             .iter()
             .find(|(name, _)| name == key)
             .map(|(_, result)| result.clone_ref(py))
-            .ok_or_else(|| PyKeyError::new_err(key.to_string()))
+            .ok_or_else(|| BlockResultError::new_err(format!("block result '{key}' not found")))
     }
 
     fn __len__(&self) -> usize {
@@ -142,8 +293,27 @@ impl PyBlockResults {
         self.results.iter().any(|(name, _)| name == key)
     }
 
+    fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let keys = self.keys();
+        Ok(PyList::new(py, keys)?
+            .call_method0("__iter__")?
+            .unbind()
+            .into())
+    }
+
     fn keys(&self) -> Vec<String> {
         self.results.iter().map(|(name, _)| name.clone()).collect()
+    }
+
+    #[pyo3(signature = (key, default=None))]
+    fn get(&self, py: Python<'_>, key: &str, default: Option<PyObject>) -> PyObject {
+        self.results
+            .iter()
+            .find(|(name, _)| name == key)
+            .map_or_else(
+                || default.unwrap_or_else(|| py.None()),
+                |(_, result)| result.clone_ref(py).into_any(),
+            )
     }
 
     fn values(&self, py: Python<'_>) -> Vec<Py<PySolveResult>> {
@@ -160,10 +330,271 @@ impl PyBlockResults {
             .collect()
     }
 
+    fn statuses(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let statuses = PyDict::new(py);
+        for (name, result) in &self.results {
+            let status = result.borrow(py).inner().status_string().to_uppercase();
+            statuses.set_item(name, status)?;
+        }
+        Ok(statuses.into_any().unbind())
+    }
+
+    fn report(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let rows = PyList::empty(py);
+        for row_value in self.report_rows(py) {
+            let Some(row_object) = row_value.as_object() else {
+                return Err(BlockResultError::new_err(
+                    "block report row must be an object",
+                ));
+            };
+            let row = PyDict::new(py);
+            for key in [
+                "order",
+                "name",
+                "status",
+                "objective_value",
+                "variable_count",
+                "constraint_count",
+            ] {
+                let Some(value) = row_object.get(key) else {
+                    return Err(BlockResultError::new_err("block report row is incomplete"));
+                };
+                let py_value = serde_bridge::json_to_py(py, value)?;
+                row.set_item(key, py_value.bind(py))?;
+            }
+            rows.append(row)?;
+        }
+        Ok(rows.into_any().unbind())
+    }
+
+    fn report_json(&self, py: Python<'_>) -> PyResult<String> {
+        serde_json::to_string(&self.report_rows(py)).map_err(|err| {
+            BlockResultError::new_err(format!("failed to encode block report as JSON: {err}"))
+        })
+    }
+
+    fn diagnostics(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let rows = PyList::empty(py);
+        for row_value in self.diagnostic_rows() {
+            let py_value = serde_bridge::json_to_py(py, &row_value)?;
+            rows.append(py_value.bind(py))?;
+        }
+        Ok(rows.into_any().unbind())
+    }
+
+    fn diagnostics_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.diagnostic_rows()).map_err(|err| {
+            BlockResultError::new_err(format!("failed to encode block diagnostics as JSON: {err}"))
+        })
+    }
+
+    #[pyo3(signature = (*, policy = "summary"))]
+    fn artifact_manifest(&self, py: Python<'_>, policy: &str) -> PyResult<PyObject> {
+        let rows = PyList::empty(py);
+        for row_value in self.artifact_manifest_rows(parse_drop_policy(policy)?) {
+            let Some(row_object) = row_value.as_object() else {
+                return Err(BlockArtifactError::new_err(
+                    "block artifact manifest row must be an object",
+                ));
+            };
+            let row = PyDict::new(py);
+            for key in ["order", "name", "artifacts"] {
+                let Some(value) = row_object.get(key) else {
+                    return Err(BlockArtifactError::new_err(
+                        "block artifact manifest row is incomplete",
+                    ));
+                };
+                let py_value = serde_bridge::json_to_py(py, value)?;
+                row.set_item(key, py_value.bind(py))?;
+            }
+            rows.append(row)?;
+        }
+        Ok(rows.into_any().unbind())
+    }
+
+    #[pyo3(signature = (*, policy = "summary"))]
+    fn artifact_manifest_json(&self, policy: &str) -> PyResult<String> {
+        serde_json::to_string(&self.artifact_manifest_rows(parse_drop_policy(policy)?)).map_err(
+            |err| {
+                BlockArtifactError::new_err(format!(
+                    "failed to encode block artifact manifest as JSON: {err}"
+                ))
+            },
+        )
+    }
+
+    #[pyo3(signature = (directory, *, policy = "summary"))]
+    fn write_artifacts(
+        &self,
+        py: Python<'_>,
+        directory: PathBuf,
+        policy: &str,
+    ) -> PyResult<PyObject> {
+        let rows = PyList::empty(py);
+        for row_value in self.write_artifact_rows(&directory, parse_drop_policy(policy)?)? {
+            let Some(row_object) = row_value.as_object() else {
+                return Err(BlockArtifactError::new_err(
+                    "block artifact writer row must be an object",
+                ));
+            };
+            let row = PyDict::new(py);
+            for key in ["order", "name", "files"] {
+                let Some(value) = row_object.get(key) else {
+                    return Err(BlockArtifactError::new_err(
+                        "block artifact writer row is incomplete",
+                    ));
+                };
+                let py_value = serde_bridge::json_to_py(py, value)?;
+                row.set_item(key, py_value.bind(py))?;
+            }
+            rows.append(row)?;
+        }
+        Ok(rows.into_any().unbind())
+    }
+
     fn __repr__(&self) -> String {
         let names: Vec<&str> = self.results.iter().map(|(n, _)| n.as_str()).collect();
         format!("BlockResults({})", names.join(", "))
     }
+}
+
+fn parse_drop_policy(policy: &str) -> PyResult<DropPolicy> {
+    match policy {
+        "model" => Ok(DropPolicy::KeepModel),
+        "summary" => Ok(DropPolicy::KeepSummary),
+        "none" => Ok(DropPolicy::DropAll),
+        other => Err(BlockContractError::new_err(format!(
+            "unknown block artifact policy `{other}`; expected 'model', 'summary', or 'none'"
+        ))),
+    }
+}
+
+fn drop_policy_name(policy: DropPolicy) -> &'static str {
+    match policy {
+        DropPolicy::KeepModel => "model",
+        DropPolicy::KeepSummary => "summary",
+        DropPolicy::DropAll => "none",
+    }
+}
+
+fn sanitize_artifact_path_part(name: &str) -> String {
+    let sanitized = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "block".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn write_json_file(path: &Path, value: &Value) -> PyResult<()> {
+    let bytes = serde_json::to_vec_pretty(value).map_err(|err| {
+        BlockArtifactError::new_err(format!(
+            "failed to encode block artifact '{}': {err}",
+            path.display()
+        ))
+    })?;
+    fs::write(path, bytes).map_err(|err| {
+        BlockArtifactError::new_err(format!(
+            "failed to write block artifact '{}': {err}",
+            path.display()
+        ))
+    })
+}
+
+fn solution_summary_artifact(solution: &Solution) -> Value {
+    json!({
+        "status": solution.status_string().to_uppercase(),
+        "objective_value": solution.objective_value,
+        "solve_time_seconds": solution.solve_time_seconds,
+        "variable_count": solution.primal_values.len(),
+        "constraint_count": solution.constraint_duals.len(),
+        "primal_values": solution.primal_values,
+        "variable_duals": solution.variable_duals,
+        "constraint_duals": solution.constraint_duals,
+        "row_values": solution.row_values,
+        "metadata": solution.metadata,
+    })
+}
+
+fn stage_diagnostics_artifact(
+    order: usize,
+    name: &str,
+    model_snapshot: &Value,
+    solution_summary: &Value,
+) -> Value {
+    json!({
+        "order": order,
+        "name": name,
+        "status": solution_summary.get("status").cloned().unwrap_or(Value::Null),
+        "objective_value": solution_summary
+            .get("objective_value")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "result": {
+            "variable_count": solution_summary
+                .get("variable_count")
+                .cloned()
+                .unwrap_or(Value::Null),
+            "constraint_count": solution_summary
+                .get("constraint_count")
+                .cloned()
+                .unwrap_or(Value::Null),
+        },
+        "model": model_snapshot
+            .get("metadata")
+            .cloned()
+            .unwrap_or(Value::Null),
+    })
+}
+
+fn model_snapshot_artifact(snapshot: ModelSnapshot) -> Value {
+    json!({
+        "metadata": {
+            "variables": snapshot.metadata.variables,
+            "constraints": snapshot.metadata.constraints,
+            "coefficients": snapshot.metadata.coefficients,
+            "memory": {
+                "coefficient_value_bytes": snapshot.metadata.memory.coefficient_value_bytes,
+                "coefficient_index_bytes": snapshot.metadata.memory.coefficient_index_bytes,
+                "variable_column_pointer_bytes": snapshot.metadata.memory.variable_column_pointer_bytes,
+                "sparse_matrix_bytes": snapshot.metadata.memory.sparse_matrix_bytes,
+            },
+        },
+        "objective": snapshot.objective.map(|objective| {
+            json!({
+                "sense": objective.sense.map(|sense| match sense {
+                    arco_ops::modeling::Sense::Minimize => "MINIMIZE",
+                    arco_ops::modeling::Sense::Maximize => "MAXIMIZE",
+                }),
+                "name": objective.name,
+                "term_count": objective.terms.len(),
+            })
+        }),
+        "variables": snapshot.variables.into_iter().map(|variable| {
+            json!({
+                "id": variable.id.inner(),
+                "name": variable.name,
+                "is_integer": variable.is_integer,
+                "is_active": variable.is_active,
+            })
+        }).collect::<Vec<_>>(),
+        "constraints": snapshot.constraints.into_iter().map(|constraint| {
+            json!({
+                "id": constraint.id.inner(),
+                "name": constraint.name,
+                "nnz": constraint.nnz,
+            })
+        }).collect::<Vec<_>>(),
+    })
 }
 
 /// Stored block definition for model.add_block()
@@ -199,7 +630,7 @@ struct TypedBlockBuilder {
 #[pymethods]
 impl TypedBlockBuilder {
     fn __call__(&self, py: Python<'_>, ctx: PyObject) -> PyResult<PyObject> {
-        let inputs_obj = ctx.bind(py).getattr("inputs")?.unbind();
+        let inputs_obj = context_inputs(ctx.bind(py))?;
         let data =
             coerce_to_schema_instance(py, inputs_obj, self.input_schema.bind(py), "Block input")?;
         let model = Py::new(py, PyModel::new(None, None)?)?.into_any();
@@ -215,7 +646,7 @@ impl TypedBlockBuilder {
                 .call1((model.clone_ref(py), data.clone_ref(py)))?
         };
         if !result.is_none() {
-            return Err(PyTypeError::new_err(
+            return Err(BlockContractError::new_err(
                 "block build function must return None",
             ));
         }
@@ -234,7 +665,7 @@ struct TypedBlockExtractor {
 #[pymethods]
 impl TypedBlockExtractor {
     fn __call__(&self, py: Python<'_>, solution: PyObject, ctx: PyObject) -> PyResult<PyObject> {
-        let inputs = ctx.bind(py).getattr("inputs")?.unbind();
+        let inputs = context_inputs(ctx.bind(py))?;
         let data =
             coerce_to_schema_instance(py, inputs, self.input_schema.bind(py), "Block input")?;
         let outputs = if self.expects_ctx {
@@ -251,6 +682,20 @@ impl TypedBlockExtractor {
             "Block output",
         )
     }
+}
+
+fn context_inputs(ctx: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    if let Ok(inputs) = ctx.getattr("inputs") {
+        return Ok(inputs.unbind());
+    }
+    if let Ok(dict) = ctx.cast::<PyDict>() {
+        if let Some(inputs) = dict.get_item("inputs")? {
+            return Ok(inputs.unbind());
+        }
+    }
+    Err(BlockContractError::new_err(
+        "block context must expose inputs as an attribute or dict key",
+    ))
 }
 
 #[pyclass]
@@ -283,10 +728,12 @@ impl PyModel {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
     ) -> PyResult<Py<PySolveResult>> {
-        if primal_start.is_some() {
-            return Err(PyRuntimeError::new_err(
-                "primal_start is not supported for composed models",
-            ));
+        if primal_start.is_some_and(|values| !values.is_empty()) {
+            return Err(
+                crate::py_modules::errors::SolverInvalidSettingError::new_err(
+                    "primal_start is not supported for composed models",
+                ),
+            );
         }
 
         let block_names = self
@@ -305,9 +752,10 @@ impl PyModel {
             })
             .collect::<Vec<_>>();
         let execution_levels = build_execution_levels(&block_names, &links)
-            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+            .map_err(|error| BlockContractError::new_err(error.to_string()))?;
 
         let mut block_results: Vec<(String, Py<PySolveResult>)> = Vec::new();
+        let mut block_artifacts: Vec<BlockRunArtifacts> = Vec::new();
         let block_outputs = PyDict::new(py);
 
         for level in execution_levels {
@@ -323,14 +771,14 @@ impl PyModel {
                     let source_outputs_any = block_outputs
                         .get_item(&link.source.block_name)?
                         .ok_or_else(|| {
-                            PyRuntimeError::new_err(format!(
+                            BlockContractError::new_err(format!(
                                 "link: source block '{}' output not available",
                                 link.source.block_name
                             ))
                         })?;
                     let source_outputs = source_outputs_any.cast::<PyDict>()?;
                     let value = source_outputs.get_item(&link.source.key)?.ok_or_else(|| {
-                        PyRuntimeError::new_err(format!(
+                        BlockContractError::new_err(format!(
                             "link: unknown source port '{}.{}'",
                             link.source.block_name, link.source.key
                         ))
@@ -341,6 +789,15 @@ impl PyModel {
                 let ctx = PyDict::new(py);
                 ctx.set_item("inputs", &inputs)?;
                 let model = block_def.build_adapter.bind(py).call1((ctx.clone(),))?;
+                let model_snapshot = {
+                    let model_ref = model.extract::<PyRef<'_, PyModel>>()?;
+                    model_ref.inner.inspect(InspectOptions {
+                        include_coefficients: false,
+                        include_slacks: true,
+                        variable_filter: None,
+                        constraint_filter: None,
+                    })
+                };
 
                 let solve_kwargs = PyDict::new(py);
                 if let Some(solver) = solver {
@@ -371,6 +828,15 @@ impl PyModel {
                     .bind(py)
                     .call1((solution.clone_ref(py), ctx.clone()))?;
                 block_outputs.set_item(&block_def.name, outputs_any)?;
+                let solution_summary = {
+                    let borrowed = solution.borrow(py);
+                    solution_summary_artifact(borrowed.inner())
+                };
+                block_artifacts.push(BlockRunArtifacts {
+                    name: block_def.name.clone(),
+                    model_snapshot: model_snapshot_artifact(model_snapshot),
+                    solution_summary,
+                });
                 block_results.push((block_def.name.clone(), solution));
             }
         }
@@ -383,6 +849,7 @@ impl PyModel {
                     .iter()
                     .map(|(n, r)| (n.clone(), r.clone_ref(py)))
                     .collect(),
+                artifacts: block_artifacts,
             },
         )?
         .into_any();
@@ -490,7 +957,7 @@ impl PyModel {
 
         // Validate no duplicate block names
         if self.block_defs.iter().any(|b| b.name == block_name) {
-            return Err(PyRuntimeError::new_err(format!(
+            return Err(BlockContractError::new_err(format!(
                 "add_block: block '{}' already exists",
                 block_name
             )));
@@ -554,12 +1021,12 @@ impl PyModel {
         target: BlockPort,
     ) -> PyResult<()> {
         if source.kind != "output" {
-            return Err(PyRuntimeError::new_err(
+            return Err(BlockContractError::new_err(
                 "link: source must be a block output port",
             ));
         }
         if target.kind != "input" {
-            return Err(PyRuntimeError::new_err(
+            return Err(BlockContractError::new_err(
                 "link: target must be a block input port",
             ));
         }
@@ -569,7 +1036,7 @@ impl PyModel {
             .iter()
             .find(|block| block.name == source.block_name)
             .ok_or_else(|| {
-                PyRuntimeError::new_err(format!(
+                BlockContractError::new_err(format!(
                     "link: unknown source block '{}'",
                     source.block_name
                 ))
@@ -579,7 +1046,7 @@ impl PyModel {
             .iter()
             .find(|block| block.name == target.block_name)
             .ok_or_else(|| {
-                PyRuntimeError::new_err(format!(
+                BlockContractError::new_err(format!(
                     "link: unknown target block '{}'",
                     target.block_name
                 ))
@@ -590,7 +1057,7 @@ impl PyModel {
             .bind(py)
             .get_item(&source.key)?
             .ok_or_else(|| {
-                PyRuntimeError::new_err(format!(
+                BlockContractError::new_err(format!(
                     "link: unknown source port '{}.{}'",
                     source.block_name, source.key
                 ))
@@ -600,13 +1067,13 @@ impl PyModel {
             .bind(py)
             .get_item(&target.key)?
             .ok_or_else(|| {
-                PyRuntimeError::new_err(format!(
+                BlockContractError::new_err(format!(
                     "link: unknown target port '{}.{}'",
                     target.block_name, target.key
                 ))
             })?;
         if !source_schema.eq(&target_schema)? {
-            return Err(PyTypeError::new_err(format!(
+            return Err(BlockContractError::new_err(format!(
                 "link: type mismatch for '{}.{}' -> '{}.{}'",
                 source.block_name, source.key, target.block_name, target.key
             )));
@@ -657,7 +1124,7 @@ fn typed_block_meta_from_decorated(
         .and_then(|value| value.extract::<bool>())
         .unwrap_or(false);
     if !marker {
-        return Err(PyTypeError::new_err(
+        return Err(BlockContractError::new_err(
             "add_block: block function must be decorated with @arco.block",
         ));
     }
@@ -722,19 +1189,19 @@ fn typed_block_meta_from_function(
     name_override: Option<&str>,
 ) -> PyResult<TypedBlockMeta> {
     if !func.is_callable() {
-        return Err(PyTypeError::new_err("block: expected a callable"));
+        return Err(BlockContractError::new_err("block: expected a callable"));
     }
     let inspected = inspect_callable_signature(py, func)?;
     let params = &inspected.params;
     if params.len() != 2 && params.len() != 3 {
-        return Err(PyTypeError::new_err(
+        return Err(BlockContractError::new_err(
             "block: expected signature (model, data) or (model, data, ctx)",
         ));
     }
     for param in params {
         let kind = param.bind(py).getattr("kind")?;
         if kind.eq(inspected.var_positional.bind(py))? || kind.eq(inspected.var_keyword.bind(py))? {
-            return Err(PyTypeError::new_err(
+            return Err(BlockContractError::new_err(
                 "block: variadic *args/**kwargs are not supported",
             ));
         }
@@ -742,7 +1209,7 @@ fn typed_block_meta_from_function(
     for param in params {
         let kind = param.bind(py).getattr("kind")?;
         if kind.eq(inspected.keyword_only.bind(py))? {
-            return Err(PyTypeError::new_err(
+            return Err(BlockContractError::new_err(
                 "block: keyword-only parameters are not supported",
             ));
         }
@@ -750,7 +1217,7 @@ fn typed_block_meta_from_function(
 
     let input_schema = params[1].bind(py).getattr("annotation")?;
     if input_schema.is(inspected.empty.bind(py)) {
-        return Err(PyTypeError::new_err(
+        return Err(BlockContractError::new_err(
             "block: data parameter must include a schema annotation",
         ));
     }
@@ -778,14 +1245,14 @@ fn typed_extract_meta_from_function(
     block_name: &str,
 ) -> PyResult<TypedExtractMeta> {
     if !extract.is_callable() {
-        return Err(PyTypeError::new_err(format!(
+        return Err(BlockContractError::new_err(format!(
             "add_block: extract for block '{block_name}' must be callable"
         )));
     }
     let inspected = inspect_callable_signature(py, extract)?;
     let params = &inspected.params;
     if params.len() != 2 && params.len() != 3 {
-        return Err(PyTypeError::new_err(format!(
+        return Err(BlockContractError::new_err(format!(
             "add_block: extract for block '{block_name}' must use (solution, data) or (solution, data, ctx)"
         )));
     }
@@ -795,7 +1262,7 @@ fn typed_extract_meta_from_function(
             || kind.eq(inspected.var_keyword.bind(py))?
             || kind.eq(inspected.keyword_only.bind(py))?
         {
-            return Err(PyTypeError::new_err(format!(
+            return Err(BlockContractError::new_err(format!(
                 "add_block: extract for block '{block_name}' cannot use variadic or keyword-only parameters"
             )));
         }
@@ -803,19 +1270,19 @@ fn typed_extract_meta_from_function(
 
     let input_annotation = params[1].bind(py).getattr("annotation")?;
     if input_annotation.is(inspected.empty.bind(py)) {
-        return Err(PyTypeError::new_err(format!(
+        return Err(BlockContractError::new_err(format!(
             "add_block: extract for block '{block_name}' must annotate the data parameter"
         )));
     }
     if !input_annotation.eq(expected_input_schema)? {
-        return Err(PyTypeError::new_err(format!(
+        return Err(BlockContractError::new_err(format!(
             "add_block: extract data annotation must match block input schema for '{block_name}'"
         )));
     }
 
     let output_schema = inspected.signature.bind(py).getattr("return_annotation")?;
     if output_schema.is(inspected.empty.bind(py)) {
-        return Err(PyTypeError::new_err(format!(
+        return Err(BlockContractError::new_err(format!(
             "add_block: extract for block '{block_name}' must annotate its return type"
         )));
     }
@@ -833,7 +1300,7 @@ fn validate_schema_type(py: Python<'_>, schema: &Bound<'_, PyAny>, role: &str) -
     if is_dataclass_schema(py, schema)? || is_pydantic_schema(py, schema)? {
         return Ok(());
     }
-    Err(PyTypeError::new_err(format!(
+    Err(BlockContractError::new_err(format!(
         "block: {role} schema must be a dataclass or pydantic BaseModel type"
     )))
 }
@@ -881,7 +1348,7 @@ fn schema_fields_dict(py: Python<'_>, schema: &Bound<'_, PyAny>) -> PyResult<Py<
         }
         return Ok(out.unbind());
     }
-    Err(PyTypeError::new_err(
+    Err(BlockContractError::new_err(
         "Unsupported schema type while extracting fields",
     ))
 }
@@ -905,12 +1372,12 @@ fn coerce_to_schema_instance(
             let instance = schema.call((), Some(dict))?;
             return Ok(instance.unbind());
         }
-        return Err(PyValueError::new_err(format!(
+        return Err(BlockContractError::new_err(format!(
             "{context} must be a dict or {} instance",
             schema.get_type().name()?
         )));
     }
-    Err(PyTypeError::new_err(format!(
+    Err(BlockContractError::new_err(format!(
         "{context} has unsupported schema type"
     )))
 }
@@ -929,7 +1396,7 @@ fn schema_instance_to_dict(
     }
     if is_dataclass_schema(py, schema)? {
         if !value.bind(py).is_instance(schema)? {
-            return Err(PyValueError::new_err(format!(
+            return Err(BlockContractError::new_err(format!(
                 "{context} must be a {} instance",
                 schema.get_type().name()?
             )));
@@ -942,7 +1409,7 @@ fn schema_instance_to_dict(
         }
         return Ok(out.into_any().unbind());
     }
-    Err(PyTypeError::new_err(format!(
+    Err(BlockContractError::new_err(format!(
         "{context} has unsupported schema type"
     )))
 }

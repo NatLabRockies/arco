@@ -25,12 +25,13 @@ class CapacityOut:
     level: float
 
 @block
-def build_capacity(model: arco.Model, data: CapacityIn) -> None:
+def build_capacity(model: arco.Model, data: CapacityIn, ctx) -> None:
     x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=data.capacity), name="x")
+    ctx["level"] = x
     model.minimize(x)
 
-def extract_capacity(result, data: CapacityIn) -> CapacityOut:
-    return CapacityOut(level=result.get_primal(index=0))
+def extract_capacity(result, data: CapacityIn, ctx) -> CapacityOut:
+    return CapacityOut(level=result.value(ctx["level"]))
 ```
 
 ## Pydantic schema example
@@ -47,12 +48,13 @@ class DemandOut(BaseModel):
     value: float
 
 @block
-def build_demand(model: arco.Model, data: DemandIn) -> None:
+def build_demand(model: arco.Model, data: DemandIn, ctx) -> None:
     y = model.add_variable(bounds=arco.Bounds(lower=data.floor, upper=100.0), name="y")
+    ctx["value"] = y
     model.minimize(y)
 
-def extract_demand(result, data: DemandIn) -> DemandOut:
-    return DemandOut(value=result.get_primal(index=0))
+def extract_demand(result, data: DemandIn, ctx) -> DemandOut:
+    return DemandOut(value=result.value(ctx["value"]))
 ```
 
 ## Link by typed fields
@@ -71,6 +73,9 @@ Arco validates source and target field types before solve.
 - Missing type annotation on `data`.
 - Extract function return type missing or unsupported.
 - Linking fields with different types.
+
+Block contract failures raise `arco.BlockContractError` with diagnostic code
+`arco::block::contract`.
 
 ---
 

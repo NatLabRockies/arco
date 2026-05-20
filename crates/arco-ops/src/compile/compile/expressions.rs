@@ -35,6 +35,11 @@ fn linearize_value_expr(
                     entrypoint,
                 );
             }
+            if find_variable_family(name, 0, variable_signatures).is_some()
+                && instantiated_names.contains(name)
+            {
+                return Ok(AffineExpr::variable(name.clone(), 1.0));
+            }
             Err(CompileError::InvalidFormulation {
                 message: format!("unresolved symbol `{name}` in linear expression"),
                 path: entrypoint.to_path_buf(),

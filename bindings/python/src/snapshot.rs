@@ -7,6 +7,39 @@ use crate::py_modules::views::{
     PyCoefficientView, PyConstraintView, PyObjectiveView, PySlackView, PyVariableView,
 };
 
+/// Conservative memory estimate for sparse matrix storage.
+#[pyclass(from_py_object, name = "SnapshotMemoryEstimate")]
+#[derive(Clone)]
+pub struct PySnapshotMemoryEstimate {
+    pub coefficient_value_bytes: usize,
+    pub coefficient_index_bytes: usize,
+    pub variable_column_pointer_bytes: usize,
+    pub sparse_matrix_bytes: usize,
+}
+
+#[pymethods]
+impl PySnapshotMemoryEstimate {
+    #[getter]
+    fn coefficient_value_bytes(&self) -> usize {
+        self.coefficient_value_bytes
+    }
+
+    #[getter]
+    fn coefficient_index_bytes(&self) -> usize {
+        self.coefficient_index_bytes
+    }
+
+    #[getter]
+    fn variable_column_pointer_bytes(&self) -> usize {
+        self.variable_column_pointer_bytes
+    }
+
+    #[getter]
+    fn sparse_matrix_bytes(&self) -> usize {
+        self.sparse_matrix_bytes
+    }
+}
+
 /// Metadata about a model snapshot.
 #[pyclass(from_py_object, name = "SnapshotMetadata")]
 #[derive(Clone)]
@@ -14,6 +47,7 @@ pub struct PySnapshotMetadata {
     pub variables: usize,
     pub constraints: usize,
     pub coefficients: usize,
+    pub memory: PySnapshotMemoryEstimate,
 }
 
 #[pymethods]
@@ -31,6 +65,11 @@ impl PySnapshotMetadata {
     #[getter]
     fn coefficients(&self) -> usize {
         self.coefficients
+    }
+
+    #[getter]
+    fn memory(&self) -> PySnapshotMemoryEstimate {
+        self.memory.clone()
     }
 }
 
@@ -157,6 +196,15 @@ impl PyModelSnapshot {
                 variables: snapshot.metadata.variables,
                 constraints: snapshot.metadata.constraints,
                 coefficients: snapshot.metadata.coefficients,
+                memory: PySnapshotMemoryEstimate {
+                    coefficient_value_bytes: snapshot.metadata.memory.coefficient_value_bytes,
+                    coefficient_index_bytes: snapshot.metadata.memory.coefficient_index_bytes,
+                    variable_column_pointer_bytes: snapshot
+                        .metadata
+                        .memory
+                        .variable_column_pointer_bytes,
+                    sparse_matrix_bytes: snapshot.metadata.memory.sparse_matrix_bytes,
+                },
             },
         })
     }
@@ -164,6 +212,7 @@ impl PyModelSnapshot {
 
 /// Register snapshot classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PySnapshotMemoryEstimate>()?;
     m.add_class::<PySnapshotMetadata>()?;
     m.add_class::<PyModelSnapshot>()?;
     Ok(())

@@ -246,7 +246,11 @@ fn compile_nonlinear_constraint_instances(
                 }
             }
         } else {
-            for scope in explicit_scopes.expect("explicit scopes must exist") {
+            for scope in explicit_constraint_scopes(
+                explicit_scopes,
+                &constraint.diagnostic_id,
+                entrypoint,
+            )? {
                 if let Some(filter) = &constraint.generation_filter {
                     match evaluate_reduction_filter(
                         filter,
@@ -449,6 +453,11 @@ fn compile_nonlinear_expr(
                     instantiated_names,
                     entrypoint,
                 );
+            }
+            if find_variable_family(name, 0, variable_signatures).is_some()
+                && instantiated_names.contains(name)
+            {
+                return Ok(NonlinearExpr::Variable(name.clone()));
             }
             Err(CompileError::InvalidFormulation {
                 message: format!("unresolved symbol `{name}` in nonlinear expression"),

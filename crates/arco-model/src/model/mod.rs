@@ -40,7 +40,7 @@ pub use csc_import::CscInput;
 pub use error::ModelError;
 pub use inspect::{
     CoefficientView, ConstraintView, InspectOptions, ModelSnapshot, ObjectiveView, SlackView,
-    SnapshotMetadata, VariableView,
+    SnapshotMemoryEstimate, SnapshotMetadata, VariableView,
 };
 pub use pretty::{
     DefaultPrettyPrintAdapter, PrettyBoundGroup, PrettyPrintAdapter, PrettyPrintOptions,

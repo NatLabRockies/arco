@@ -5,6 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use arco_ops::diagnostics::codes;
 use serde_json::Value;
 
 fn example_path(relative: &str) -> PathBuf {
@@ -254,6 +255,656 @@ fn print_model_succeeds_for_time_aliased_example() {
 }
 
 #[test]
+fn print_model_succeeds_for_scalar_controls() {
+    let root = unique_temp_dir("scalar-controls");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r"
+model first_model {
+  control x lower=1
+  control y lower=2
+
+  constraint demand {
+    expression { x + y >= 5 }
+  }
+
+  minimize total_cost { (3 * x) + (2 * y) }
+}
+
+scenario first_model_case { use first_model }
+",
+    )
+    .expect("write scalar model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["print-model", model]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        output.status.success(),
+        "print-model should succeed for scalar controls\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Min total_cost:"));
+    assert!(stdout.contains("demand:"));
+}
+
+#[test]
+fn print_model_infers_scenario_for_single_runnable_model() {
+    let root = unique_temp_dir("inferred-scenario");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r"
+model first_model {
+  control x lower=1
+  control y lower=2
+
+  constraint demand {
+    expression { x + y >= 5 }
+  }
+
+  minimize total_cost { (3 * x) + (2 * y) }
+}
+",
+    )
+    .expect("write scalar model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["print-model", model]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        output.status.success(),
+        "print-model should infer a scenario for one runnable model\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Min total_cost:"));
+    assert!(stdout.contains("demand:"));
+}
+
+#[test]
+fn run_solves_inferred_scenario_scalar_quickstart() {
+    let root = unique_temp_dir("run-inferred-scenario");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r"
+model first_model {
+  control x lower=1
+  control y lower=2
+
+  constraint demand {
+    expression { x + y >= 5 }
+  }
+
+  minimize total_cost { (3 * x) + (2 * y) }
+}
+",
+    )
+    .expect("write scalar model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let inspect_output = run_cli(&["inspect", model, "--json"]);
+    let output = run_cli(&["run", model, "--compact"]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        inspect_output.status.success(),
+        "inspect should estimate scalar coefficient instances\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&inspect_output.stdout),
+        String::from_utf8_lossy(&inspect_output.stderr)
+    );
+    let inspect_payload: Value =
+        serde_json::from_slice(&inspect_output.stdout).expect("valid inspect json");
+    assert_eq!(
+        inspect_payload["meta"]["counts"]["coefficient_instances"],
+        Value::from(2)
+    );
+    assert_eq!(
+        inspect_payload["meta"]["memory"]["coefficient_value_bytes"],
+        Value::from(16)
+    );
+    assert!(
+        inspect_payload["meta"]["memory"]["sparse_matrix_bytes"]
+            .as_u64()
+            .expect("sparse matrix byte estimate")
+            >= 16
+    );
+
+    assert!(
+        output.status.success(),
+        "run should solve the scalar quickstart with inferred scenario\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid run json");
+    assert_eq!(
+        payload["solve_status"],
+        Value::String("optimal".to_string())
+    );
+    assert_eq!(
+        payload["active_scenario"],
+        Value::String("first_model".to_string())
+    );
+    assert_eq!(payload["objective"]["value"], Value::from(11.0));
+    assert_eq!(payload["counts"]["variables"], Value::from(2));
+    assert_eq!(payload["counts"]["constraints"], Value::from(1));
+}
+
+#[test]
+fn run_solves_indexed_kdl_api_contract() {
+    let root = unique_temp_dir("run-indexed-kdl-api-contract");
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).expect("create data dir");
+    fs::write(
+        data_dir.join("plants.csv"),
+        "plant,demand,cost\nnorth,3,2\nsouth,5,1\n",
+    )
+    .expect("write plant data");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r#"
+data plant_data source="data/plants.csv" {
+  set plant
+
+  param demand {
+    index plant
+  }
+
+  param cost {
+    index plant
+  }
+}
+
+model indexed_allocation {
+  control output lower=0 {
+    index plant
+  }
+
+  constraint meet_demand {
+    index p { in plant }
+    expression { output[p] >= demand[p] }
+  }
+
+  minimize total_cost {
+    sum(cost[p] * output[p] for p in plant)
+  }
+}
+
+scenario indexed_case { use indexed_allocation }
+"#,
+    )
+    .expect("write indexed model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let inspect_output = run_cli(&["inspect", model, "--json"]);
+    let output = run_cli(&["run", model, "--compact"]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        inspect_output.status.success(),
+        "inspect should expose the indexed KDL API contract\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&inspect_output.stdout),
+        String::from_utf8_lossy(&inspect_output.stderr)
+    );
+    let inspect_payload: Value =
+        serde_json::from_slice(&inspect_output.stdout).expect("valid inspect json");
+    assert_eq!(
+        inspect_payload["variable"][0]["set"][0]["name"],
+        Value::from("plant")
+    );
+    assert_eq!(
+        inspect_payload["variable"][0]["set"][0]["size"],
+        Value::from(2)
+    );
+    assert_eq!(
+        inspect_payload["constraint"][0]["instances"],
+        Value::from(2)
+    );
+    assert_eq!(
+        inspect_payload["meta"]["counts"]["variable_instances"],
+        Value::from(2)
+    );
+    assert_eq!(
+        inspect_payload["meta"]["counts"]["constraint_instances"],
+        Value::from(2)
+    );
+    assert_eq!(
+        inspect_payload["meta"]["counts"]["coefficient_instances"],
+        Value::from(2)
+    );
+    assert_eq!(
+        inspect_payload["meta"]["memory"]["coefficient_value_bytes"],
+        Value::from(16)
+    );
+    assert!(
+        inspect_payload["meta"]["memory"]["sparse_matrix_bytes"]
+            .as_u64()
+            .expect("sparse matrix byte estimate")
+            >= 16
+    );
+
+    assert!(
+        output.status.success(),
+        "run should solve the indexed KDL API contract\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid run json");
+    assert_eq!(
+        payload["solve_status"],
+        Value::String("optimal".to_string())
+    );
+    assert_eq!(
+        payload["active_scenario"],
+        Value::String("indexed_case".to_string())
+    );
+    assert_eq!(payload["objective"]["name"], Value::from("total_cost"));
+    assert_eq!(payload["objective"]["value"], Value::from(11.0));
+    assert_eq!(payload["counts"]["variables"], Value::from(2));
+    assert_eq!(payload["counts"]["constraints"], Value::from(2));
+}
+
+#[test]
+fn run_reports_missing_data_column_for_data_backed_model() {
+    let root = unique_temp_dir("missing-data-column");
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).expect("create data dir");
+    fs::write(
+        data_dir.join("plants.csv"),
+        "plant,demand\nnorth,3\nsouth,5\n",
+    )
+    .expect("write plant data");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r#"
+data plant_data source="data/plants.csv" {
+  set plant
+
+  param demand {
+    index plant
+  }
+
+  param cost {
+    index plant
+  }
+}
+
+model indexed_allocation {
+  control output lower=0 {
+    index plant
+  }
+
+  constraint meet_demand {
+    index p { in plant }
+    expression { output[p] >= demand[p] }
+  }
+
+  minimize total_cost {
+    sum(cost[p] * output[p] for p in plant)
+  }
+}
+
+scenario indexed_case { use indexed_allocation }
+"#,
+    )
+    .expect("write indexed model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let check_output = run_cli(&[
+        "kdl",
+        "check",
+        model,
+        "--format",
+        "json",
+        "--materialize-data",
+    ]);
+    assert!(
+        !check_output.status.success(),
+        "materialized check should reject a missing CSV column\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&check_output.stdout),
+        String::from_utf8_lossy(&check_output.stderr)
+    );
+    let check_payload: Value =
+        serde_json::from_slice(&check_output.stdout).expect("valid check json");
+    assert_eq!(check_payload["valid"], Value::Bool(false));
+    assert_eq!(
+        check_payload["diagnostics"][0]["code"],
+        Value::String(codes::COMPILE_MISSING_COLUMN.to_string())
+    );
+    assert!(
+        check_payload["diagnostics"][0]["message"]
+            .as_str()
+            .expect("message")
+            .contains("missing required column `cost`")
+    );
+
+    let output = run_cli(&["run", model, "--compact"]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        !output.status.success(),
+        "run should reject a missing CSV column\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(codes::COMPILE_MISSING_COLUMN)
+            || stderr.contains(codes::SEMANTIC_MISSING_COLUMN),
+        "expected stable missing-column diagnostic code\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(
+        stderr.contains("missing required column `cost`"),
+        "expected missing cost column diagnostic\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+    assert!(
+        stderr.contains("add the missing CSV column"),
+        "expected actionable missing-column help\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+}
+
+#[test]
+fn materialized_kdl_check_reports_invalid_numeric_data_values() {
+    let root = unique_temp_dir("invalid-numeric-data-value");
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).expect("create data dir");
+    fs::write(
+        data_dir.join("plants.csv"),
+        "plant,demand,cost\nnorth,3,2\nsouth,5,not-a-number\n",
+    )
+    .expect("write plant data");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r#"
+data plant_data source="data/plants.csv" {
+  set plant
+
+  param demand {
+    index plant
+  }
+
+  param cost {
+    index plant
+  }
+}
+
+model indexed_allocation {
+  control output lower=0 {
+    index plant
+  }
+
+  constraint meet_demand {
+    index p { in plant }
+    expression { output[p] >= demand[p] }
+  }
+
+  minimize total_cost {
+    sum(cost[p] * output[p] for p in plant)
+  }
+}
+
+scenario indexed_case { use indexed_allocation }
+"#,
+    )
+    .expect("write indexed model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&[
+        "kdl",
+        "check",
+        model,
+        "--format",
+        "json",
+        "--materialize-data",
+    ]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        !output.status.success(),
+        "materialized check should reject invalid numeric data\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid check json");
+    assert_eq!(payload["valid"], Value::Bool(false));
+    assert_eq!(
+        payload["diagnostics"][0]["code"],
+        Value::String(codes::COMPILE_INVALID_NUMBER.to_string())
+    );
+    assert!(
+        payload["diagnostics"][0]["message"]
+            .as_str()
+            .expect("message")
+            .contains("not-a-number")
+    );
+}
+
+#[test]
+fn materialized_kdl_check_reports_missing_data_file_with_shared_code() {
+    let root = unique_temp_dir("missing-data-file");
+    fs::create_dir_all(root.join("data")).expect("create data dir");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r#"
+set plant { north; south }
+
+data plant_data source="data/missing.csv" {
+  param cost {
+    index plant
+  }
+}
+
+model indexed_allocation {
+  control output lower=0 {
+    index plant
+  }
+
+  minimize total_cost {
+    sum(cost[p] * output[p] for p in plant)
+  }
+}
+
+scenario indexed_case { use indexed_allocation }
+"#,
+    )
+    .expect("write indexed model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&[
+        "kdl",
+        "check",
+        model,
+        "--format",
+        "json",
+        "--materialize-data",
+    ]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        !output.status.success(),
+        "materialized check should reject a missing data file\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid check json");
+    assert_eq!(payload["valid"], Value::Bool(false));
+    assert_eq!(
+        payload["diagnostics"][0]["code"],
+        Value::String(codes::SEMANTIC_CSV.to_string())
+    );
+    assert!(
+        payload["diagnostics"][0]["message"]
+            .as_str()
+            .expect("message")
+            .contains("missing.csv")
+    );
+}
+
+#[test]
+fn materialized_kdl_check_reports_tuple_domain_missing_column_with_shared_code() {
+    let root = unique_temp_dir("tuple-domain-missing-column");
+    let data_dir = root.join("data");
+    fs::create_dir_all(&data_dir).expect("create data dir");
+    fs::write(
+        data_dir.join("links.csv"),
+        "area,tech,bus,feasible\nnorth,solar,b1,1\nsouth,wind,b2,1\n",
+    )
+    .expect("write link data");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r#"
+data links source="data/links.csv" {
+  map generators from="gen"
+
+  set area alias="a"
+  set tech alias="i"
+  set generators alias="g"
+  set bus alias="b"
+
+  set feasible_links {
+    index a { in area }
+    index i { in tech }
+    index g { in generators }
+    index b { in bus }
+    filter { feasible > 0 }
+  }
+}
+
+model NodalAllocation {
+  control capacity lower=0 {
+    index feasible_links
+  }
+
+  minimize total { 0 }
+}
+
+scenario NodalAllocationDay { use NodalAllocation }
+"#,
+    )
+    .expect("write tuple-domain model");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&[
+        "kdl",
+        "check",
+        model,
+        "--format",
+        "json",
+        "--materialize-data",
+    ]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        !output.status.success(),
+        "materialized check should reject a tuple-domain missing column\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid check json");
+    assert_eq!(payload["valid"], Value::Bool(false));
+    assert_eq!(
+        payload["diagnostics"][0]["code"],
+        Value::String(codes::SEMANTIC_MISSING_COLUMN.to_string())
+    );
+    assert!(
+        payload["diagnostics"][0]["message"]
+            .as_str()
+            .expect("message")
+            .contains("missing required column `gen`")
+    );
+}
+
+#[test]
+fn print_model_requires_scenario_when_multiple_models_exist() {
+    let root = unique_temp_dir("ambiguous-scenario");
+    fs::create_dir_all(&root).expect("create temp dir");
+    let model_path = root.join("input.kdl");
+    fs::write(
+        &model_path,
+        r"
+model first_model {
+  control x lower=0
+  minimize total_cost { x }
+}
+
+model second_model {
+  control y lower=0
+  minimize total_cost { y }
+}
+",
+    )
+    .expect("write ambiguous model file");
+
+    let model = model_path
+        .to_str()
+        .expect("model path contains invalid unicode");
+    let output = run_cli(&["print-model", model]);
+
+    let _ = fs::remove_dir_all(root);
+
+    assert!(
+        !output.status.success(),
+        "print-model should require a scenario for multiple models\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("add a `scenario` declaration"),
+        "expected actionable scenario diagnostic\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn kdl_fmt_rewrites_unformatted_file() {
     let root = unique_temp_dir("kdl-fmt-rewrite");
     fs::create_dir_all(&root).expect("create temp dir");
@@ -401,8 +1052,19 @@ fn inspect_json_produces_valid_json() {
         .expect("counts object");
     assert!(counts.get("set").is_some());
     assert!(counts.get("variable").is_some());
+    assert!(counts.get("variable_instances").is_some());
     assert!(counts.get("parameter").is_some());
     assert!(counts.get("constraint").is_some());
+    assert!(counts.get("constraint_instances").is_some());
+    assert!(counts.get("coefficient_instances").is_some());
+
+    let memory = payload["meta"]["memory"]
+        .as_object()
+        .expect("memory estimate object");
+    assert!(memory.get("coefficient_value_bytes").is_some());
+    assert!(memory.get("coefficient_index_bytes").is_some());
+    assert!(memory.get("variable_column_pointer_bytes").is_some());
+    assert!(memory.get("sparse_matrix_bytes").is_some());
 }
 
 #[test]
@@ -559,6 +1221,11 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
 
     let inspect_payload: Value =
         serde_json::from_slice(&inspect_output.stdout).expect("valid inspect json");
+    assert_eq!(
+        inspect_payload["meta"]["counts"]["variable_instances"],
+        Value::from(4),
+        "tuple-domain variable instances should track tuple rows, not Cartesian component domains"
+    );
 
     let inspect_sets = inspect_payload["set"].as_array().expect("set array");
     let feasible_links = inspect_sets
@@ -588,6 +1255,11 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
         .iter()
         .find(|record| record["name"] == "capacity_nodal_site")
         .expect("capacity_nodal_site variable record");
+    assert_eq!(
+        capacity["instances"],
+        Value::from(4),
+        "tuple-domain variable record should expose tuple-row instance count"
+    );
     let sets = capacity["set"]
         .as_array()
         .expect("capacity_nodal_site set array");
@@ -652,8 +1324,8 @@ fn run_compact_nodal_allocation_tracer_bullet_succeeds() {
     assert_eq!(summary["solve_status"], "optimal");
 
     let counts = summary["counts"].as_object().expect("counts object");
-    assert_eq!(counts.get("variables"), Some(&Value::from(1)));
-    assert_eq!(counts.get("constraints"), Some(&Value::from(3)));
+    assert_eq!(counts.get("variables"), Some(&Value::from(4)));
+    assert_eq!(counts.get("constraints"), Some(&Value::from(9)));
 }
 
 #[test]

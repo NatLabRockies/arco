@@ -28,9 +28,9 @@ Known optimum: `x = 1`, `y = 4`, objective `11`.
 # True
 >>> round(solution.objective_value, 6)
 # 11.0
->>> round(solution.get_primal(index=x), 6)
+>>> round(solution.value(x), 6)
 # 1.0
->>> round(solution.get_primal(index=y), 6)
+>>> round(solution.value(y), 6)
 # 4.0
 ```
 
@@ -64,9 +64,9 @@ Known optimum: `x = 20`, `y = 60`, objective `2600`.
 # True
 >>> round(solution.objective_value, 6)
 # 2600.0
->>> round(solution.get_value(x), 6)
+>>> round(solution.value(x), 6)
 # 20.0
->>> round(solution.get_value(y), 6)
+>>> round(solution.value(y), 6)
 # 60.0
 ```
 
@@ -94,7 +94,7 @@ Known solution: `x = [1, 2]`.
 >>> b = np.array([3.0, 1.0], dtype=float)
 >>> model = arco.Model()
 >>> j = arco.IndexSet(name="j", size=2)
->>> x = model.add_variables(j, bounds=arco.NonNegativeFloat, name="x")
+>>> x = model.add_variables(axes=(j,), bounds=arco.NonNegativeFloat, name="x")
 >>> row_constraints = model.add_constraints((A @ x) == b, name="row")
 >>> len(row_constraints)
 # 2
@@ -106,7 +106,7 @@ Known solution: `x = [1, 2]`.
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 # True
->>> tuple(float(v) for v in np.round(solution.get_value(x), 6))
+>>> tuple(float(v) for v in np.round(solution.value(x), 6))
 # (1.0, 2.0)
 ```
 
@@ -141,7 +141,7 @@ With values `[6,5,4]` and weights `[3,2,1]`, the known optimum value is `10`
 # True
 >>> round(solution.objective_value, 6)
 # 10.0
->>> tuple(round(solution.get_value(x[name]), 6) for name in items)
+>>> tuple(round(solution.value(x[name]), 6) for name in items)
 # (1.0, 0.0, 1.0)
 ```
 
@@ -167,7 +167,7 @@ Known optimum on the small test graph: objective `2` using the direct arc
 >>> model = arco.Model()
 >>> src = arco.IndexSet(name="src", size=3)
 >>> dst = arco.IndexSet(name="dst", size=3)
->>> x = model.add_variables(src, dst, bounds=arco.Binary, name="x")
+>>> x = model.add_variables(axes=(src, dst), bounds=arco.Binary, name="x")
 >>> no_arc = model.add_constraints(x[costs == 0.0] == 0.0, name="no_arc")
 >>> len(no_arc)
 # 6
@@ -183,9 +183,9 @@ Known optimum on the small test graph: objective `2` using the direct arc
 # True
 >>> round(solution.objective_value, 6)
 # 2.0
->>> round(solution.get_value(x[0, 1]), 6)
+>>> round(solution.value(x[0, 1]), 6)
 # 1.0
->>> abs(solution.get_value(x[0, 2])) < 1e-6
+>>> abs(solution.value(x[0, 2])) < 1e-6
 # True
 ```
 
@@ -212,8 +212,8 @@ Known optimum for this two-unit instance: objective `275`, generation
 >>> demand = 120.0
 >>> model = arco.Model()
 >>> units = arco.IndexSet(name="unit", size=2)
->>> g = model.add_variables(units, bounds=arco.NonNegativeFloat, name="gen")
->>> u = model.add_variables(units, bounds=arco.Binary, name="commit")
+>>> g = model.add_variables(axes=(units,), bounds=arco.NonNegativeFloat, name="gen")
+>>> u = model.add_variables(axes=(units,), bounds=arco.Binary, name="commit")
 >>> model.add_constraint(g.sum() == demand, name="balance")
 # Constraint('balance', Bounds(120, 120))
 >>> capacity = model.add_constraints(g <= gen_max * u, name="capacity")
@@ -225,9 +225,9 @@ Known optimum for this two-unit instance: objective `275`, generation
 # True
 >>> round(solution.objective_value, 6)
 # 275.0
->>> tuple(float(v) for v in np.round(solution.get_value(g), 6))
+>>> tuple(float(v) for v in np.round(solution.value(g), 6))
 # (100.0, 20.0)
->>> tuple(float(v) for v in np.round(solution.get_value(u), 6))
+>>> tuple(float(v) for v in np.round(solution.value(u), 6))
 # (1.0, 1.0)
 ```
 
@@ -258,8 +258,8 @@ Known optimum for this toy graph: select edges `0->1` and `1->3`, objective
 >>> model = arco.Model()
 >>> src = arco.IndexSet(name="src", size=4)
 >>> dst = arco.IndexSet(name="dst", size=4)
->>> edge = model.add_variables(src, dst, bounds=arco.Binary, name="edge")
->>> flow = model.add_variables(src, dst, bounds=arco.NonNegativeFloat, name="flow")
+>>> edge = model.add_variables(axes=(src, dst), bounds=arco.Binary, name="edge")
+>>> flow = model.add_variables(axes=(src, dst), bounds=arco.NonNegativeFloat, name="flow")
 >>> model.add_constraint(np.sum(edge) <= 2.0, name="edge_budget")
 # Constraint('edge_budget', Bounds(-inf, 2))
 >>> capacity = model.add_constraints(flow <= G * edge, name="capacity")
@@ -277,11 +277,11 @@ Known optimum for this toy graph: select edges `0->1` and `1->3`, objective
 # True
 >>> round(solution.objective_value, 6)
 # -4.8
->>> solution.get_value(edge[0, 1]) > 0.9
+>>> solution.value(edge[0, 1]) > 0.9
 # True
->>> solution.get_value(edge[1, 3]) > 0.9
+>>> solution.value(edge[1, 3]) > 0.9
 # True
->>> abs(solution.get_value(edge[0, 2])) < 1e-6
+>>> abs(solution.value(edge[0, 2])) < 1e-6
 # True
 ```
 
@@ -309,11 +309,11 @@ generation `[2,2]`.
 >>> initial_storage = 2.0
 >>> model = arco.Model()
 >>> time = arco.IndexSet(name="t", size=T)
->>> r = model.add_variables(time, bounds=arco.NonNegativeFloat, name="renewable")
->>> p = model.add_variables(time, bounds=arco.Bounds(lower=0.0, upper=10.0), name="thermal")
->>> s = model.add_variables(time, bounds=arco.Bounds(lower=0.0, upper=2.0), name="storage")
->>> c = model.add_variables(time, bounds=arco.Bounds(lower=0.0, upper=1.0), name="charge")
->>> d = model.add_variables(time, bounds=arco.Bounds(lower=0.0, upper=1.0), name="discharge")
+>>> r = model.add_variables(axes=(time,), bounds=arco.NonNegativeFloat, name="renewable")
+>>> p = model.add_variables(axes=(time,), bounds=arco.Bounds(lower=0.0, upper=10.0), name="thermal")
+>>> s = model.add_variables(axes=(time,), bounds=arco.Bounds(lower=0.0, upper=2.0), name="storage")
+>>> c = model.add_variables(axes=(time,), bounds=arco.Bounds(lower=0.0, upper=1.0), name="charge")
+>>> d = model.add_variables(axes=(time,), bounds=arco.Bounds(lower=0.0, upper=1.0), name="discharge")
 >>> balance = model.add_constraints(p + r + d == demand + c, name="balance")
 >>> len(balance)
 # 2
@@ -330,9 +330,9 @@ generation `[2,2]`.
 # True
 >>> round(solution.objective_value, 6)
 # 40.0
->>> tuple(float(v) for v in np.round(solution.get_value(p), 6))
+>>> tuple(float(v) for v in np.round(solution.value(p), 6))
 # (2.0, 2.0)
->>> tuple(float(v) for v in np.round(solution.get_value(d), 6))
+>>> tuple(float(v) for v in np.round(solution.value(d), 6))
 # (1.0, 1.0)
 ```
 
@@ -358,7 +358,7 @@ For `N=4`, the model is feasible with objective `0`.
 >>> model = arco.Model()
 >>> rows = arco.IndexSet(name="row", size=N)
 >>> cols = arco.IndexSet(name="col", size=N)
->>> q = model.add_variables(rows, cols, bounds=arco.Binary, name="queen")
+>>> q = model.add_variables(axes=(rows, cols), bounds=arco.Binary, name="queen")
 >>> row_cons = model.add_constraints(q.sum(over=cols) == 1.0, name="row")
 >>> len(row_cons)
 # 4
@@ -373,7 +373,7 @@ For `N=4`, the model is feasible with objective `0`.
 # 7
 >>> model.minimize(0.0)
 >>> solution = model.solve(log_to_console=False)
->>> board = solution.get_value(q).reshape(N, N)
+>>> board = solution.value(q).reshape(N, N)
 >>> solution.is_optimal()
 # True
 >>> round(solution.objective_value, 6)

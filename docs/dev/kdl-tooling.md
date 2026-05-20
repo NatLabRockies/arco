@@ -43,6 +43,29 @@ shape:
 `line` and `column` are one-based when the canonical parser has a source span.
 Some semantic diagnostics currently report file-level errors and omit location.
 
+By default, `arco kdl check` is a structural validation command. It parses KDL,
+resolves semantic declarations, and returns editor-friendly diagnostics without
+building the full lowered algebraic problem.
+
+Use `--materialize-data` when the check should compile far enough to load
+CSV-backed parameter values used by objectives and constraints:
+
+```bash
+arco kdl check path/to/input.kdl --format json --materialize-data
+```
+
+This mode catches data-contract errors that depend on full CSV parameter
+materialization, such as a missing value column used only by an objective,
+or an invalid numeric value in a parameter column, without invoking a solver.
+
+`arco inspect --json` reports both declaration counts and expanded instance
+counts in `meta.counts`. Use `variable_instances`, `constraint_instances`, and
+`coefficient_instances` for pre-solve size checks; `variable` and `constraint`
+count KDL declarations. It also reports `meta.memory.sparse_matrix_bytes`, a
+conservative sparse-matrix allocation estimate based on value, index, and
+column-pointer bytes. Treat it as a no-solve memory signal, not as a guarantee
+of the exact allocation behavior of a concrete solver backend.
+
 ## Tree-sitter overlay
 
 The tree-sitter grammar is intentionally permissive. It parses KDL structure and

@@ -99,21 +99,25 @@ def main() -> None:
     for g in gens:
         for tt in periods:
             pg[g, tt] = m.add_variable(
-                arco.Bounds(pmin[g] / SBASE, pmax[g] / SBASE), name=f"pg[{g},{tt}]"
+                bounds=arco.Bounds(lower=pmin[g] / SBASE, upper=pmax[g] / SBASE),
+                name=f"pg[{g},{tt}]",
             )
             qg[g, tt] = m.add_variable(
-                arco.Bounds(qmin[g] / SBASE, qmax[g] / SBASE), name=f"qg[{g},{tt}]"
+                bounds=arco.Bounds(lower=qmin[g] / SBASE, upper=qmax[g] / SBASE),
+                name=f"qg[{g},{tt}]",
             )
 
     v: dict[tuple[int, int], arco.Variable] = {}
     va: dict[tuple[int, int], arco.Variable] = {}
     for i in buses:
         for tt in periods:
-            v[i, tt] = m.add_variable(arco.Bounds(0.9, 1.1), name=f"v[{i},{tt}]")
+            v[i, tt] = m.add_variable(
+                bounds=arco.Bounds(lower=0.9, upper=1.1), name=f"v[{i},{tt}]"
+            )
             slack = is_slack[i]
             half_pi = 1.5707963268 * (1 - slack)
             va[i, tt] = m.add_variable(
-                arco.Bounds(-half_pi, half_pi), name=f"va[{i},{tt}]"
+                bounds=arco.Bounds(lower=-half_pi, upper=half_pi), name=f"va[{i},{tt}]"
             )
 
     pw: dict[tuple[int, int], arco.Variable] = {}
@@ -122,11 +126,15 @@ def main() -> None:
     for i in buses:
         for tt in periods:
             cap = wind_cf[tt] * wcap_mw[i] / SBASE
-            pw[i, tt] = m.add_variable(arco.Bounds(0.0, cap), name=f"pw[{i},{tt}]")
-            pc[i, tt] = m.add_variable(arco.Bounds(0.0, cap), name=f"pc[{i},{tt}]")
+            pw[i, tt] = m.add_variable(
+                bounds=arco.Bounds(lower=0.0, upper=cap), name=f"pw[{i},{tt}]"
+            )
+            pc[i, tt] = m.add_variable(
+                bounds=arco.Bounds(lower=0.0, upper=cap), name=f"pc[{i},{tt}]"
+            )
             shed_cap = demand_scale[tt] * pd_mw[i] / SBASE
             lsh[i, tt] = m.add_variable(
-                arco.Bounds(0.0, shed_cap), name=f"lsh[{i},{tt}]"
+                bounds=arco.Bounds(lower=0.0, upper=shed_cap), name=f"lsh[{i},{tt}]"
             )
 
     # Directed flow variables only for connected pairs.
@@ -136,10 +144,10 @@ def main() -> None:
         lim = la["limit"] / SBASE
         for tt in periods:
             pij[i, j, tt] = m.add_variable(
-                arco.Bounds(-lim, lim), name=f"pij[{i},{j},{tt}]"
+                bounds=arco.Bounds(lower=-lim, upper=lim), name=f"pij[{i},{j},{tt}]"
             )
             qij[i, j, tt] = m.add_variable(
-                arco.Bounds(-lim, lim), name=f"qij[{i},{j},{tt}]"
+                bounds=arco.Bounds(lower=-lim, upper=lim), name=f"qij[{i},{j},{tt}]"
             )
 
     # ------------------------------------------------------------------

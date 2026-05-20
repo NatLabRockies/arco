@@ -32,7 +32,7 @@ bound is 0, the optimal value is exactly 0.
 >>> solution = model.solve(log_to_console=False)
 >>> solution.is_optimal()
 True
->>> round(solution.get_primal(index=y), 6)
+>>> round(solution.value(y), 6)
 0.0
 ```
 
@@ -123,7 +123,7 @@ behind. Picking all three would exceed the capacity (3 + 2 + 1 = 6 > 4), so
 the solver finds the most valuable subset that fits.
 
 > [!NOTE]
-> The `get_primal` method returns floating-point values even for binary
+> The `value` method returns floating-point values even for binary
 > variables. A result like 0.9999999 means the solver selected that item. Always
 > round before interpreting binary results.
 

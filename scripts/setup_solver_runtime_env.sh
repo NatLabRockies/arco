@@ -28,19 +28,32 @@ import pathlib
 import xpresslibs
 
 root = pathlib.Path(xpresslibs.__file__).resolve().parent
-lib_dir = root / "lib"
-if not lib_dir.is_dir():
-    raise SystemExit(f"missing Xpress lib dir: {lib_dir}")
+runtime_candidates = [
+    root / "lib" / "libxprs.so",
+    root / "lib" / "libxprs.dylib",
+    root / "bin" / "xprs.dll",
+]
+runtime_candidates.extend(sorted((root / "lib").glob("libxprs.so.*")))
+if not any(candidate.is_file() for candidate in runtime_candidates):
+    checked = ", ".join(str(candidate) for candidate in runtime_candidates)
+    raise SystemExit(f"missing Xpress runtime library; checked: {checked}")
 
 xpress_spec = importlib.util.find_spec("xpress")
 if xpress_spec is None or xpress_spec.origin is None:
     raise SystemExit("missing xpress Python package")
-license_path = pathlib.Path(xpress_spec.origin).resolve().parent / "license" / "community-xpauth.xpr"
-if not license_path.is_file():
-    raise SystemExit(f"missing Xpress community license: {license_path}")
-
 print(f"XPRESSDIR={root}")
-print(f"XPAUTH_PATH={license_path}")
+
+xpress_pkg_root = pathlib.Path(xpress_spec.origin).resolve().parent
+license_candidates = (
+    xpress_pkg_root / "license" / "community-xpauth.xpr",
+    root / "license" / "community-xpauth.xpr",
+    root / "bin" / "community-xpauth.xpr",
+)
+
+for candidate in license_candidates:
+    if candidate.is_file():
+        print(f"XPAUTH_PATH={candidate}")
+        break
 PY
 
 	cat "$env_file" >>"$github_env_file"

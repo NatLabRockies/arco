@@ -11,11 +11,386 @@ use arco_ops::modeling::model::PrettyPrintOptions;
 use arco_ops::modeling::types::Bounds;
 use arco_ops::modeling::{InspectOptions, Model, Objective, Sense, SlackBound, Variable};
 
-use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple, PyType};
+use pyo3::types::{PyDict, PyType};
 
 pub(crate) type PyObject = Py<PyAny>;
+
+#[pyfunction(name = "_diagnostic_codes")]
+fn diagnostic_codes(py: Python<'_>) -> PyResult<PyObject> {
+    let codes = PyDict::new(py);
+    codes.set_item(
+        "ALGEBRA_PARSE_ERROR",
+        arco_ops::diagnostics::codes::ALGEBRA_PARSE_ERROR,
+    )?;
+    codes.set_item(
+        "ARRAY_DIMENSION",
+        arco_ops::diagnostics::codes::ARRAY_DIMENSION,
+    )?;
+    codes.set_item("ARRAY_INDEX", arco_ops::diagnostics::codes::ARRAY_INDEX)?;
+    codes.set_item(
+        "ARRAY_OVERFLOW",
+        arco_ops::diagnostics::codes::ARRAY_OVERFLOW,
+    )?;
+    codes.set_item(
+        "ARRAY_SHAPE_MISMATCH",
+        arco_ops::diagnostics::codes::ARRAY_SHAPE_MISMATCH,
+    )?;
+    codes.set_item("ARRAY_TYPE", arco_ops::diagnostics::codes::ARRAY_TYPE)?;
+    codes.set_item(
+        "BLOCK_ARTIFACT_IO",
+        arco_ops::diagnostics::codes::BLOCK_ARTIFACT_IO,
+    )?;
+    codes.set_item(
+        "BLOCK_CONTRACT",
+        arco_ops::diagnostics::codes::BLOCK_CONTRACT,
+    )?;
+    codes.set_item("BLOCK_RESULT", arco_ops::diagnostics::codes::BLOCK_RESULT)?;
+    codes.set_item(
+        "BOUNDS_INVALID",
+        arco_ops::diagnostics::codes::BOUNDS_INVALID,
+    )?;
+    codes.set_item("CONFIG_IO", arco_ops::diagnostics::codes::CONFIG_IO)?;
+    codes.set_item(
+        "CONFIG_MISSING_DIRECTORY",
+        arco_ops::diagnostics::codes::CONFIG_MISSING_DIRECTORY,
+    )?;
+    codes.set_item(
+        "CONFIG_MISSING_PROJECT_DIRECTORY",
+        arco_ops::diagnostics::codes::CONFIG_MISSING_PROJECT_DIRECTORY,
+    )?;
+    codes.set_item(
+        "CONFIG_SECRET_REFERENCE_REQUIRED",
+        arco_ops::diagnostics::codes::CONFIG_SECRET_REFERENCE_REQUIRED,
+    )?;
+    codes.set_item(
+        "CONFIG_SELECTION",
+        arco_ops::diagnostics::codes::CONFIG_SELECTION,
+    )?;
+    codes.set_item("CONFIG_TOML", arco_ops::diagnostics::codes::CONFIG_TOML)?;
+    codes.set_item("COMPILE_CSV", arco_ops::diagnostics::codes::COMPILE_CSV)?;
+    codes.set_item(
+        "COMPILE_EMPTY_TUPLE_REDUCTION",
+        arco_ops::diagnostics::codes::COMPILE_EMPTY_TUPLE_REDUCTION,
+    )?;
+    codes.set_item(
+        "COMPILE_INVALID_CONSTRAINT_FILTER",
+        arco_ops::diagnostics::codes::COMPILE_INVALID_CONSTRAINT_FILTER,
+    )?;
+    codes.set_item(
+        "COMPILE_INVALID_FORMULATION",
+        arco_ops::diagnostics::codes::COMPILE_INVALID_FORMULATION,
+    )?;
+    codes.set_item(
+        "COMPILE_INVALID_NUMBER",
+        arco_ops::diagnostics::codes::COMPILE_INVALID_NUMBER,
+    )?;
+    codes.set_item(
+        "COMPILE_MISSING_ASSET",
+        arco_ops::diagnostics::codes::COMPILE_MISSING_ASSET,
+    )?;
+    codes.set_item(
+        "COMPILE_MISSING_COLUMN",
+        arco_ops::diagnostics::codes::COMPILE_MISSING_COLUMN,
+    )?;
+    codes.set_item(
+        "COMPILE_MISSING_DATA",
+        arco_ops::diagnostics::codes::COMPILE_MISSING_DATA,
+    )?;
+    codes.set_item(
+        "COMPILE_MISSING_DATA_POINT",
+        arco_ops::diagnostics::codes::COMPILE_MISSING_DATA_POINT,
+    )?;
+    codes.set_item(
+        "COMPILE_MISSING_DECLARATION",
+        arco_ops::diagnostics::codes::COMPILE_MISSING_DECLARATION,
+    )?;
+    codes.set_item(
+        "COMPILE_MISSING_PARAMETER",
+        arco_ops::diagnostics::codes::COMPILE_MISSING_PARAMETER,
+    )?;
+    codes.set_item(
+        "COMPILE_MISSING_SCENARIO",
+        arco_ops::diagnostics::codes::COMPILE_MISSING_SCENARIO,
+    )?;
+    codes.set_item(
+        "CONSTRAINT_BOUNDS_MISSING",
+        arco_ops::diagnostics::codes::CONSTRAINT_BOUNDS_MISSING,
+    )?;
+    codes.set_item(
+        "CONSTRAINT_INVALID_BOUNDS",
+        arco_ops::diagnostics::codes::CONSTRAINT_INVALID_BOUNDS,
+    )?;
+    codes.set_item(
+        "CONSTRAINT_INVALID_ID",
+        arco_ops::diagnostics::codes::CONSTRAINT_INVALID_ID,
+    )?;
+    codes.set_item(
+        "CONSTRAINT_NOT_FOUND",
+        arco_ops::diagnostics::codes::CONSTRAINT_NOT_FOUND,
+    )?;
+    codes.set_item(
+        "CONSTRAINT_SENSE",
+        arco_ops::diagnostics::codes::CONSTRAINT_SENSE,
+    )?;
+    codes.set_item(
+        "CONSTRAINT_TYPE",
+        arco_ops::diagnostics::codes::CONSTRAINT_TYPE,
+    )?;
+    codes.set_item(
+        "CSC_CONTIGUITY",
+        arco_ops::diagnostics::codes::CSC_CONTIGUITY,
+    )?;
+    codes.set_item("CSC_DIMENSION", arco_ops::diagnostics::codes::CSC_DIMENSION)?;
+    codes.set_item("CSC_DTYPE", arco_ops::diagnostics::codes::CSC_DTYPE)?;
+    codes.set_item(
+        "CSC_INVALID_DATA",
+        arco_ops::diagnostics::codes::CSC_INVALID_DATA,
+    )?;
+    codes.set_item(
+        "CSC_NEGATIVE_INDEX",
+        arco_ops::diagnostics::codes::CSC_NEGATIVE_INDEX,
+    )?;
+    codes.set_item(
+        "DEPENDENCY_MISSING",
+        arco_ops::diagnostics::codes::DEPENDENCY_MISSING,
+    )?;
+    codes.set_item(
+        "DRIVER_BACKEND_NOT_AVAILABLE",
+        arco_ops::diagnostics::codes::DRIVER_BACKEND_NOT_AVAILABLE,
+    )?;
+    codes.set_item(
+        "DRIVER_INSPECT_FORMAT",
+        arco_ops::diagnostics::codes::DRIVER_INSPECT_FORMAT,
+    )?;
+    codes.set_item("DRIVER_JSON", arco_ops::diagnostics::codes::DRIVER_JSON)?;
+    codes.set_item(
+        "EXPR_COEFFICIENT",
+        arco_ops::diagnostics::codes::EXPR_COEFFICIENT,
+    )?;
+    codes.set_item(
+        "EXPR_CONSTANT_OFFSET",
+        arco_ops::diagnostics::codes::EXPR_CONSTANT_OFFSET,
+    )?;
+    codes.set_item(
+        "EXPR_DIVISION_BY_ZERO",
+        arco_ops::diagnostics::codes::EXPR_DIVISION_BY_ZERO,
+    )?;
+    codes.set_item(
+        "EXPR_NOT_SINGLE_VARIABLE",
+        arco_ops::diagnostics::codes::EXPR_NOT_SINGLE_VARIABLE,
+    )?;
+    codes.set_item("EXPR_TYPE", arco_ops::diagnostics::codes::EXPR_TYPE)?;
+    codes.set_item(
+        "INDEX_SET_ARGUMENT",
+        arco_ops::diagnostics::codes::INDEX_SET_ARGUMENT,
+    )?;
+    codes.set_item(
+        "INDEX_SET_EMPTY",
+        arco_ops::diagnostics::codes::INDEX_SET_EMPTY,
+    )?;
+    codes.set_item(
+        "INDEX_SET_INDEX",
+        arco_ops::diagnostics::codes::INDEX_SET_INDEX,
+    )?;
+    codes.set_item(
+        "INDEX_SET_TYPE",
+        arco_ops::diagnostics::codes::INDEX_SET_TYPE,
+    )?;
+    codes.set_item(
+        "LOGGING_CONFIG",
+        arco_ops::diagnostics::codes::LOGGING_CONFIG,
+    )?;
+    codes.set_item("LOGGING_IO", arco_ops::diagnostics::codes::LOGGING_IO)?;
+    codes.set_item(
+        "METADATA_CONVERSION",
+        arco_ops::diagnostics::codes::METADATA_CONVERSION,
+    )?;
+    codes.set_item(
+        "MODEL_BINARY_BOUNDS",
+        arco_ops::diagnostics::codes::MODEL_BINARY_BOUNDS,
+    )?;
+    codes.set_item("MODEL_EMPTY", arco_ops::diagnostics::codes::MODEL_EMPTY)?;
+    codes.set_item(
+        "OBJECTIVE_ALREADY_SET",
+        arco_ops::diagnostics::codes::OBJECTIVE_ALREADY_SET,
+    )?;
+    codes.set_item(
+        "OBJECTIVE_INDEX",
+        arco_ops::diagnostics::codes::OBJECTIVE_INDEX,
+    )?;
+    codes.set_item(
+        "OBJECTIVE_MISSING",
+        arco_ops::diagnostics::codes::OBJECTIVE_MISSING,
+    )?;
+    codes.set_item("SEMANTIC_CSV", arco_ops::diagnostics::codes::SEMANTIC_CSV)?;
+    codes.set_item(
+        "SEMANTIC_AMBIGUOUS_TUPLE_SUBSET_INDEX",
+        arco_ops::diagnostics::codes::SEMANTIC_AMBIGUOUS_TUPLE_SUBSET_INDEX,
+    )?;
+    codes.set_item(
+        "SEMANTIC_DUPLICATE_DATA_BINDING",
+        arco_ops::diagnostics::codes::SEMANTIC_DUPLICATE_DATA_BINDING,
+    )?;
+    codes.set_item(
+        "SEMANTIC_DUPLICATE_DECLARATION",
+        arco_ops::diagnostics::codes::SEMANTIC_DUPLICATE_DECLARATION,
+    )?;
+    codes.set_item(
+        "SEMANTIC_DUPLICATE_MODEL_DECLARATION",
+        arco_ops::diagnostics::codes::SEMANTIC_DUPLICATE_MODEL_DECLARATION,
+    )?;
+    codes.set_item(
+        "SEMANTIC_DUPLICATE_TUPLE_ROWS",
+        arco_ops::diagnostics::codes::SEMANTIC_DUPLICATE_TUPLE_ROWS,
+    )?;
+    codes.set_item(
+        "SEMANTIC_EXPRESSION_CYCLE",
+        arco_ops::diagnostics::codes::SEMANTIC_EXPRESSION_CYCLE,
+    )?;
+    codes.set_item(
+        "SEMANTIC_MISSING_CELL",
+        arco_ops::diagnostics::codes::SEMANTIC_MISSING_CELL,
+    )?;
+    codes.set_item(
+        "SEMANTIC_MISSING_COLUMN",
+        arco_ops::diagnostics::codes::SEMANTIC_MISSING_COLUMN,
+    )?;
+    codes.set_item(
+        "SEMANTIC_MISSING_DECLARATION",
+        arco_ops::diagnostics::codes::SEMANTIC_MISSING_DECLARATION,
+    )?;
+    codes.set_item(
+        "SEMANTIC_MISSING_INITIAL_BOUNDARY",
+        arco_ops::diagnostics::codes::SEMANTIC_MISSING_INITIAL_BOUNDARY,
+    )?;
+    codes.set_item(
+        "SEMANTIC_MISSING_MODEL",
+        arco_ops::diagnostics::codes::SEMANTIC_MISSING_MODEL,
+    )?;
+    codes.set_item(
+        "SEMANTIC_MISSING_MODEL_USE",
+        arco_ops::diagnostics::codes::SEMANTIC_MISSING_MODEL_USE,
+    )?;
+    codes.set_item(
+        "SEMANTIC_MISSING_SCENARIO",
+        arco_ops::diagnostics::codes::SEMANTIC_MISSING_SCENARIO,
+    )?;
+    codes.set_item(
+        "SEMANTIC_SCENARIO_COUNT",
+        arco_ops::diagnostics::codes::SEMANTIC_SCENARIO_COUNT,
+    )?;
+    codes.set_item(
+        "SEMANTIC_TUPLE_SET_SCHEMA_MISMATCH",
+        arco_ops::diagnostics::codes::SEMANTIC_TUPLE_SET_SCHEMA_MISMATCH,
+    )?;
+    codes.set_item(
+        "SEMANTIC_TUPLE_SUBSET_DOMAIN_MISMATCH",
+        arco_ops::diagnostics::codes::SEMANTIC_TUPLE_SUBSET_DOMAIN_MISMATCH,
+    )?;
+    codes.set_item(
+        "SEMANTIC_UNKNOWN_SCENARIO_DATA_BINDING",
+        arco_ops::diagnostics::codes::SEMANTIC_UNKNOWN_SCENARIO_DATA_BINDING,
+    )?;
+    codes.set_item(
+        "SEMANTIC_UNRESOLVED_FILTER_IDENTIFIER",
+        arco_ops::diagnostics::codes::SEMANTIC_UNRESOLVED_FILTER_IDENTIFIER,
+    )?;
+    codes.set_item(
+        "SEMANTIC_UNRESOLVED_RULE_SET_FILTER_IDENTIFIER",
+        arco_ops::diagnostics::codes::SEMANTIC_UNRESOLVED_RULE_SET_FILTER_IDENTIFIER,
+    )?;
+    codes.set_item("SLACK_BOUND", arco_ops::diagnostics::codes::SLACK_BOUND)?;
+    codes.set_item(
+        "SLACK_INVALID_PENALTY",
+        arco_ops::diagnostics::codes::SLACK_INVALID_PENALTY,
+    )?;
+    codes.set_item(
+        "SLACK_VALUE_UNAVAILABLE",
+        arco_ops::diagnostics::codes::SLACK_VALUE_UNAVAILABLE,
+    )?;
+    codes.set_item(
+        "SOLVER_INFEASIBLE",
+        arco_ops::diagnostics::codes::SOLVER_INFEASIBLE,
+    )?;
+    codes.set_item("SOLVER_INDEX", arco_ops::diagnostics::codes::SOLVER_INDEX)?;
+    codes.set_item(
+        "SOLVER_INTERNAL",
+        arco_ops::diagnostics::codes::SOLVER_INTERNAL,
+    )?;
+    codes.set_item(
+        "SOLVER_ITERATION_LIMIT",
+        arco_ops::diagnostics::codes::SOLVER_ITERATION_LIMIT,
+    )?;
+    codes.set_item(
+        "SOLVER_INVALID_SETTING",
+        arco_ops::diagnostics::codes::SOLVER_INVALID_SETTING,
+    )?;
+    codes.set_item(
+        "SOLVER_MODEL_SIZE_LIMIT",
+        arco_ops::diagnostics::codes::SOLVER_MODEL_SIZE_LIMIT,
+    )?;
+    codes.set_item(
+        "SOLVER_NOT_AVAILABLE",
+        arco_ops::diagnostics::codes::SOLVER_NOT_AVAILABLE,
+    )?;
+    codes.set_item(
+        "SOLVER_TIME_LIMIT",
+        arco_ops::diagnostics::codes::SOLVER_TIME_LIMIT,
+    )?;
+    codes.set_item("SOLVER_TYPE", arco_ops::diagnostics::codes::SOLVER_TYPE)?;
+    codes.set_item(
+        "SOLVER_UNBOUNDED",
+        arco_ops::diagnostics::codes::SOLVER_UNBOUNDED,
+    )?;
+    codes.set_item(
+        "SOURCE_INVALID_ALGEBRA",
+        arco_ops::diagnostics::codes::SOURCE_INVALID_ALGEBRA,
+    )?;
+    codes.set_item(
+        "SOURCE_INVALID_INCLUDE",
+        arco_ops::diagnostics::codes::SOURCE_INVALID_INCLUDE,
+    )?;
+    codes.set_item(
+        "SOURCE_INVALID_VALUE",
+        arco_ops::diagnostics::codes::SOURCE_INVALID_VALUE,
+    )?;
+    codes.set_item("SOURCE_IO", arco_ops::diagnostics::codes::SOURCE_IO)?;
+    codes.set_item("SOURCE_KDL", arco_ops::diagnostics::codes::SOURCE_KDL)?;
+    codes.set_item(
+        "SOURCE_MISSING_ARGUMENT",
+        arco_ops::diagnostics::codes::SOURCE_MISSING_ARGUMENT,
+    )?;
+    codes.set_item(
+        "SOURCE_MISSING_NODE",
+        arco_ops::diagnostics::codes::SOURCE_MISSING_NODE,
+    )?;
+    codes.set_item(
+        "SOURCE_MISSING_PROPERTY",
+        arco_ops::diagnostics::codes::SOURCE_MISSING_PROPERTY,
+    )?;
+    codes.set_item(
+        "SOURCE_UNSUPPORTED_DECLARATION",
+        arco_ops::diagnostics::codes::SOURCE_UNSUPPORTED_DECLARATION,
+    )?;
+    codes.set_item(
+        "VARIABLE_INVALID_ID",
+        arco_ops::diagnostics::codes::VARIABLE_INVALID_ID,
+    )?;
+    codes.set_item(
+        "VARIABLE_INVALID_BOUNDS",
+        arco_ops::diagnostics::codes::VARIABLE_INVALID_BOUNDS,
+    )?;
+    codes.set_item(
+        "VARIABLE_NOT_FOUND",
+        arco_ops::diagnostics::codes::VARIABLE_NOT_FOUND,
+    )?;
+    codes.set_item(
+        "TARGET_EMPTY_VARIABLE_SET",
+        arco_ops::diagnostics::codes::TARGET_EMPTY_VARIABLE_SET,
+    )?;
+    Ok(codes.into_any().unbind())
+}
 
 #[pyclass(name = "BlockPort", from_py_object)]
 #[derive(Clone)]
@@ -156,7 +531,7 @@ impl PyModel {
     ///
     /// # Returns
     /// A Variable object
-    #[pyo3(signature = (bounds, *, is_integer=false, is_binary=false, name=None))]
+    #[pyo3(signature = (*, bounds, is_integer=false, is_binary=false, name=None))]
     fn add_variable(
         &mut self,
         bounds: BoundsSpec,
@@ -187,38 +562,33 @@ impl PyModel {
     }
 
     /// Add a vector or grid of variables to the model.
-    #[pyo3(signature = (*index_sets, bounds, is_integer=false, is_binary=false, active=None, name=None))]
+    #[pyo3(signature = (*, axes, bounds, is_integer=false, is_binary=false, active=None, name=None))]
     #[allow(clippy::too_many_arguments)]
     fn add_variables(
         &mut self,
         py: Python<'_>,
-        index_sets: &Bound<'_, PyTuple>,
+        axes: &Bound<'_, PyAny>,
         bounds: &Bound<'_, PyAny>,
         is_integer: bool,
         is_binary: bool,
         active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
     ) -> PyResult<PyVariableArray> {
-        let index_sets = extract_index_sets(index_sets)?;
+        let index_sets = extract_index_sets(axes)?;
 
         if index_sets.is_empty() {
             return Err(pym::errors::IndexSetEmptyError::new_err(
-                "index_sets must be non-empty",
+                "axes must be non-empty",
             ));
         }
 
-        let shape: Vec<usize> = index_sets
-            .iter()
-            .map(|s| {
-                let size = s.borrow(py).members.len();
-                if size == 0 {
-                    return Err(pym::errors::IndexSetEmptyError::new_err(
-                        "index sets must be non-empty",
-                    ));
-                }
-                Ok(size)
-            })
-            .collect::<PyResult<_>>()?;
+        let labeled_shape = pym::arrays::labeled_shape_from_index_sets(&index_sets)?;
+        let shape = labeled_shape.shape();
+        if shape.iter().any(|size| *size == 0) {
+            return Err(pym::errors::IndexSetEmptyError::new_err(
+                "index sets must be non-empty",
+            ));
+        }
 
         let total = shape.iter().try_fold(1usize, |acc, &size| {
             acc.checked_mul(size)
@@ -468,7 +838,7 @@ impl PyModel {
             // Try as numpy array or iterable of floats
             let arr: Vec<f64> = penalty.extract()?;
             if arr.len() != constraint_list.len() {
-                return Err(PyRuntimeError::new_err(format!(
+                return Err(pym::errors::SlackInvalidPenaltyError::new_err(format!(
                     "penalty array length {} does not match constraints length {}",
                     arr.len(),
                     constraint_list.len()
@@ -520,7 +890,7 @@ impl PyModel {
         Ok(PyElasticHandle::from_handle(handle))
     }
 
-    /// Set a coefficient in the constraint matrix
+    /// Expert: set a coefficient by solver-order matrix indices.
     ///
     /// # Arguments
     /// * `var_idx` - Index of the variable (column)
@@ -536,12 +906,28 @@ impl PyModel {
             .map_err(pym::errors::model_error_to_py)
     }
 
-    /// Set the objective function
+    /// Expert: set a variable name by solver-order variable index.
+    #[pyo3(signature = (*, index, name))]
+    fn set_variable_name(&mut self, index: u32, name: String) -> PyResult<()> {
+        self.inner
+            .set_variable_name(VariableId::new(index), name)
+            .map_err(pym::errors::model_error_to_py)
+    }
+
+    /// Expert: set a constraint name by solver-order constraint index.
+    #[pyo3(signature = (*, index, name))]
+    fn set_constraint_name(&mut self, index: u32, name: String) -> PyResult<()> {
+        self.inner
+            .set_constraint_name(ConstraintId::new(index), name)
+            .map_err(pym::errors::model_error_to_py)
+    }
+
+    /// Expert: set the objective from solver-order variable indices.
     ///
     /// # Arguments
     /// * `sense` - The optimization sense (Minimize or Maximize)
     /// * `terms` - List of (variable_index, coefficient) tuples
-    #[pyo3(signature = (sense, terms, *, name=None))]
+    #[pyo3(signature = (*, sense, terms, name=None))]
     fn set_objective(
         &mut self,
         sense: PySense,
@@ -560,7 +946,16 @@ impl PyModel {
 
         self.inner
             .set_objective(objective)
-            .map_err(pym::errors::model_error_to_py)?;
+            .map_err(|error| match error {
+                arco_ops::modeling::model::ModelError::InvalidVariableId(var_id) => {
+                    pym::errors::ObjectiveIndexError::new_err(format!(
+                        "objective term references variable index {} outside 0..{}",
+                        var_id.inner(),
+                        self.inner.num_variables()
+                    ))
+                }
+                other => pym::errors::model_error_to_py(other),
+            })?;
 
         self.inner
             .set_objective_name(name)
@@ -617,21 +1012,6 @@ impl PyModel {
         pym::model_nlp::add_nonlinear_constraint(self, expr, name)
     }
 
-    /// Set the objective name stored in model metadata.
-    #[pyo3(signature = (*, name))]
-    fn set_objective_name(&mut self, name: Option<String>) -> PyResult<()> {
-        self.inner
-            .set_objective_name(name)
-            .map_err(pym::errors::model_error_to_py)
-    }
-
-    /// Get the objective name stored in model metadata.
-    fn get_objective_name(&self) -> Option<String> {
-        self.inner
-            .get_objective_name()
-            .map(|value| value.to_string())
-    }
-
     /// Get current expression simplification level.
     fn simplify_level(&self) -> PySimplifyLevel {
         self.inner.simplify_level().into()
@@ -664,6 +1044,15 @@ impl PyModel {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
     ) -> PyResult<Py<PySolveResult>> {
+        if primal_start
+            .as_ref()
+            .is_some_and(|values| !values.is_empty())
+        {
+            return Err(pym::errors::SolverInvalidSettingError::new_err(
+                "primal_start is not supported on this solve path",
+            ));
+        }
+
         // Composed model: delegate to block orchestration
         if !self.block_defs.is_empty() {
             return self.solve_composed(
@@ -693,7 +1082,6 @@ impl PyModel {
                 if let Some(v) = verbosity {
                     settings.verbosity = Some(v);
                 }
-                let _ = primal_start; // not supported in NL path yet
                 let _ = time_limit;
                 let _ = mip_gap;
                 let solver_obj = pym::solver::PySolver { settings };
@@ -788,18 +1176,19 @@ impl PyModel {
 
     /// Returns a constraint by exact name match.
     ///
-    /// Raises KeyError if no constraint with the given name exists.
+    /// Raises ConstraintNotFoundError if no constraint with the given name exists.
     #[pyo3(signature = (*, name))]
     fn get_constraint(&self, name: &str) -> PyResult<PyConstraint> {
-        let con_id = self
-            .inner
-            .get_constraint_by_name(name)
-            .ok_or_else(|| PyKeyError::new_err(name.to_string()))?;
+        let con_id = self.inner.get_constraint_by_name(name).ok_or_else(|| {
+            pym::errors::ConstraintNotFoundError::new_err(format!(
+                "constraint named '{name}' does not exist"
+            ))
+        })?;
 
         let con = self
             .inner
             .get_constraint(con_id)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(pym::errors::model_error_to_py)?;
 
         Ok(PyConstraint::new(
             con_id.inner(),
@@ -810,16 +1199,18 @@ impl PyModel {
 
     /// Returns a variable by exact name match.
     ///
-    /// Raises KeyError if no variable with the given name exists.
+    /// Raises VariableNotFoundError if no variable with the given name exists.
     #[pyo3(signature = (*, name))]
     fn get_variable(&self, name: &str) -> PyResult<PyVariable> {
-        let var_id = self
-            .find_variable_by_name(name)
-            .ok_or_else(|| PyKeyError::new_err(name.to_string()))?;
+        let var_id = self.find_variable_by_name(name).ok_or_else(|| {
+            pym::errors::VariableNotFoundError::new_err(format!(
+                "variable named '{name}' does not exist"
+            ))
+        })?;
         let var = self
             .inner
             .get_variable(var_id)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(pym::errors::model_error_to_py)?;
         Ok(PyVariable::from_model_variable(
             var_id.inner(),
             Some(name.to_string()),
@@ -850,11 +1241,6 @@ impl PyModel {
             self.inner.num_variables(),
             self.inner.num_constraints()
         )
-    }
-
-    /// Get sparse matrix columns as dict mapping variable_id -> [(constraint_id, coefficient), ...]
-    fn get_columns(&self, py: Python<'_>) -> PyResult<PyObject> {
-        pym::model_inspect::get_columns(self, py)
     }
 
     /// Export CSC matrix in a sparse-matrix compatible format.
@@ -888,138 +1274,6 @@ impl PyModel {
     /// - shape: tuple (num_constraints, num_variables)
     fn export_coo(&self, py: Python<'_>) -> PyResult<PyObject> {
         pym::model_inspect::export_coo(self, py)
-    }
-
-    #[allow(clippy::unused_self)]
-    fn export_arrow(&self) -> PyResult<PyObject> {
-        pym::model_inspect::export_arrow()
-    }
-
-    /// Set name for a variable
-    ///
-    /// # Arguments
-    /// * `var_id` - Index of the variable
-    /// * `name` - Name to assign to the variable
-    #[pyo3(signature = (var_id, *, name))]
-    fn set_variable_name(&mut self, var_id: u32, name: String) -> PyResult<()> {
-        let id = VariableId::new(var_id);
-        self.inner
-            .set_variable_name(id, name)
-            .map_err(pym::errors::model_error_to_py)
-    }
-
-    /// Get name for a variable
-    ///
-    /// # Arguments
-    /// * `var_id` - Index of the variable
-    ///
-    /// # Returns
-    /// The name if set, None otherwise
-    fn get_variable_name(&self, var_id: u32) -> Option<String> {
-        self.reconstruct_variable_name(var_id)
-    }
-
-    /// Lookup a variable by name.
-    #[pyo3(signature = (name, /))]
-    fn get_variable_by_name(&self, name: String) -> Option<u32> {
-        self.find_variable_by_name(&name).map(|id| id.inner())
-    }
-
-    /// Set metadata for a variable
-    ///
-    /// # Arguments
-    /// * `var_id` - Index of the variable
-    /// * `metadata` - Dictionary of metadata to attach
-    #[pyo3(signature = (var_id, *, metadata))]
-    fn set_variable_metadata(
-        &mut self,
-        var_id: u32,
-        metadata: &Bound<'_, pyo3::types::PyDict>,
-    ) -> PyResult<()> {
-        let id = VariableId::new(var_id);
-        let value = pym::serde_bridge::py_any_to_json(&metadata.clone().into_any())?;
-        self.inner
-            .set_variable_metadata(id, value)
-            .map_err(pym::errors::model_error_to_py)
-    }
-
-    /// Get metadata for a variable
-    ///
-    /// # Arguments
-    /// * `var_id` - Index of the variable
-    ///
-    /// # Returns
-    /// The metadata dictionary if set, None otherwise
-    fn get_variable_metadata(&self, py: Python<'_>, var_id: u32) -> Option<PyObject> {
-        let id = VariableId::new(var_id);
-        self.inner
-            .get_variable_metadata(id)
-            .and_then(|v| pym::serde_bridge::json_to_py(py, v).ok())
-    }
-
-    /// Set name for a constraint
-    ///
-    /// # Arguments
-    /// * `con_id` - Index of the constraint
-    /// * `name` - Name to assign to the constraint
-    #[pyo3(signature = (con_id, *, name))]
-    fn set_constraint_name(&mut self, con_id: u32, name: String) -> PyResult<()> {
-        let id = ConstraintId::new(con_id);
-        self.inner
-            .set_constraint_name(id, name)
-            .map_err(pym::errors::model_error_to_py)
-    }
-
-    /// Get name for a constraint
-    ///
-    /// # Arguments
-    /// * `con_id` - Index of the constraint
-    ///
-    /// # Returns
-    /// The name if set, None otherwise
-    fn get_constraint_name(&self, con_id: u32) -> Option<String> {
-        let id = ConstraintId::new(con_id);
-        self.inner.get_constraint_name(id).map(|s| s.to_string())
-    }
-
-    /// Lookup a constraint by name.
-    #[pyo3(signature = (name, /))]
-    fn get_constraint_by_name(&self, name: String) -> Option<u32> {
-        self.inner
-            .get_constraint_by_name(&name)
-            .map(|id| id.inner())
-    }
-
-    /// Set metadata for a constraint
-    ///
-    /// # Arguments
-    /// * `con_id` - Index of the constraint
-    /// * `metadata` - Dictionary of metadata to attach
-    #[pyo3(signature = (con_id, *, metadata))]
-    fn set_constraint_metadata(
-        &mut self,
-        con_id: u32,
-        metadata: &Bound<'_, pyo3::types::PyDict>,
-    ) -> PyResult<()> {
-        let id = ConstraintId::new(con_id);
-        let value = pym::serde_bridge::py_any_to_json(&metadata.clone().into_any())?;
-        self.inner
-            .set_constraint_metadata(id, value)
-            .map_err(pym::errors::model_error_to_py)
-    }
-
-    /// Get metadata for a constraint
-    ///
-    /// # Arguments
-    /// * `con_id` - Index of the constraint
-    ///
-    /// # Returns
-    /// The metadata dictionary if set, None otherwise
-    fn get_constraint_metadata(&self, py: Python<'_>, con_id: u32) -> Option<PyObject> {
-        let id = ConstraintId::new(con_id);
-        self.inner
-            .get_constraint_metadata(id)
-            .and_then(|v| pym::serde_bridge::json_to_py(py, v).ok())
     }
 
     /// Inspect the model structure and return a snapshot.
@@ -1155,19 +1409,14 @@ fn extract_constraint_id(ob: &Bound<'_, PyAny>) -> PyResult<ConstraintId> {
     Ok(ConstraintId::new(constraint_ref.constraint_id))
 }
 
-/// Extract a `Vec<Py<PyIndexSet>>` from the positional `*index_sets` tuple.
-fn extract_index_sets(tuple: &Bound<'_, PyTuple>) -> PyResult<Vec<Py<PyIndexSet>>> {
-    tuple
-        .iter()
-        .map(|item| {
-            item.extract::<Py<PyIndexSet>>().map_err(|_| {
-                PyTypeError::new_err(
-                    "add_variables() expects IndexSet arguments, \
-                     e.g. model.add_variables(T, G, bounds=...)",
-                )
-            })
-        })
-        .collect()
+/// Extract a `Vec<Py<PyIndexSet>>` from the keyword-only `axes` argument.
+fn extract_index_sets(axes: &Bound<'_, PyAny>) -> PyResult<Vec<Py<PyIndexSet>>> {
+    axes.extract::<Vec<Py<PyIndexSet>>>().map_err(|_| {
+        pym::errors::ArrayTypeError::new_err(
+            "add_variables() expects axes=(...) with IndexSet values, \
+             e.g. model.add_variables(axes=(T, G), bounds=...)",
+        )
+    })
 }
 
 /// Extract a `PyExpr` from a Python object that may be a `PyExpr`, `PyVariable`, or scalar.
@@ -1227,6 +1476,7 @@ fn bounds_from_sense(sense: ComparisonSense, rhs: f64) -> Bounds {
 /// The Arco Python module
 #[pymodule]
 fn arco(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(diagnostic_codes, m)?)?;
     // Register all module classes
     m.add_class::<PyModel>()?;
     m.add_class::<PyBlockHandle>()?;

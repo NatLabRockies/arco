@@ -14,6 +14,7 @@ use arco_kdl::source::{
 use csv::StringRecord;
 use miette::Diagnostic;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -189,13 +190,8 @@ pub fn compile_program(
 ) -> Result<CompiledProblem, CompileError> {
     info!("compiling program");
 
-    let scenario = source_program
-        .scenario(&program.active_scenario)
-        .ok_or_else(|| CompileError::MissingScenario {
-            name: program.active_scenario.clone(),
-            path: entrypoint.to_path_buf(),
-        })?;
-    let mut inputs = load_inputs(program, source_program, scenario, entrypoint)?;
+    let scenario = resolve_compile_scenario(program, source_program, entrypoint)?;
+    let mut inputs = load_inputs(program, source_program, scenario.as_ref(), entrypoint)?;
     inputs.set_params.extend(program.set_params.clone());
     let algebra = compile_algebra(program, &inputs, entrypoint)?;
 
@@ -294,6 +290,37 @@ pub fn compile_program(
     );
 
     Ok(compiled)
+}
+
+fn resolve_compile_scenario<'a>(
+    program: &SemanticProgram,
+    source_program: &'a SourceProgram,
+    entrypoint: &Path,
+) -> Result<Cow<'a, ScenarioDecl>, CompileError> {
+    if let Some(scenario) = source_program.scenario(&program.active_scenario) {
+        return Ok(Cow::Borrowed(scenario));
+    }
+
+    match source_program.scenarios.as_slice() {
+        [] => {
+            let model = source_program
+                .model(&program.active_scenario)
+                .ok_or_else(|| CompileError::MissingScenario {
+                    name: program.active_scenario.clone(),
+                    path: entrypoint.to_path_buf(),
+                })?;
+            Ok(Cow::Owned(ScenarioDecl {
+                name: model.name.clone(),
+                data: Vec::new(),
+                model_use: Some(model.name.clone()),
+                reports: Vec::new(),
+            }))
+        }
+        _ => Err(CompileError::MissingScenario {
+            name: program.active_scenario.clone(),
+            path: entrypoint.to_path_buf(),
+        }),
+    }
 }
 
 fn compile_constraint(constraint: &ResolvedConstraint) -> CompiledConstraint {

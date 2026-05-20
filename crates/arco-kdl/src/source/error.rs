@@ -1,3 +1,4 @@
+use arco_diagnostics::codes;
 use miette::{Diagnostic, LabeledSpan, NamedSource, SourceCode, SourceSpan};
 use std::fmt::Display;
 use std::path::PathBuf;
@@ -75,15 +76,15 @@ pub enum SourceError {
 impl Diagnostic for SourceError {
     fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
         let code = match self {
-            Self::Io { .. } => "arco::source::io",
-            Self::Kdl { .. } => "arco::source::kdl",
-            Self::MissingNode { .. } => "arco::source::missing_node",
-            Self::MissingArgument { .. } => "arco::source::missing_argument",
-            Self::MissingProperty { .. } => "arco::source::missing_property",
-            Self::InvalidValue { .. } => "arco::source::invalid_value",
-            Self::UnsupportedDeclaration { .. } => "arco::source::unsupported_declaration",
-            Self::InvalidInclude { .. } => "arco::source::invalid_include",
-            Self::InvalidAlgebra { .. } => "arco::source::invalid_algebra",
+            Self::Io { .. } => codes::SOURCE_IO,
+            Self::Kdl { .. } => codes::SOURCE_KDL,
+            Self::MissingNode { .. } => codes::SOURCE_MISSING_NODE,
+            Self::MissingArgument { .. } => codes::SOURCE_MISSING_ARGUMENT,
+            Self::MissingProperty { .. } => codes::SOURCE_MISSING_PROPERTY,
+            Self::InvalidValue { .. } => codes::SOURCE_INVALID_VALUE,
+            Self::UnsupportedDeclaration { .. } => codes::SOURCE_UNSUPPORTED_DECLARATION,
+            Self::InvalidInclude { .. } => codes::SOURCE_INVALID_INCLUDE,
+            Self::InvalidAlgebra { .. } => codes::SOURCE_INVALID_ALGEBRA,
         };
         Some(Box::new(code))
     }

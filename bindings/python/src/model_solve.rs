@@ -1,6 +1,7 @@
 use crate::py_modules::errors;
 use crate::py_modules::solver::{
     SolveOverrides, detect_default_backend, extract_solver_settings, solve_failure_solution,
+    validate_backend_settings,
 };
 use crate::{PyModel, PySolveResult};
 use arco_ops::solve::{ModelViewSolveResult, Solution, SolverError};
@@ -27,12 +28,6 @@ pub(crate) fn solve_model(
         || model.default_backend.clone(),
         |solver| detect_default_backend(Some(solver)),
     );
-    if selected_backend == "xpress" && !crate::py_modules::solver::xpress_backend_enabled() {
-        return Err(errors::generic_solver_error_to_py(SolverError::SolverNotAvailable(
-            "Python bindings were built without the xpress feature. Rebuild with: uv run --with maturin maturin develop --features xpress".to_string(),
-        )));
-    }
-
     let overrides = SolveOverrides {
         log_to_console,
         time_limit,
@@ -44,9 +39,15 @@ pub(crate) fn solve_model(
     } else {
         model.solver_settings.clone()
     };
-    let config = effective_settings
-        .with_overrides(overrides)?
-        .to_solver_config();
+    let effective_settings = effective_settings.with_overrides(overrides)?;
+    validate_backend_settings(&selected_backend, &effective_settings)?;
+    if selected_backend == "xpress" && !crate::py_modules::solver::xpress_backend_enabled() {
+        return Err(errors::generic_solver_error_to_py(SolverError::SolverNotAvailable(
+            "Python bindings were built without the xpress feature. Rebuild with: uv run --with maturin maturin develop --features xpress".to_string(),
+        )));
+    }
+
+    let config = effective_settings.to_solver_config();
 
     let result = match arco_ops::ArcoOps::solve_model_view_with_builtin_backend(
         &selected_backend,
@@ -67,8 +68,8 @@ pub(crate) fn solve_model(
 
 fn reject_unsupported_primal_start(primal_start: Option<&[(u32, f64)]>) -> Result<(), SolverError> {
     if primal_start.is_some_and(|values| !values.is_empty()) {
-        return Err(SolverError::SolverSpecific(
-            "primal_start is not supported on the model-view solve path yet".to_string(),
+        return Err(SolverError::InvalidSettings(
+            "primal_start is not supported on the model-view solve path".to_string(),
         ));
     }
     Ok(())

@@ -7,11 +7,13 @@ use arco_ops::nlp::{
     BinaryOp, ConstraintSense, NlpOptions, NlpVariableSpec, NonlinearConstraint, NonlinearExpr,
     NonlinearObjective, NonlinearProblem, ObjectiveSense, solve_nonlinear_problem,
 };
-use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
 use crate::PyModel;
+use crate::py_modules::errors::{
+    ConstraintTypeError, SolverInternalError, SolverInvalidSettingError,
+};
 use crate::py_modules::expr::PyConstraintExpr;
 use crate::py_modules::nonlinear::{
     NlSense, PyNonlinearConstraintExpr, linear_constraint_to_nl, linear_expr_to_nl, nl_var_name,
@@ -32,7 +34,7 @@ pub(crate) fn add_nonlinear_constraint(
     } else if let Ok(linear) = expr.extract::<PyConstraintExpr>() {
         linear_constraint_to_nl(&linear)
     } else {
-        return Err(PyTypeError::new_err(
+        return Err(ConstraintTypeError::new_err(
             "expected a NonlinearConstraintExpr or linear ConstraintExpr",
         ));
     };
@@ -95,9 +97,9 @@ pub(crate) fn solve_with_ipopt(
         let id = VariableId::new(i as u32);
         let var = inner
             .get_variable(id)
-            .map_err(|e| PyRuntimeError::new_err(format!("variable {i}: {e}")))?;
+            .map_err(|e| SolverInternalError::new_err(format!("variable {i}: {e}")))?;
         if var.is_integer {
-            return Err(PyValueError::new_err(format!(
+            return Err(SolverInvalidSettingError::new_err(format!(
                 "IPOPT does not support integer variables (variable index {i})"
             )));
         }
@@ -117,7 +119,7 @@ pub(crate) fn solve_with_ipopt(
         let con_id = ConstraintId::new(ci as u32);
         let constraint = inner
             .get_constraint(con_id)
-            .map_err(|e| PyRuntimeError::new_err(format!("constraint {ci}: {e}")))?;
+            .map_err(|e| SolverInternalError::new_err(format!("constraint {ci}: {e}")))?;
         let row_expr = &row_exprs[ci];
         let lower = constraint.bounds.lower;
         let upper = constraint.bounds.upper;
@@ -231,7 +233,7 @@ pub(crate) fn solve_with_ipopt(
     };
 
     let solution = solve_nonlinear_problem(&problem, &variable_specs, &options)
-        .map_err(|e| PyRuntimeError::new_err(format!("IPOPT solve failed: {e}")))?;
+        .map_err(|e| SolverInternalError::new_err(format!("IPOPT solve failed: {e}")))?;
 
     let mut primal_values: Vec<f64> = vec![0.0; n_vars];
     for i in 0..n_vars {
