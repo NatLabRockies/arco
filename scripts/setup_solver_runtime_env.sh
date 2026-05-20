@@ -28,11 +28,12 @@ import pathlib
 import xpresslibs
 
 root = pathlib.Path(xpresslibs.__file__).resolve().parent
-runtime_candidates = (
+runtime_candidates = [
     root / "lib" / "libxprs.so",
     root / "lib" / "libxprs.dylib",
     root / "bin" / "xprs.dll",
-)
+]
+runtime_candidates.extend(sorted((root / "lib").glob("libxprs.so.*")))
 if not any(candidate.is_file() for candidate in runtime_candidates):
     checked = ", ".join(str(candidate) for candidate in runtime_candidates)
     raise SystemExit(f"missing Xpress runtime library; checked: {checked}")
