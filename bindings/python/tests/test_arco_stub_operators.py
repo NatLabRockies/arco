@@ -176,7 +176,7 @@ def test_model_stub_exposes_expert_sparse_apis_without_internal_columns() -> Non
     assert _normalize_whitespace("def export_arrow(") not in normalized_model
 
 
-def test_solve_result_stub_exposes_ladder_accessors() -> None:
+def test_solve_result_stub_exposes_public_api_accessors() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
     result_block = _class_block(source=source, class_name="SolveResult")
     expected_signatures = [
@@ -195,7 +195,7 @@ def test_solve_result_stub_exposes_ladder_accessors() -> None:
     assert _normalize_whitespace("def get_reduced_cost(") not in normalized_result
 
 
-def test_stub_exposes_ladder_diagnostic_helpers_and_errors() -> None:
+def test_stub_exposes_public_api_diagnostic_helpers_and_errors() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
 
     expected_top_level = [

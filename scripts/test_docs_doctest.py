@@ -241,7 +241,7 @@ def test_beginner_docs_doctests_avoid_raw_expert_calls() -> None:
             )
 
 
-def test_beginner_docs_use_canonical_ladder_vocabulary() -> None:
+def test_beginner_docs_use_canonical_api_vocabulary() -> None:
     allowed_paths = {
         DOCS_DIR / "how-to" / "use-expert-apis.md",
         DOCS_DIR / "how-to" / "add-solver-backend.md",

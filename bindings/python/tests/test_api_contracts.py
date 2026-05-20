@@ -12,7 +12,7 @@ import pytest
 import arco
 
 
-def test_scalar_model_ladder_contract_solves_with_named_objects() -> None:
+def test_scalar_model_api_contract_solves_with_named_objects() -> None:
     model = arco.Model()
     x = model.add_variable(
         bounds=arco.Bounds(lower=1.0, upper=float("inf")),
@@ -35,9 +35,7 @@ def test_scalar_model_ladder_contract_solves_with_named_objects() -> None:
     assert round(result.value(y), 6) == 4.0
 
 
-def test_scalar_ladder_contract_requires_keyword_model_constructor_configuration() -> (
-    None
-):
+def test_scalar_api_contract_requires_keyword_model_constructor_configuration() -> None:
     simplify_level = arco.SimplifyLevel.NONE
     solver = arco.HiGHS()
 
@@ -108,7 +106,7 @@ def test_scalar_ladder_contract_requires_keyword_model_constructor_configuration
         )
 
 
-def test_indexed_model_ladder_contract_solves_with_array_result_access() -> None:
+def test_indexed_model_api_contract_solves_with_array_result_access() -> None:
     model = arco.Model()
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     demand = arco.param(
@@ -147,7 +145,7 @@ def test_indexed_model_ladder_contract_solves_with_array_result_access() -> None
     np.testing.assert_allclose(result.value(output), np.array([3.0, 5.0]))
 
 
-def test_debug_ladder_contract_exposes_constraint_slack_and_dual() -> None:
+def test_debug_api_contract_exposes_constraint_slack_and_dual() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     lower_bound = model.add_constraint(x >= 1.0, name="lower_bound")
@@ -161,7 +159,7 @@ def test_debug_ladder_contract_exposes_constraint_slack_and_dual() -> None:
     assert round(result.dual(lower_bound), 6) == 1.0
 
 
-def test_debug_ladder_contract_uses_named_result_accessors_only() -> None:
+def test_debug_api_contract_uses_named_result_accessors_only() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.minimize(x, name="cost")
@@ -178,7 +176,7 @@ def test_debug_ladder_contract_uses_named_result_accessors_only() -> None:
     assert not hasattr(result, "constraint_dual")
 
 
-def test_debug_ladder_contract_keeps_raw_result_vector_access_in_expert_path() -> None:
+def test_debug_api_contract_keeps_raw_result_vector_access_in_expert_path() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     lower_bound = model.add_constraint(x >= 1.0, name="lower_bound")
@@ -197,9 +195,7 @@ def test_debug_ladder_contract_keeps_raw_result_vector_access_in_expert_path() -
     assert round(result.reduced_cost(x), 6) == 0.0
 
 
-def test_debug_ladder_contract_keeps_raw_result_vector_properties_in_expert_path() -> (
-    None
-):
+def test_debug_api_contract_keeps_raw_result_vector_properties_in_expert_path() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     lower_bound = model.add_constraint(x >= 1.0, name="lower_bound")
@@ -223,7 +219,7 @@ def test_debug_ladder_contract_keeps_raw_result_vector_properties_in_expert_path
     )
 
 
-def test_debug_ladder_contract_requires_keyword_solve_configuration() -> None:
+def test_debug_api_contract_requires_keyword_solve_configuration() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.minimize(x, name="cost")
@@ -295,7 +291,7 @@ def test_debug_ladder_contract_requires_keyword_solve_configuration() -> None:
         )
 
 
-def test_debug_ladder_contract_requires_keyword_inspect_configuration() -> None:
+def test_debug_api_contract_requires_keyword_inspect_configuration() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.minimize(x, name="cost")
@@ -335,7 +331,7 @@ def test_debug_ladder_contract_requires_keyword_inspect_configuration() -> None:
         raise AssertionError("expected positional inspect payload variable to fail")
 
 
-def test_model_ladder_contract_removes_beginner_name_metadata_shortcuts() -> None:
+def test_model_api_contract_removes_beginner_name_metadata_shortcuts() -> None:
     model = arco.Model()
 
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
@@ -358,7 +354,7 @@ def test_model_ladder_contract_removes_beginner_name_metadata_shortcuts() -> Non
     assert not hasattr(model, "export_arrow")
 
 
-def test_debug_ladder_contract_exposes_named_lookup_error_codes() -> None:
+def test_debug_api_contract_exposes_named_lookup_error_codes() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     constraint = model.add_constraint(x >= 1.0, name="minimum")
@@ -385,7 +381,7 @@ def test_debug_ladder_contract_exposes_named_lookup_error_codes() -> None:
         raise AssertionError("expected missing constraint lookup to fail")
 
 
-def test_debug_ladder_contract_requires_keyword_named_lookups() -> None:
+def test_debug_api_contract_requires_keyword_named_lookups() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.add_constraint(x >= 1.0, name="minimum")
@@ -475,7 +471,7 @@ def test_debug_ladder_contract_requires_keyword_named_lookups() -> None:
         raise AssertionError("expected positional constraint-name lookup to fail")
 
 
-def test_debug_ladder_contract_exposes_stable_python_error_codes() -> None:
+def test_debug_api_contract_exposes_stable_python_error_codes() -> None:
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     codes = arco.diagnostic_codes()
 
@@ -488,7 +484,7 @@ def test_debug_ladder_contract_exposes_stable_python_error_codes() -> None:
         raise AssertionError("expected parameter shape validation to fail")
 
 
-def test_indexed_ladder_contract_exposes_array_dimension_error_code() -> None:
+def test_indexed_api_contract_exposes_array_dimension_error_code() -> None:
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     codes = arco.diagnostic_codes()
 
@@ -501,7 +497,7 @@ def test_indexed_ladder_contract_exposes_array_dimension_error_code() -> None:
         raise AssertionError("expected duplicate-axis validation to fail")
 
 
-def test_indexed_ladder_contract_exposes_array_type_error_code() -> None:
+def test_indexed_api_contract_exposes_array_type_error_code() -> None:
     codes = arco.diagnostic_codes()
 
     try:
@@ -513,7 +509,7 @@ def test_indexed_ladder_contract_exposes_array_type_error_code() -> None:
         raise AssertionError("expected non-IndexSet axis validation to fail")
 
 
-def test_indexed_ladder_contract_exposes_array_index_error_code() -> None:
+def test_indexed_api_contract_exposes_array_index_error_code() -> None:
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     hour = arco.IndexSet(name="hour", members=[1, 2])
     demand = arco.param(np.array([1.0, 2.0]), axes=(plant,))
@@ -528,7 +524,7 @@ def test_indexed_ladder_contract_exposes_array_index_error_code() -> None:
         raise AssertionError("expected missing-axis lookup to fail")
 
 
-def test_indexed_ladder_contract_exposes_array_getitem_index_code() -> None:
+def test_indexed_api_contract_exposes_array_getitem_index_code() -> None:
     model = arco.Model()
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     output = model.add_variables(
@@ -547,7 +543,7 @@ def test_indexed_ladder_contract_exposes_array_getitem_index_code() -> None:
         assert arco.error_code(exc.value) == codes["ARRAY_INDEX"]
 
 
-def test_indexed_ladder_contract_exposes_array_comparison_type_code() -> None:
+def test_indexed_api_contract_exposes_array_comparison_type_code() -> None:
     model = arco.Model()
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     output = model.add_variables(
@@ -563,7 +559,7 @@ def test_indexed_ladder_contract_exposes_array_comparison_type_code() -> None:
     assert arco.error_code(exc.value) == codes["ARRAY_TYPE"]
 
 
-def test_indexed_ladder_contract_exposes_index_set_empty_error_code() -> None:
+def test_indexed_api_contract_exposes_index_set_empty_error_code() -> None:
     codes = arco.diagnostic_codes()
 
     try:
@@ -575,7 +571,7 @@ def test_indexed_ladder_contract_exposes_index_set_empty_error_code() -> None:
         raise AssertionError("expected empty IndexSet validation to fail")
 
 
-def test_indexed_ladder_contract_exposes_index_set_argument_error_code() -> None:
+def test_indexed_api_contract_exposes_index_set_argument_error_code() -> None:
     codes = arco.diagnostic_codes()
 
     try:
@@ -587,7 +583,7 @@ def test_indexed_ladder_contract_exposes_index_set_argument_error_code() -> None
         raise AssertionError("expected invalid IndexSet arguments to fail")
 
 
-def test_indexed_ladder_contract_exposes_index_set_index_error_code() -> None:
+def test_indexed_api_contract_exposes_index_set_index_error_code() -> None:
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     codes = arco.diagnostic_codes()
 
@@ -598,7 +594,7 @@ def test_indexed_ladder_contract_exposes_index_set_index_error_code() -> None:
     assert list(plant) == plant.members
 
 
-def test_indexed_ladder_contract_requires_keyword_index_set_name() -> None:
+def test_indexed_api_contract_requires_keyword_index_set_name() -> None:
     set_name = "plant"
     size = 3
     members = ["north", "south"]
@@ -653,7 +649,7 @@ def test_indexed_ladder_contract_requires_keyword_index_set_name() -> None:
         raise AssertionError("expected positional IndexSet variable size to fail")
 
 
-def test_scalar_ladder_contract_requires_keyword_variable_bounds() -> None:
+def test_scalar_api_contract_requires_keyword_variable_bounds() -> None:
     model = arco.Model()
 
     try:
@@ -671,7 +667,7 @@ def test_scalar_ladder_contract_requires_keyword_variable_bounds() -> None:
         raise AssertionError("expected positional add_variable arguments to fail")
 
 
-def test_scalar_ladder_contract_requires_keyword_bounds_fields() -> None:
+def test_scalar_api_contract_requires_keyword_bounds_fields() -> None:
     try:
         arco.Bounds(0.0, 1.0)
     except TypeError:
@@ -680,7 +676,7 @@ def test_scalar_ladder_contract_requires_keyword_bounds_fields() -> None:
         raise AssertionError("expected positional Bounds fields to fail")
 
 
-def test_indexed_ladder_contract_exposes_index_set_type_error_code() -> None:
+def test_indexed_api_contract_exposes_index_set_type_error_code() -> None:
     codes = arco.diagnostic_codes()
 
     try:
@@ -692,7 +688,7 @@ def test_indexed_ladder_contract_exposes_index_set_type_error_code() -> None:
         raise AssertionError("expected invalid IndexSet member type to fail")
 
 
-def test_scalar_ladder_contract_exposes_bounds_invalid_error_code() -> None:
+def test_scalar_api_contract_exposes_bounds_invalid_error_code() -> None:
     codes = arco.diagnostic_codes()
 
     try:
@@ -704,7 +700,7 @@ def test_scalar_ladder_contract_exposes_bounds_invalid_error_code() -> None:
         raise AssertionError("expected invalid Bounds validation to fail")
 
 
-def test_scalar_ladder_contract_exposes_bounds_missing_error_code() -> None:
+def test_scalar_api_contract_exposes_bounds_missing_error_code() -> None:
     codes = arco.diagnostic_codes()
 
     try:
@@ -716,7 +712,7 @@ def test_scalar_ladder_contract_exposes_bounds_missing_error_code() -> None:
         raise AssertionError("expected incomplete Bounds validation to fail")
 
 
-def test_scalar_ladder_contract_exposes_bounds_type_error_code() -> None:
+def test_scalar_api_contract_exposes_bounds_type_error_code() -> None:
     model = arco.Model()
     codes = arco.diagnostic_codes()
 
@@ -729,7 +725,7 @@ def test_scalar_ladder_contract_exposes_bounds_type_error_code() -> None:
         raise AssertionError("expected invalid bounds object to fail")
 
 
-def test_scalar_ladder_contract_exposes_constraint_bounds_missing_code() -> None:
+def test_scalar_api_contract_exposes_constraint_bounds_missing_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     codes = arco.diagnostic_codes()
@@ -743,7 +739,7 @@ def test_scalar_ladder_contract_exposes_constraint_bounds_missing_code() -> None
         raise AssertionError("expected bare expression constraint to require bounds")
 
 
-def test_scalar_ladder_contract_exposes_constraint_type_code() -> None:
+def test_scalar_api_contract_exposes_constraint_type_code() -> None:
     model = arco.Model()
     codes = arco.diagnostic_codes()
 
@@ -756,7 +752,7 @@ def test_scalar_ladder_contract_exposes_constraint_type_code() -> None:
         raise AssertionError("expected invalid constraint expression type to fail")
 
 
-def test_indexed_ladder_contract_exposes_axes_type_code() -> None:
+def test_indexed_api_contract_exposes_axes_type_code() -> None:
     model = arco.Model()
     codes = arco.diagnostic_codes()
 
@@ -767,7 +763,7 @@ def test_indexed_ladder_contract_exposes_axes_type_code() -> None:
     assert arco.error_code(exc.value) == codes["ARRAY_TYPE"]
 
 
-def test_debug_ladder_contract_exposes_constraint_invalid_id_code() -> None:
+def test_debug_api_contract_exposes_constraint_invalid_id_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     codes = arco.diagnostic_codes()
@@ -781,7 +777,7 @@ def test_debug_ladder_contract_exposes_constraint_invalid_id_code() -> None:
         raise AssertionError("expected invalid constraint id to fail")
 
 
-def test_scalar_ladder_contract_exposes_model_binary_bounds_code() -> None:
+def test_scalar_api_contract_exposes_model_binary_bounds_code() -> None:
     model = arco.Model()
     codes = arco.diagnostic_codes()
 
@@ -794,7 +790,7 @@ def test_scalar_ladder_contract_exposes_model_binary_bounds_code() -> None:
         raise AssertionError("expected binary variable bounds validation to fail")
 
 
-def test_indexed_ladder_contract_exposes_constraint_sense_code() -> None:
+def test_indexed_api_contract_exposes_constraint_sense_code() -> None:
     model = arco.Model()
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     demand = arco.param(np.array([1.0, 2.0]), axes=(plant,))
@@ -815,7 +811,7 @@ def test_indexed_ladder_contract_exposes_constraint_sense_code() -> None:
         raise AssertionError("expected comparison array to reject extra rhs")
 
 
-def test_indexed_ladder_contract_exposes_invalid_constraint_sense_code() -> None:
+def test_indexed_api_contract_exposes_invalid_constraint_sense_code() -> None:
     model = arco.Model()
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     output = model.add_variables(
@@ -832,7 +828,7 @@ def test_indexed_ladder_contract_exposes_invalid_constraint_sense_code() -> None
     assert arco.error_code(exc.value) == codes["CONSTRAINT_SENSE"]
 
 
-def test_debug_ladder_contract_exposes_solver_setting_error_codes() -> None:
+def test_debug_api_contract_exposes_solver_setting_error_codes() -> None:
     codes = arco.diagnostic_codes()
 
     try:
@@ -844,7 +840,7 @@ def test_debug_ladder_contract_exposes_solver_setting_error_codes() -> None:
         raise AssertionError("expected solver setting validation to fail")
 
 
-def test_debug_ladder_contract_rejects_xpress_unsupported_verbosity() -> None:
+def test_debug_api_contract_rejects_xpress_unsupported_verbosity() -> None:
     codes = arco.diagnostic_codes()
 
     with pytest.raises(arco.SolverInvalidSettingError) as constructor_exc:
@@ -863,7 +859,7 @@ def test_debug_ladder_contract_rejects_xpress_unsupported_verbosity() -> None:
     assert arco.error_code(solve_exc.value) == codes["SOLVER_INVALID_SETTING"]
 
 
-def test_debug_ladder_contract_rejects_primal_start_with_solver_setting_code() -> None:
+def test_debug_api_contract_rejects_primal_start_with_solver_setting_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.minimize(x, name="cost")
@@ -879,7 +875,7 @@ def test_debug_ladder_contract_rejects_primal_start_with_solver_setting_code() -
         raise AssertionError("expected unsupported primal_start to fail")
 
 
-def test_debug_ladder_contract_exposes_solver_type_code() -> None:
+def test_debug_api_contract_exposes_solver_type_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.minimize(x, name="cost")
@@ -894,7 +890,7 @@ def test_debug_ladder_contract_exposes_solver_type_code() -> None:
         raise AssertionError("expected invalid solver object to fail")
 
 
-def test_debug_ladder_contract_exposes_solver_index_code() -> None:
+def test_debug_api_contract_exposes_solver_index_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.minimize(x, name="cost")
@@ -910,7 +906,7 @@ def test_debug_ladder_contract_exposes_solver_index_code() -> None:
         raise AssertionError("expected result index validation to fail")
 
 
-def test_debug_ladder_contract_exposes_constraint_dual_index_code() -> None:
+def test_debug_api_contract_exposes_constraint_dual_index_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.add_constraint(x >= 1.0, name="lower_bound")
@@ -927,7 +923,7 @@ def test_debug_ladder_contract_exposes_constraint_dual_index_code() -> None:
         raise AssertionError("expected constraint dual index validation to fail")
 
 
-def test_debug_ladder_contract_exposes_variable_dual_index_code() -> None:
+def test_debug_api_contract_exposes_variable_dual_index_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.minimize(x, name="cost")
@@ -943,7 +939,7 @@ def test_debug_ladder_contract_exposes_variable_dual_index_code() -> None:
         raise AssertionError("expected variable dual index validation to fail")
 
 
-def test_debug_ladder_contract_exposes_raw_getter_negative_index_code() -> None:
+def test_debug_api_contract_exposes_raw_getter_negative_index_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.add_constraint(x >= 1.0, name="lower_bound")
@@ -967,7 +963,7 @@ def test_debug_ladder_contract_exposes_raw_getter_negative_index_code() -> None:
             )
 
 
-def test_debug_ladder_contract_exposes_raw_getter_huge_integer_index_code() -> None:
+def test_debug_api_contract_exposes_raw_getter_huge_integer_index_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.add_constraint(x >= 1.0, name="lower_bound")
@@ -990,7 +986,7 @@ def test_debug_ladder_contract_exposes_raw_getter_huge_integer_index_code() -> N
             raise AssertionError("expected raw getter huge-index validation to fail")
 
 
-def test_debug_ladder_contract_accepts_numpy_integer_raw_getter_indices() -> None:
+def test_debug_api_contract_accepts_numpy_integer_raw_getter_indices() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     lower_bound = model.add_constraint(x >= 1.0, name="lower_bound")
@@ -1010,7 +1006,7 @@ def test_debug_ladder_contract_accepts_numpy_integer_raw_getter_indices() -> Non
         )
 
 
-def test_debug_ladder_contract_accepts_int_enum_raw_getter_indices() -> None:
+def test_debug_api_contract_accepts_int_enum_raw_getter_indices() -> None:
     class Index(enum.IntEnum):
         ZERO = 0
 
@@ -1032,7 +1028,7 @@ def test_debug_ladder_contract_accepts_int_enum_raw_getter_indices() -> None:
     )
 
 
-def test_debug_ladder_contract_accepts_int_enum_index_protocol_returns() -> None:
+def test_debug_api_contract_accepts_int_enum_index_protocol_returns() -> None:
     class Index(enum.IntEnum):
         ZERO = 0
 
@@ -1058,7 +1054,7 @@ def test_debug_ladder_contract_accepts_int_enum_index_protocol_returns() -> None
     )
 
 
-def test_debug_ladder_contract_accepts_int_subclass_raw_getter_indices() -> None:
+def test_debug_api_contract_accepts_int_subclass_raw_getter_indices() -> None:
     class IntSubclass(int):
         pass
 
@@ -1086,7 +1082,7 @@ def test_debug_ladder_contract_accepts_int_subclass_raw_getter_indices() -> None
         )
 
 
-def test_debug_ladder_contract_accepts_index_protocol_objects_for_raw_getters() -> None:
+def test_debug_api_contract_accepts_index_protocol_objects_for_raw_getters() -> None:
     class IndexLike:
         def __init__(self, value: int) -> None:
             self._value = value
@@ -1113,7 +1109,7 @@ def test_debug_ladder_contract_accepts_index_protocol_objects_for_raw_getters() 
     )
 
 
-def test_debug_ladder_contract_rejects_malformed_index_protocol_returns() -> None:
+def test_debug_api_contract_rejects_malformed_index_protocol_returns() -> None:
     class BrokenIndexLike:
         def __index__(self) -> float:
             return 1.25
@@ -1141,7 +1137,7 @@ def test_debug_ladder_contract_rejects_malformed_index_protocol_returns() -> Non
             raise AssertionError("expected malformed __index__ return to fail")
 
 
-def test_debug_ladder_contract_rejects_bool_index_protocol_returns() -> None:
+def test_debug_api_contract_rejects_bool_index_protocol_returns() -> None:
     class BoolIndexLike:
         def __index__(self) -> bool:
             return True
@@ -1169,7 +1165,7 @@ def test_debug_ladder_contract_rejects_bool_index_protocol_returns() -> None:
             raise AssertionError("expected bool __index__ return to fail")
 
 
-def test_debug_ladder_contract_maps_huge_index_protocol_returns_to_index_code() -> None:
+def test_debug_api_contract_maps_huge_index_protocol_returns_to_index_code() -> None:
     class HugeIndexLike:
         def __index__(self) -> int:
             return 10**200
@@ -1198,7 +1194,7 @@ def test_debug_ladder_contract_maps_huge_index_protocol_returns_to_index_code() 
             )
 
 
-def test_debug_ladder_contract_maps_negative_index_protocol_returns_to_index_code() -> (
+def test_debug_api_contract_maps_negative_index_protocol_returns_to_index_code() -> (
     None
 ):
     class NegativeIndexLike:
@@ -1229,7 +1225,7 @@ def test_debug_ladder_contract_maps_negative_index_protocol_returns_to_index_cod
             )
 
 
-def test_debug_ladder_contract_maps_huge_negative_index_protocol_returns_to_index_code() -> (
+def test_debug_api_contract_maps_huge_negative_index_protocol_returns_to_index_code() -> (
     None
 ):
     class HugeNegativeIndexLike:
@@ -1260,7 +1256,7 @@ def test_debug_ladder_contract_maps_huge_negative_index_protocol_returns_to_inde
             )
 
 
-def test_debug_ladder_contract_maps_index_protocol_raiser_to_type_code() -> None:
+def test_debug_api_contract_maps_index_protocol_raiser_to_type_code() -> None:
     class RaisingIndexLike:
         def __index__(self) -> int:
             raise RuntimeError("boom")
@@ -1288,7 +1284,7 @@ def test_debug_ladder_contract_maps_index_protocol_raiser_to_type_code() -> None
             raise AssertionError("expected raising __index__ to fail as type error")
 
 
-def test_debug_ladder_contract_rejects_numpy_scalar_index_protocol_returns() -> None:
+def test_debug_api_contract_rejects_numpy_scalar_index_protocol_returns() -> None:
     class NumpyScalarIndexLike:
         def __index__(self) -> np.integer:
             return np.int64(1)
@@ -1318,7 +1314,7 @@ def test_debug_ladder_contract_rejects_numpy_scalar_index_protocol_returns() -> 
             )
 
 
-def test_debug_ladder_contract_exposes_raw_getter_index_type_code() -> None:
+def test_debug_api_contract_exposes_raw_getter_index_type_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.add_constraint(x >= 1.0, name="lower_bound")
@@ -1345,7 +1341,7 @@ def test_debug_ladder_contract_exposes_raw_getter_index_type_code() -> None:
                 )
 
 
-def test_debug_ladder_contract_requires_keyword_raw_getter_index() -> None:
+def test_debug_api_contract_requires_keyword_raw_getter_index() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.add_constraint(x >= 1.0, name="lower_bound")
@@ -1400,7 +1396,7 @@ def test_debug_ladder_contract_requires_keyword_raw_getter_index() -> None:
         )
 
 
-def test_debug_ladder_contract_exposes_result_value_type_code() -> None:
+def test_debug_api_contract_exposes_result_value_type_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     model.minimize(x, name="cost")
@@ -1416,7 +1412,7 @@ def test_debug_ladder_contract_exposes_result_value_type_code() -> None:
         raise AssertionError("expected result value type validation to fail")
 
 
-def test_debug_ladder_contract_exposes_result_object_index_code() -> None:
+def test_debug_api_contract_exposes_result_object_index_code() -> None:
     solved = arco.Model()
     x = solved.add_variable(bounds=arco.NonNegativeFloat, name="x")
     solved.minimize(x, name="cost")
@@ -1436,7 +1432,7 @@ def test_debug_ladder_contract_exposes_result_object_index_code() -> None:
         raise AssertionError("expected result object index validation to fail")
 
 
-def test_debug_ladder_contract_exposes_solver_status_class_codes() -> None:
+def test_debug_api_contract_exposes_solver_status_class_codes() -> None:
     codes = arco.diagnostic_codes()
 
     assert arco.SolverInfeasibleError.code == codes["SOLVER_INFEASIBLE"]
@@ -1447,7 +1443,7 @@ def test_debug_ladder_contract_exposes_solver_status_class_codes() -> None:
     assert arco.SolverNotAvailableError.code == codes["SOLVER_NOT_AVAILABLE"]
 
 
-def test_debug_ladder_contract_exposes_solver_unavailable_error_code() -> None:
+def test_debug_api_contract_exposes_solver_unavailable_error_code() -> None:
     codes = arco.diagnostic_codes()
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
@@ -1464,7 +1460,7 @@ def test_debug_ladder_contract_exposes_solver_unavailable_error_code() -> None:
     assert "not available" in str(exc.value)
 
 
-def test_debug_ladder_contract_exposes_remaining_python_exception_class_codes() -> None:
+def test_debug_api_contract_exposes_remaining_python_exception_class_codes() -> None:
     codes = arco.diagnostic_codes()
 
     assert arco.ArrayOverflowError.code == codes["ARRAY_OVERFLOW"]
@@ -1482,7 +1478,7 @@ def test_debug_ladder_contract_exposes_remaining_python_exception_class_codes() 
     assert arco.ObjectiveIndexError.code == codes["OBJECTIVE_INDEX"]
 
 
-def test_debug_ladder_contract_exposes_logging_config_error_code() -> None:
+def test_debug_api_contract_exposes_logging_config_error_code() -> None:
     script = """
 import arco
 
@@ -1506,7 +1502,7 @@ else:
     assert result.returncode == 0, result.stderr
 
 
-def test_debug_ladder_contract_exposes_logging_io_error_code(tmp_path) -> None:
+def test_debug_api_contract_exposes_logging_io_error_code(tmp_path) -> None:
     script = """
 import arco
 
@@ -1553,7 +1549,7 @@ def test_param_reports_missing_numpy_as_dependency_error(monkeypatch) -> None:
     assert "numpy" in str(exc.value)
 
 
-def test_debug_ladder_contract_exposes_objective_missing_error_code() -> None:
+def test_debug_api_contract_exposes_objective_missing_error_code() -> None:
     codes = arco.diagnostic_codes()
     model = arco.Model()
     model.add_variable(bounds=arco.NonNegativeFloat, name="x")
@@ -1567,7 +1563,7 @@ def test_debug_ladder_contract_exposes_objective_missing_error_code() -> None:
         raise AssertionError("expected solve without objective to fail")
 
 
-def test_debug_ladder_contract_exposes_variable_invalid_id_code() -> None:
+def test_debug_api_contract_exposes_variable_invalid_id_code() -> None:
     model = arco.Model()
     codes = arco.diagnostic_codes()
 
@@ -1580,13 +1576,13 @@ def test_debug_ladder_contract_exposes_variable_invalid_id_code() -> None:
         raise AssertionError("expected invalid variable id to fail")
 
 
-def test_debug_ladder_contract_exposes_objective_already_set_code() -> None:
+def test_debug_api_contract_exposes_objective_already_set_code() -> None:
     codes = arco.diagnostic_codes()
 
     assert arco.ObjectiveAlreadySetError.code == codes["OBJECTIVE_ALREADY_SET"]
 
 
-def test_debug_ladder_contract_exposes_slack_invalid_penalty_code() -> None:
+def test_debug_api_contract_exposes_slack_invalid_penalty_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     constraint = model.add_constraint(x >= 1.0, name="minimum")
@@ -1602,7 +1598,7 @@ def test_debug_ladder_contract_exposes_slack_invalid_penalty_code() -> None:
         raise AssertionError("expected invalid slack penalty to fail")
 
 
-def test_debug_ladder_contract_exposes_slack_penalty_shape_code() -> None:
+def test_debug_api_contract_exposes_slack_penalty_shape_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     c1 = model.add_constraint(x >= 1.0, name="minimum")
@@ -1619,7 +1615,7 @@ def test_debug_ladder_contract_exposes_slack_penalty_shape_code() -> None:
         raise AssertionError("expected slack penalty shape validation to fail")
 
 
-def test_debug_ladder_contract_exposes_slack_bound_code() -> None:
+def test_debug_api_contract_exposes_slack_bound_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     constraint = model.add_constraint(x >= 1.0, name="minimum")
@@ -1635,7 +1631,7 @@ def test_debug_ladder_contract_exposes_slack_bound_code() -> None:
         raise AssertionError("expected invalid slack bound to fail")
 
 
-def test_debug_ladder_contract_exposes_slack_value_unavailable_code() -> None:
+def test_debug_api_contract_exposes_slack_value_unavailable_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     constraint = model.add_constraint(x >= 1.0, name="minimum")
@@ -1652,7 +1648,7 @@ def test_debug_ladder_contract_exposes_slack_value_unavailable_code() -> None:
         raise AssertionError("expected slack value before solve to fail")
 
 
-def test_scalar_ladder_contract_exposes_expr_division_by_zero_code() -> None:
+def test_scalar_api_contract_exposes_expr_division_by_zero_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     codes = arco.diagnostic_codes()
@@ -1666,7 +1662,7 @@ def test_scalar_ladder_contract_exposes_expr_division_by_zero_code() -> None:
         raise AssertionError("expected division by zero to fail")
 
 
-def test_scalar_ladder_contract_exposes_expr_constant_offset_code() -> None:
+def test_scalar_api_contract_exposes_expr_constant_offset_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     codes = arco.diagnostic_codes()
@@ -1680,7 +1676,7 @@ def test_scalar_ladder_contract_exposes_expr_constant_offset_code() -> None:
         raise AssertionError("expected constant-offset expression conversion to fail")
 
 
-def test_scalar_ladder_contract_exposes_expr_not_single_variable_code() -> None:
+def test_scalar_api_contract_exposes_expr_not_single_variable_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     y = model.add_variable(bounds=arco.NonNegativeFloat, name="y")
@@ -1695,7 +1691,7 @@ def test_scalar_ladder_contract_exposes_expr_not_single_variable_code() -> None:
         raise AssertionError("expected multi-variable expression conversion to fail")
 
 
-def test_scalar_ladder_contract_exposes_expr_coefficient_code() -> None:
+def test_scalar_api_contract_exposes_expr_coefficient_code() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     codes = arco.diagnostic_codes()
@@ -1709,7 +1705,7 @@ def test_scalar_ladder_contract_exposes_expr_coefficient_code() -> None:
         raise AssertionError("expected non-unit coefficient conversion to fail")
 
 
-def test_scalar_ladder_contract_exposes_expr_type_code_for_bad_operands() -> None:
+def test_scalar_api_contract_exposes_expr_type_code_for_bad_operands() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     codes = arco.diagnostic_codes()
@@ -1725,7 +1721,7 @@ def test_scalar_ladder_contract_exposes_expr_type_code_for_bad_operands() -> Non
     assert arco.error_code(compare_exc.value) == codes["EXPR_TYPE"]
 
 
-def test_debug_ladder_contract_exposes_cli_diagnostic_codes() -> None:
+def test_debug_api_contract_exposes_cli_diagnostic_codes() -> None:
     codes = arco.diagnostic_codes()
 
     assert codes["ALGEBRA_PARSE_ERROR"] == "arco::algebra::parse_error"
@@ -1874,7 +1870,7 @@ def test_debug_ladder_contract_exposes_cli_diagnostic_codes() -> None:
     assert codes["VARIABLE_INVALID_ID"] == "arco::variable::invalid_id"
 
 
-def test_ladder_contract_rejects_ambiguous_param_positional_shape() -> None:
+def test_api_contract_rejects_ambiguous_param_positional_shape() -> None:
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     values = np.array([1.0, 2.0])
     param_name = "cost"
@@ -1896,7 +1892,7 @@ def test_ladder_contract_rejects_ambiguous_param_positional_shape() -> None:
         )
 
 
-def test_ladder_contract_requires_keyword_param_axes() -> None:
+def test_api_contract_requires_keyword_param_axes() -> None:
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     values = np.array([1.0, 2.0])
     axes = (plant,)
@@ -1933,7 +1929,7 @@ def test_ladder_contract_requires_keyword_param_axes() -> None:
         )
 
 
-def test_ladder_contract_rejects_positional_variable_constructors() -> None:
+def test_api_contract_rejects_positional_variable_constructors() -> None:
     model = arco.Model()
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     axes = (plant,)
@@ -1969,7 +1965,7 @@ def test_ladder_contract_rejects_positional_variable_constructors() -> None:
         )
 
 
-def test_ladder_contract_rejects_positional_constraint_name_order() -> None:
+def test_api_contract_rejects_positional_constraint_name_order() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     constraint_name = "minimum"
@@ -1991,7 +1987,7 @@ def test_ladder_contract_rejects_positional_constraint_name_order() -> None:
         )
 
 
-def test_ladder_contract_requires_keyword_constraint_configuration() -> None:
+def test_api_contract_requires_keyword_constraint_configuration() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     constraint_name = "minimum"
@@ -2055,7 +2051,7 @@ def test_ladder_contract_requires_keyword_constraint_configuration() -> None:
         )
 
 
-def test_ladder_contract_requires_keyword_add_constraints_configuration() -> None:
+def test_api_contract_requires_keyword_add_constraints_configuration() -> None:
     model = arco.Model()
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     output = model.add_variables(
@@ -2126,7 +2122,7 @@ def test_ladder_contract_requires_keyword_add_constraints_configuration() -> Non
         )
 
 
-def test_ladder_contract_rejects_positional_objective_name_order() -> None:
+def test_api_contract_rejects_positional_objective_name_order() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
     objective_name = "cost"
@@ -2193,9 +2189,7 @@ def test_ladder_contract_rejects_positional_objective_name_order() -> None:
         raise AssertionError("expected positional maximize variable name to fail")
 
 
-def test_ladder_contract_keeps_legacy_constructor_aliases_off_beginner_surface() -> (
-    None
-):
+def test_api_contract_keeps_legacy_constructor_aliases_off_beginner_surface() -> None:
     model = arco.Model()
 
     assert not hasattr(arco, "Set")
@@ -2205,7 +2199,7 @@ def test_ladder_contract_keeps_legacy_constructor_aliases_off_beginner_surface()
     assert not hasattr(model, "constraint")
 
 
-def test_ladder_contract_rejects_lower_upper_variable_shortcuts() -> None:
+def test_api_contract_rejects_lower_upper_variable_shortcuts() -> None:
     model = arco.Model()
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     lower = 0.0

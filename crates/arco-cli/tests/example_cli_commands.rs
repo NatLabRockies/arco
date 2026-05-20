@@ -411,8 +411,8 @@ model first_model {
 }
 
 #[test]
-fn run_solves_indexed_kdl_ladder_contract() {
-    let root = unique_temp_dir("run-indexed-kdl-ladder");
+fn run_solves_indexed_kdl_api_contract() {
+    let root = unique_temp_dir("run-indexed-kdl-api-contract");
     let data_dir = root.join("data");
     fs::create_dir_all(&data_dir).expect("create data dir");
     fs::write(
@@ -466,7 +466,7 @@ scenario indexed_case { use indexed_allocation }
 
     assert!(
         inspect_output.status.success(),
-        "inspect should expose the indexed KDL ladder contract\nstdout:\n{}\nstderr:\n{}",
+        "inspect should expose the indexed KDL API contract\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&inspect_output.stdout),
         String::from_utf8_lossy(&inspect_output.stderr)
     );
@@ -509,7 +509,7 @@ scenario indexed_case { use indexed_allocation }
 
     assert!(
         output.status.success(),
-        "run should solve the indexed KDL ladder contract\nstdout:\n{}\nstderr:\n{}",
+        "run should solve the indexed KDL API contract\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

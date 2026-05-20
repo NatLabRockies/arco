@@ -182,7 +182,7 @@ def test_named_axis_reduction_rejects_duplicate_axes_through_shared_contract() -
         np.sum(gen, axis=(i, i))
 
 
-def test_solve_result_exposes_ladder_value_accessor() -> None:
+def test_solve_result_exposes_public_api_value_accessor() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.Bounds(lower=1.0, upper=10.0), name="x")
     model.minimize(x)

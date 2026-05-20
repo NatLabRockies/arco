@@ -1,6 +1,6 @@
-# API UX Ladder Changes
+# API UX Contract Changes
 
-These changes align the Python API with Arco's API UX ladder. They are
+These changes align the Python API with Arco's user-facing API design. They are
 intentional pre-1.0 breaking changes: prefer the new forms rather than adding
 compatibility shims.
 
@@ -65,7 +65,7 @@ coordinates stable while making inactive entries explicit.
 
 ## Solution access
 
-Use the ladder-facing accessors for ordinary result reads.
+Use the user-facing accessors for ordinary result reads.
 
 | Old                                   | New                               |
 | ------------------------------------- | --------------------------------- |
@@ -98,7 +98,7 @@ metadata in your domain objects or use model snapshots for inspection.
 ## Sparse exports
 
 Use the implemented sparse export formats for interchange. Placeholder exports
-that only failed at runtime are not part of the public ladder.
+that only failed at runtime are not part of the public API contract.
 
 | Old                    | New                                                                 |
 | ---------------------- | ------------------------------------------------------------------- |

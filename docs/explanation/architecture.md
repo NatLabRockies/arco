@@ -61,7 +61,7 @@ Runtime facade
   `ModelView`/DTO contracts so adding a backend does not change Python, KDL,
   block, or primitive model APIs.
 
-## API ladder architecture rules
+## User-facing API architecture rules
 
 - User surfaces own ergonomics, examples, command/API naming, and error
   presentation. They should stay thin over shared contracts.

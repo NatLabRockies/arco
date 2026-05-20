@@ -46,7 +46,7 @@ def _run_arco_cli(args: list[str], *, config_dir: Path) -> dict[str, object]:
     return json.loads(completed.stdout)
 
 
-def test_scalar_python_and_kdl_ladder_models_have_equivalent_snapshot(
+def test_scalar_python_and_kdl_api_contract_models_have_equivalent_snapshot(
     tmp_path: Path,
 ) -> None:
     model = arco.Model()
@@ -116,7 +116,7 @@ model first_model {
     )
 
 
-def test_indexed_python_and_kdl_ladder_models_have_equivalent_snapshot(
+def test_indexed_python_and_kdl_api_contract_models_have_equivalent_snapshot(
     tmp_path: Path,
 ) -> None:
     model = arco.Model()
