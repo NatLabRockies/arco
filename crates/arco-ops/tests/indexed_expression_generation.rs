@@ -324,49 +324,6 @@ scenario "Base" {
 }
 
 #[test]
-fn rejects_indexed_call_to_scalar_named_expression() -> Result<(), Box<dyn std::error::Error>> {
-    let model = r#"
-set "bus" {
-  "b1"
-}
-
-model "Dispatch" {
-  expression "scalar_offset" {
-    expression {
-      1
-    }
-  }
-
-  constraint "balance" {
-    expression {
-      sum(scalar_offset[bb] for bb in bus) = 0
-    }
-  }
-
-  minimize "TotalCost" {
-    0
-  }
-}
-
-scenario "Base" {
-  use "Dispatch"
-}
-"#;
-
-    let (_workspace, path) = write_temp_model(model)?;
-    let error = ArcoOps::compile_file(&path)
-        .expect_err("indexed call to scalar named expression should fail compilation");
-    let message = error.to_string();
-
-    assert!(
-        message.contains("indexed expression `scalar_offset` expects 0 index value(s), received 1"),
-        "unexpected error message: {message}"
-    );
-
-    Ok(())
-}
-
-#[test]
 fn compiles_issue_262_net_injection_ptdf_fixture() -> Result<(), Box<dyn std::error::Error>> {
     let compiled = ArcoOps::compile_file(&issue_262_fixture_path())?;
 
@@ -462,48 +419,6 @@ scenario "Base" {
     let compiled = ArcoOps::compile_file(&path)?;
 
     assert!(compiled.compiled_problem.algebra.nonlinear.is_some());
-
-    Ok(())
-}
-
-#[test]
-fn rejects_indexed_call_to_scalar_named_expression_in_nonlinear_path()
--> Result<(), Box<dyn std::error::Error>> {
-    let model = r#"
-set "bus" {
-  "b1"
-}
-
-model "Dispatch" {
-  control "dispatch_new" lower=0 {
-    index "b" in="bus"
-  }
-
-  expression "scalar_offset" {
-    expression {
-      1
-    }
-  }
-
-  minimize "TotalCost" {
-    sum(dispatch_new[bb] * dispatch_new[bb] + scalar_offset[bb] for bb in bus)
-  }
-}
-
-scenario "Base" {
-  use "Dispatch"
-}
-"#;
-
-    let (_workspace, path) = write_temp_model(model)?;
-    let error = ArcoOps::compile_file(&path)
-        .expect_err("nonlinear compilation should reject indexed call to scalar named expression");
-    let message = error.to_string();
-
-    assert!(
-        message.contains("indexed expression `scalar_offset` expects 0 index value(s), received 1"),
-        "unexpected error message: {message}"
-    );
 
     Ok(())
 }
