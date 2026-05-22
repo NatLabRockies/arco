@@ -132,6 +132,9 @@ impl OptimizationAdapter for RustArcoAdapter {
         include_variable_values: bool,
     ) -> Result<AdapterSolveOutput, ExecutionError> {
         let backend = self.backend_name().to_string();
+        if !problem.algebra.linearized {
+            return Err(ExecutionError::UnsupportedNonlinearBackend { backend });
+        }
         info!("solving with {}", backend);
         info!("building primitive model view");
         let build_started = Instant::now();

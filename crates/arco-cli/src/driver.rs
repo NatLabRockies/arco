@@ -7,7 +7,11 @@ pub use crate::driver_summary::{
 };
 use crate::driver_summary::{summarize_variables, trim_family_prefix};
 use arco_diagnostics::codes;
+#[cfg(feature = "ipopt")]
+use arco_ops::execution::IpoptArcoAdapter;
 use arco_ops::execution::{ExecutionError, SolveStatus, render_problem_model};
+#[cfg(feature = "ipopt")]
+use arco_ops::solve::SolverTransport;
 use arco_ops::solve::{ResolvedSelection, SolverDiagnostic, SolverProfile};
 use arco_ops::{ArcoOps, OpsCompileError};
 use miette::Diagnostic;
@@ -144,6 +148,16 @@ fn selected_profile<'a>(
         .and_then(|name| state.merged_profiles.get(name))
 }
 
+#[cfg(feature = "ipopt")]
+fn should_use_embedded_ipopt_for_nonlinear(
+    nonlinear_required: bool,
+    selection: &ResolvedSelection,
+) -> bool {
+    nonlinear_required
+        && selection.transport == SolverTransport::Embedded
+        && selection.family == "highs"
+}
+
 pub fn run_file(path: &Path) -> Result<RunSummary, DriverError> {
     run_file_with_options_and_selection(path, &RunOptions::default(), &load_resolved_selection()?)
 }
@@ -227,14 +241,32 @@ fn run_file_with_options_and_profile(
 
     let solve_start = Instant::now();
     let include_variable_values = !(options.compact && options.filter_asset.is_none());
+    #[cfg(feature = "ipopt")]
+    let nonlinear_required = !compiled.compiled_problem.algebra.linearized;
     debug!(
         "starting backend solve phase (family={}, transport={:?}, include_variable_values={})",
         selection.family.as_str(),
         selection.transport,
         include_variable_values
     );
-    let adapter = ArcoOps::builtin_adapter_for_selection(selection, options.solver_log, profile)
-        .map_err(|message| DriverError::BackendNotAvailable { message })?;
+    let adapter = {
+        #[cfg(feature = "ipopt")]
+        {
+            if should_use_embedded_ipopt_for_nonlinear(nonlinear_required, selection) {
+                info!("nonlinear model detected; routing embedded `highs` selection to `ipopt`");
+                Box::new(IpoptArcoAdapter::with_console_log(options.solver_log))
+                    as Box<dyn arco_ops::execution::OptimizationAdapter>
+            } else {
+                ArcoOps::builtin_adapter_for_selection(selection, options.solver_log, profile)
+                    .map_err(|message| DriverError::BackendNotAvailable { message })?
+            }
+        }
+        #[cfg(not(feature = "ipopt"))]
+        {
+            ArcoOps::builtin_adapter_for_selection(selection, options.solver_log, profile)
+                .map_err(|message| DriverError::BackendNotAvailable { message })?
+        }
+    };
     let execution_result = ArcoOps::execute_compiled_problem_with_adapter(
         &compiled.compiled_problem,
         adapter.as_ref(),
@@ -370,6 +402,8 @@ mod tests {
     use crate::driver_kdl::span_line_column;
     use arco_diagnostics::codes;
     use arco_ops::execution::ExecutionError;
+    #[cfg(feature = "ipopt")]
+    use arco_ops::solve::{ResolvedSelection, SolverTransport};
     use arco_ops::solve::{SolverDiagnostic, SolverError, SolverModelStats};
     use miette::SourceSpan;
     use std::fs;
@@ -457,5 +491,50 @@ mod tests {
             env!("CARGO_PKG_VERSION")
         )));
         assert!(rendered.ends_with(")\x1b[0m"));
+    }
+
+    #[cfg(feature = "ipopt")]
+    #[test]
+    fn nonlinear_highs_selection_routes_to_embedded_ipopt() {
+        let selection = ResolvedSelection {
+            token: "highs".to_string(),
+            family: "highs".to_string(),
+            profile: None,
+            transport: SolverTransport::Embedded,
+        };
+
+        assert!(super::should_use_embedded_ipopt_for_nonlinear(
+            true, &selection
+        ));
+    }
+
+    #[cfg(feature = "ipopt")]
+    #[test]
+    fn linear_problem_does_not_route_to_embedded_ipopt() {
+        let selection = ResolvedSelection {
+            token: "highs".to_string(),
+            family: "highs".to_string(),
+            profile: None,
+            transport: SolverTransport::Embedded,
+        };
+
+        assert!(!super::should_use_embedded_ipopt_for_nonlinear(
+            false, &selection
+        ));
+    }
+
+    #[cfg(feature = "ipopt")]
+    #[test]
+    fn nonlinear_non_highs_selection_does_not_route_to_embedded_ipopt() {
+        let selection = ResolvedSelection {
+            token: "ipopt".to_string(),
+            family: "ipopt".to_string(),
+            profile: None,
+            transport: SolverTransport::Embedded,
+        };
+
+        assert!(!super::should_use_embedded_ipopt_for_nonlinear(
+            true, &selection
+        ));
     }
 }
