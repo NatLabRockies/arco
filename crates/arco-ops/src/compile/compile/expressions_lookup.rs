@@ -33,13 +33,13 @@ fn candidate_instance_name(
     entrypoint: &Path,
 ) -> Result<String, CompileError> {
     match resolved {
-        [FilterValue::String(a), FilterValue::Number(_)] => {
-            let time = integer_time_index(&resolved[1], entrypoint)?;
+        [FilterValue::String(a), time_value @ FilterValue::Number(_)] => {
+            let time = integer_time_index(time_value, entrypoint)?;
             Ok(indexed_name(target, a, time as usize))
         }
         [FilterValue::String(a)] => Ok(asset_indexed_name(target, a)),
-        [FilterValue::Number(_)] => {
-            let time = integer_time_index(&resolved[0], entrypoint)?;
+        [time_value @ FilterValue::Number(_)] => {
+            let time = integer_time_index(time_value, entrypoint)?;
             Ok(time_name(target, time as usize))
         }
         _ => {

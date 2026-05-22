@@ -50,7 +50,7 @@ fn expr_affine_kind(expr: &NonlinearExpr) -> ExprAffineKind {
                 BinaryOp::Divide => combine_divide_kind(left_kind, right_kind),
             }
         }
-        NonlinearExpr::FunctionCall { name, args } => {
+        NonlinearExpr::FunctionCall { args, .. } => {
             if args
                 .iter()
                 .all(|arg| matches!(expr_affine_kind(arg), ExprAffineKind::Constant))
@@ -60,7 +60,6 @@ fn expr_affine_kind(expr: &NonlinearExpr) -> ExprAffineKind {
 
             // abs(x), sin(x), cos(x), atan(x), ln(x), sqrt(x), exp(x), pow(x,y)
             // are nonlinear unless all arguments are constants.
-            let _ = name;
             ExprAffineKind::Nonlinear
         }
     }
@@ -751,10 +750,12 @@ fn compile_nonlinear_indexed_expr(
         );
     }
 
-    if let [FilterValue::String(_), FilterValue::Number(_)] = resolved.as_slice() {
+    if let [asset_value @ FilterValue::String(_), time_value @ FilterValue::Number(_)] =
+        resolved.as_slice()
+    {
         let synthetic = synthetic_constraint(target);
-        let asset_name = string_filter_value(&resolved[0], &synthetic, entrypoint)?;
-        let time = integer_time_index(&resolved[1], entrypoint)?;
+        let asset_name = string_filter_value(asset_value, &synthetic, entrypoint)?;
+        let time = integer_time_index(time_value, entrypoint)?;
 
         if !(1..=program.time_steps() as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
@@ -771,8 +772,8 @@ fn compile_nonlinear_indexed_expr(
         }
     }
 
-    if let [FilterValue::Number(_)] = resolved.as_slice() {
-        let time = integer_time_index(&resolved[0], entrypoint)?;
+    if let [time_value @ FilterValue::Number(_)] = resolved.as_slice() {
+        let time = integer_time_index(time_value, entrypoint)?;
         if !(1..=program.time_steps() as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
         {
