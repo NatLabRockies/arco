@@ -1,16 +1,45 @@
+fn bind_generated_expression_indices(
+    target: &str,
+    generation_bindings: &[arco_kdl::source::GenerationBinding],
+    resolved: &[FilterValue],
+    scoped_bindings: &mut LinearizationBindings,
+    entrypoint: &Path,
+) -> Result<(), CompileError> {
+    if generation_bindings.is_empty() {
+        return Ok(());
+    }
+
+    if generation_bindings.len() != resolved.len() {
+        return Err(CompileError::InvalidFormulation {
+            message: format!(
+                "indexed expression `{target}` expects {} index value(s), received {}",
+                generation_bindings.len(),
+                resolved.len()
+            ),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
+    for (binding, value) in generation_bindings.iter().zip(resolved.iter()) {
+        scoped_bindings.insert(binding.variable.clone(), value.clone());
+    }
+
+    Ok(())
+}
+
 fn candidate_instance_name(
     target: &str,
     resolved: &[FilterValue],
     entrypoint: &Path,
 ) -> Result<String, CompileError> {
     match resolved {
-        [FilterValue::String(a), FilterValue::Number(_)] => {
-            let time = integer_time_index(&resolved[1], entrypoint)?;
+        [FilterValue::String(a), time_value @ FilterValue::Number(_)] => {
+            let time = integer_time_index(time_value, entrypoint)?;
             Ok(indexed_name(target, a, time as usize))
         }
         [FilterValue::String(a)] => Ok(asset_indexed_name(target, a)),
-        [FilterValue::Number(_)] => {
-            let time = integer_time_index(&resolved[0], entrypoint)?;
+        [time_value @ FilterValue::Number(_)] => {
+            let time = integer_time_index(time_value, entrypoint)?;
             Ok(time_name(target, time as usize))
         }
         _ => {
@@ -50,6 +79,24 @@ fn find_variable_family<'a>(
         .iter()
         .find(|(_key, sig)| sig.target == target && sig.indices.len() == arity)
         .map(|(key, _)| key.as_str())
+}
+
+fn parameter_name_known(target: &str, program: &SemanticProgram, inputs: &ScenarioInputs) -> bool {
+    if inputs.series.contains_key(target)
+        || inputs.indexed.contains_key(target)
+        || inputs.asset_data.contains_key(target)
+        || inputs.generic_data.contains_key(target)
+    {
+        return true;
+    }
+
+    program.parameters.series.iter().any(|name| name == target)
+        || program.parameters.indexed.iter().any(|name| name == target)
+        || program.parameters.asset.iter().any(|name| name == target)
+        || program
+            .set_params
+            .values()
+            .any(|parameters| parameters.contains_key(target))
 }
 
 fn parameter_reference_expr(

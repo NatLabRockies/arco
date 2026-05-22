@@ -1,0 +1,35 @@
+set "bus" {
+  "b1"
+  "b2"
+}
+
+model "Dispatch" {
+  control "dispatch_new" {
+    index "b" in="bus"
+  }
+
+  control "dispatch_existing" {
+    index "b" in="bus"
+  }
+
+  expression "net_injection_by_bus" {
+    index "b" in="bus"
+    expression {
+      dispatch_new[b] + dispatch_existing[b]
+    }
+  }
+
+  constraint "balance" {
+    expression {
+      sum(net_injection_by_bus[b] for b in bus) = 0
+    }
+  }
+
+  minimize "TotalCost" {
+    0
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

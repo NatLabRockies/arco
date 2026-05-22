@@ -1,0 +1,15 @@
+model "Dispatch" {
+  expression "net_injection_by_bus" expression="1" {
+    expression {
+      2
+    }
+  }
+
+  minimize "TotalCost" {
+    0
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

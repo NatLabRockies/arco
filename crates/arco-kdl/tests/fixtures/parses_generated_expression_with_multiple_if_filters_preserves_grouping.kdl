@@ -1,0 +1,22 @@
+set "bus" {
+  "b1"
+}
+
+model "Dispatch" {
+  expression "net_injection_by_bus" {
+    index "b" in="bus"
+    if expression="a > 0 or b > 0"
+    if expression="c > 0 or d > 0"
+    expression {
+      0
+    }
+  }
+
+  minimize "TotalCost" {
+    0
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

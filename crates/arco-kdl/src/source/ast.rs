@@ -152,6 +152,9 @@ pub struct ExpressionDecl {
     pub formula: String,
     pub parsed_formula: Expr,
     pub abstraction: Option<ExpressionAbstractionDecl>,
+    pub generation_bindings: Vec<GenerationBinding>,
+    pub generation_filter: Option<String>,
+    pub parsed_generation_filter: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

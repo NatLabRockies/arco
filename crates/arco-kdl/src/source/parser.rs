@@ -10,8 +10,8 @@ use crate::source::parser_constraints::{parse_constraint, parse_constraints};
 use crate::source::parser_helpers::{
     ParseContext, algebra_error, algebra_text_from_node, declaration_indices, first_arg_string,
     invalid_value_error, missing_node_error, optional_property_literal, optional_property_string,
-    parse_optimize, parse_optional_filter_expression, parse_reduce, positional_value,
-    property_string, unsupported_declaration_error,
+    parse_constraint_index_binding, parse_optimize, parse_optional_filter_expression, parse_reduce,
+    positional_value, property_string, unsupported_declaration_error,
 };
 use crate::source::surface::normalize_surface_syntax;
 use kdl::{KdlDocument, KdlError, KdlNode, KdlValue};
@@ -35,6 +35,8 @@ enum Declaration {
     In,
     Filter,
     Reduce,
+    If,
+    Formula,
     Bounds,
     Lower,
     Upper,
@@ -66,6 +68,8 @@ impl Declaration {
             "in" => Some(Self::In),
             "filter" => Some(Self::Filter),
             "reduce" => Some(Self::Reduce),
+            "if" => Some(Self::If),
+            "formula" => Some(Self::Formula),
             "bounds" => Some(Self::Bounds),
             "lower" => Some(Self::Lower),
             "upper" => Some(Self::Upper),
@@ -272,7 +276,8 @@ fn parse_include(node: &KdlNode, context: &ParseContext<'_>) -> Result<IncludeDe
     }
 
     let path = first_arg_string(node, 0, context)?;
-    if Path::new(&path).is_absolute() {
+    let include_path = Path::new(&path);
+    if include_path.is_absolute() || include_path.has_root() {
         return Err(include_error(
             node,
             "include paths must be relative to the entrypoint file".to_string(),
@@ -854,7 +859,89 @@ fn parse_expression(
     node: &KdlNode,
     context: &ParseContext<'_>,
 ) -> Result<ExpressionDecl, SourceError> {
-    let formula = algebra_text_from_node(node, context)?;
+    let mut generation_bindings = Vec::new();
+    let mut generation_filters = Vec::new();
+    let formula_from_property = optional_property_string(node, "expression", context)?;
+    let mut formula_from_formula_child = None;
+    let mut formula_from_expression_child = None;
+
+    for child in node.iter_children() {
+        match Declaration::from_node(child) {
+            Some(Declaration::Index) => {
+                generation_bindings.push(parse_constraint_index_binding(child, context)?);
+            }
+            Some(Declaration::If) => {
+                generation_filters.push(property_string(child, "expression", context)?);
+            }
+            Some(Declaration::Expression) => {
+                if formula_from_expression_child.is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "expression declarations support at most one `expression` child"
+                            .to_string(),
+                        context,
+                    ));
+                }
+                formula_from_expression_child = Some(algebra_text_from_node(child, context)?);
+            }
+            Some(Declaration::Formula) => {
+                if formula_from_formula_child.is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "expression declarations support at most one `formula` child".to_string(),
+                        context,
+                    ));
+                }
+                if child.children().is_some() {
+                    return Err(invalid_value_error(
+                        child,
+                        "`formula` children in expression declarations must use positional string form `formula \"...\"`; use `expression { ... }` for block algebra"
+                            .to_string(),
+                        context,
+                    ));
+                }
+                formula_from_formula_child = Some(first_arg_string(child, 0, context)?);
+            }
+            _ => {
+                return Err(unsupported_declaration_error(
+                    child,
+                    child.name().value(),
+                    context,
+                ));
+            }
+        }
+    }
+
+    let formula_source_count = [
+        formula_from_property.as_ref(),
+        formula_from_formula_child.as_ref(),
+        formula_from_expression_child.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .count();
+    if formula_source_count > 1 {
+        return Err(invalid_value_error(
+            node,
+            "expression declarations support only one formula source: `expression=...`, `formula ...`, or `expression { ... }`"
+                .to_string(),
+            context,
+        ));
+    }
+
+    if generation_filters.len() > 1 {
+        return Err(invalid_value_error(
+            node,
+            "expression declarations support at most one `if` child".to_string(),
+            context,
+        ));
+    }
+
+    let formula = formula_from_expression_child
+        .or(formula_from_property)
+        .or(formula_from_formula_child)
+        .ok_or_else(|| missing_node_error("expression", node, context))?;
+    let generation_filter = generation_filters.into_iter().next();
 
     if let Some((projection, op, target)) = parse_reduce_projection_formula(&formula) {
         let lowered = format!("__reduce_projection__(\"{projection}\", \"{op}\", \"{target}\")");
@@ -867,6 +954,13 @@ fn parse_expression(
                 op,
                 target,
             }),
+            generation_bindings,
+            parsed_generation_filter: generation_filter
+                .as_deref()
+                .map(parse_value_formula)
+                .transpose()
+                .map_err(|error| algebra_error(node, error.to_string(), context))?,
+            generation_filter,
         });
     }
 
@@ -876,6 +970,13 @@ fn parse_expression(
             .map_err(|error| algebra_error(node, error.to_string(), context))?,
         formula,
         abstraction: None,
+        generation_bindings,
+        parsed_generation_filter: generation_filter
+            .as_deref()
+            .map(parse_value_formula)
+            .transpose()
+            .map_err(|error| algebra_error(node, error.to_string(), context))?,
+        generation_filter,
     })
 }
 

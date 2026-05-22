@@ -181,6 +181,8 @@ enum FilterValue {
     Boolean(bool),
 }
 
+type ExpressionGenerationIndex = HashMap<String, usize>;
+
 include!("error.rs");
 
 pub fn compile_program(

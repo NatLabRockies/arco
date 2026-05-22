@@ -113,6 +113,9 @@ pub fn validate_program(
                 name: param.name.clone(),
                 formula_text: text.clone(),
                 formula: arco_kdl::algebra::Expr::Number(text),
+                generation_bindings: Vec::new(),
+                generation_filter_text: None,
+                generation_filter: None,
             });
         }
     }
