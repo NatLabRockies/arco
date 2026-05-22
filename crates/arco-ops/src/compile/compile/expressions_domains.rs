@@ -412,23 +412,6 @@ fn linearize_indexed_expr(
             expression_generation_bindings(target, program, expression_generation_index);
         let generation_filter =
             expression_generation_filter(target, program, expression_generation_index);
-        let requires_scoped_bindings = generation_filter.is_some()
-            || generation_bindings.is_some_and(|bindings| !bindings.is_empty());
-
-        if !requires_scoped_bindings {
-            return linearize_value_expr(
-                expression,
-                bindings,
-                program,
-                inputs,
-                named_expressions,
-                expression_generation_index,
-                variable_signatures,
-                instantiated_names,
-                entrypoint,
-            );
-        }
-
         let mut scoped_bindings = bindings.clone();
         if let Some(generation_bindings) = generation_bindings {
             bind_generated_expression_indices(

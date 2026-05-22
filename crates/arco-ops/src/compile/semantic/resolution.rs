@@ -151,7 +151,7 @@ pub(crate) fn resolve_active_model_expressions(
         states.insert(name.to_string(), VisitState::Visiting);
         stack.push(name.to_string());
 
-        for dependency in collect_named_expression_dependencies(&expression.parsed_formula) {
+        for dependency in collect_expression_decl_dependencies(expression) {
             if expression_index.contains_key(dependency.as_str()) {
                 visit_expression_name(
                     &dependency,
@@ -242,6 +242,16 @@ pub(crate) fn resolve_active_model_expressions(
         .collect::<Vec<_>>();
     expressions.sort_by_key(|expression| expression.name.clone());
     Ok(expressions)
+}
+
+fn collect_expression_decl_dependencies(
+    expression: &arco_kdl::source::ExpressionDecl,
+) -> BTreeSet<String> {
+    let mut dependencies = collect_named_expression_dependencies(&expression.parsed_formula);
+    if let Some(filter) = &expression.parsed_generation_filter {
+        dependencies.extend(collect_named_expression_dependencies(filter));
+    }
+    dependencies
 }
 
 fn collect_named_expression_dependencies_from_constraint(

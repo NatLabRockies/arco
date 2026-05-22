@@ -5,10 +5,6 @@ fn bind_generated_expression_indices(
     scoped_bindings: &mut LinearizationBindings,
     entrypoint: &Path,
 ) -> Result<(), CompileError> {
-    if generation_bindings.is_empty() {
-        return Ok(());
-    }
-
     if generation_bindings.len() != resolved.len() {
         return Err(CompileError::InvalidFormulation {
             message: format!(
