@@ -138,8 +138,10 @@ backend uses its own default.
 
 ## Xpress (LP / MIP solver)
 
-The Xpress backend is available when Arco is built with the `xpress` feature
-flag. Xpress supports LP, MIP, and QP problems.
+The Xpress backend is included in prebuilt Arco binaries and default Python
+package builds. Rust source builds that opt out of release/default packaging can
+still enable it with the `xpress` feature flag. Xpress supports LP, MIP, and QP
+problems.
 
 > [!IMPORTANT]
 > Xpress requires the FICO Xpress Optimizer SDK installed locally.
@@ -147,8 +149,9 @@ flag. Xpress supports LP, MIP, and QP problems.
 ### Setup at a glance
 
 1. Install Xpress Community Edition from [fico.com](https://www.fico.com/en/products/fico-xpress-optimization).
-2. If you installed Arco from a prebuilt binary, skip build steps and only configure environment variables.
-3. If you build Arco yourself, build with `--features xpress`.
+2. If you installed Arco from a prebuilt binary or the default Python package,
+   skip build steps and only configure environment variables.
+3. If you build the Rust CLI yourself, build with `--features xpress`.
 4. Run `arco solver set xpress` and verify with `arco solver show`.
 
 ### Platform setup
@@ -168,7 +171,7 @@ Build:
 # Optional when not in an auto-detected location
 export XPRESSDIR="$HOME/opt/xpressmp"
 cargo build --features xpress
-uv run --project bindings/python --with maturin maturin develop --features xpress
+uv run --project bindings/python --with maturin maturin develop
 ```
 
 </details>
@@ -184,7 +187,7 @@ Build:
 # Optional when not in an auto-detected location
 export XPRESSDIR="/opt/xpressmp"
 cargo build --features xpress
-uv run --project bindings/python --with maturin maturin develop --features xpress
+uv run --project bindings/python --with maturin maturin develop
 ```
 
 </details>
@@ -204,7 +207,7 @@ Build:
 ```powershell
 $env:XPRESSDIR = "C:\xpressmp"
 cargo build --features xpress
-uv run --project bindings/python --with maturin maturin develop --features xpress
+uv run --project bindings/python --with maturin maturin develop
 ```
 
 </details>
@@ -299,9 +302,12 @@ arco solver show
 
 </details>
 
-### Build with Xpress support (source builds only)
+### Build with Xpress support (Rust CLI source builds only)
 
-Use the OS-specific toggle blocks in [Platform setup](#platform-setup).
+Use the OS-specific toggle blocks in [Platform setup](#platform-setup) when
+building the Rust CLI from source. Python source builds include Xpress by
+default; pass `--no-default-features` only when you intentionally need a Python
+extension without Xpress support.
 
 <details>
 <summary>macOS quick smoke test directly from DMG (no copy needed)</summary>
