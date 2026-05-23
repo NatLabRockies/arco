@@ -1,5 +1,5 @@
 use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim, style_error_label};
-use crate::config::{ConfigError, SolverConfigState};
+use crate::config::{ConfigError, SolverConfigState, load_solver_config};
 pub use crate::driver_kdl::{KdlCheckMode, KdlCheckOutcome, kdl_check_file_json};
 pub use crate::driver_summary::{
     DualReportSummary, DualReportValueSummary, ObjectiveSummary, ProblemCounts, ReportSummary,
@@ -136,16 +136,6 @@ impl Diagnostic for DriverError {
 
 fn load_resolved_selection() -> Result<ResolvedSelection, DriverError> {
     Ok(load_solver_config()?.resolved)
-}
-
-fn selected_profile<'a>(
-    state: &'a SolverConfigState,
-    selection: &ResolvedSelection,
-) -> Option<&'a SolverProfile> {
-    selection
-        .profile
-        .as_ref()
-        .and_then(|name| state.merged_profiles.get(name))
 }
 
 #[cfg(feature = "ipopt")]
