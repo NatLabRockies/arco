@@ -1274,11 +1274,6 @@ struct Tape {
     ops: Vec<TapeOp>,
     /// local index -> global variable index in the IPOPT `x` vector.
     local_to_global: Vec<usize>,
-    /// True if the tape contains any operation that produces a non-zero second
-    /// derivative (multiplication of two non-constant operands, division by a
-    /// non-constant denominator, transcendentals, etc.). Linear tapes can skip
-    /// the Hessian pass entirely.
-    is_nonlinear: bool,
 }
 
 #[cfg(feature = "ipopt")]
@@ -1363,29 +1358,9 @@ fn compile_tape(
         &mut local_to_global,
         var_positions,
     )?;
-    let is_nonlinear = ops.iter().any(|op| match op {
-        TapeOp::Const(_)
-        | TapeOp::Var(_)
-        | TapeOp::Negate(_)
-        | TapeOp::Add(_, _)
-        | TapeOp::Sub(_, _)
-        | TapeOp::Abs(_) => false,
-        TapeOp::Mul(a, b) | TapeOp::Pow(a, b) => {
-            !matches!(ops[*a as usize], TapeOp::Const(_))
-                && !matches!(ops[*b as usize], TapeOp::Const(_))
-        }
-        TapeOp::Div(_, b) => !matches!(ops[*b as usize], TapeOp::Const(_)),
-        TapeOp::Sqrt(_)
-        | TapeOp::Exp(_)
-        | TapeOp::Ln(_)
-        | TapeOp::Sin(_)
-        | TapeOp::Cos(_)
-        | TapeOp::Atan(_) => true,
-    });
     Ok(Tape {
         ops,
         local_to_global,
-        is_nonlinear,
     })
 }
 
@@ -2004,25 +1979,12 @@ fn solve_with_nonlinear_ipopt(
         arco_kdl::ObjectiveSense::Maximize => -1.0,
     };
 
-    // Build Hessian sparsity (lower-triangular in global coordinates).
-    // Each tape with `is_nonlinear == true` contributes upper-triangular pairs
-    // of its local variables; duplicate (row, col) entries are summed by IPOPT.
-    let mut hess_rows: Vec<Index> = Vec::new();
-    let mut hess_cols: Vec<Index> = Vec::new();
-    let mut obj_hess_pairs: Vec<(u32, u32, u32)> = Vec::new();
-    build_hessian_sparsity_pairs(
-        &objective_tape,
-        &mut hess_rows,
-        &mut hess_cols,
-        &mut obj_hess_pairs,
-    );
-    let mut constraint_hess_pairs: Vec<Vec<(u32, u32, u32)>> =
-        Vec::with_capacity(constraint_tapes.len());
-    for tape in &constraint_tapes {
-        let mut pairs: Vec<(u32, u32, u32)> = Vec::new();
-        build_hessian_sparsity_pairs(tape, &mut hess_rows, &mut hess_cols, &mut pairs);
-        constraint_hess_pairs.push(pairs);
-    }
+    // Use IPOPT limited-memory Hessian approximation by default for large NLPs.
+    // Exact Hessian structure construction can dominate startup time.
+    let hess_rows: Vec<Index> = Vec::new();
+    let hess_cols: Vec<Index> = Vec::new();
+    let obj_hess_pairs: Vec<(u32, u32, u32)> = Vec::new();
+    let constraint_hess_pairs: Vec<Vec<(u32, u32, u32)>> = vec![Vec::new(); constraint_tapes.len()];
 
     let g_lower_diag = g_lower.clone();
     let g_upper_diag = g_upper.clone();
@@ -2055,6 +2017,7 @@ fn solve_with_nonlinear_ipopt(
         })?;
 
     ipopt.set_option("mu_strategy", "adaptive");
+    ipopt.set_option("hessian_approximation", "limited-memory");
     ipopt.set_option("max_iter", 300);
     ipopt.set_option("acceptable_tol", 1e-4);
     ipopt.set_option("acceptable_iter", 8);
@@ -2304,43 +2267,10 @@ pub fn solve_nonlinear_problem(
         arco_kdl::ObjectiveSense::Maximize => -1.0,
     };
 
-    let mut hess_rows: Vec<Index> = Vec::new();
-    let mut hess_cols: Vec<Index> = Vec::new();
-    let mut obj_hess_pairs: Vec<(u32, u32, u32)> = Vec::new();
-    if objective_tape.is_nonlinear {
-        let local_n = objective_tape.local_to_global.len();
-        for lj in 0..local_n {
-            for lk in lj..local_n {
-                let g_j = objective_tape.local_to_global[lj];
-                let g_k = objective_tape.local_to_global[lk];
-                let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
-                let pos = hess_rows.len() as u32;
-                hess_rows.push(row as Index);
-                hess_cols.push(col as Index);
-                obj_hess_pairs.push((lj as u32, lk as u32, pos));
-            }
-        }
-    }
-    let mut constraint_hess_pairs: Vec<Vec<(u32, u32, u32)>> =
-        Vec::with_capacity(constraint_tapes.len());
-    for tape in &constraint_tapes {
-        let mut pairs: Vec<(u32, u32, u32)> = Vec::new();
-        if tape.is_nonlinear {
-            let local_n = tape.local_to_global.len();
-            for lj in 0..local_n {
-                for lk in lj..local_n {
-                    let g_j = tape.local_to_global[lj];
-                    let g_k = tape.local_to_global[lk];
-                    let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
-                    let pos = hess_rows.len() as u32;
-                    hess_rows.push(row as Index);
-                    hess_cols.push(col as Index);
-                    pairs.push((lj as u32, lk as u32, pos));
-                }
-            }
-        }
-        constraint_hess_pairs.push(pairs);
-    }
+    let hess_rows: Vec<Index> = Vec::new();
+    let hess_cols: Vec<Index> = Vec::new();
+    let obj_hess_pairs: Vec<(u32, u32, u32)> = Vec::new();
+    let constraint_hess_pairs: Vec<Vec<(u32, u32, u32)>> = vec![Vec::new(); constraint_tapes.len()];
 
     let g_lower_diag = g_lower.clone();
     let g_upper_diag = g_upper.clone();
@@ -2368,6 +2298,7 @@ pub fn solve_nonlinear_problem(
         .map_err(|source| NlpError::Setup(format!("Failed to create IPOPT NLP: {source:?}")))?;
 
     ipopt.set_option("mu_strategy", "adaptive");
+    ipopt.set_option("hessian_approximation", "limited-memory");
     ipopt.set_option("max_iter", options.max_iter as i32);
     ipopt.set_option("tol", options.tol);
     ipopt.set_option("acceptable_tol", options.acceptable_tol);
