@@ -89,24 +89,22 @@ impl Model {
     ///
     /// Returns an error if the model already has an objective.
     pub fn minimize(&mut self, expr: Expr) -> Result<(), ModelError> {
-        if self.objective.sense.is_some() {
-            return Err(ModelError::MultipleObjectives);
-        }
-        self.set_objective(Objective {
-            sense: Some(Sense::Minimize),
-            terms: expr.into_linear_terms(),
-        })
+        self.set_sense(expr, Sense::Minimize)
     }
 
     /// Maximize a linear expression.
     ///
     /// Returns an error if the model already has an objective.
     pub fn maximize(&mut self, expr: Expr) -> Result<(), ModelError> {
+        self.set_sense(expr, Sense::Maximize)
+    }
+
+    fn set_sense(&mut self, expr: Expr, sense: Sense) -> Result<(), ModelError> {
         if self.objective.sense.is_some() {
             return Err(ModelError::MultipleObjectives);
         }
         self.set_objective(Objective {
-            sense: Some(Sense::Maximize),
+            sense: Some(sense),
             terms: expr.into_linear_terms(),
         })
     }
