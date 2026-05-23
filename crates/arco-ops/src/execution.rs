@@ -1874,6 +1874,32 @@ impl ConstrainedProblem for NonlinearIpoptProblem {
     }
 }
 
+/// Build Hessian sparsity lower-triangular pairs for a single tape, appending
+/// to the global `rows`/`cols` vectors and recording local index pairs in `pairs`.
+#[cfg(feature = "ipopt")]
+fn build_hessian_sparsity_pairs(
+    tape: &Tape,
+    rows: &mut Vec<Index>,
+    cols: &mut Vec<Index>,
+    pairs: &mut Vec<(u32, u32, u32)>,
+) {
+    if !tape.is_nonlinear {
+        return;
+    }
+    let local_n = tape.local_to_global.len();
+    for lj in 0..local_n {
+        for lk in lj..local_n {
+            let g_j = tape.local_to_global[lj];
+            let g_k = tape.local_to_global[lk];
+            let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
+            let pos = rows.len() as u32;
+            rows.push(row as Index);
+            cols.push(col as Index);
+            pairs.push((lj as u32, lk as u32, pos));
+        }
+    }
+}
+
 #[cfg(feature = "ipopt")]
 #[allow(clippy::too_many_arguments)]
 fn solve_with_nonlinear_ipopt(

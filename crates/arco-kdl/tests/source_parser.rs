@@ -159,6 +159,70 @@ fn parses_expression_reduce_projection_block_form() -> Result<(), Box<dyn std::e
 }
 
 #[test]
+fn parses_generated_expression_with_index_and_expression_children()
+-> Result<(), Box<dyn std::error::Error>> {
+    let parsed =
+        parse_fixture("parses_generated_expression_with_index_and_expression_children.kdl")?;
+    let model = parsed.program.model("Dispatch").ok_or("missing model")?;
+    let expression = model
+        .expressions
+        .iter()
+        .find(|expr| expr.name == "net_injection_by_bus")
+        .ok_or("missing net_injection_by_bus expression")?;
+
+    assert_eq!(expression.generation_bindings.len(), 1);
+    assert_eq!(expression.generation_bindings[0].variable, "b");
+    assert_eq!(expression.generation_bindings[0].domain, "bus");
+    assert!(expression.generation_filter.is_none());
+
+    Ok(())
+}
+
+#[test]
+fn rejects_generated_expression_with_multiple_if_children() {
+    let error = parse_fixture_error(
+        "parses_generated_expression_with_multiple_if_filters_preserves_grouping.kdl",
+        "generated expression should reject multiple if children",
+    );
+
+    assert!(
+        error
+            .to_string()
+            .contains("expression declarations support at most one `if` child")
+    );
+}
+
+#[test]
+fn rejects_generated_expression_with_conflicting_formula_sources() {
+    let error = parse_fixture_error(
+        "rejects_generated_expression_with_conflicting_formula_sources.kdl",
+        "generated expression should reject conflicting formula sources",
+    );
+
+    assert!(
+        error
+            .to_string()
+            .contains("expression declarations support only one formula source")
+    );
+}
+
+#[test]
+fn rejects_generated_expression_with_block_formula_child() {
+    let error = parse_fixture_error(
+        "rejects_generated_expression_with_block_formula_child.kdl",
+        "generated expression should reject block-form formula child",
+    );
+
+    let message = error.to_string();
+    assert!(
+        message.contains("formula")
+            && message.contains("expression declarations")
+            && message.contains("positional string form"),
+        "unexpected error message: {message}"
+    );
+}
+
+#[test]
 fn parse_program_file_expands_top_level_and_model_includes()
 -> Result<(), Box<dyn std::error::Error>> {
     let parsed = parse_program_file(&fixture_path("composition/input.kdl"))?;

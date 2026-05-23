@@ -1,0 +1,100 @@
+set "bus" {
+  "b1"
+  "b2"
+}
+
+set "line" {
+  "l1"
+}
+
+set "new_bus" {
+  "b1"
+}
+
+set "existing_bus" {
+  "b2"
+}
+
+data "bus_data" source="data/bus.csv" {
+  map "bus" from="bus"
+
+  param "mw_load" index="bus"
+  param "has_new" index="bus"
+  param "has_existing" index="bus"
+}
+
+data "ptdf_data" source="data/ptdf.csv" {
+  map "line" from="line"
+  map "bus" from="bus"
+
+  param "ptdf" {
+    index "line"
+    index "bus"
+  }
+}
+
+model "Dispatch" {
+  set "bus" alias="b"
+  set "line" alias="l"
+  set "new_bus"
+  set "existing_bus"
+
+  control "dispatch_new" lower=0 {
+    index "b" in="new_bus"
+  }
+
+  control "dispatch_existing" lower=0 {
+    index "b" in="existing_bus"
+  }
+
+  expression "dispatch_new_gen_by_bus" {
+    index "b" in="bus"
+    if { has_new[b] == 1 }
+    expression {
+      dispatch_new[b]
+    }
+  }
+
+  expression "dispatch_existing_gen_by_bus" {
+    index "b" in="bus"
+    if { has_existing[b] == 1 }
+    expression {
+      dispatch_existing[b]
+    }
+  }
+
+  expression "net_injection_by_bus" {
+    index "b" in="bus"
+    expression {
+      dispatch_new_gen_by_bus[b] + dispatch_existing_gen_by_bus[b] - mw_load[b]
+    }
+  }
+
+  expression "flow_by_line" {
+    index "l" in="line"
+    expression {
+      sum(ptdf[l,b] * net_injection_by_bus[b] for b in bus)
+    }
+  }
+
+  constraint "balance" {
+    expression {
+      sum(net_injection_by_bus[bb] for bb in bus) = 0
+    }
+  }
+
+  constraint "line_limit" {
+    index "l" in="line"
+    expression {
+      flow_by_line[l] <= 100
+    }
+  }
+
+  minimize "TotalCost" {
+    0
+  }
+}
+
+scenario "Base" {
+  use "Dispatch"
+}

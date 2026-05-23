@@ -50,14 +50,16 @@ fn expr_affine_kind(expr: &NonlinearExpr) -> ExprAffineKind {
                 BinaryOp::Divide => combine_divide_kind(left_kind, right_kind),
             }
         }
-        NonlinearExpr::FunctionCall { name, args } => {
-            if args.iter().all(|arg| matches!(expr_affine_kind(arg), ExprAffineKind::Constant)) {
+        NonlinearExpr::FunctionCall { args, .. } => {
+            if args
+                .iter()
+                .all(|arg| matches!(expr_affine_kind(arg), ExprAffineKind::Constant))
+            {
                 return ExprAffineKind::Constant;
             }
 
             // abs(x), sin(x), cos(x), atan(x), ln(x), sqrt(x), exp(x), pow(x,y)
             // are nonlinear unless all arguments are constants.
-            let _ = name;
             ExprAffineKind::Nonlinear
         }
     }
@@ -102,6 +104,7 @@ fn compile_nonlinear_problem(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -115,6 +118,7 @@ fn compile_nonlinear_problem(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -125,6 +129,7 @@ fn compile_nonlinear_problem(
         program,
         inputs,
         named_expressions,
+        expression_generation_index,
         variable_signatures,
         instantiated_names,
         entrypoint,
@@ -134,6 +139,7 @@ fn compile_nonlinear_problem(
         inputs,
         variable_signatures,
         named_expressions,
+        expression_generation_index,
         instantiated_names,
         entrypoint,
     )?);
@@ -150,6 +156,7 @@ fn compile_nonlinear_problem(
                     program,
                     inputs,
                     named_expressions,
+                    expression_generation_index,
                     variable_signatures,
                     instantiated_names,
                     entrypoint,
@@ -172,6 +179,7 @@ fn compile_nonlinear_constraint_instances(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -234,6 +242,7 @@ fn compile_nonlinear_constraint_instances(
                     program,
                     inputs,
                     named_expressions,
+                    expression_generation_index,
                     variable_signatures,
                     instantiated_names,
                     entrypoint,
@@ -258,6 +267,7 @@ fn compile_nonlinear_constraint_instances(
                         program,
                         inputs,
                         named_expressions,
+                        expression_generation_index,
                         variable_signatures,
                         instantiated_names,
                         entrypoint,
@@ -279,6 +289,7 @@ fn compile_nonlinear_constraint_instances(
                     program,
                     inputs,
                     named_expressions,
+                    expression_generation_index,
                     variable_signatures,
                     instantiated_names,
                     entrypoint,
@@ -315,6 +326,7 @@ fn compile_nonlinear_constraint_body(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -330,6 +342,7 @@ fn compile_nonlinear_constraint_body(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -350,6 +363,7 @@ fn compile_nonlinear_constraint_body(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -363,6 +377,7 @@ fn compile_nonlinear_constraint_body(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -381,6 +396,7 @@ fn compile_nonlinear_comparison(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -391,6 +407,7 @@ fn compile_nonlinear_comparison(
         program,
         inputs,
         named_expressions,
+        expression_generation_index,
         variable_signatures,
         instantiated_names,
         entrypoint,
@@ -401,6 +418,7 @@ fn compile_nonlinear_comparison(
         program,
         inputs,
         named_expressions,
+        expression_generation_index,
         variable_signatures,
         instantiated_names,
         entrypoint,
@@ -425,6 +443,7 @@ fn compile_nonlinear_expr(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -439,16 +458,31 @@ fn compile_nonlinear_expr(
             }),
         Expr::Identifier(name) => {
             if let Some(binding) = bindings.values.get(name) {
-                let numeric = numeric_filter_value(binding, &synthetic_constraint(name), entrypoint)?;
+                let numeric =
+                    numeric_filter_value(binding, &synthetic_constraint(name), entrypoint)?;
                 return Ok(NonlinearExpr::Constant(numeric));
             }
             if let Some(expression) = named_expressions.get(name) {
+                if let Some(generation_bindings) =
+                    expression_generation_bindings(name, program, expression_generation_index)
+                {
+                    if !generation_bindings.is_empty() {
+                        return Err(CompileError::InvalidFormulation {
+                            message: format!(
+                                "indexed expression `{name}` expects {} index value(s), received 0",
+                                generation_bindings.len()
+                            ),
+                            path: entrypoint.to_path_buf(),
+                        });
+                    }
+                }
                 return compile_nonlinear_expr(
                     expression,
                     bindings,
                     program,
                     inputs,
                     named_expressions,
+                    expression_generation_index,
                     variable_signatures,
                     instantiated_names,
                     entrypoint,
@@ -471,6 +505,7 @@ fn compile_nonlinear_expr(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -483,6 +518,7 @@ fn compile_nonlinear_expr(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -496,6 +532,7 @@ fn compile_nonlinear_expr(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -506,6 +543,7 @@ fn compile_nonlinear_expr(
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
@@ -522,6 +560,7 @@ fn compile_nonlinear_expr(
                         program,
                         inputs,
                         named_expressions,
+                        expression_generation_index,
                         variable_signatures,
                         instantiated_names,
                         entrypoint,
@@ -535,6 +574,7 @@ fn compile_nonlinear_expr(
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -556,49 +596,59 @@ fn compile_nonlinear_reduction(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<NonlinearExpr, CompileError> {
     let tuple_reduction_domain = tuple_reduction_domain_name(&reduction.bindings, program);
-    let expanded =
-        expand_reduction_bindings(&reduction.bindings, bindings, inputs, program, entrypoint)?;
     let mut total = NonlinearExpr::Constant(0.0);
     let mut matched_scope_count = 0usize;
 
-    'outer: for scope in expanded {
-        for filter in &reduction.filters {
-            if !evaluate_reduction_filter(
-                filter,
-                &scope,
+    for_each_reduction_scope(
+        &reduction.bindings,
+        bindings,
+        inputs,
+        program,
+        entrypoint,
+        |scope| {
+            for filter in &reduction.filters {
+                if !evaluate_reduction_filter(
+                    filter,
+                    scope,
+                    program,
+                    inputs,
+                    named_expressions,
+                    expression_generation_index,
+                    variable_signatures,
+                    instantiated_names,
+                    entrypoint,
+                )? {
+                    return Ok(());
+                }
+            }
+
+            matched_scope_count += 1;
+            let value = compile_nonlinear_expr(
+                &reduction.body,
+                scope,
                 program,
                 inputs,
                 named_expressions,
+                expression_generation_index,
                 variable_signatures,
                 instantiated_names,
                 entrypoint,
-            )? {
-                continue 'outer;
-            }
-        }
-
-        matched_scope_count += 1;
-        let value = compile_nonlinear_expr(
-            &reduction.body,
-            &scope,
-            program,
-            inputs,
-            named_expressions,
-            variable_signatures,
-            instantiated_names,
-            entrypoint,
-        )?;
-        total = NonlinearExpr::Binary {
-            op: BinaryOp::Add,
-            left: Box::new(total),
-            right: Box::new(value),
-        };
-    }
+            )?;
+            let previous_total = std::mem::replace(&mut total, NonlinearExpr::Constant(0.0));
+            total = NonlinearExpr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(previous_total),
+                right: Box::new(value),
+            };
+            Ok(())
+        },
+    )?;
 
     if matched_scope_count == 0 {
         if let Some(domain) = tuple_reduction_domain {
@@ -620,11 +670,15 @@ fn compile_nonlinear_indexed_expr(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<NonlinearExpr, CompileError> {
-    let resolved = match (indices.len(), resolve_tuple_key_index(indices, bindings, program)) {
+    let resolved = match (
+        indices.len(),
+        resolve_tuple_key_index(indices, bindings, program),
+    ) {
         (1, Some(tuple_key_values)) => tuple_key_values,
         _ => resolve_index_values(indices, bindings, named_expressions, entrypoint)?,
     };
@@ -635,22 +689,56 @@ fn compile_nonlinear_indexed_expr(
     }
 
     if let Some(expression) = named_expressions.get(target) {
+        let generation_bindings =
+            expression_generation_bindings(target, program, expression_generation_index);
+        let generation_filter =
+            expression_generation_filter(target, program, expression_generation_index);
+        let mut scoped_bindings = bindings.clone();
+        if let Some(generation_bindings) = generation_bindings {
+            bind_generated_expression_indices(
+                target,
+                generation_bindings,
+                &resolved,
+                &mut scoped_bindings,
+                entrypoint,
+            )?;
+        }
+
+        if let Some(filter) = generation_filter {
+            if !evaluate_reduction_filter(
+                filter,
+                &scoped_bindings,
+                program,
+                inputs,
+                named_expressions,
+                expression_generation_index,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            )? {
+                return Ok(NonlinearExpr::Constant(0.0));
+            }
+        }
+
         return compile_nonlinear_expr(
             expression,
-            bindings,
+            &scoped_bindings,
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
         );
     }
 
-    if let [FilterValue::String(_), FilterValue::Number(_)] = resolved.as_slice() {
+    if let [asset_value @ FilterValue::String(_), time_value @ FilterValue::Number(_)] =
+        resolved.as_slice()
+    {
         let synthetic = synthetic_constraint(target);
-        let asset_name = string_filter_value(&resolved[0], &synthetic, entrypoint)?;
-        let time = integer_time_index(&resolved[1], entrypoint)?;
+        let asset_name = string_filter_value(asset_value, &synthetic, entrypoint)?;
+        let time = integer_time_index(time_value, entrypoint)?;
 
         if !(1..=program.time_steps() as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
@@ -667,8 +755,8 @@ fn compile_nonlinear_indexed_expr(
         }
     }
 
-    if let [FilterValue::Number(_)] = resolved.as_slice() {
-        let time = integer_time_index(&resolved[0], entrypoint)?;
+    if let [time_value @ FilterValue::Number(_)] = resolved.as_slice() {
+        let time = integer_time_index(time_value, entrypoint)?;
         if !(1..=program.time_steps() as i64).contains(&time)
             && find_variable_family(target, resolved.len(), variable_signatures).is_some()
         {
@@ -677,6 +765,14 @@ fn compile_nonlinear_indexed_expr(
                 path: entrypoint.to_path_buf(),
             });
         }
+    }
+
+    if !parameter_name_known(target, program, inputs) {
+        return Err(CompileError::MissingDeclaration {
+            kind: "parameter",
+            name: target.to_string(),
+            path: entrypoint.to_path_buf(),
+        });
     }
 
     let parameter_expr = parameter_reference_expr(target, &resolved, inputs, entrypoint)?;
@@ -698,10 +794,12 @@ fn emit_terminal_boundary_nonlinear_constraints(
     inputs: &ScenarioInputs,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
 ) -> Result<Vec<NonlinearConstraint>, CompileError> {
-    let linear_rows = emit_terminal_boundary_constraints(program, inputs, variable_signatures, entrypoint)?;
+    let linear_rows =
+        emit_terminal_boundary_constraints(program, inputs, variable_signatures, entrypoint)?;
     linear_rows
         .into_iter()
         .map(|row| {
@@ -736,6 +834,7 @@ fn emit_terminal_boundary_nonlinear_constraints(
                     program,
                     inputs,
                     named_expressions,
+                    expression_generation_index,
                     variable_signatures,
                     instantiated_names,
                     entrypoint,

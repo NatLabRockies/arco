@@ -38,3 +38,6 @@ tracing = { workspace = true }
 default = []
 ipopt = ["dep:arco-ipopt", "dep:ipopt"]
 xpress = ["dep:arco-xpress"]
+
+[dev-dependencies]
+tempfile = "3"

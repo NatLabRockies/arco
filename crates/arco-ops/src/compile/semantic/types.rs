@@ -157,6 +157,9 @@ pub struct ResolvedExpression {
     pub name: String,
     pub formula_text: String,
     pub formula: Expr,
+    pub generation_bindings: Vec<GenerationBinding>,
+    pub generation_filter_text: Option<String>,
+    pub generation_filter: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

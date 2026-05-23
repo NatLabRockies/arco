@@ -223,11 +223,11 @@ fn kdl_check_json_reports_included_file_path() {
         .as_array()
         .expect("diagnostics array");
     assert_eq!(diagnostics.len(), 1);
+    let diagnostic_file = diagnostics[0]["file"].as_str().expect("diagnostic file");
+    let normalized_file = diagnostic_file.replace('\\', "/");
     assert!(
-        diagnostics[0]["file"]
-            .as_str()
-            .expect("diagnostic file")
-            .ends_with("composition-invalid/bad-fragment.kdl")
+        normalized_file.ends_with("composition-invalid/bad-fragment.kdl"),
+        "unexpected diagnostic file path: {diagnostic_file}"
     );
     assert_eq!(diagnostics[0]["line"], Value::from(1));
 }

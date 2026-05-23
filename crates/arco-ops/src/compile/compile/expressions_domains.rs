@@ -386,6 +386,7 @@ fn linearize_indexed_expr(
     program: &SemanticProgram,
     inputs: &ScenarioInputs,
     named_expressions: &BTreeMap<String, Expr>,
+    expression_generation_index: &ExpressionGenerationIndex,
     variable_signatures: &BTreeMap<String, FamilySignature>,
     instantiated_names: &BTreeSet<String>,
     entrypoint: &Path,
@@ -407,12 +408,44 @@ fn linearize_indexed_expr(
     }
 
     if let Some(expression) = named_expressions.get(target) {
+        let generation_bindings =
+            expression_generation_bindings(target, program, expression_generation_index);
+        let generation_filter =
+            expression_generation_filter(target, program, expression_generation_index);
+        let mut scoped_bindings = bindings.clone();
+        if let Some(generation_bindings) = generation_bindings {
+            bind_generated_expression_indices(
+                target,
+                generation_bindings,
+                &resolved,
+                &mut scoped_bindings,
+                entrypoint,
+            )?;
+        }
+
+        if let Some(filter) = generation_filter {
+            if !evaluate_reduction_filter(
+                filter,
+                &scoped_bindings,
+                program,
+                inputs,
+                named_expressions,
+                expression_generation_index,
+                variable_signatures,
+                instantiated_names,
+                entrypoint,
+            )? {
+                return Ok(AffineExpr::default());
+            }
+        }
+
         return linearize_value_expr(
             expression,
-            bindings,
+            &scoped_bindings,
             program,
             inputs,
             named_expressions,
+            expression_generation_index,
             variable_signatures,
             instantiated_names,
             entrypoint,
@@ -458,6 +491,14 @@ fn linearize_indexed_expr(
         }
     }
 
+    if !parameter_name_known(target, program, inputs) {
+        return Err(CompileError::MissingDeclaration {
+            kind: "parameter",
+            name: target.to_string(),
+            path: entrypoint.to_path_buf(),
+        });
+    }
+
     parameter_reference_expr(target, &resolved, inputs, entrypoint)
 }
 
@@ -495,4 +536,37 @@ fn resolve_tuple_key_index(
     }
 
     Some(resolved)
+}
+
+fn build_expression_generation_index(program: &SemanticProgram) -> ExpressionGenerationIndex {
+    program
+        .active_expressions
+        .iter()
+        .enumerate()
+        .map(|(index, expression)| (expression.name.clone(), index))
+        .collect()
+}
+
+fn expression_generation_bindings<'a>(
+    name: &str,
+    program: &'a SemanticProgram,
+    expression_generation_index: &ExpressionGenerationIndex,
+) -> Option<&'a [arco_kdl::source::GenerationBinding]> {
+    let expression_index = *expression_generation_index.get(name)?;
+    program
+        .active_expressions
+        .get(expression_index)
+        .map(|expression| expression.generation_bindings.as_slice())
+}
+
+fn expression_generation_filter<'a>(
+    name: &str,
+    program: &'a SemanticProgram,
+    expression_generation_index: &ExpressionGenerationIndex,
+) -> Option<&'a Expr> {
+    let expression_index = *expression_generation_index.get(name)?;
+    program
+        .active_expressions
+        .get(expression_index)
+        .and_then(|expression| expression.generation_filter.as_ref())
 }

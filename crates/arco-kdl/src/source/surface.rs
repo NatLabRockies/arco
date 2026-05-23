@@ -37,7 +37,9 @@ fn rewrite_math_block(text: &str, start: usize, keyword: &str) -> Option<(String
 
     let opening_brace = find_opening_brace(text, start + keyword.len())?;
 
-    if keyword == "constraint" && body_starts_with_generation_keyword(text, opening_brace) {
+    if matches!(keyword, "constraint" | "expression")
+        && body_starts_with_generation_keyword(text, opening_brace)
+    {
         return None;
     }
 
@@ -132,7 +134,7 @@ fn rewrite_math_replacement(keyword: &str, header: &str, encoded_body: &str) -> 
 
 fn body_starts_with_generation_keyword(text: &str, opening_brace: usize) -> bool {
     let trimmed = text[opening_brace + 1..].trim_start();
-    for keyword in ["index", "if", "slack", "expression"] {
+    for keyword in ["index", "if", "slack", "expression", "formula"] {
         let Some(rest) = trimmed.strip_prefix(keyword) else {
             continue;
         };

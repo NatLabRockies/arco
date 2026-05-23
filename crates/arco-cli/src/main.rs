@@ -160,6 +160,8 @@ fn main() -> miette::Result<()> {
     let _ = miette::set_hook(Box::new(|_| {
         Box::new(miette::MietteHandlerOpts::new().build())
     }));
+    let stdout_is_terminal = std::io::stdout().is_terminal();
+    let color_mode = ColorMode::from(should_colorize_stdout(stdout_is_terminal));
     let validate_command = matches!(
         &cli.command,
         Command::Validate { .. }
@@ -188,10 +190,7 @@ fn main() -> miette::Result<()> {
                     filter_variable,
                     filter_asset,
                     solver_log: solver_log
-                        || should_log_solver_to_console(
-                            cli.verbose,
-                            std::io::stdout().is_terminal(),
-                        ),
+                        || should_log_solver_to_console(cli.verbose, stdout_is_terminal),
                 },
                 &solver_config,
             );
@@ -213,16 +212,12 @@ fn main() -> miette::Result<()> {
             write_stdout_line(&print_file_model(&path)?).into_diagnostic()?;
         }
         Command::Validate { path } => {
-            write_stdout_line(&validate_file_only(
-                &path,
-                ColorMode::from(should_colorize_stdout(std::io::stdout().is_terminal())),
-            )?)
-            .into_diagnostic()?;
+            write_stdout_line(&validate_file_only(&path, color_mode)?).into_diagnostic()?;
         }
         Command::Inspect { path, json } => {
             write_stdout_line(&inspect_file_report(&path, json)?).into_diagnostic()?;
         }
-        Command::Kdl { action } => handle_kdl_action(action)?,
+        Command::Kdl { action } => handle_kdl_action_with_color(action, color_mode)?,
         Command::Debug { path } => {
             launch_ipython(&path)?;
         }
@@ -238,7 +233,7 @@ fn main() -> miette::Result<()> {
     Ok(())
 }
 
-fn handle_kdl_action(action: KdlAction) -> miette::Result<()> {
+fn handle_kdl_action_with_color(action: KdlAction, color_mode: ColorMode) -> miette::Result<()> {
     match action {
         KdlAction::Check {
             path,
@@ -247,12 +242,8 @@ fn handle_kdl_action(action: KdlAction) -> miette::Result<()> {
         } => match format {
             CheckFormat::Text => {
                 let mode = kdl_check_mode(materialize_data);
-                write_stdout_line(&arco_cli::driver::validate_file(
-                    &path,
-                    ColorMode::from(should_colorize_stdout(std::io::stdout().is_terminal())),
-                    mode,
-                )?)
-                .into_diagnostic()?;
+                write_stdout_line(&arco_cli::driver::validate_file(&path, color_mode, mode)?)
+                    .into_diagnostic()?;
             }
             CheckFormat::Json => {
                 let outcome = kdl_check_file_json(&path, kdl_check_mode(materialize_data))?;
