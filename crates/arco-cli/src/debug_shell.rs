@@ -191,21 +191,24 @@ fn build_ipython_script(path: &Path, model: &PythonModelData) -> String {
         path = format_python_string(&path.display().to_string()),
         num_constraints = model.constraint_names.len(),
         num_variables = model.variable_names.len(),
-        col_ptrs = format_python_usize_list(&model.col_ptrs),
-        row_indices = format_python_usize_list(&model.row_indices),
-        values = format_python_f64_list(&model.values),
-        var_lower = format_python_f64_list(&model.var_lower),
-        var_upper = format_python_f64_list(&model.var_upper),
-        con_lower = format_python_f64_list(&model.con_lower),
-        con_upper = format_python_f64_list(&model.con_upper),
-        is_integer = format_python_bool_list(&model.is_integer),
-        variable_names = format_python_string_list(&model.variable_names),
-        constraint_names = format_python_string_list(&model.constraint_names),
+        col_ptrs = format_python_list(&model.col_ptrs, |v| v.to_string()),
+        row_indices = format_python_list(&model.row_indices, |v| v.to_string()),
+        values = format_python_list(&model.values, |v| format_python_f64(*v)),
+        var_lower = format_python_list(&model.var_lower, |v| format_python_f64(*v)),
+        var_upper = format_python_list(&model.var_upper, |v| format_python_f64(*v)),
+        con_lower = format_python_list(&model.con_lower, |v| format_python_f64(*v)),
+        con_upper = format_python_list(&model.con_upper, |v| format_python_f64(*v)),
+        is_integer = format_python_list(&model.is_integer, |v| (if *v { "True" } else { "False" })
+            .to_string()),
+        variable_names = format_python_list(&model.variable_names, |v| format_python_string(v)),
+        constraint_names = format_python_list(&model.constraint_names, |v| format_python_string(v)),
         objective_sense = match model.objective_sense {
             ObjectiveSense::Minimize => "MINIMIZE",
             ObjectiveSense::Maximize => "MAXIMIZE",
         },
-        objective_terms = format_python_tuple_list(&model.objective_terms),
+        objective_terms = format_python_list(&model.objective_terms, |(index, coefficient)| {
+            format!("({}, {})", index, format_python_f64(*coefficient))
+        }),
         objective_name = format_python_string(&model.objective_name),
         objective_constant = format_python_f64(model.objective_constant),
     )
@@ -227,30 +230,6 @@ fn format_python_string(value: &str) -> String {
     }
     encoded.push('"');
     encoded
-}
-
-fn format_python_string_list(values: &[String]) -> String {
-    format_python_list(values, |value| format_python_string(value))
-}
-
-fn format_python_usize_list(values: &[usize]) -> String {
-    format_python_list(values, |value| value.to_string())
-}
-
-fn format_python_f64_list(values: &[f64]) -> String {
-    format_python_list(values, |value| format_python_f64(*value))
-}
-
-fn format_python_bool_list(values: &[bool]) -> String {
-    format_python_list(values, |value| {
-        (if *value { "True" } else { "False" }).to_string()
-    })
-}
-
-fn format_python_tuple_list(values: &[(usize, f64)]) -> String {
-    format_python_list(values, |(index, coefficient)| {
-        format!("({}, {})", index, format_python_f64(*coefficient))
-    })
 }
 
 fn format_python_list<T>(values: &[T], format_item: impl Fn(&T) -> String) -> String {

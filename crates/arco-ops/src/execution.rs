@@ -1899,6 +1899,32 @@ impl ConstrainedProblem for NonlinearIpoptProblem {
     }
 }
 
+/// Build Hessian sparsity lower-triangular pairs for a single tape, appending
+/// to the global `rows`/`cols` vectors and recording local index pairs in `pairs`.
+#[cfg(feature = "ipopt")]
+fn build_hessian_sparsity_pairs(
+    tape: &Tape,
+    rows: &mut Vec<Index>,
+    cols: &mut Vec<Index>,
+    pairs: &mut Vec<(u32, u32, u32)>,
+) {
+    if !tape.is_nonlinear {
+        return;
+    }
+    let local_n = tape.local_to_global.len();
+    for lj in 0..local_n {
+        for lk in lj..local_n {
+            let g_j = tape.local_to_global[lj];
+            let g_k = tape.local_to_global[lk];
+            let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
+            let pos = rows.len() as u32;
+            rows.push(row as Index);
+            cols.push(col as Index);
+            pairs.push((lj as u32, lk as u32, pos));
+        }
+    }
+}
+
 #[cfg(feature = "ipopt")]
 #[allow(clippy::too_many_arguments)]
 fn solve_with_nonlinear_ipopt(
@@ -1984,38 +2010,17 @@ fn solve_with_nonlinear_ipopt(
     let mut hess_rows: Vec<Index> = Vec::new();
     let mut hess_cols: Vec<Index> = Vec::new();
     let mut obj_hess_pairs: Vec<(u32, u32, u32)> = Vec::new();
-    if objective_tape.is_nonlinear {
-        let local_n = objective_tape.local_to_global.len();
-        for lj in 0..local_n {
-            for lk in lj..local_n {
-                let g_j = objective_tape.local_to_global[lj];
-                let g_k = objective_tape.local_to_global[lk];
-                let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
-                let pos = hess_rows.len() as u32;
-                hess_rows.push(row as Index);
-                hess_cols.push(col as Index);
-                obj_hess_pairs.push((lj as u32, lk as u32, pos));
-            }
-        }
-    }
+    build_hessian_sparsity_pairs(
+        &objective_tape,
+        &mut hess_rows,
+        &mut hess_cols,
+        &mut obj_hess_pairs,
+    );
     let mut constraint_hess_pairs: Vec<Vec<(u32, u32, u32)>> =
         Vec::with_capacity(constraint_tapes.len());
     for tape in &constraint_tapes {
         let mut pairs: Vec<(u32, u32, u32)> = Vec::new();
-        if tape.is_nonlinear {
-            let local_n = tape.local_to_global.len();
-            for lj in 0..local_n {
-                for lk in lj..local_n {
-                    let g_j = tape.local_to_global[lj];
-                    let g_k = tape.local_to_global[lk];
-                    let (row, col) = if g_j >= g_k { (g_j, g_k) } else { (g_k, g_j) };
-                    let pos = hess_rows.len() as u32;
-                    hess_rows.push(row as Index);
-                    hess_cols.push(col as Index);
-                    pairs.push((lj as u32, lk as u32, pos));
-                }
-            }
-        }
+        build_hessian_sparsity_pairs(tape, &mut hess_rows, &mut hess_cols, &mut pairs);
         constraint_hess_pairs.push(pairs);
     }
 

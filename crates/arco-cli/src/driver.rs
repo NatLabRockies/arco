@@ -1,5 +1,5 @@
 use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim, style_error_label};
-use crate::config::{ConfigError, SolverConfigState, load_solver_config};
+use crate::config::{ConfigError, SolverConfigState};
 pub use crate::driver_kdl::{KdlCheckMode, KdlCheckOutcome, kdl_check_file_json};
 pub use crate::driver_summary::{
     DualReportSummary, DualReportValueSummary, ObjectiveSummary, ProblemCounts, ReportSummary,
@@ -130,65 +130,16 @@ impl Diagnostic for DriverError {
     }
 }
 
-fn load_resolved_selection() -> Result<ResolvedSelection, DriverError> {
-    Ok(load_solver_config()?.resolved)
-}
-
-fn selected_profile<'a>(
-    state: &'a SolverConfigState,
-    selection: &ResolvedSelection,
-) -> Option<&'a SolverProfile> {
-    selection
-        .profile
-        .as_ref()
-        .and_then(|name| state.merged_profiles.get(name))
-}
-
-pub fn run_file(path: &Path) -> Result<RunSummary, DriverError> {
-    run_file_with_options_and_selection(path, &RunOptions::default(), &load_resolved_selection()?)
-}
-
-pub fn run_file_with_options(path: &Path, options: &RunOptions) -> Result<RunSummary, DriverError> {
-    run_file_with_options_and_selection(path, options, &load_resolved_selection()?)
-}
-
-pub fn run_file_with_options_and_selection(
-    path: &Path,
-    options: &RunOptions,
-    selection: &ResolvedSelection,
-) -> Result<RunSummary, DriverError> {
-    run_file_with_options_and_profile(path, options, selection, None)
-}
-
-pub fn run_file_json(path: &Path) -> Result<String, DriverError> {
-    run_file_json_with_options_and_selection(
-        path,
-        &RunOptions::default(),
-        &load_resolved_selection()?,
-    )
-}
-
-pub fn run_file_json_with_options(
-    path: &Path,
-    options: &RunOptions,
-) -> Result<String, DriverError> {
-    run_file_json_with_options_and_selection(path, options, &load_resolved_selection()?)
-}
-
-pub fn run_file_json_with_options_and_selection(
-    path: &Path,
-    options: &RunOptions,
-    selection: &ResolvedSelection,
-) -> Result<String, DriverError> {
-    run_file_json_with_options_and_profile(path, options, selection, None)
-}
-
 pub fn run_file_json_with_options_and_config(
     path: &Path,
     options: &RunOptions,
     state: &SolverConfigState,
 ) -> Result<String, DriverError> {
-    let profile = selected_profile(state, &state.resolved);
+    let profile = state
+        .resolved
+        .profile
+        .as_ref()
+        .and_then(|name| state.merged_profiles.get(name));
     run_file_json_with_options_and_profile(path, options, &state.resolved, profile)
 }
 
