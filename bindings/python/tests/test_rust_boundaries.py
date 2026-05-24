@@ -31,6 +31,14 @@ def test_python_cargo_depends_on_shared_public_contracts_only_among_arco_crates(
         assert forbidden not in cargo_toml
 
 
+def test_python_package_builds_with_xpress_support_by_default() -> None:
+    cargo_manifest = tomllib.loads((PYTHON_CRATE / "Cargo.toml").read_text())
+    pyproject = tomllib.loads((PYTHON_CRATE / "pyproject.toml").read_text())
+
+    assert "xpress" in cargo_manifest["features"]["default"]
+    assert "xpress" in pyproject["tool"]["maturin"]["features"]
+
+
 def test_cli_cargo_depends_on_arco_ops_only_among_arco_modeling_crates() -> None:
     cargo_toml = (ROOT / "crates" / "arco-cli" / "Cargo.toml").read_text()
 

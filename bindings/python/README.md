@@ -12,6 +12,10 @@ uv sync --group dev
 uv run --with maturin maturin develop
 ```
 
+Default Python builds include the runtime-loaded Xpress backend. Solving with
+`arco.Xpress(...)` still requires the FICO Xpress runtime and a valid license on
+the target machine.
+
 To enable the IPOPT nonlinear backend, build with the `ipopt` feature (requires
 a system IPOPT install):
 
@@ -20,14 +24,15 @@ cd bindings/python
 uv run --with maturin maturin develop --features ipopt
 ```
 
-To enable the Xpress backend in Python bindings, build with `xpress`:
+To disable Xpress for a source build, turn off default Cargo features:
 
 ```bash
 cd bindings/python
-uv run --with maturin maturin develop --features xpress
+uv run --with maturin maturin develop --no-default-features --features pyo3/extension-module
 ```
 
-Without this feature, `arco.Xpress(...)` is importable but solve will fail fast with a rebuild hint.
+Without this feature, `arco.Xpress(...)` is importable but solve will fail fast
+with a rebuild hint.
 
 Run linting:
 
