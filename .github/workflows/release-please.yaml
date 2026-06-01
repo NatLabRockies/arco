@@ -154,10 +154,12 @@ jobs:
 
       - name: Build wheel
         shell: bash
+        env:
+          DEFAULT_WHEEL_PYTHON: ${{ matrix.wheel_python }}
         run: |
           set -euo pipefail
           just py-licenses
-          uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i "${PYTHON_WHEEL_INTERPRETER:-${{ matrix.wheel_python }}}" --compatibility pypi --out dist
+          uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i "${PYTHON_WHEEL_INTERPRETER:-$DEFAULT_WHEEL_PYTHON}" --compatibility pypi --out dist
 
       - name: Build sdist (linux only)
         if: matrix.build_sdist
