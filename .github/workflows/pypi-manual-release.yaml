@@ -65,7 +65,8 @@ jobs:
           save-rust-cache: "false"
           save-uv-cache: "false"
 
-      - name: Build wheel
+      - name: Build wheel (linux)
+        if: runner.os != 'Windows'
         shell: bash
         env:
           DEFAULT_WHEEL_PYTHON: ${{ matrix.wheel_python }}
@@ -73,6 +74,18 @@ jobs:
           set -euo pipefail
           just py-licenses
           uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i "${PYTHON_WHEEL_INTERPRETER:-$DEFAULT_WHEEL_PYTHON}" --compatibility pypi --out dist
+
+      - name: Build wheel (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          DEFAULT_WHEEL_PYTHON: ${{ matrix.wheel_python }}
+        run: |
+          if (-not $env:PYTHON_WHEEL_INTERPRETER) {
+            $env:PYTHON_WHEEL_INTERPRETER = $env:DEFAULT_WHEEL_PYTHON
+          }
+          uv run python scripts/sync_python_licenses.py
+          uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i "$env:PYTHON_WHEEL_INTERPRETER" --compatibility pypi --out dist
 
       - name: Build sdist (linux only)
         if: matrix.build_sdist
