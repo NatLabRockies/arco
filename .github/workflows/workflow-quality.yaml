@@ -47,6 +47,4 @@ jobs:
           persist-credentials: false
 
       - name: Run actionlint
-        run: |
-          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint .github/workflows/*.yaml
+        run: uvx --from actionlint-py actionlint .github/workflows/*.yaml

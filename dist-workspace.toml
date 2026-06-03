@@ -11,6 +11,8 @@ unix-archive = ".tar.gz"
 packages = ["arco-cli"]
 # CI backends to support
 ci = "github"
+# Where to host releases
+hosting = "github"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
@@ -23,6 +25,8 @@ targets = [
 ]
 # Which actions to run on pull requests
 pr-run-mode = "skip"
+# A prefix git tags must include for dist to care about them
+tag-namespace = "v"
 # Which phase dist should use to create the GitHub release
 github-release = "announce"
 # Whether to enable GitHub Attestations

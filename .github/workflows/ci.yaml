@@ -329,7 +329,9 @@ jobs:
           SOLVER: ${{ matrix.solver }}
           CHECK_UNAVAILABLE: ${{ matrix.check-unavailable }}
         run: |
-          uv run python scripts/smoke_solver.py --solver "$SOLVER" --arco-binary target/release/arco $CHECK_UNAVAILABLE
+          args=(--solver "$SOLVER" --arco-binary target/release/arco)
+          if [[ -n "$CHECK_UNAVAILABLE" ]]; then args+=($CHECK_UNAVAILABLE); fi
+          uv run python scripts/smoke_solver.py "${args[@]}"
 
   benchmark:
     name: Benchmarks

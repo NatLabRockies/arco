@@ -1,15 +1,15 @@
 [default.extend-words]
 # Energy-sector abbreviations
-FOM = "FOM"    # Fixed Operations & Maintenance
-CAES = "CAES"  # Compressed Air Energy Storage
-OPF = "OPF"    # Optimal Power Flow
-ACOPF = "ACOPF"  # AC Optimal Power Flow
-DCOPF = "DCOPF"  # DC Optimal Power Flow
+FOM = "FOM"     # Fixed Operations & Maintenance
+CAES = "CAES"   # Compressed Air Energy Storage
+OPF = "OPF"     # Optimal Power Flow
+ACOPF = "ACOPF" # AC Optimal Power Flow
+DCOPF = "DCOPF" # DC Optimal Power Flow
 # Code identifiers
-arange = "arange"  # numpy.arange
+arange = "arange" # numpy.arange
 
 [files]
 extend-exclude = [
-    "CHANGELOG.md",   # auto-generated, full of commit SHA fragments
-    ".gitignore",     # glob patterns like [Ss]cripts trigger false positives
+  "CHANGELOG.md", # auto-generated, full of commit SHA fragments
+  ".gitignore",   # glob patterns like [Ss]cripts trigger false positives
 ]
