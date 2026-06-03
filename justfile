@@ -73,9 +73,15 @@ kdl-overlay-check:
     ./scripts/check-kdl-overlay.sh
 
 [group: 'python']
-py-build-ci: py-licenses
+py-build-wheel: py-licenses
     uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist
+
+[group: 'python']
+py-build-sdist:
     uv run --project bindings/python --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
+
+[group: 'python']
+py-build-ci: py-build-wheel py-build-sdist
 
 [group: 'python']
 py-check:
@@ -189,4 +195,4 @@ test-solver package:
 
 [group: 'hygiene']
 workflow-quality:
-    workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) ! -name 'release.yml' -print); uvx zizmor .github/actions .github/dependabot.yml "${workflows[@]}"
+    uvx zizmor --pedantic .github/
