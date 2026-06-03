@@ -18,7 +18,7 @@ Use workspace `just` targets as the default contributor entry point:
 
 ```bash
 just fmt
-just clippy
+just rust-clippy
 just check
 ```
 
@@ -28,6 +28,32 @@ For a full local gate before PR creation:
 
 ```bash
 just ci
+```
+
+### Solver-specific validation
+
+Shipped solvers can be smoke-tested locally with isolated config:
+
+```bash
+just smoke-solver highs
+just smoke-solver scip
+just smoke-solver xpress xpress
+```
+
+IPOPT is an external/native adapter and is not shipped by default.
+`arco solver set ipopt` is available in the default product but returns a
+clear unavailable diagnostic. To verify the unavailable diagnostic:
+
+```bash
+just cli-build
+just smoke-solver-ipopt-unavailable
+```
+
+To use native IPOPT (requires system IPOPT libraries):
+
+```bash
+just cli-build ipopt
+just smoke-solver ipopt
 ```
 
 For Python commands, use `uv` consistently:

@@ -4,39 +4,58 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 export UV_CACHE_DIR := justfile_directory() / ".uv-cache"
 
-alias t := test
+alias t := rust-test
 alias tp := test-pkg
 alias to := test-one
 alias cp := clippy-pkg
 alias kp := check-pkg
 
-# Rust package group (all workspace crates except python and ipopt bindings)
-rust-packages := "--workspace --exclude arco-python --exclude arco-ipopt"
+# Rust package group (all workspace crates except python bindings).
+# No solver-specific exclusions needed: arco-ipopt and arco-xpress both
+# compile without native solver runtimes.
+rust-packages := "--workspace --exclude arco-python"
 
-# Rust package group for clippy in CI where Xpress SDK is unavailable
-clippy-packages := "--workspace --exclude arco-python --exclude arco-ipopt --exclude arco-xpress"
+clippy-packages := "--workspace --exclude arco-python"
 
 [group: 'rust']
 check:
     cargo check {{ rust-packages }} --all-features --tests --benches --examples
 
 [group: 'ci']
-ci: fmt-check clippy-all test docs-test arch-check
+ci: fmt-check rust-clippy rust-test docs-test arch-check rust-clippy-all-features rust-test-all-features
 
 [group: 'rust']
 clippy:
     cargo clippy --benches --tests --examples --all-features -- -D warnings
 
-[group: 'ci']
-clippy-all:
+[group: 'rust']
+rust-clippy:
     cargo clippy {{ clippy-packages }} --benches --tests --examples -- -D warnings
 
 [group: 'ci']
-clippy-solver package:
-    cargo clippy -p {{ package }} --benches --tests --examples --all-features -- -D warnings
+clippy-all: rust-clippy
+
+[group: 'rust']
+rust-clippy-all-features:
+    cargo clippy {{ rust-packages }} --benches --tests --examples --all-features -- -D warnings
+
+[group: 'rust']
+rust-test:
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }}
+
+[group: 'rust']
+rust-test-all-features:
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --all-features
+
+[group: 'rust']
+test: rust-test
 
 [group: 'onboarding']
 default: check
+
+[group: 'ci']
+install-hooks:
+    prek install
 
 [group: 'ci']
 doc:
@@ -149,7 +168,7 @@ setup:
 [group: 'ci']
 lint:
     just fmt-check
-    just clippy-all
+    just rust-clippy
     just py-lint-check
     just py-type
 
@@ -182,16 +201,41 @@ verify-pkg package:
     just clippy-pkg {{ package }}
 
 [group: 'rust']
-test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --exclude arco-xpress
-
-[group: 'rust']
 test-example-formulations args="":
     cargo build -p arco-cli
     uv run python -c "from scripts.test_example_formulations import run_example_formulations_smoke; raise SystemExit(run_example_formulations_smoke())" {{ args }}
-[group: 'ci']
-test-solver package:
-    cargo test -p {{ package }} --all-features -- --test-threads=1
+[group: 'solver']
+smoke-solver-highs:
+    just cli-build
+    uv run python scripts/smoke_solver.py --solver highs --arco-binary target/debug/arco
+
+[group: 'solver']
+smoke-solver-scip:
+    just cli-build
+    uv run python scripts/smoke_solver.py --solver scip --arco-binary target/debug/arco
+
+[group: 'solver']
+smoke-solver-xpress:
+    just cli-build xpress
+    uv run python scripts/smoke_solver.py --solver xpress --arco-binary target/debug/arco
+
+[group: 'solver']
+smoke-solver-ipopt-unavailable:
+    just cli-build
+    uv run python scripts/smoke_solver.py --solver ipopt --check-unavailable-ipopt --arco-binary target/debug/arco
+
+
+
+[group: 'product']
+cli-build features="":
+    cargo build -p arco-cli --bin arco {{ if features != "" { "--features " + features } else { "" } }}
+
+[group: 'solver']
+smoke-solver solver features="" model="" check_unavailable="":
+    just cli-build "{{ features }}"
+    uv run python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary target/debug/arco \
+        {{ if model != "" { "--model " + model } else { "" } }} \
+        {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
 
 [group: 'hygiene']
 workflow-quality:

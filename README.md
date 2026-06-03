@@ -118,8 +118,8 @@ arco run input.kdl --compact
 ```
 
 > [!NOTE]
-> Arco embeds the HiGHS solver. No external solver installation or
-> configuration required.
+> Arco embeds the HiGHS and SCIP solvers. No external solver installation or
+> configuration required for these two.
 
 For indexed models, data files, and sparse variable arrays, continue with the
 [tutorials](./docs/tutorials/) and [how-to guides](./docs/how-to/).
@@ -595,9 +595,9 @@ graph LR
 | `arco-tools`           | Memory instrumentation and diagnostics helpers                |
 | `arco-highs`           | Embedded HiGHS adapter                                        |
 | `arco-scip`            | Embedded native SCIP adapter via `russcip`                    |
-| `arco-ipopt`           | IPOPT adapter crate                                           |
+| `arco-ipopt`           | IPOPT adapter crate (portable facade; native solve requires `--features ipopt`) |
 | `arco-xpress`          | Xpress adapter crate                                          |
-| `arco-builtin-solvers` | Builtin solver-family wiring utilities                        |
+| `arco-builtin-solvers` | Builtin solver-family wiring utilities (HiGHS, SCIP, Xpress)  |
 
 ## Developer Guide
 
@@ -614,6 +614,20 @@ cargo run -p arco-cli -- --help
 ```
 
 Also see [`docs/developer_guide.md`](./docs/developer_guide.md).
+
+## Solver Support
+
+| Solver  | Shipped by default | Runtime dependency | Local smoke command                      |
+| :------ | :----------------- | :----------------- | :--------------------------------------- |
+| HiGHS   | Yes                | None               | `just smoke-solver highs`                |
+| SCIP    | Yes (bundled)      | None               | `just smoke-solver scip`                 |
+| Xpress  | Yes (SDK-based)    | SDK/community runtime | `just smoke-solver xpress xpress`       |
+| IPOPT   | No (native adapter) | `ipopt` crate + native libraries | `just cli-build ipopt && just smoke-solver ipopt` |
+
+IPOPT is an *external/native adapter*: the default product includes the
+selection surface (`arco solver set ipopt`) and emits a clear unavailable
+diagnostic unless the build was compiled with `--features ipopt`. See
+[`docs/developer_guide.md`](./docs/developer_guide.md) for build instructions.
 
 ## Contributing
 

@@ -46,6 +46,29 @@ env:
   RUST_TOOLCHAIN_VERSION: "1.85"
 
 jobs:
+  scip-smoke:
+    name: SCIP smoke (docs example)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "true"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: solver-integration
+
+      - name: Solve docs example with SCIP
+        run: bash ./scripts/solver_docs_smoke.sh scip
+
   highs-smoke:
     name: HiGHS smoke (docs example)
     runs-on: ubuntu-latest

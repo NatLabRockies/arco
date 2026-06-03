@@ -12,6 +12,7 @@ on:
       - "justfile"
       - "scripts/setup_manylinux_native_deps.sh"
       - "scripts/setup_solver_runtime_env.sh"
+      - "scripts/smoke_solver.py"
       - ".github/build-setup.yml"
       - ".github/workflows/ci.yaml"
       - ".github/workflows/v-release.yml"
@@ -112,8 +113,14 @@ jobs:
               - 'justfile'
             solver:
               - 'scripts/setup_solver_runtime_env.sh'
+              - 'scripts/smoke_solver.py'
+              - 'crates/arco-highs/**'
+              - 'crates/arco-scip/**'
+              - 'crates/arco-xpress/**'
+              - 'crates/arco-ipopt/**'
             kdl:
               - '**/*.kdl'
+              - 'scripts/test_example_formulations.py'
             benchmarks:
               - '.github/workflows/benchmarks.yaml'
             release:
@@ -171,18 +178,23 @@ jobs:
               echo '| cargo-dist workflow | :x: skip | release and GitHub Actions inputs unchanged |'
             fi
             if [ "$RUST" = "true" ]; then
-              echo '| Rust formatting | :white_check_mark: run | Rust bucket enabled |'
-              echo '| Rust clippy | :white_check_mark: run | Rust bucket enabled after formatting/version checks |'
-              echo '| Rust tests | :white_check_mark: run | Rust bucket enabled after formatting/version checks |'
+              echo '| Rust format check | :white_check_mark: run | Rust bucket enabled |'
+              echo '| Rust clippy (all-features) | :white_check_mark: run | Rust bucket enabled |'
+              echo '| Rust test (all-features) | :white_check_mark: run | Rust bucket enabled |'
             else
-              echo '| Rust formatting | :x: skip | Rust bucket disabled |'
-              echo '| Rust clippy | :x: skip | Rust bucket disabled |'
-              echo '| Rust tests | :x: skip | Rust bucket disabled |'
+              echo '| Rust format check | :x: skip | Rust bucket disabled |'
+              echo '| Rust clippy (all-features) | :x: skip | Rust bucket disabled |'
+              echo '| Rust test (all-features) | :x: skip | Rust bucket disabled |'
             fi
             if [ "$PYTHON" = "true" ]; then
               echo '| Python validation | :white_check_mark: run | Python bucket enabled |'
             else
               echo '| Python validation | :x: skip | Python bucket disabled |'
+            fi
+            if [ "$KDL" = "true" ]; then
+              echo '| KDL examples e2e | :white_check_mark: run | KDL bucket enabled |'
+            else
+              echo '| KDL examples e2e | :x: skip | KDL bucket disabled |'
             fi
             echo ''
             if [ "$any_enabled" != "true" ]; then
@@ -226,8 +238,8 @@ jobs:
         run: dist plan --output-format=json > plan-dist-manifest.json
 
   rust-fmt:
-    name: Rust formatting
-    needs: [ci-plan]
+    name: Rust format
+    needs: [ci-plan, version-consistency]
     if: needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -236,58 +248,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Rust toolchain
+      - name: Install Rust toolchain
         run: |
-          rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
-          rustup component add rustfmt --toolchain "$RUST_TOOLCHAIN_VERSION"
+          rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --component rustfmt --no-self-update
           rustup default "$RUST_TOOLCHAIN_VERSION"
 
       - name: Check Rust formatting
-        run: cargo +"$RUST_TOOLCHAIN_VERSION" fmt --all -- --check
+        run: cargo fmt --all -- --check
 
   rust-clippy:
-    name: Rust clippy (${{ matrix.target.name }})
-    needs: [ci-plan, rust-fmt, version-consistency]
+    name: Rust clippy (all-features)
+    needs: [ci-plan, version-consistency]
     if: needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - name: core
-            command: just clippy-all
-            apt-deps: ""
-            fflags: ""
-            solver-runtime: ""
-          - name: arco-ipopt
-            command: just clippy-solver arco-ipopt
-            # Build IPOPT from source via ipopt-sys; the Ubuntu 24.04 system
-            # package (3.11.9) has a memory corruption bug with MUMPS >= 5.1.0.
-            apt-deps: liblapack-dev libopenblas-dev gfortran
-            # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
-            # GCC 14 rejects by default (-fallow-argument-mismatch).
-            fflags: "-fallow-argument-mismatch"
-            solver-runtime: ""
-          - name: arco-xpress
-            command: just clippy-solver arco-xpress
-            apt-deps: ""
-            fflags: ""
-            solver-runtime: xpress
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-
-      - name: Install system dependencies
-        if: matrix.target.apt-deps != ''
-        env:
-          MATRIX_APT_DEPS: ${{ matrix.target.apt-deps }}
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          read -r -a apt_deps <<< "$MATRIX_APT_DEPS"
-          sudo apt-get install -y --no-install-recommends "${apt_deps[@]}"
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -296,82 +274,113 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          install-uv: ${{ matrix.target.solver-runtime == 'xpress' && 'true' || 'false' }}
+          install-uv: "false"
           sync-python-licenses: "false"
           rust-cache-shared-key: rust-clippy
           save-uv-cache: "false"
 
-      - name: Set up solver runtime (${{ matrix.target.solver-runtime }})
-        if: matrix.target.solver-runtime != ''
-        env:
-          MATRIX_SOLVER_RUNTIME: ${{ matrix.target.solver-runtime }}
-          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
-          XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
-          XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
-        run: |
-          set -euo pipefail
-          bash ./scripts/setup_solver_runtime_env.sh "$MATRIX_SOLVER_RUNTIME" "$GITHUB_ENV"
-
-      - name: Run clippy (${{ matrix.target.name }})
-        env:
-          MATRIX_TARGET_NAME: ${{ matrix.target.name }}
-          FFLAGS: ${{ matrix.target.fflags }}
-          FCFLAGS: ${{ matrix.target.fflags }}
-        run: |
-          set -euo pipefail
-          case "$MATRIX_TARGET_NAME" in
-            core) just clippy-all ;;
-            arco-ipopt) just clippy-solver arco-ipopt ;;
-            arco-xpress) just clippy-solver arco-xpress ;;
-            *)
-              echo "::error::Unknown clippy target: $MATRIX_TARGET_NAME"
-              exit 1
-              ;;
-          esac
+      - name: Run clippy (workspace --all-features)
+        run: just rust-clippy-all-features
 
   rust-test:
-    name: Rust tests (${{ matrix.target.name }})
-    needs: [ci-plan, rust-fmt, version-consistency]
+    name: Rust test (all-features)
+    needs: [ci-plan, version-consistency]
     if: needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - name: core
-            command: just test
-            apt-deps: ""
-            fflags: ""
-            solver-runtime: ""
-          - name: arco-ipopt
-            command: just test-solver arco-ipopt
-            # Build IPOPT from source via ipopt-sys; the Ubuntu 24.04 system
-            # package (3.11.9) has a memory corruption bug with MUMPS >= 5.1.0.
-            apt-deps: liblapack-dev libopenblas-dev gfortran
-            # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
-            # GCC 14 rejects by default (-fallow-argument-mismatch).
-            fflags: "-fallow-argument-mismatch"
-            solver-runtime: ""
-          - name: arco-xpress
-            command: just test-solver arco-xpress
-            apt-deps: ""
-            fflags: ""
-            solver-runtime: xpress
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
 
-      - name: Install system dependencies
-        if: matrix.target.apt-deps != ''
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "false"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: rust-clippy
+          save-uv-cache: "false"
+
+      - name: Run tests (workspace --all-features)
+        run: just rust-test-all-features
+
+  product-build:
+    name: Product build
+    needs: [ci-plan, version-consistency]
+    if: needs.ci-plan.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - ""
+          - "xpress"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "false"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: product-build
+          save-rust-cache: "true"
+
+      - name: Build CLI (features="${{ matrix.features }}")
         env:
-          MATRIX_APT_DEPS: ${{ matrix.target.apt-deps }}
+          FEATURES: ${{ matrix.features }}
+        run: just cli-build "$FEATURES"
+
+  solver-smoke:
+    name: Solver smoke (${{ matrix.solver }})
+    needs: [ci-plan, product-build]
+    if: needs.ci-plan.outputs.rust == 'true' || needs.ci-plan.outputs.solver == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - solver: highs
+            features: ""
+            setup-runtime: ""
+            apt-deps: ""
+          - solver: scip
+            features: ""
+            setup-runtime: ""
+            apt-deps: ""
+          - solver: xpress
+            features: "xpress"
+            setup-runtime: "xpress"
+            apt-deps: ""
+          - solver: ipopt
+            features: ""
+            setup-runtime: ""
+            apt-deps: "liblapack-dev libopenblas-dev gfortran"
+            check-unavailable: "--check-unavailable-ipopt"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install apt system dependencies
+        if: matrix.apt-deps != ''
+        env:
+          APT_DEPS: ${{ matrix.apt-deps }}
         run: |
-          set -euo pipefail
           sudo apt-get update -qq
-          read -r -a apt_deps <<< "$MATRIX_APT_DEPS"
-          sudo apt-get install -y --no-install-recommends "${apt_deps[@]}"
+          sudo apt-get install -y --no-install-recommends $APT_DEPS
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -382,36 +391,28 @@ jobs:
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
           install-uv: "true"
           sync-python-licenses: "false"
-          rust-cache-shared-key: rust-clippy
-          save-rust-cache: "false"
+          rust-cache-shared-key: product-build
 
-      - name: Set up solver runtime (${{ matrix.target.solver-runtime }})
-        if: matrix.target.solver-runtime != ''
+      - name: Setup solver runtime (${{ matrix.solver }})
+        if: matrix.setup-runtime != ''
         env:
-          MATRIX_SOLVER_RUNTIME: ${{ matrix.target.solver-runtime }}
-          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
-          XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
-          XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+          SETUP_RUNTIME: ${{ matrix.setup-runtime }}
         run: |
           set -euo pipefail
-          bash ./scripts/setup_solver_runtime_env.sh "$MATRIX_SOLVER_RUNTIME" "$GITHUB_ENV"
+          bash ./scripts/setup_solver_runtime_env.sh "$SETUP_RUNTIME" "$GITHUB_ENV"
 
-      - name: Run tests (${{ matrix.target.name }})
+      - name: Build CLI (${{ matrix.solver }})
         env:
-          MATRIX_TARGET_NAME: ${{ matrix.target.name }}
-          FFLAGS: ${{ matrix.target.fflags }}
-          FCFLAGS: ${{ matrix.target.fflags }}
+          FEATURES: ${{ matrix.features }}
+        run: just cli-build "$FEATURES"
+
+      - name: Run solver smoke
+        env:
+          SOLVER: ${{ matrix.solver }}
+          FEATURES: ${{ matrix.features }}
+          CHECK_UNAVAILABLE: ${{ matrix.check-unavailable }}
         run: |
-          set -euo pipefail
-          case "$MATRIX_TARGET_NAME" in
-            core) just test ;;
-            arco-ipopt) just test-solver arco-ipopt ;;
-            arco-xpress) just test-solver arco-xpress ;;
-            *)
-              echo "::error::Unknown test target: $MATRIX_TARGET_NAME"
-              exit 1
-              ;;
-          esac
+          just smoke-solver "$SOLVER" "$FEATURES" "" "$CHECK_UNAVAILABLE"
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
@@ -447,12 +448,36 @@ jobs:
         if: matrix.python-version == '3.12'
         run: just py-test
 
-      - name: Verify pre-commit config
-        run: uvx --from pre-commit pre-commit validate-config
-
       - name: Build wheel and validate import
         run: just py-validate-wheel "dist/*.whl"
 
       - name: Run docs doctests
         if: matrix.python-version == '3.12'
         run: just docs-test
+
+  kdl-examples:
+    name: KDL examples e2e
+    needs: [ci-plan]
+    if: needs.ci-plan.outputs.kdl == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "true"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: rust-clippy
+          save-uv-cache: "false"
+          save-rust-cache: "false"
+
+      - name: Run KDL acceptance examples
+        run: just test-example-formulations

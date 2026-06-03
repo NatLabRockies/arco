@@ -66,6 +66,28 @@ repos:
         pass_filenames: false
         stages: [manual]
 
+      - id: rust-portable
+        name: rust portable checks
+        entry: just rust-clippy rust-test
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [manual]
+
+      - id: product-build
+        name: product build checks
+        entry: just cli-build
+        language: system
+        pass_filenames: false
+        stages: [manual]
+
+      - id: smoke-highs
+        name: smoke solver highs
+        entry: just smoke-solver highs
+        language: system
+        pass_filenames: false
+        stages: [manual]
+
       - id: ruff-check
         name: ruff check
         entry: just py-lint

@@ -252,7 +252,7 @@ fn versioned_unix_library_candidates(lib_dir: &Path) -> Vec<LibraryTarget> {
         })
         .map(LibraryTarget::Path)
         .collect::<Vec<_>>();
-    candidates.sort_by(|left, right| left.display_name().cmp(&right.display_name()));
+    candidates.sort_by_key(|left| left.display_name());
     candidates
 }
 

@@ -16,7 +16,6 @@ workspace = true
 [dependencies]
 arco-model = { workspace = true }
 arco-solver = { workspace = true }
-ipopt = "0.5"
 tracing = { workspace = true }
 
 [dev-dependencies]

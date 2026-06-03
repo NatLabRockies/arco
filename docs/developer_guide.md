@@ -126,6 +126,30 @@ This is the canonical pre-push validation path.
 3. `just ci` passes for broader changes.
 4. Docs updated for any user-visible behavior/API changes.
 
+## Building with optional solver features
+
+Default builds exclude native IPOPT and Xpress runtimes. The shipped solver
+selection command (`arco solver set ipopt`) is available in the default product
+and returns a clear unavailable diagnostic unless the binary was compiled with
+native IPOPT support.
+
+To build the CLI with Xpress SDK support:
+
+```bash
+just cli-build xpress
+```
+
+To build with both Xpress and IPOPT:
+
+```bash
+cargo build -p arco-cli --bin arco --features ipopt,xpress
+```
+
+> [!NOTE]
+> IPOPT is intentionally outside the normal `--all-features` workspace path.
+> The `arco-ipopt` crate compiles without native IPOPT libraries; the `ipopt`
+> feature on `arco-ops` gates the native solve path.
+
 ## Troubleshooting
 
 ### `just ci` fails in optional solver environments

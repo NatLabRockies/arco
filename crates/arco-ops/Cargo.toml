@@ -25,7 +25,6 @@ arco-solver = { workspace = true }
 arco-xpress = { workspace = true, optional = true }
 arco-validate = { workspace = true }
 csv = "1.4"
-ipopt = { version = "0.5", optional = true }
 miette = { version = "7", features = ["fancy"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { workspace = true }
@@ -36,7 +35,7 @@ tracing = { workspace = true }
 
 [features]
 default = []
-ipopt = ["dep:arco-ipopt", "dep:ipopt"]
+ipopt = ["dep:arco-ipopt"]
 xpress = ["dep:arco-xpress"]
 
 [dev-dependencies]
