@@ -45,15 +45,14 @@ IPOPT is an external/native adapter and is not shipped by default.
 clear unavailable diagnostic. To verify the unavailable diagnostic:
 
 ```bash
-just cli-build
+just build-cli
 just smoke-solver-ipopt-unavailable
 ```
 
 To use native IPOPT (requires system IPOPT libraries):
 
 ```bash
-just cli-build ipopt
-just smoke-solver ipopt
+just smoke-solver ipopt ipopt
 ```
 
 For Python commands, use `uv` consistently:

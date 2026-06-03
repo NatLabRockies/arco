@@ -205,8 +205,8 @@ fn foo_backend_passes_shared_conformance() -> Result<(), SolverError> {
 Run the focused solver checks:
 
 ```bash
-just test-solver arco-foo
-just clippy-solver arco-foo
+just test-pkg arco-foo
+just clippy-pkg arco-foo
 ```
 
 Run broader checks before merging a built-in backend:

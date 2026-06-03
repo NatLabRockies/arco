@@ -16,13 +16,7 @@ hosting = "github"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = [
-  "aarch64-apple-darwin",
-  "aarch64-unknown-linux-gnu",
-  "x86_64-apple-darwin",
-  "x86_64-unknown-linux-gnu",
-  "x86_64-pc-windows-msvc",
-]
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Which actions to run on pull requests
 pr-run-mode = "skip"
 # A prefix git tags must include for dist to care about them
@@ -41,7 +35,7 @@ install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
 dispatch-releases = true
 # Build only the required packages, and individually
 precise-builds = true
-# Self-update is handled by `arco self update`.
+# Whether to install an updater program
 install-updater = false
 
 # Build x86_64 Linux on a glibc 2.28 baseline for EL8/HPC compatibility.

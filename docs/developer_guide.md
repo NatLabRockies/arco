@@ -20,7 +20,6 @@ cargo install just --locked --version 1.43.0
 From repo root (recommended before running anything else):
 
 ```bash
-just install-hooks
 just setup
 just py-sync
 ```
@@ -69,7 +68,7 @@ just py-test
 
 ```bash
 just docs-test
-just test-example-formulations
+just kdl-examples
 ```
 
 ## Architecture policy
@@ -136,7 +135,7 @@ native IPOPT support.
 To build the CLI with Xpress SDK support:
 
 ```bash
-just cli-build xpress
+just build-cli-feature xpress
 ```
 
 To build with both Xpress and IPOPT:

@@ -167,7 +167,6 @@ jobs:
         run: |
           set -euo pipefail
           dist generate --mode=ci
-          diff -u .github/workflows/release.yml .github/workflows/v-release.yml
 
       - name: Check dist release plan
         run: dist plan --output-format=json > plan-dist-manifest.json
@@ -189,7 +188,7 @@ jobs:
           rustup default "$RUST_TOOLCHAIN_VERSION"
 
       - name: Check Rust formatting
-        run: cargo fmt --all -- --check
+        run: just ci-rust-fmt
 
   rust-clippy:
     name: Rust clippy (all-features)
@@ -215,7 +214,7 @@ jobs:
           save-uv-cache: "false"
 
       - name: Run clippy (workspace --all-features)
-        run: just rust-clippy-all-features
+        run: just ci-rust-clippy
 
   rust-test:
     name: Rust test (all-features)
@@ -241,12 +240,12 @@ jobs:
           save-uv-cache: "false"
 
       - name: Run tests (workspace --all-features)
-        run: just rust-test-all-features
+        run: just ci-rust-test
 
   arco-cli-build:
     name: Arco CLI build
     needs: [ci-plan, version-consistency]
-    if: needs.ci-plan.outputs.rust == 'true'
+    if: needs.ci-plan.outputs.rust == 'true' || needs.ci-plan.outputs.solver == 'true' || needs.ci-plan.outputs.kdl == 'true' || needs.ci-plan.outputs.benchmarks == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -264,10 +263,20 @@ jobs:
           install-uv: "false"
           sync-python-licenses: "false"
           rust-cache-shared-key: product-build
-          save-rust-cache: "true"
+          save-rust-cache: "false"
 
       - name: Build CLI (all features)
-        run: just cli-build-all-features
+        run: just ci-cli-build
+
+      - name: Package CLI artifact
+        run: just ci-package-cli-artifact
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
+        with:
+          name: arco-cli-linux
+          path: artifacts/arco-cli-linux.tar.gz
+          retention-days: 1
 
   solver-smoke:
     name: Solver smoke (${{ matrix.solver }})
@@ -315,6 +324,16 @@ jobs:
           install-uv: "true"
           sync-python-licenses: "false"
           rust-cache-shared-key: product-build
+          save-rust-cache: "false"
+
+      - name: Download CLI artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5
+        with:
+          name: arco-cli-linux
+          path: artifacts
+
+      - name: Extract CLI artifact
+        run: just ci-unpack-cli-artifact
 
       - name: Setup solver runtime (${{ matrix.solver }})
         if: matrix.setup-runtime != ''
@@ -328,10 +347,7 @@ jobs:
         env:
           SOLVER: ${{ matrix.solver }}
           CHECK_UNAVAILABLE: ${{ matrix.check-unavailable }}
-        run: |
-          args=(--solver "$SOLVER" --arco-binary target/release/arco)
-          if [[ -n "$CHECK_UNAVAILABLE" ]]; then args+=($CHECK_UNAVAILABLE); fi
-          uv run python scripts/smoke_solver.py "${args[@]}"
+        run: just ci-solver-smoke "$SOLVER" "$CHECK_UNAVAILABLE"
 
   benchmark:
     name: Benchmarks
@@ -379,14 +395,18 @@ jobs:
       - name: Add local bin to PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      - name: Download CLI artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5
+        with:
+          name: arco-cli-linux
+          path: artifacts
+
+      - name: Extract CLI artifact
+        run: just ci-unpack-cli-artifact
+
       - name: Run CLI benchmarks
         timeout-minutes: 15
-        run: |
-          uv run python scripts/bench.py \
-            --arco-binary target/release/arco \
-            --workflows validate,run \
-            --repetitions 10 \
-            --output artifacts/benchmark-results.json
+        run: just ci-benchmarks
 
       - name: Restore previous benchmark data
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
@@ -411,13 +431,7 @@ jobs:
           fail-on-alert: false
 
       - name: Benchmark regression guard
-        run: |
-          uv run python scripts/bench_guard.py \
-            --current artifacts/benchmark-results.json \
-            --baseline cache/benchmark-data.json \
-            --ratio-threshold 1.25 \
-            --absolute-delta-ms 1.0 \
-            --min-baseline-samples 10
+        run: just ci-benchmark-guard
 
       - name: Save benchmark data
         if: github.ref == 'refs/heads/main' && steps.benchmark-data-restore.outputs.cache-hit != 'true'
@@ -454,22 +468,22 @@ jobs:
           save-rust-cache: "true"
 
       - name: Run Python quality checks
-        run: just py-check
+        run: just ci-python-check
 
       - name: Run Python tests
         if: matrix.python-version == '3.12'
-        run: just py-test
+        run: just ci-python-test
 
       - name: Build wheel and validate import
-        run: just py-validate-wheel "dist/*.whl"
+        run: just ci-python-wheel "dist/*.whl"
 
       - name: Run docs doctests
         if: matrix.python-version == '3.12'
-        run: just docs-test
+        run: just ci-docs-test
 
   kdl-examples:
     name: KDL examples
-    needs: [ci-plan]
+    needs: [ci-plan, arco-cli-build]
     if: needs.ci-plan.outputs.kdl == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -491,5 +505,14 @@ jobs:
           save-uv-cache: "false"
           save-rust-cache: "false"
 
+      - name: Download CLI artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5
+        with:
+          name: arco-cli-linux
+          path: artifacts
+
+      - name: Extract CLI artifact
+        run: just ci-unpack-cli-artifact
+
       - name: Run KDL acceptance examples
-        run: just test-example-formulations
+        run: just ci-kdl-examples

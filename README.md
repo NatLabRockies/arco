@@ -182,7 +182,7 @@ cargo install just --locked --version 1.43.0
 just --version
 
 # Install hooks first (recommended)
-just install-hooks
+just setup
 
 # Build and install Python extension in development mode
 just py-dev
@@ -622,7 +622,7 @@ Also see [`docs/developer_guide.md`](./docs/developer_guide.md).
 | HiGHS   | Yes                | None               | `just smoke-solver highs`                |
 | SCIP    | Yes (bundled)      | None               | `just smoke-solver scip`                 |
 | Xpress  | Yes (SDK-based)    | SDK/community runtime | `just smoke-solver xpress xpress`       |
-| IPOPT   | No (native adapter) | `ipopt` crate + native libraries | `just cli-build ipopt && just smoke-solver ipopt` |
+| IPOPT   | No (native adapter) | `ipopt` crate + native libraries | `just smoke-solver ipopt ipopt` |
 
 IPOPT is an *external/native adapter*: the default product includes the
 selection surface (`arco solver set ipopt`) and emits a clear unavailable
@@ -639,13 +639,13 @@ Quick start for contributors:
 ```bash
 # Setup
 just fmt      # Format code
-just clippy   # Run linter
-just check    # Type-check workspace
+just lint     # Run linters
+just check    # Run Rust, Python, docs, and architecture checks
 
 # Testing
-just test                         # Run Rust tests
-just test-example-formulations    # Run curated CLI example smoke checks (acceptance e2e)
-just test-example-formulations "--examples dense-lp --commands run --fail-fast"  # Debug a single workflow
+just test                         # Run Rust and Python tests
+just kdl-examples                 # Run curated CLI example smoke checks (acceptance e2e)
+just kdl-examples "--examples dense-lp --commands run --fail-fast"  # Debug a single workflow
 just py-test  # Run Python tests
 # Full CI gate
 just ci

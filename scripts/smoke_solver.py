@@ -72,12 +72,6 @@ def resolve_arco_binary(path: str) -> Path:
     raise FileNotFoundError(f"arco binary not found at {path} (or with .exe)")
 
 
-def make_isolated_config_dir() -> str:
-    """Create an isolated ARCO_CONFIG_DIR so solver selection doesn't leak."""
-    tmp = tempfile.mkdtemp(prefix="arco-smoke-")
-    return tmp
-
-
 def run_arco(
     binary: Path,
     args: list[str],
@@ -205,30 +199,29 @@ def main() -> int:
             print(json.dumps({"ok": False, "error": str(err)}))
         return 1
 
-    config_dir = make_isolated_config_dir()
+    with tempfile.TemporaryDirectory(prefix="arco-smoke-") as config_dir:
+        # Compute expected backend name if not explicitly given
+        expected_backend = args.expected_backend
+        if expected_backend is None and not args.check_unavailable_ipopt:
+            backend_map = {
+                "highs": "arco-rust-highs",
+                "scip": "arco-rust-scip",
+                "xpress": "arco-rust-xpress",
+                "ipopt": "arco-rust-ipopt",
+            }
+            expected_backend = backend_map.get(args.solver)
 
-    # Compute expected backend name if not explicitly given
-    expected_backend = args.expected_backend
-    if expected_backend is None and not args.check_unavailable_ipopt:
-        backend_map = {
-            "highs": "arco-rust-highs",
-            "scip": "arco-rust-scip",
-            "xpress": "arco-rust-xpress",
-            "ipopt": "arco-rust-ipopt",
-        }
-        expected_backend = backend_map.get(args.solver)
-
-    if args.check_unavailable_ipopt:
-        error = check_unavailable_ipopt(binary, args.model, config_dir)
-    else:
-        error = check_solve(
-            binary=binary,
-            model=args.model,
-            solver=args.solver,
-            expected_backend=expected_backend,
-            expected_status=args.expected_status,
-            config_dir=config_dir,
-        )
+        if args.check_unavailable_ipopt:
+            error = check_unavailable_ipopt(binary, args.model, config_dir)
+        else:
+            error = check_solve(
+                binary=binary,
+                model=args.model,
+                solver=args.solver,
+                expected_backend=expected_backend,
+                expected_status=args.expected_status,
+                config_dir=config_dir,
+            )
 
     if error is not None:
         print(f"FAIL ({args.solver} smoke):", file=sys.stderr)

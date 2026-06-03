@@ -94,7 +94,7 @@ repos:
 
       - id: product-build
         name: product build checks
-        entry: just cli-build
+        entry: just build-cli
         language: system
         pass_filenames: false
         stages: [manual]
