@@ -75,7 +75,7 @@ jobs:
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
           sync-python-licenses: "false"
-          save-rust-cache: "false"
+          save-rust-cache: "true"
           rust-cache-shared-key: rust-bench
       # Cache 3: Pre-built arco-cli binary (saves ~2-5min when Cargo.lock unchanged)
       - name: Cache arco-cli binary

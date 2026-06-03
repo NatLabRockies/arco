@@ -456,7 +456,7 @@ jobs:
         run: just docs-test
 
   kdl-examples:
-    name: KDL examples e2e
+    name: KDL examples
     needs: [ci-plan]
     if: needs.ci-plan.outputs.kdl == 'true'
     runs-on: ubuntu-latest
