@@ -47,6 +47,8 @@ jobs:
     permissions:
       actions: write # required to dispatch generated cargo-dist workflow
       contents: read # required to read Cargo.toml and releases
+      issues: write # required to update PR labels
+      pull-requests: write # required to update release PR lifecycle labels
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -91,6 +93,28 @@ jobs:
 
           echo "Timed out waiting for cargo-dist to publish $TAG" >&2
           exit 1
+
+      - name: Mark release PR as tagged
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          pr_number="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPOSITORY}/commits/${RELEASE_COMMIT}/pulls" \
+            --jq '.[] | select(.merged_at != null and ((.title | startswith("chore: release ")) or (.title | startswith("chore(main): release ")))) | .number' \
+            | head -n 1)"
+
+          if [[ -z "$pr_number" ]]; then
+            echo "No merged release PR found for commit ${RELEASE_COMMIT}" >&2
+            exit 1
+          fi
+
+          gh label create "autorelease: tagged" --color "0e8a16" --description "Release PR has been tagged" --force
+          gh pr edit "$pr_number" --remove-label "autorelease: pending" || true
+          gh pr edit "$pr_number" --add-label "autorelease: tagged"
 
   upload-vscode-extension:
     name: Upload VS Code extension
