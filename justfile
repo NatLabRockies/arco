@@ -66,7 +66,7 @@ pre-commit:
 
 [group: 'hygiene']
 pre-commit-stage stage:
-    uvx --from prek==0.3.6 prek run --all-files --hook-stage {{stage}} --show-diff-on-failure --color always
+    prek run --all-files --hook-stage {{stage}} --show-diff-on-failure --color always
 
 [group: 'hygiene']
 kdl-overlay-check:

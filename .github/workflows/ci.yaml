@@ -3,7 +3,7 @@ name: Continuous Integration
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
+    paths: &ci-paths
       - "crates/**"
       - "bindings/python/**"
       - "Cargo.toml"
@@ -21,20 +21,7 @@ on:
     branches:
       - main
       - release/*
-    paths:
-      - "crates/**"
-      - "bindings/python/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "dist-workspace.toml"
-      - "justfile"
-      - "scripts/setup_manylinux_native_deps.sh"
-      - "scripts/setup_solver_runtime_env.sh"
-      - ".github/build-setup.yml"
-      - ".github/workflows/ci.yaml"
-      - ".github/workflows/v-release.yml"
-      - ".github/workflows/release-please.yaml"
-      - ".github/actions/**"
+    paths: *ci-paths
   workflow_dispatch:
 
 concurrency:
@@ -43,6 +30,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read # Required by dorny/paths-filter to read PR file list
 
 env:
   UV_VERSION: "0.9.4"
@@ -81,8 +69,142 @@ jobs:
           [[ "$cargo_version" == "$pyproject_version" ]] || { echo "::error::Version mismatch: Cargo.toml=$cargo_version pyproject.toml=$pyproject_version"; exit 1; }
           echo "Versions match: $cargo_version"
 
+  ci-plan:
+    name: Plan CI jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      rust: ${{ steps.filter.outputs.rust || github.event_name == 'workflow_dispatch' }}
+      python: ${{ steps.filter.outputs.python || github.event_name == 'workflow_dispatch' }}
+      docs: ${{ steps.filter.outputs.docs || github.event_name == 'workflow_dispatch' }}
+      solver: ${{ steps.filter.outputs.solver || github.event_name == 'workflow_dispatch' }}
+      kdl: ${{ steps.filter.outputs.kdl || github.event_name == 'workflow_dispatch' }}
+      benchmarks: ${{ steps.filter.outputs.benchmarks || github.event_name == 'workflow_dispatch' }}
+      release: ${{ steps.filter.outputs.release || github.event_name == 'workflow_dispatch' }}
+      github_actions: ${{ steps.filter.outputs.github_actions || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'justfile'
+              - 'dist-workspace.toml'
+              - '.github/build-setup.yml'
+              - '.github/actions/**'
+            python:
+              - 'bindings/python/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'justfile'
+              - '.github/actions/**'
+            docs:
+              - 'docs/**'
+              - 'scripts/test_docs_doctest.py'
+              - 'justfile'
+            solver:
+              - 'scripts/setup_solver_runtime_env.sh'
+            kdl:
+              - '**/*.kdl'
+            benchmarks:
+              - '.github/workflows/benchmarks.yaml'
+            release:
+              - '.github/release-please-config.json'
+              - '.github/release-please-manifest.json'
+              - 'dist-workspace.toml'
+            github_actions:
+              - '.github/workflows/**'
+              - '.github/build-setup.yml'
+              - '.github/dependabot.yml'
+
+      - name: Print CI plan
+        env:
+          RUST: ${{ steps.filter.outputs.rust || github.event_name == 'workflow_dispatch' }}
+          PYTHON: ${{ steps.filter.outputs.python || github.event_name == 'workflow_dispatch' }}
+          DOCS: ${{ steps.filter.outputs.docs || github.event_name == 'workflow_dispatch' }}
+          SOLVER: ${{ steps.filter.outputs.solver || github.event_name == 'workflow_dispatch' }}
+          KDL: ${{ steps.filter.outputs.kdl || github.event_name == 'workflow_dispatch' }}
+          BENCHMARKS: ${{ steps.filter.outputs.benchmarks || github.event_name == 'workflow_dispatch' }}
+          RELEASE: ${{ steps.filter.outputs.release || github.event_name == 'workflow_dispatch' }}
+          ACTIONS_CONFIG: ${{ steps.filter.outputs.github_actions || github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          summary_file="$RUNNER_TEMP/ci-plan-summary.md"
+          any_enabled=false
+          enabled_buckets=""
+          skipped_buckets=""
+
+          {
+            echo '## CI Plan'
+            echo ''
+            echo '| Bucket | Status |'
+            echo '|---|---|'
+            for bucket in RUST PYTHON DOCS SOLVER KDL BENCHMARKS RELEASE ACTIONS_CONFIG; do
+              label="$bucket"
+              if [ "$bucket" = "ACTIONS_CONFIG" ]; then
+                label="GITHUB_ACTIONS"
+              fi
+              val="${!bucket:-false}"
+              if [ "$val" = "true" ]; then
+                echo "| ${label} | :white_check_mark: enabled |"
+                any_enabled=true
+                enabled_buckets="${enabled_buckets}${label}, "
+              else
+                echo "| ${label} | :x: skipped |"
+                skipped_buckets="${skipped_buckets}${label}, "
+              fi
+            done
+            echo ''
+            echo '| Job | Decision | Reason |'
+            echo '|---|---|---|'
+            if [ "$RELEASE" = "true" ] || [ "$ACTIONS_CONFIG" = "true" ]; then
+              echo '| cargo-dist workflow | :white_check_mark: run | release or GitHub Actions inputs changed |'
+            else
+              echo '| cargo-dist workflow | :x: skip | release and GitHub Actions inputs unchanged |'
+            fi
+            if [ "$RUST" = "true" ]; then
+              echo '| Rust formatting | :white_check_mark: run | Rust bucket enabled |'
+              echo '| Rust clippy | :white_check_mark: run | Rust bucket enabled after formatting/version checks |'
+              echo '| Rust tests | :white_check_mark: run | Rust bucket enabled after formatting/version checks |'
+            else
+              echo '| Rust formatting | :x: skip | Rust bucket disabled |'
+              echo '| Rust clippy | :x: skip | Rust bucket disabled |'
+              echo '| Rust tests | :x: skip | Rust bucket disabled |'
+            fi
+            if [ "$PYTHON" = "true" ]; then
+              echo '| Python validation | :white_check_mark: run | Python bucket enabled |'
+            else
+              echo '| Python validation | :x: skip | Python bucket disabled |'
+            fi
+            echo ''
+            if [ "$any_enabled" != "true" ]; then
+              echo ':warning: No CI buckets were activated - all expensive jobs will skip.'
+            fi
+          } > "$summary_file"
+
+          cat "$summary_file" >> "$GITHUB_STEP_SUMMARY"
+          echo '::group::CI plan'
+          cat "$summary_file"
+          echo '::endgroup::'
+
+          enabled_buckets="${enabled_buckets%, }"
+          skipped_buckets="${skipped_buckets%, }"
+          [ -n "$enabled_buckets" ] || enabled_buckets="none"
+          [ -n "$skipped_buckets" ] || skipped_buckets="none"
+          echo "::notice title=CI plan::enabled=${enabled_buckets}; skipped=${skipped_buckets}"
+
   cargo-dist:
     name: cargo-dist workflow
+    needs: [ci-plan]
+    if: needs.ci-plan.outputs.release == 'true' || needs.ci-plan.outputs.github_actions == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -105,6 +227,8 @@ jobs:
 
   rust-fmt:
     name: Rust formatting
+    needs: [ci-plan]
+    if: needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -123,7 +247,8 @@ jobs:
 
   rust-clippy:
     name: Rust clippy (${{ matrix.target.name }})
-    needs: [rust-fmt, version-consistency]
+    needs: [ci-plan, rust-fmt, version-consistency]
+    if: needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -134,6 +259,7 @@ jobs:
             command: just clippy-all
             apt-deps: ""
             fflags: ""
+            solver-runtime: ""
           - name: arco-ipopt
             command: just clippy-solver arco-ipopt
             # Build IPOPT from source via ipopt-sys; the Ubuntu 24.04 system
@@ -142,6 +268,12 @@ jobs:
             # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
             # GCC 14 rejects by default (-fallow-argument-mismatch).
             fflags: "-fallow-argument-mismatch"
+            solver-runtime: ""
+          - name: arco-xpress
+            command: just clippy-solver arco-xpress
+            apt-deps: ""
+            fflags: ""
+            solver-runtime: xpress
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -164,9 +296,21 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          install-uv: "false"
+          install-uv: ${{ matrix.target.solver-runtime == 'xpress' && 'true' || 'false' }}
           sync-python-licenses: "false"
           rust-cache-shared-key: rust-clippy
+          save-uv-cache: "false"
+
+      - name: Set up solver runtime (${{ matrix.target.solver-runtime }})
+        if: matrix.target.solver-runtime != ''
+        env:
+          MATRIX_SOLVER_RUNTIME: ${{ matrix.target.solver-runtime }}
+          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+          XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
+          XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+        run: |
+          set -euo pipefail
+          bash ./scripts/setup_solver_runtime_env.sh "$MATRIX_SOLVER_RUNTIME" "$GITHUB_ENV"
 
       - name: Run clippy (${{ matrix.target.name }})
         env:
@@ -178,6 +322,7 @@ jobs:
           case "$MATRIX_TARGET_NAME" in
             core) just clippy-all ;;
             arco-ipopt) just clippy-solver arco-ipopt ;;
+            arco-xpress) just clippy-solver arco-xpress ;;
             *)
               echo "::error::Unknown clippy target: $MATRIX_TARGET_NAME"
               exit 1
@@ -186,7 +331,8 @@ jobs:
 
   rust-test:
     name: Rust tests (${{ matrix.target.name }})
-    needs: [rust-fmt, version-consistency]
+    needs: [ci-plan, rust-fmt, version-consistency]
+    if: needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -197,6 +343,7 @@ jobs:
             command: just test
             apt-deps: ""
             fflags: ""
+            solver-runtime: ""
           - name: arco-ipopt
             command: just test-solver arco-ipopt
             # Build IPOPT from source via ipopt-sys; the Ubuntu 24.04 system
@@ -205,6 +352,12 @@ jobs:
             # MUMPS 4.10.0 (bundled by ipopt-sys) has type mismatches that
             # GCC 14 rejects by default (-fallow-argument-mismatch).
             fflags: "-fallow-argument-mismatch"
+            solver-runtime: ""
+          - name: arco-xpress
+            command: just test-solver arco-xpress
+            apt-deps: ""
+            fflags: ""
+            solver-runtime: xpress
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -232,6 +385,17 @@ jobs:
           rust-cache-shared-key: rust-clippy
           save-rust-cache: "false"
 
+      - name: Set up solver runtime (${{ matrix.target.solver-runtime }})
+        if: matrix.target.solver-runtime != ''
+        env:
+          MATRIX_SOLVER_RUNTIME: ${{ matrix.target.solver-runtime }}
+          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+          XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
+          XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+        run: |
+          set -euo pipefail
+          bash ./scripts/setup_solver_runtime_env.sh "$MATRIX_SOLVER_RUNTIME" "$GITHUB_ENV"
+
       - name: Run tests (${{ matrix.target.name }})
         env:
           MATRIX_TARGET_NAME: ${{ matrix.target.name }}
@@ -242,6 +406,7 @@ jobs:
           case "$MATRIX_TARGET_NAME" in
             core) just test ;;
             arco-ipopt) just test-solver arco-ipopt ;;
+            arco-xpress) just test-solver arco-xpress ;;
             *)
               echo "::error::Unknown test target: $MATRIX_TARGET_NAME"
               exit 1
@@ -250,7 +415,8 @@ jobs:
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
-    needs: [version-consistency]
+    needs: [version-consistency, ci-plan]
+    if: needs.ci-plan.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -270,11 +436,16 @@ jobs:
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
           rust-cache-shared-key: rust-clippy
+          sync-python-licenses: "false"
           save-uv-cache: "false"
           save-rust-cache: "false"
 
       - name: Run Python quality checks
         run: just py-check
+
+      - name: Run Python tests
+        if: matrix.python-version == '3.12'
+        run: just py-test
 
       - name: Verify pre-commit config
         run: uvx --from pre-commit pre-commit validate-config

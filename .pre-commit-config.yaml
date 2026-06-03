@@ -6,7 +6,6 @@ default_stages:
 default_install_hook_types:
   - pre-commit
   - commit-msg
-  - pre-push
 
 repos:
   - repo: builtin
@@ -43,7 +42,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
 
   - repo: https://github.com/crate-ci/typos
     rev: v1.44.0
@@ -61,7 +60,7 @@ repos:
 
       - id: kdl-overlay-check
         name: kdl overlay parse check
-        entry: just kdl-overlay-check
+        entry: bash scripts/check-kdl-overlay.sh
         language: system
         files: \.kdl$
         pass_filenames: false
@@ -87,7 +86,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
 
   - repo: local
     hooks:
@@ -107,7 +106,7 @@ repos:
         types: [yaml]
         files: ^\.github/.*\.ya?ml$
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
 
       - id: actionlint
         name: actionlint
@@ -116,4 +115,4 @@ repos:
         types: [yaml]
         files: ^\.github/workflows/.*\.yaml$
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
