@@ -1,3 +1,5 @@
+minimum_prek_version: "0.4.1"
+
 default_stages:
   - pre-commit
 
@@ -100,18 +102,18 @@ repos:
     hooks:
       - id: zizmor
         name: zizmor
-        entry: bash -c 'workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "release.yml" -print); uvx zizmor .github/actions .github/dependabot.yml "${workflows[@]}"'
+        entry: uvx zizmor --pedantic .github/
         language: system
         types: [yaml]
-        files: ^\.github/workflows/.*\.yaml$
+        files: ^\.github/.*\.ya?ml$
         pass_filenames: false
         stages: [pre-push]
 
       - id: actionlint
         name: actionlint
-        entry: bash -c 'workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "release.yml" -print); uvx --from actionlint-py actionlint "${workflows[@]}"'
+        entry: bash -c 'uvx --from actionlint-py actionlint .github/workflows/*.yaml'
         language: system
         types: [yaml]
-        files: ^\.github/workflows/.*\.ya?ml$
+        files: ^\.github/workflows/.*\.yaml$
         pass_filenames: false
         stages: [pre-push]
