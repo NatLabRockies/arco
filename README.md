@@ -595,7 +595,7 @@ graph LR
 | `arco-tools`           | Memory instrumentation and diagnostics helpers                |
 | `arco-highs`           | Embedded HiGHS adapter                                        |
 | `arco-scip`            | Embedded native SCIP adapter via `russcip`                    |
-| `arco-ipopt`           | IPOPT adapter crate (portable facade; native solve requires `--features ipopt`) |
+| `arco-ipopt`           | IPOPT adapter crate (portable facade; native solve is provided externally) |
 | `arco-xpress`          | Xpress adapter crate                                          |
 | `arco-builtin-solvers` | Builtin solver-family wiring utilities (HiGHS, SCIP, Xpress)  |
 
@@ -622,12 +622,13 @@ Also see [`docs/developer_guide.md`](./docs/developer_guide.md).
 | HiGHS   | Yes                | None               | `just smoke-solver highs`                |
 | SCIP    | Yes (bundled)      | None               | `just smoke-solver scip`                 |
 | Xpress  | Yes (SDK-based)    | SDK/community runtime | `just smoke-solver xpress xpress`       |
-| IPOPT   | No (native adapter) | `ipopt` crate + native libraries | `just smoke-solver ipopt ipopt` |
+| IPOPT   | No (external/native adapter) | external native IPOPT adapter build | `just smoke-solver-ipopt-unavailable` |
 
-IPOPT is an *external/native adapter*: the default product includes the
-selection surface (`arco solver set ipopt`) and emits a clear unavailable
-diagnostic unless the build was compiled with `--features ipopt`. See
-[`docs/developer_guide.md`](./docs/developer_guide.md) for build instructions.
+IPOPT is an *external/native adapter*: this repository ships the solver
+selection surface (`arco solver set ipopt`) and an explicit unavailable
+diagnostic path. Native IPOPT solve execution is provided by an external
+adapter build. See [`docs/developer_guide.md`](./docs/developer_guide.md) for
+current build guidance.
 
 ## Contributing
 

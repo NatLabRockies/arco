@@ -146,8 +146,9 @@ cargo build -p arco-cli --bin arco --features ipopt,xpress
 
 > [!NOTE]
 > IPOPT is intentionally outside the normal `--all-features` workspace path.
-> The `arco-ipopt` crate compiles without native IPOPT libraries; the `ipopt`
-> feature on `arco-ops` gates the native solve path.
+> The `arco-ipopt` crate compiles without native IPOPT libraries; this
+> repository ships the selection surface and unavailable diagnostics, while
+> native solve execution is provided by an external adapter build.
 
 ## Troubleshooting
 

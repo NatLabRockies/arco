@@ -172,9 +172,7 @@ def check_unavailable_ipopt(binary: Path, model: str, config_dir: str) -> str | 
     diagnostic_keywords = [
         "not available",
         "not shipped",
-        "rebuild with --features ipopt",
-        "ipopt",
-        "native",
+        "native ipopt adapter",
         "unavailable",
     ]
 

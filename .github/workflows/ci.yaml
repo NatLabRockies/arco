@@ -3,28 +3,10 @@ name: Continuous Integration
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths: &ci-paths
-      - "crates/**"
-      - "bindings/python/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "dist-workspace.toml"
-      - "justfile"
-      - "scripts/setup_manylinux_native_deps.sh"
-      - "scripts/setup_solver_runtime_env.sh"
-      - "scripts/smoke_solver.py"
-      - "scripts/test_docs_doctest.py"
-      - "docs/**"
-      - ".github/build-setup.yml"
-      - ".github/workflows/ci.yaml"
-      - ".github/workflows/v-release.yml"
-      - ".github/workflows/release-please.yaml"
-      - ".github/actions/**"
   push:
     branches:
       - main
       - release/*
-    paths: *ci-paths
   workflow_dispatch:
 
 concurrency:
@@ -77,14 +59,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
-      rust: ${{ steps.filter.outputs.rust || github.event_name == 'workflow_dispatch' }}
-      python: ${{ steps.filter.outputs.python || github.event_name == 'workflow_dispatch' }}
-      docs: ${{ steps.filter.outputs.docs || github.event_name == 'workflow_dispatch' }}
-      solver: ${{ steps.filter.outputs.solver || github.event_name == 'workflow_dispatch' }}
-      kdl: ${{ steps.filter.outputs.kdl || github.event_name == 'workflow_dispatch' }}
-      benchmarks: ${{ steps.filter.outputs.benchmarks || github.event_name == 'workflow_dispatch' }}
-      release: ${{ steps.filter.outputs.release || github.event_name == 'workflow_dispatch' }}
-      github_actions: ${{ steps.filter.outputs.github_actions || github.event_name == 'workflow_dispatch' }}
+      rust: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.rust == 'true' }}
+      python: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.python == 'true' }}
+      docs: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.docs == 'true' }}
+      solver: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.solver == 'true' }}
+      kdl: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.kdl == 'true' }}
+      benchmarks: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.benchmarks == 'true' }}
+      release: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.release == 'true' }}
+      github_actions: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.github_actions == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -122,6 +104,8 @@ jobs:
               - 'crates/arco-ipopt/**'
             kdl:
               - '**/*.kdl'
+              - 'crates/arco-kdl/**'
+              - 'crates/arco-cli/**'
               - 'scripts/test_example_formulations.py'
             benchmarks:
               - 'scripts/bench.py'
@@ -138,14 +122,14 @@ jobs:
 
       - name: Print CI plan
         env:
-          RUST: ${{ steps.filter.outputs.rust || github.event_name == 'workflow_dispatch' }}
-          PYTHON: ${{ steps.filter.outputs.python || github.event_name == 'workflow_dispatch' }}
-          DOCS: ${{ steps.filter.outputs.docs || github.event_name == 'workflow_dispatch' }}
-          SOLVER: ${{ steps.filter.outputs.solver || github.event_name == 'workflow_dispatch' }}
-          KDL: ${{ steps.filter.outputs.kdl || github.event_name == 'workflow_dispatch' }}
-          BENCHMARKS: ${{ steps.filter.outputs.benchmarks || github.event_name == 'workflow_dispatch' }}
-          RELEASE: ${{ steps.filter.outputs.release || github.event_name == 'workflow_dispatch' }}
-          ACTIONS_CONFIG: ${{ steps.filter.outputs.github_actions || github.event_name == 'workflow_dispatch' }}
+          RUST: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.rust == 'true' }}
+          PYTHON: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.python == 'true' }}
+          DOCS: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.docs == 'true' }}
+          SOLVER: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.solver == 'true' }}
+          KDL: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.kdl == 'true' }}
+          BENCHMARKS: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.benchmarks == 'true' }}
+          RELEASE: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.release == 'true' }}
+          ACTIONS_CONFIG: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.github_actions == 'true' }}
         run: bash scripts/ci-plan.sh
 
   cargo-dist:
@@ -167,6 +151,7 @@ jobs:
         run: |
           set -euo pipefail
           dist generate --mode=ci
+          git diff --exit-code -- .github/workflows/v-release.yml
 
       - name: Check dist release plan
         run: dist plan --output-format=json > plan-dist-manifest.json
@@ -182,10 +167,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Rust toolchain
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --component rustfmt --no-self-update
-          rustup default "$RUST_TOOLCHAIN_VERSION"
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "false"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: rust-fmt
+          save-rust-cache: "false"
+          save-uv-cache: "false"
 
       - name: Check Rust formatting
         run: just ci-rust-fmt
@@ -311,8 +304,9 @@ jobs:
         env:
           APT_DEPS: ${{ matrix.apt-deps }}
         run: |
+          read -r -a apt_deps <<< "$APT_DEPS"
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "$APT_DEPS"
+          sudo apt-get install -y --no-install-recommends "${apt_deps[@]}"
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
