@@ -13,6 +13,8 @@ on:
       - "scripts/setup_manylinux_native_deps.sh"
       - "scripts/setup_solver_runtime_env.sh"
       - "scripts/smoke_solver.py"
+      - "scripts/test_docs_doctest.py"
+      - "docs/**"
       - ".github/build-setup.yml"
       - ".github/workflows/ci.yaml"
       - ".github/workflows/v-release.yml"
@@ -122,7 +124,9 @@ jobs:
               - '**/*.kdl'
               - 'scripts/test_example_formulations.py'
             benchmarks:
-              - '.github/workflows/benchmarks.yaml'
+              - 'scripts/bench.py'
+              - 'scripts/bench_guard.py'
+              - 'benchmarks/**'
             release:
               - '.github/release-please-config.json'
               - '.github/release-please-manifest.json'
@@ -142,76 +146,7 @@ jobs:
           BENCHMARKS: ${{ steps.filter.outputs.benchmarks || github.event_name == 'workflow_dispatch' }}
           RELEASE: ${{ steps.filter.outputs.release || github.event_name == 'workflow_dispatch' }}
           ACTIONS_CONFIG: ${{ steps.filter.outputs.github_actions || github.event_name == 'workflow_dispatch' }}
-        run: |
-          set -euo pipefail
-          summary_file="$RUNNER_TEMP/ci-plan-summary.md"
-          any_enabled=false
-          enabled_buckets=""
-          skipped_buckets=""
-
-          {
-            echo '## CI Plan'
-            echo ''
-            echo '| Bucket | Status |'
-            echo '|---|---|'
-            for bucket in RUST PYTHON DOCS SOLVER KDL BENCHMARKS RELEASE ACTIONS_CONFIG; do
-              label="$bucket"
-              if [ "$bucket" = "ACTIONS_CONFIG" ]; then
-                label="GITHUB_ACTIONS"
-              fi
-              val="${!bucket:-false}"
-              if [ "$val" = "true" ]; then
-                echo "| ${label} | :white_check_mark: enabled |"
-                any_enabled=true
-                enabled_buckets="${enabled_buckets}${label}, "
-              else
-                echo "| ${label} | :x: skipped |"
-                skipped_buckets="${skipped_buckets}${label}, "
-              fi
-            done
-            echo ''
-            echo '| Job | Decision | Reason |'
-            echo '|---|---|---|'
-            if [ "$RELEASE" = "true" ] || [ "$ACTIONS_CONFIG" = "true" ]; then
-              echo '| cargo-dist workflow | :white_check_mark: run | release or GitHub Actions inputs changed |'
-            else
-              echo '| cargo-dist workflow | :x: skip | release and GitHub Actions inputs unchanged |'
-            fi
-            if [ "$RUST" = "true" ]; then
-              echo '| Rust format check | :white_check_mark: run | Rust bucket enabled |'
-              echo '| Rust clippy (all-features) | :white_check_mark: run | Rust bucket enabled |'
-              echo '| Rust test (all-features) | :white_check_mark: run | Rust bucket enabled |'
-            else
-              echo '| Rust format check | :x: skip | Rust bucket disabled |'
-              echo '| Rust clippy (all-features) | :x: skip | Rust bucket disabled |'
-              echo '| Rust test (all-features) | :x: skip | Rust bucket disabled |'
-            fi
-            if [ "$PYTHON" = "true" ]; then
-              echo '| Python validation | :white_check_mark: run | Python bucket enabled |'
-            else
-              echo '| Python validation | :x: skip | Python bucket disabled |'
-            fi
-            if [ "$KDL" = "true" ]; then
-              echo '| KDL examples e2e | :white_check_mark: run | KDL bucket enabled |'
-            else
-              echo '| KDL examples e2e | :x: skip | KDL bucket disabled |'
-            fi
-            echo ''
-            if [ "$any_enabled" != "true" ]; then
-              echo ':warning: No CI buckets were activated - all expensive jobs will skip.'
-            fi
-          } > "$summary_file"
-
-          cat "$summary_file" >> "$GITHUB_STEP_SUMMARY"
-          echo '::group::CI plan'
-          cat "$summary_file"
-          echo '::endgroup::'
-
-          enabled_buckets="${enabled_buckets%, }"
-          skipped_buckets="${skipped_buckets%, }"
-          [ -n "$enabled_buckets" ] || enabled_buckets="none"
-          [ -n "$skipped_buckets" ] || skipped_buckets="none"
-          echo "::notice title=CI plan::enabled=${enabled_buckets}; skipped=${skipped_buckets}"
+        run: bash scripts/ci-plan.sh
 
   cargo-dist:
     name: cargo-dist workflow
@@ -284,7 +219,7 @@ jobs:
 
   rust-test:
     name: Rust test (all-features)
-    needs: [ci-plan, version-consistency]
+    needs: [ci-plan, version-consistency, rust-clippy]
     if: needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -308,18 +243,12 @@ jobs:
       - name: Run tests (workspace --all-features)
         run: just rust-test-all-features
 
-  product-build:
-    name: Product build
+  arco-cli-build:
+    name: Arco CLI build
     needs: [ci-plan, version-consistency]
     if: needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        features:
-          - ""
-          - "xpress"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -337,14 +266,12 @@ jobs:
           rust-cache-shared-key: product-build
           save-rust-cache: "true"
 
-      - name: Build CLI (features="${{ matrix.features }}")
-        env:
-          FEATURES: ${{ matrix.features }}
-        run: just cli-build "$FEATURES"
+      - name: Build CLI (all features)
+        run: just cli-build-all-features
 
   solver-smoke:
     name: Solver smoke (${{ matrix.solver }})
-    needs: [ci-plan, product-build]
+    needs: [ci-plan, arco-cli-build]
     if: needs.ci-plan.outputs.rust == 'true' || needs.ci-plan.outputs.solver == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -353,19 +280,15 @@ jobs:
       matrix:
         include:
           - solver: highs
-            features: ""
             setup-runtime: ""
             apt-deps: ""
           - solver: scip
-            features: ""
             setup-runtime: ""
             apt-deps: ""
           - solver: xpress
-            features: "xpress"
             setup-runtime: "xpress"
             apt-deps: ""
           - solver: ipopt
-            features: ""
             setup-runtime: ""
             apt-deps: "liblapack-dev libopenblas-dev gfortran"
             check-unavailable: "--check-unavailable-ipopt"
@@ -380,7 +303,7 @@ jobs:
           APT_DEPS: ${{ matrix.apt-deps }}
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends $APT_DEPS
+          sudo apt-get install -y --no-install-recommends "$APT_DEPS"
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -401,23 +324,110 @@ jobs:
           set -euo pipefail
           bash ./scripts/setup_solver_runtime_env.sh "$SETUP_RUNTIME" "$GITHUB_ENV"
 
-      - name: Build CLI (${{ matrix.solver }})
-        env:
-          FEATURES: ${{ matrix.features }}
-        run: just cli-build "$FEATURES"
-
       - name: Run solver smoke
         env:
           SOLVER: ${{ matrix.solver }}
-          FEATURES: ${{ matrix.features }}
           CHECK_UNAVAILABLE: ${{ matrix.check-unavailable }}
         run: |
-          just smoke-solver "$SOLVER" "$FEATURES" "" "$CHECK_UNAVAILABLE"
+          uv run python scripts/smoke_solver.py --solver "$SOLVER" --arco-binary target/release/arco $CHECK_UNAVAILABLE
+
+  benchmark:
+    name: Benchmarks
+    needs: [ci-plan, arco-cli-build]
+    if: needs.ci-plan.outputs.benchmarks == 'true' || needs.ci-plan.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write # Required to post benchmark summaries/comments back to the PR.
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Cache rmon binary
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5 # zizmor: ignore[cache-poisoning]
+        id: rmon-cache
+        with:
+          path: ~/.local/bin/rmon
+          key: ${{ runner.os }}-rmon-${{ hashFiles('.github/workflows/ci.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-rmon-
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-uv: "true"
+          sync-python-licenses: "false"
+          save-rust-cache: "false"
+          rust-cache-shared-key: product-build
+
+      - name: Ensure rmon is installed
+        run: |
+          if [ ! -x "$HOME/.local/bin/rmon" ]; then
+            uv tool install --force git+https://github.com/NatLabRockies/resource_monitor
+          fi
+          "$HOME/.local/bin/rmon" --version
+
+      - name: Add local bin to PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run CLI benchmarks
+        timeout-minutes: 15
+        run: |
+          uv run python scripts/bench.py \
+            --arco-binary target/release/arco \
+            --workflows validate,run \
+            --repetitions 10 \
+            --output artifacts/benchmark-results.json
+
+      - name: Restore previous benchmark data
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        id: benchmark-data-restore
+        with:
+          path: ./cache
+          key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-benchmark-main-
+            ${{ runner.os }}-benchmark-
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+        with:
+          tool: customSmallerIsBetter
+          output-file-path: artifacts/benchmark-results.json
+          external-data-json-path: ./cache/benchmark-data.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          summary-always: true
+          comment-on-alert: ${{ github.event_name == 'pull_request' }}
+          alert-threshold: "125%"
+          fail-on-alert: false
+
+      - name: Benchmark regression guard
+        run: |
+          uv run python scripts/bench_guard.py \
+            --current artifacts/benchmark-results.json \
+            --baseline cache/benchmark-data.json \
+            --ratio-threshold 1.25 \
+            --absolute-delta-ms 1.0 \
+            --min-baseline-samples 10
+
+      - name: Save benchmark data
+        if: github.ref == 'refs/heads/main' && steps.benchmark-data-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ./cache
+          key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}
 
   python-validation:
     name: Python validation (py${{ matrix.python-version }})
     needs: [version-consistency, ci-plan]
-    if: needs.ci-plan.outputs.python == 'true'
+    if: needs.ci-plan.outputs.python == 'true' || needs.ci-plan.outputs.docs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -439,7 +449,7 @@ jobs:
           rust-cache-shared-key: rust-clippy
           sync-python-licenses: "false"
           save-uv-cache: "false"
-          save-rust-cache: "false"
+          save-rust-cache: "true"
 
       - name: Run Python quality checks
         run: just py-check

@@ -1526,7 +1526,14 @@ fn run_fails_for_unsupported_embedded_family_selection() {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("embedded solver family 'xpress' is not available"));
+    // When xpress is not compiled in at all, the error is about the family
+    // not being available. When compiled in but the runtime library is
+    // missing, the error mentions the Xpress runtime library.
+    assert!(
+        stderr.contains("embedded solver family 'xpress' is not available")
+            || stderr.contains("Xpress runtime library"),
+        "expected xpress failure, got:\n{stderr}"
+    );
 
     let _ = fs::remove_dir_all(user_config_dir);
     let _ = fs::remove_dir_all(project_config_dir);

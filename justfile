@@ -66,8 +66,8 @@ arch-check:
     uv run python scripts/check_architecture.py
 
 [group: 'ci']
-docs-test: py-dev
-    uv run --project bindings/python --with pytest --with numpy pytest scripts/test_docs_doctest.py -v
+docs-test:
+    uv run --project bindings/python pytest scripts/test_docs_doctest.py -v
 
 [group: 'rust']
 fmt:
@@ -229,6 +229,10 @@ smoke-solver-ipopt-unavailable:
 [group: 'product']
 cli-build features="":
     cargo build -p arco-cli --bin arco {{ if features != "" { "--features " + features } else { "" } }}
+
+[group: 'product']
+cli-build-all-features:
+    cargo build --release -p arco-cli --bin arco --all-features
 
 [group: 'solver']
 smoke-solver solver features="" model="" check_unavailable="":
