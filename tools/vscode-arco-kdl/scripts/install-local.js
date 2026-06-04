@@ -14,9 +14,14 @@ if (!fs.existsSync(vsix)) {
   process.exit(1);
 }
 
-const codeCommand = process.env.VSCODE_CLI || 'code';
+const rawCodeCommand = process.env.VSCODE_CLI || 'code';
+const codeCommand =
+  process.platform === 'win32'
+    ? resolveWindowsCommand(rawCodeCommand) ?? rawCodeCommand
+    : rawCodeCommand;
 const result = spawnSync(codeCommand, ['--install-extension', vsix, '--force'], {
   stdio: 'inherit',
+  shell: process.platform === 'win32' && isWindowsCommandShim(codeCommand),
 });
 
 if (result.error) {
@@ -26,3 +31,53 @@ if (result.error) {
 }
 
 process.exit(result.status ?? 1);
+
+function resolveWindowsCommand(command) {
+  if (isExecutableFile(command)) return command;
+
+  const extensions = (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';');
+
+  for (const extension of extensions) {
+    const lowerCandidate = `${command}${extension.toLowerCase()}`;
+    if (isExecutableFile(lowerCandidate)) return lowerCandidate;
+
+    const upperCandidate = `${command}${extension.toUpperCase()}`;
+    if (isExecutableFile(upperCandidate)) return upperCandidate;
+  }
+
+  const paths = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const directory of paths) {
+    for (const candidateName of candidateExecutableNames(command, extensions)) {
+      const candidate = path.join(directory, candidateName);
+      if (isExecutableFile(candidate)) return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function candidateExecutableNames(command, extensions) {
+  return [
+    ...new Set(
+      extensions.flatMap((extension) => [
+        `${command}${extension.toLowerCase()}`,
+        `${command}${extension.toUpperCase()}`,
+      ]),
+    ),
+  ];
+}
+
+function isWindowsCommandShim(command) {
+  if (process.platform !== 'win32') return false;
+  const extension = path.extname(command).toLowerCase();
+  return extension === '.cmd' || extension === '.bat';
+}
+
+function isExecutableFile(candidate) {
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch (_error) {
+    return false;
+  }
+}

@@ -67,6 +67,7 @@ jobs:
       benchmarks: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.benchmarks == 'true' }}
       release: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.release == 'true' }}
       github_actions: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.github_actions == 'true' }}
+      vscode_extension: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.vscode_extension == 'true' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -119,6 +120,8 @@ jobs:
               - '.github/workflows/**'
               - '.github/build-setup.yml'
               - '.github/dependabot.yml'
+            vscode_extension:
+              - 'tools/vscode-arco-kdl/**'
 
       - name: Print CI plan
         env:
@@ -130,7 +133,31 @@ jobs:
           BENCHMARKS: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.benchmarks == 'true' }}
           RELEASE: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.release == 'true' }}
           ACTIONS_CONFIG: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.github_actions == 'true' }}
+          VSCODE_EXTENSION: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.vscode_extension == 'true' }}
         run: bash scripts/ci-plan.sh
+
+  vscode-extension:
+    name: VS Code extension
+    needs: [ci-plan]
+    if: needs.ci-plan.outputs.vscode_extension == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Check and package VS Code extension
+        working-directory: tools/vscode-arco-kdl
+        run: |
+          set -euo pipefail
+          npm run check
+          npm run package
 
   cargo-dist:
     name: cargo-dist workflow

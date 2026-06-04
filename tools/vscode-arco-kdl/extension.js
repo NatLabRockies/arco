@@ -19,6 +19,8 @@ const COMMANDS = {
 let extensionContext;
 let missingCommandWarningShown = false;
 const activeValidations = new Map();
+const activeDiagnosticUris = new Map();
+const diagnosticReportsByUri = new Map();
 
 function activate(context) {
   extensionContext = context;
@@ -39,6 +41,10 @@ function activate(context) {
     ),
     vscode.commands.registerCommand(COMMANDS.showSetup, showSetupDocument),
     vscode.workspace.onDidOpenTextDocument(validateOpenDocument),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      if (isArcoKdlDocument(document))
+        clearDocumentDiagnostics(document, diagnostics);
+    }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       if (configuration().get("validateOnSave", true))
         validateOpenDocument(document);
@@ -87,7 +93,7 @@ function isArcoKdlDocument(document) {
 
 function validateDocument(document, diagnostics) {
   if (document.isUntitled) {
-    diagnostics.delete(document.uri);
+    clearDocumentDiagnostics(document, diagnostics);
     return;
   }
 
@@ -101,7 +107,8 @@ function validateDocument(document, diagnostics) {
     [...CHECK_ARGS, document.fileName, ...JSON_FORMAT_ARGS],
     {
       cwd: workspaceDirectory(document),
-      shell: false,
+      shell:
+        process.platform === "win32" && isWindowsCommandShim(command),
     },
   );
   activeValidations.set(uri, { child, version });
@@ -120,8 +127,11 @@ function validateDocument(document, diagnostics) {
     if (activeValidations.get(uri)?.child !== child) return;
     spawnFailed = true;
     activeValidations.delete(uri);
-    diagnostics.set(document.uri, [
-      commandFailureDiagnostic(document, command, error.message),
+    setDocumentDiagnostics(document, diagnostics, [
+      {
+        uri: document.uri,
+        diagnostic: commandFailureDiagnostic(document, command, error.message),
+      },
     ]);
     if (!missingCommandWarningShown && error.code === "ENOENT") {
       missingCommandWarningShown = true;
@@ -135,14 +145,22 @@ function validateDocument(document, diagnostics) {
 
     const report = parseReport(stdout);
     if (!isKdlCheckReport(report)) {
-      diagnostics.set(document.uri, [
-        invalidOutputDiagnostic(document, command, stderr),
+      setDocumentDiagnostics(document, diagnostics, [
+        {
+          uri: document.uri,
+          diagnostic: invalidOutputDiagnostic(document, command, stderr),
+        },
       ]);
       return;
     }
-    diagnostics.set(
-      document.uri,
-      report.diagnostics.map((item) => toVsCodeDiagnostic(document, item)),
+
+    setDocumentDiagnostics(
+      document,
+      diagnostics,
+      report.diagnostics.map((item) => ({
+        uri: diagnosticUri(document, item),
+        diagnostic: toVsCodeDiagnostic(item),
+      })),
     );
   });
 }
@@ -193,6 +211,12 @@ function candidateExecutableNames(command, extensions) {
   ];
 }
 
+function isWindowsCommandShim(command) {
+  if (process.platform !== "win32") return false;
+  const extension = path.extname(command).toLowerCase();
+  return extension === ".cmd" || extension === ".bat";
+}
+
 function isExecutableFile(candidate) {
   try {
     fs.accessSync(candidate, fs.constants.X_OK);
@@ -232,9 +256,36 @@ function isKdlDiagnostic(diagnostic) {
   );
 }
 
-function toVsCodeDiagnostic(document, diagnostic) {
+function diagnosticUri(document, diagnostic) {
+  if (typeof diagnostic.file === "string" && diagnostic.file.trim()) {
+    const baseDirectory =
+      workspaceDirectory(document) ?? path.dirname(document.fileName);
+    return vscode.Uri.file(path.resolve(baseDirectory, diagnostic.file)).with({
+      scheme: document.uri.scheme,
+      authority: document.uri.authority,
+    });
+  }
+  return document.uri;
+}
+
+function diagnosticRange(diagnostic) {
+  if (
+    !Number.isInteger(diagnostic.line) ||
+    !Number.isInteger(diagnostic.column)
+  ) {
+    const start = new vscode.Position(0, 0);
+    return new vscode.Range(start, start.translate(0, 1));
+  }
+
+  const line = Math.max(diagnostic.line - 1, 0);
+  const column = Math.max(diagnostic.column - 1, 0);
+  const start = new vscode.Position(line, column);
+  return new vscode.Range(start, start.translate(0, 1));
+}
+
+function toVsCodeDiagnostic(diagnostic) {
   const item = new vscode.Diagnostic(
-    diagnosticRange(document, diagnostic),
+    diagnosticRange(diagnostic),
     diagnostic.message,
     diagnostic.severity === "warning"
       ? vscode.DiagnosticSeverity.Warning
@@ -245,19 +296,95 @@ function toVsCodeDiagnostic(document, diagnostic) {
   return item;
 }
 
-function diagnosticRange(document, diagnostic) {
-  if (
-    !Number.isInteger(diagnostic.line) ||
-    !Number.isInteger(diagnostic.column)
-  ) {
-    return document.lineAt(0).range;
+function setDocumentDiagnostics(document, diagnostics, records) {
+  const sourceUri = document.uri.toString();
+  const previousUris = activeDiagnosticUris.get(sourceUri) ?? new Set();
+  const grouped = new Map();
+
+  for (const record of records) {
+    const uri = record.uri.toString();
+    const current = grouped.get(uri) ?? [];
+    current.push(record.diagnostic);
+    grouped.set(uri, current);
   }
 
-  const line = Math.max(diagnostic.line - 1, 0);
-  const column = Math.max(diagnostic.column - 1, 0);
-  const range = document.lineAt(Math.min(line, document.lineCount - 1)).range;
-  const start = range.start.translate(0, Math.min(column, range.end.character));
-  return new vscode.Range(start, start.translate(0, 1));
+  const nextUris = new Set(grouped.keys());
+
+  for (const uri of previousUris) {
+    if (nextUris.has(uri)) continue;
+    const sourceReports = diagnosticReportsByUri.get(uri);
+    if (!sourceReports) continue;
+    sourceReports.delete(sourceUri);
+    if (sourceReports.size === 0) {
+      diagnosticReportsByUri.delete(uri);
+    }
+    publishDiagnostics(diagnostics, uri);
+  }
+
+  for (const [uri, items] of grouped) {
+    const sourceReports = diagnosticReportsByUri.get(uri) ?? new Map();
+    sourceReports.set(sourceUri, items);
+    diagnosticReportsByUri.set(uri, sourceReports);
+    publishDiagnostics(diagnostics, uri);
+  }
+
+  activeDiagnosticUris.set(sourceUri, nextUris);
+}
+
+function clearDocumentDiagnostics(document, diagnostics) {
+  const sourceUri = document.uri.toString();
+  const activeValidation = activeValidations.get(sourceUri);
+  if (activeValidation) {
+    activeValidation.child.kill();
+    activeValidations.delete(sourceUri);
+  }
+
+  const previousUris = activeDiagnosticUris.get(sourceUri) ?? new Set();
+  for (const uri of previousUris) {
+    const sourceReports = diagnosticReportsByUri.get(uri);
+    if (!sourceReports) continue;
+    sourceReports.delete(sourceUri);
+    if (sourceReports.size === 0) {
+      diagnosticReportsByUri.delete(uri);
+    }
+    publishDiagnostics(diagnostics, uri);
+  }
+  activeDiagnosticUris.delete(sourceUri);
+}
+
+function publishDiagnostics(diagnostics, uri) {
+  const sourceReports = diagnosticReportsByUri.get(uri);
+  if (!sourceReports || sourceReports.size === 0) {
+    diagnosticReportsByUri.delete(uri);
+    diagnostics.delete(vscode.Uri.parse(uri));
+    return;
+  }
+
+  const combined = [];
+  const seen = new Set();
+  for (const items of sourceReports.values()) {
+    for (const diagnostic of items) {
+      const key = diagnosticKey(diagnostic);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      combined.push(diagnostic);
+    }
+  }
+
+  diagnostics.set(vscode.Uri.parse(uri), combined);
+}
+
+function diagnosticKey(diagnostic) {
+  return [
+    diagnostic.range.start.line,
+    diagnostic.range.start.character,
+    diagnostic.range.end.line,
+    diagnostic.range.end.character,
+    diagnostic.message,
+    diagnostic.severity,
+    diagnostic.code ?? "",
+    diagnostic.source ?? "",
+  ].join("|");
 }
 
 function commandFailureDiagnostic(document, command, message) {
