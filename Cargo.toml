@@ -2,19 +2,19 @@
 members = ["crates/*", "bindings/python"]
 exclude = ["scripts"]
 default-members = [
-    "crates/arco-blocks",
-    "crates/arco-cli",
-    "crates/arco-format",
-    "crates/arco-highs",
-    "crates/arco-kdl",
-    "crates/arco-model",
-    "crates/arco-ops",
-    "crates/arco-runtime",
-    "crates/arco-scip",
-    "crates/arco-solver",
-    "crates/arco-tools",
-    "crates/arco-validate",
-    "crates/arco-xpress",
+  "crates/arco-blocks",
+  "crates/arco-cli",
+  "crates/arco-format",
+  "crates/arco-highs",
+  "crates/arco-kdl",
+  "crates/arco-model",
+  "crates/arco-ops",
+  "crates/arco-runtime",
+  "crates/arco-scip",
+  "crates/arco-solver",
+  "crates/arco-tools",
+  "crates/arco-validate",
+  "crates/arco-xpress",
 ]
 resolver = "3"
 
@@ -49,9 +49,7 @@ version = "0.6.1"
 edition = "2024"
 rust-version = "1.85"
 license-file = "licenses/BSD-3-Clause.txt"
-authors = [
-    "pesap <pesap@users.noreply.github.com>",
-]
+authors = ["pesap <pesap@users.noreply.github.com>"]
 description = "Workspace for the Arco multi-language bindings"
 homepage = "https://github.com/NatLabRockies/arco"
 repository = "https://github.com/NatLabRockies/arco"

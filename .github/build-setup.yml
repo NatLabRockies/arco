@@ -1,0 +1,41 @@
+- name: Use workspace Rust toolchain
+  run: rustup update "1.85" --no-self-update && rustup default "1.85"
+
+- name: Configure manylinux native dependency builds
+  if: ${{ matrix.container && contains(join(matrix.targets, ','), 'x86_64-unknown-linux-gnu') }}
+  shell: bash
+  run: bash ./scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
+
+- name: Install uv for solver runtime setup
+  uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+  with:
+    version: "0.9.4"
+    enable-cache: false
+
+- name: Set up Xpress runtime
+  shell: bash
+  env:
+    XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+    XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
+    XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+  run: |
+    set -euo pipefail
+    bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
+
+- name: Validate XPRESSDIR for xpress-enabled dist builds (Unix)
+  if: runner.os != 'Windows'
+  shell: bash
+  run: |
+    set -euo pipefail
+    if [[ -z "${XPRESSDIR:-}" ]]; then
+      echo "XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS." >&2
+      exit 1
+    fi
+
+- name: Validate XPRESSDIR for xpress-enabled dist builds (Windows)
+  if: runner.os == 'Windows'
+  shell: pwsh
+  run: |
+    if (-not $env:XPRESSDIR) {
+      Write-Error 'XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS.'
+    }

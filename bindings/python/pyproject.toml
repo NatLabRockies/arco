@@ -39,7 +39,12 @@ Changelog = "https://github.com/NatLabRockies/arco/releases"
 
 [tool.maturin]
 features = ["pyo3/extension-module", "xpress"]
-include = ["arco/py.typed", "arco/arco.pyi", "arco/blocks.pyi", "BSD-3-Clause.txt"]
+include = [
+  "arco/py.typed",
+  "arco/arco.pyi",
+  "arco/blocks.pyi",
+  "BSD-3-Clause.txt",
+]
 python-source = "."
 
 [dependency-groups]

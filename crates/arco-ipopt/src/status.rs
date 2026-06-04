@@ -1,54 +1,90 @@
 //! IPOPT status to Arco status mapping.
+//!
+//! Uses a local [`IpoptSolveStatus`] enum instead of the `ipopt::SolveStatus`
+//! type so this crate compiles without linking native IPOPT. The local enum
+//! mirrors the IPOPT return statuses. When the native IPOPT adapter is built
+//! (via the `arco-ops ipopt` feature), its code bridges the real
+//! `ipopt::SolveStatus` to this enum.
 
 use arco_solver::SolverStatus;
 
 type CoreSolverStatus = SolverStatus;
-use ipopt::SolveStatus;
 
-pub(crate) fn ipopt_to_core_status(status: SolveStatus) -> CoreSolverStatus {
-    match status {
-        SolveStatus::SolveSucceeded | SolveStatus::SolvedToAcceptableLevel => {
-            CoreSolverStatus::Optimal
-        }
-        SolveStatus::InfeasibleProblemDetected | SolveStatus::RestorationFailed => {
-            CoreSolverStatus::Infeasible
-        }
-        SolveStatus::DivergingIterates => CoreSolverStatus::Unbounded,
-        SolveStatus::MaximumIterationsExceeded => CoreSolverStatus::IterationLimit,
-        SolveStatus::MaximumCpuTimeExceeded => CoreSolverStatus::TimeLimit,
-        unknown => {
-            tracing::debug!("Unknown IPOPT status: {:?}", unknown);
-            CoreSolverStatus::Unknown
+/// A local mirror of IPOPT's `SolveStatus` that does not require linking the
+/// native `ipopt` crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IpoptSolveStatus {
+    SolveSucceeded,
+    SolvedToAcceptableLevel,
+    InfeasibleProblemDetected,
+    DivergingIterates,
+    MaximumIterationsExceeded,
+    MaximumCpuTimeExceeded,
+    RestorationFailed,
+    UserRequestedStop,
+    FeasiblePointFound,
+    Unknown,
+}
+
+impl IpoptSolveStatus {
+    /// Create from the string returned by the native IPOPT status.
+    pub fn from_ipopt_debug(debug: &str) -> Self {
+        match debug {
+            "SolveSucceeded" => Self::SolveSucceeded,
+            "SolvedToAcceptableLevel" => Self::SolvedToAcceptableLevel,
+            "InfeasibleProblemDetected" => Self::InfeasibleProblemDetected,
+            "DivergingIterates" => Self::DivergingIterates,
+            "MaximumIterationsExceeded" => Self::MaximumIterationsExceeded,
+            "MaximumCpuTimeExceeded" => Self::MaximumCpuTimeExceeded,
+            "RestorationFailed" => Self::RestorationFailed,
+            "UserRequestedStop" => Self::UserRequestedStop,
+            "FeasiblePointFound" => Self::FeasiblePointFound,
+            _ => Self::Unknown,
         }
     }
 }
 
-pub(crate) fn ipopt_to_generic_status(status: SolveStatus) -> SolverStatus {
+pub(crate) fn ipopt_to_core_status(status: IpoptSolveStatus) -> CoreSolverStatus {
+    match status {
+        IpoptSolveStatus::SolveSucceeded | IpoptSolveStatus::SolvedToAcceptableLevel => {
+            CoreSolverStatus::Optimal
+        }
+        IpoptSolveStatus::InfeasibleProblemDetected | IpoptSolveStatus::RestorationFailed => {
+            CoreSolverStatus::Infeasible
+        }
+        IpoptSolveStatus::DivergingIterates => CoreSolverStatus::Unbounded,
+        IpoptSolveStatus::MaximumIterationsExceeded => CoreSolverStatus::IterationLimit,
+        IpoptSolveStatus::MaximumCpuTimeExceeded => CoreSolverStatus::TimeLimit,
+        _ => CoreSolverStatus::Unknown,
+    }
+}
+
+pub(crate) fn ipopt_to_generic_status(status: IpoptSolveStatus) -> SolverStatus {
     ipopt_to_core_status(status)
 }
 
-pub(crate) fn ipopt_status_string(status: SolveStatus) -> &'static str {
+pub(crate) fn ipopt_status_string(status: IpoptSolveStatus) -> &'static str {
     match status {
-        SolveStatus::SolveSucceeded => "optimal",
-        SolveStatus::SolvedToAcceptableLevel => "acceptable",
-        SolveStatus::InfeasibleProblemDetected => "infeasible",
-        SolveStatus::DivergingIterates => "unbounded",
-        SolveStatus::MaximumIterationsExceeded => "iteration_limit",
-        SolveStatus::MaximumCpuTimeExceeded => "time_limit",
-        SolveStatus::RestorationFailed => "restoration_failed",
-        SolveStatus::UserRequestedStop => "user_stopped",
+        IpoptSolveStatus::SolveSucceeded => "optimal",
+        IpoptSolveStatus::SolvedToAcceptableLevel => "acceptable",
+        IpoptSolveStatus::InfeasibleProblemDetected => "infeasible",
+        IpoptSolveStatus::DivergingIterates => "unbounded",
+        IpoptSolveStatus::MaximumIterationsExceeded => "iteration_limit",
+        IpoptSolveStatus::MaximumCpuTimeExceeded => "time_limit",
+        IpoptSolveStatus::RestorationFailed => "restoration_failed",
+        IpoptSolveStatus::UserRequestedStop => "user_stopped",
         _ => "unknown",
     }
 }
 
-pub(crate) fn ipopt_has_solution(status: SolveStatus) -> bool {
+pub(crate) fn ipopt_has_solution(status: IpoptSolveStatus) -> bool {
     matches!(
         status,
-        SolveStatus::SolveSucceeded
-            | SolveStatus::SolvedToAcceptableLevel
-            | SolveStatus::MaximumIterationsExceeded
-            | SolveStatus::MaximumCpuTimeExceeded
-            | SolveStatus::FeasiblePointFound
+        IpoptSolveStatus::SolveSucceeded
+            | IpoptSolveStatus::SolvedToAcceptableLevel
+            | IpoptSolveStatus::MaximumIterationsExceeded
+            | IpoptSolveStatus::MaximumCpuTimeExceeded
+            | IpoptSolveStatus::FeasiblePointFound
     )
 }
 
@@ -59,42 +95,71 @@ mod tests {
     #[test]
     fn test_ipopt_to_core_mapping() {
         assert_eq!(
-            ipopt_to_core_status(SolveStatus::SolveSucceeded),
+            ipopt_to_core_status(IpoptSolveStatus::SolveSucceeded),
             CoreSolverStatus::Optimal
         );
         assert_eq!(
-            ipopt_to_core_status(SolveStatus::SolvedToAcceptableLevel),
+            ipopt_to_core_status(IpoptSolveStatus::SolvedToAcceptableLevel),
             CoreSolverStatus::Optimal
         );
         assert_eq!(
-            ipopt_to_core_status(SolveStatus::InfeasibleProblemDetected),
+            ipopt_to_core_status(IpoptSolveStatus::InfeasibleProblemDetected),
             CoreSolverStatus::Infeasible
         );
         assert_eq!(
-            ipopt_to_core_status(SolveStatus::DivergingIterates),
+            ipopt_to_core_status(IpoptSolveStatus::DivergingIterates),
             CoreSolverStatus::Unbounded
         );
         assert_eq!(
-            ipopt_to_core_status(SolveStatus::MaximumIterationsExceeded),
+            ipopt_to_core_status(IpoptSolveStatus::MaximumIterationsExceeded),
             CoreSolverStatus::IterationLimit
         );
         assert_eq!(
-            ipopt_to_core_status(SolveStatus::MaximumCpuTimeExceeded),
+            ipopt_to_core_status(IpoptSolveStatus::MaximumCpuTimeExceeded),
             CoreSolverStatus::TimeLimit
         );
     }
 
     #[test]
-    fn test_status_helpers() {
-        assert!(ipopt_has_solution(SolveStatus::SolveSucceeded));
-        assert!(ipopt_has_solution(SolveStatus::SolvedToAcceptableLevel));
-        assert!(ipopt_has_solution(SolveStatus::MaximumIterationsExceeded));
-        assert!(!ipopt_has_solution(SolveStatus::InfeasibleProblemDetected));
-        assert!(!ipopt_has_solution(SolveStatus::DivergingIterates));
-        assert_eq!(ipopt_status_string(SolveStatus::SolveSucceeded), "optimal");
+    fn test_unknown_maps_to_unknown() {
         assert_eq!(
-            ipopt_status_string(SolveStatus::InfeasibleProblemDetected),
+            ipopt_to_core_status(IpoptSolveStatus::Unknown),
+            CoreSolverStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn test_status_helpers() {
+        assert!(ipopt_has_solution(IpoptSolveStatus::SolveSucceeded));
+        assert!(ipopt_has_solution(
+            IpoptSolveStatus::SolvedToAcceptableLevel
+        ));
+        assert!(ipopt_has_solution(
+            IpoptSolveStatus::MaximumIterationsExceeded
+        ));
+        assert!(!ipopt_has_solution(
+            IpoptSolveStatus::InfeasibleProblemDetected
+        ));
+        assert!(!ipopt_has_solution(IpoptSolveStatus::DivergingIterates));
+        assert_eq!(
+            ipopt_status_string(IpoptSolveStatus::SolveSucceeded),
+            "optimal"
+        );
+        assert_eq!(
+            ipopt_status_string(IpoptSolveStatus::InfeasibleProblemDetected),
             "infeasible"
         );
+    }
+
+    #[test]
+    fn test_from_ipopt_debug() {
+        assert!(matches!(
+            IpoptSolveStatus::from_ipopt_debug("SolveSucceeded"),
+            IpoptSolveStatus::SolveSucceeded
+        ));
+        assert!(matches!(
+            IpoptSolveStatus::from_ipopt_debug("UnknownStatus"),
+            IpoptSolveStatus::Unknown
+        ));
     }
 }

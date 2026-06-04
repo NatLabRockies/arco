@@ -20,7 +20,6 @@ cargo install just --locked --version 1.43.0
 From repo root (recommended before running anything else):
 
 ```bash
-just install-hooks
 just setup
 just py-sync
 ```
@@ -69,7 +68,7 @@ just py-test
 
 ```bash
 just docs-test
-just test-example-formulations
+just kdl-examples
 ```
 
 ## Architecture policy
@@ -125,6 +124,31 @@ This is the canonical pre-push validation path.
 2. `just arch-check` passes.
 3. `just ci` passes for broader changes.
 4. Docs updated for any user-visible behavior/API changes.
+
+## Building with optional solver features
+
+Default builds exclude native IPOPT and Xpress runtimes. The shipped solver
+selection command (`arco solver set ipopt`) is available in the default product
+and returns a clear unavailable diagnostic unless the binary was compiled with
+native IPOPT support.
+
+To build the CLI with Xpress SDK support:
+
+```bash
+just build-cli-feature xpress
+```
+
+To build with both Xpress and IPOPT:
+
+```bash
+cargo build -p arco-cli --bin arco --features ipopt,xpress
+```
+
+> [!NOTE]
+> IPOPT is intentionally outside the normal `--all-features` workspace path.
+> The `arco-ipopt` crate compiles without native IPOPT libraries; this
+> repository ships the selection surface and unavailable diagnostics, while
+> native solve execution is provided by an external adapter build.
 
 ## Troubleshooting
 

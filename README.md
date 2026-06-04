@@ -118,8 +118,8 @@ arco run input.kdl --compact
 ```
 
 > [!NOTE]
-> Arco embeds the HiGHS solver. No external solver installation or
-> configuration required.
+> Arco embeds the HiGHS and SCIP solvers. No external solver installation or
+> configuration required for these two.
 
 For indexed models, data files, and sparse variable arrays, continue with the
 [tutorials](./docs/tutorials/) and [how-to guides](./docs/how-to/).
@@ -182,7 +182,7 @@ cargo install just --locked --version 1.43.0
 just --version
 
 # Install hooks first (recommended)
-just install-hooks
+just setup
 
 # Build and install Python extension in development mode
 just py-dev
@@ -595,9 +595,9 @@ graph LR
 | `arco-tools`           | Memory instrumentation and diagnostics helpers                |
 | `arco-highs`           | Embedded HiGHS adapter                                        |
 | `arco-scip`            | Embedded native SCIP adapter via `russcip`                    |
-| `arco-ipopt`           | IPOPT adapter crate                                           |
+| `arco-ipopt`           | IPOPT adapter crate (portable facade; native solve is provided externally) |
 | `arco-xpress`          | Xpress adapter crate                                          |
-| `arco-builtin-solvers` | Builtin solver-family wiring utilities                        |
+| `arco-builtin-solvers` | Builtin solver-family wiring utilities (HiGHS, SCIP, Xpress)  |
 
 ## Developer Guide
 
@@ -615,6 +615,21 @@ cargo run -p arco-cli -- --help
 
 Also see [`docs/developer_guide.md`](./docs/developer_guide.md).
 
+## Solver Support
+
+| Solver  | Shipped by default | Runtime dependency | Local smoke command                      |
+| :------ | :----------------- | :----------------- | :--------------------------------------- |
+| HiGHS   | Yes                | None               | `just smoke-solver highs`                |
+| SCIP    | Yes (bundled)      | None               | `just smoke-solver scip`                 |
+| Xpress  | Yes (SDK-based)    | SDK/community runtime | `just smoke-solver xpress xpress`       |
+| IPOPT   | No (external/native adapter) | external native IPOPT adapter build | `just smoke-solver-ipopt-unavailable` |
+
+IPOPT is an *external/native adapter*: this repository ships the solver
+selection surface (`arco solver set ipopt`) and an explicit unavailable
+diagnostic path. Native IPOPT solve execution is provided by an external
+adapter build. See [`docs/developer_guide.md`](./docs/developer_guide.md) for
+current build guidance.
+
 ## Contributing
 
 Contributions are welcome. Please see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for
@@ -625,13 +640,13 @@ Quick start for contributors:
 ```bash
 # Setup
 just fmt      # Format code
-just clippy   # Run linter
-just check    # Type-check workspace
+just lint     # Run linters
+just check    # Run Rust, Python, docs, and architecture checks
 
 # Testing
-just test                         # Run Rust tests
-just test-example-formulations    # Run curated CLI example smoke checks (acceptance e2e)
-just test-example-formulations "--examples dense-lp --commands run --fail-fast"  # Debug a single workflow
+just test                         # Run Rust and Python tests
+just kdl-examples                 # Run curated CLI example smoke checks (acceptance e2e)
+just kdl-examples "--examples dense-lp --commands run --fail-fast"  # Debug a single workflow
 just py-test  # Run Python tests
 # Full CI gate
 just ci

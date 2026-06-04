@@ -22,3 +22,15 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    exclude-paths:
+      - ".github/workflows/v-release.yml"
+  - package-ecosystem: cargo
+    directory: /
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    rebase-strategy: "auto"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7

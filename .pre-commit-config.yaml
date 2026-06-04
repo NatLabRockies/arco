@@ -1,3 +1,8 @@
+minimum_prek_version: "0.4.1"
+
+exclude:
+  glob: "**/wix/**"
+
 default_stages:
   - pre-commit
 
@@ -10,24 +15,38 @@ repos:
   - repo: builtin
     hooks:
       - id: trailing-whitespace
+        args:
+          - --markdown-linebreak-ext=md
+          - --markdown-linebreak-ext=markdown
+
       - id: check-added-large-files
         args: ["--maxkb=1000"]
+
       - id: end-of-file-fixer
       - id: check-case-conflict
       - id: fix-byte-order-marker
       - id: check-json
       - id: check-toml
       - id: check-yaml
-      - id: check-xml
+
       - id: mixed-line-ending
-      - id: check-symlinks
+        args: ["--fix=lf"]
+
+      # - id: check-symlinks
       - id: check-merge-conflict
       - id: detect-private-key
-      - id: no-commit-to-branch
       - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+        exclude: \.rs$
+      - id: check-vcs-permalinks
+
+  - repo: meta
+    hooks:
+      - id: check-hooks-apply
+      - id: check-useless-excludes
 
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.10.0
+    rev: v4.16.2
     hooks:
       - id: commitizen
         stages:
@@ -41,7 +60,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
 
   - repo: https://github.com/crate-ci/typos
     rev: v1.44.0
@@ -59,9 +78,31 @@ repos:
 
       - id: kdl-overlay-check
         name: kdl overlay parse check
-        entry: just kdl-overlay-check
+        entry: bash scripts/check-kdl-overlay.sh
         language: system
         files: \.kdl$
+        pass_filenames: false
+        stages: [manual]
+
+      - id: rust-portable
+        name: rust portable checks
+        entry: just rust-clippy rust-test
+        language: system
+        types: [rust]
+        pass_filenames: false
+        stages: [manual]
+
+      - id: product-build
+        name: product build checks
+        entry: just build-cli
+        language: system
+        pass_filenames: false
+        stages: [manual]
+
+      - id: smoke-highs
+        name: smoke solver highs
+        entry: just smoke-solver highs
+        language: system
         pass_filenames: false
         stages: [manual]
 
@@ -85,7 +126,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        stages: [pre-push]
+        stages: [manual]
 
   - repo: local
     hooks:
@@ -93,25 +134,51 @@ repos:
         name: prettier
         entry: prettier --write --ignore-unknown
         language: node
-        additional_dependencies: ["prettier@3"]
+        additional_dependencies: ["prettier@3.8.3"]
         types_or: [yaml, json5, markdown]
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.14.0
+    hooks:
+      - id: zizmor
+        args: [--pedantic, --config, .github/zizmor.yml]
+
+  - repo: https://github.com/ComPWA/taplo-pre-commit
+    rev: v0.9.3
+    hooks:
+      - id: taplo-format
+        exclude: ^dist-workspace\.toml$
+      - id: taplo-lint
+        args: ["--", "--offline"]
 
   - repo: local
     hooks:
-      - id: zizmor
-        name: zizmor
-        entry: bash -c 'workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "release.yml" -print); uvx zizmor .github/actions .github/dependabot.yml "${workflows[@]}"'
+      - id: actionlint
+        name: actionlint
+        entry: bash -c 'uvx --from actionlint-py actionlint .github/workflows/*.yaml'
         language: system
         types: [yaml]
         files: ^\.github/workflows/.*\.yaml$
         pass_filenames: false
+        stages: [manual]
+
+      - id: ci-cargo-fmt
+        name: ci cargo fmt
+        entry: cargo fmt --all --check
+        language: system
+        pass_filenames: false
         stages: [pre-push]
 
-      - id: actionlint
-        name: actionlint
-        entry: bash -c 'workflows=(); while IFS= read -r file; do workflows+=("$file"); done < <(find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) ! -name "release.yml" -print); uvx --from actionlint-py actionlint "${workflows[@]}"'
+      - id: ci-cargo-clippy
+        name: ci cargo clippy
+        entry: cargo clippy --workspace --exclude arco-python --all-targets --all-features -- -D warnings
         language: system
-        types: [yaml]
-        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: ci-cargo-test
+        name: ci cargo test (fast)
+        entry: env -u GIT_DIR -u GIT_WORK_TREE cargo test --lib
+        language: system
         pass_filenames: false
         stages: [pre-push]

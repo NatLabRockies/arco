@@ -1,4 +1,4 @@
-name: Release
+name: release-please
 
 on:
   push:
@@ -7,12 +7,12 @@ on:
       - release/*
   workflow_dispatch:
 
-concurrency:
-  group: release-please
-  cancel-in-progress: false
-
 permissions:
   contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
 
 # Keep in sync with ci.yaml
 env:
@@ -25,102 +25,170 @@ jobs:
   release-please:
     name: Release Please
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     permissions:
-      contents: write # Required for creating/updating release commits, tags, and GitHub releases.
-      pull-requests: write # Required for opening and updating release PRs.
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      prs_created: ${{ steps.release.outputs.prs_created }}
-      pr: ${{ steps.release.outputs.pr }}
+      contents: write # required to create release PRs and tags
+      pull-requests: write # required to open/update release PRs
     steps:
-      - name: Run release-please
-        id: release
-        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          config-file: .release-please-config.json
-          manifest-file: .release-please-manifest.json
+          config-file: .github/release-please-config.json
+          manifest-file: .github/release-please-manifest.json
           target-branch: ${{ github.ref_name }}
+          skip-github-release: true
 
-  prepare-cargo-dist-release:
-    name: Prepare cargo-dist release
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+  dispatch-dist-release:
+    name: dispatch dist release
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    needs: release-please
+    if: "${{ github.event_name == 'push' && (startsWith(github.event.head_commit.message, 'chore: release ') || startsWith(github.event.head_commit.message, 'chore(main): release ')) }}"
+    timeout-minutes: 60
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     permissions:
-      contents: write # Required to let cargo-dist replace the draft release-please release.
+      actions: write # required to dispatch generated cargo-dist workflow
+      contents: read # required to read Cargo.toml and releases
+      issues: write # required to update PR labels
+      pull-requests: write # required to update release PR lifecycle labels
     steps:
-      - name: Remove release-please draft before cargo-dist publish
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - id: version
+        name: Resolve release tag
+        shell: bash
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" --json isDraft > release.json 2>/dev/null; then
-            exit 0
+          version="$(awk -F '"' '
+            /^\[workspace\.package\]$/ { in_ws = 1; next }
+            /^\[/ && in_ws { in_ws = 0 }
+            in_ws && /^version = / { print $2; exit }
+          ' Cargo.toml)"
+          if [[ -z "$version" ]]; then
+            echo "Could not read workspace version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch cargo-dist release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          output="$(gh workflow run v-release.yml --ref "$REF_NAME" --field tag="$TAG" 2>&1)"
+          echo "$output"
+          # Parse the run URL from gh CLI output (gh v2.87+ returns it)
+          run_url="$(echo "$output" | grep -oE 'https?://[^ ]+' | head -1)"
+          if [[ -n "$run_url" ]]; then
+            run_id="$(echo "$run_url" | grep -oP '/runs/\K\d+')"
+            if [[ -n "$run_id" ]]; then
+              echo "run_url=$run_url" >> "$GITHUB_ENV"
+              echo "run_id=$run_id" >> "$GITHUB_ENV"
+              echo "::notice::Dispatched run: $run_url"
+            fi
+          else
+            echo "::warning::Could not capture run URL from gh workflow run output."
           fi
 
-          if [[ "$(jq -r '.isDraft' release.json)" != "true" ]]; then
-            echo "Release $TAG already exists and is not a draft; refusing to replace it." >&2
+      - name: Wait for cargo-dist release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${run_id:-}" ]]; then
+            # gh run watch polls until completion and exits non-zero on failure
+            echo "Watching dispatched run: ${run_url:-unknown}"
+            if gh run watch "$run_id" --exit-status 2>&1; then
+              echo "::notice::cargo-dist workflow completed successfully."
+              exit 0
+            else
+              echo "::error::cargo-dist workflow failed. See: ${run_url:-unknown}"
+              exit 1
+            fi
+          fi
+
+          # Fallback: poll for GitHub Release appearance
+          echo "Falling back to release polling..."
+          for attempt in {1..60}; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "Release $TAG is published."
+              exit 0
+            fi
+            echo "Waiting for cargo-dist to publish $TAG (${attempt}/60)..."
+            sleep 60
+          done
+
+          echo "Timed out waiting for cargo-dist to publish $TAG" >&2
+          exit 1
+
+      - name: Mark release PR as tagged
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          pr_number="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${REPOSITORY}/commits/${RELEASE_COMMIT}/pulls" \
+            --jq '.[] | select(.merged_at != null and ((.title | startswith("chore: release ")) or (.title | startswith("chore(main): release ")))) | .number' \
+            | head -n 1)"
+
+          if [[ -z "$pr_number" ]]; then
+            echo "No merged release PR found for commit ${RELEASE_COMMIT}" >&2
             exit 1
           fi
 
-          gh release delete "$TAG" --yes
+          gh label create "autorelease: tagged" --color "0e8a16" --description "Release PR has been tagged" --force
+          gh pr edit "$pr_number" --remove-label "autorelease: pending" || true
+          gh pr edit "$pr_number" --add-label "autorelease: tagged"
 
-  cargo-dist:
-    name: Build and publish release
-    needs: [release-please, prepare-cargo-dist-release]
-    if: needs.release-please.outputs.release_created == 'true'
-    uses: ./.github/workflows/publish-release.yml
-    permissions:
-      attestations: write # Required by the called cargo-dist release workflow for artifact attestations.
-      contents: write # Required by the called cargo-dist release workflow to publish GitHub Release artifacts.
-      id-token: write # Required by the called cargo-dist release workflow for artifact attestations.
-    with:
-      tag: ${{ needs.release-please.outputs.tag_name }}
-
-  update-release-notes:
-    name: Append install instructions
-    needs: [release-please, cargo-dist]
-    if: needs.release-please.outputs.release_created == 'true'
+  upload-vscode-extension:
+    name: Upload VS Code extension
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    needs:
+      - dispatch-dist-release
+    if: needs.dispatch-dist-release.result == 'success'
+    timeout-minutes: 10
     permissions:
-      contents: write # Required to append generated install instructions to the published release notes.
+      contents: write # required to upload the VS Code extension asset to the GitHub Release
     steps:
-      - name: Download dist-manifest
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Checkout release tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          name: artifacts-dist-manifest
-          path: .
+          ref: ${{ needs.dispatch-dist-release.outputs.tag }}
+          persist-credentials: false
 
-      - name: Append install instructions to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v6.1.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Package VS Code extension
+        working-directory: tools/vscode-arco-kdl
         run: |
           set -euo pipefail
-          install_body="$(jq -r '.announcement_github_body // empty' dist-manifest.json)"
-          if [[ -z "$install_body" ]]; then
-            echo "No install instructions found in dist-manifest.json"
-            exit 0
-          fi
-          current_body="$(gh release view "$TAG" --json body --jq '.body')"
-          printf '%s\n\n---\n\n%s' "$current_body" "$install_body" > release-body.md
-          gh release edit "$TAG" --notes-file release-body.md
+          npm run check
+          npm run package
+          cp arco-kdl-vscode-*.vsix ../../arco-kdl-vscode.vsix
+
+      - name: Upload VS Code extension to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.dispatch-dist-release.outputs.tag }}
+        run: gh release upload "$TAG" arco-kdl-vscode.vsix --clobber
 
   py-build:
     name: Python Build Artifacts (${{ matrix.label }})
     timeout-minutes: 15
     permissions:
       contents: read
-    needs: [release-please, cargo-dist]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs:
+      - dispatch-dist-release
+    if: needs.dispatch-dist-release.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -138,7 +206,7 @@ jobs:
       - name: Checkout release commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.dispatch-dist-release.outputs.tag }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -152,34 +220,14 @@ jobs:
           save-rust-cache: "false"
           save-uv-cache: "false"
 
-      - name: Build wheel (linux)
-        if: runner.os != 'Windows'
-        shell: bash
+      - name: Build wheel
         env:
-          DEFAULT_WHEEL_PYTHON: ${{ matrix.wheel_python }}
-        run: |
-          set -euo pipefail
-          just py-licenses
-          uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i "${PYTHON_WHEEL_INTERPRETER:-$DEFAULT_WHEEL_PYTHON}" --compatibility pypi --out dist
+          PYTHON_WHEEL_INTERPRETER: ${{ matrix.wheel_python }}
+        run: just py-build-wheel
 
-      - name: Build wheel (windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          DEFAULT_WHEEL_PYTHON: ${{ matrix.wheel_python }}
-        run: |
-          if (-not $env:PYTHON_WHEEL_INTERPRETER) {
-            $env:PYTHON_WHEEL_INTERPRETER = $env:DEFAULT_WHEEL_PYTHON
-          }
-          uv run python scripts/sync_python_licenses.py
-          uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i "$env:PYTHON_WHEEL_INTERPRETER" --compatibility pypi --out dist
-
-      - name: Build sdist (linux only)
+      - name: Build sdist
         if: matrix.build_sdist
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv run --project bindings/python --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
+        run: just py-build-sdist
 
       - name: Store the distribution packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -188,14 +236,41 @@ jobs:
           path: dist/
           retention-days: 3
 
+  upload-python-distributions:
+    name: Upload Python distributions
+    runs-on: ubuntu-latest
+    needs:
+      - dispatch-dist-release
+      - py-build
+    if: needs.dispatch-dist-release.result == 'success'
+    timeout-minutes: 5
+    permissions:
+      contents: write # required to upload Python distribution assets to the GitHub Release
+    steps:
+      - name: Download Python distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: python-package-distributions-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Upload Python distributions to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.dispatch-dist-release.outputs.tag }}
+        run: gh release upload "$TAG" dist/* --clobber
+
   publish-pypi:
     name: Publish to PyPI
     timeout-minutes: 10
     permissions:
       id-token: write # Required for PyPI trusted publishing via OIDC.
     needs:
+      - dispatch-dist-release
       - py-build
-      - cargo-dist
+      - upload-python-distributions
+      - upload-vscode-extension
+    if: needs.dispatch-dist-release.result == 'success'
     runs-on: ubuntu-latest
     environment:
       name: pypi

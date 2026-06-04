@@ -55,11 +55,18 @@ Runtime facade
 - `arco-blocks`: block composition, typed input/output contracts, stage
   diagnostics, and swappability checks. Blocks compose public model/runtime
   APIs instead of reaching into primitive storage.
-- `arco-builtin-solvers` and concrete solver crates: built-in solver
-  registration and backend-specific capability, configuration, result, status,
-  runtime/license, and diagnostic mapping. Solver adapters consume
-  `ModelView`/DTO contracts so adding a backend does not change Python, KDL,
-  block, or primitive model APIs.
+- `arco-builtin-solvers`: built-in solver family wiring. Registers shipped
+  solver families (HiGHS, SCIP, Xpress). Does not include IPOPT as a shipped
+  built-in.
+- `arco-highs`/`arco-scip`/`arco-xpress`: shipped solver adapters included in
+  default product artifacts.
+- `arco-ipopt`: portable facade crate. The default build provides solver
+  selection and a clear unavailable diagnostic for solve attempts. Native
+  IPOPT solve execution requires the `ipopt` feature on `arco-ops`, which is
+  intentionally outside the normal workspace `--all-features` path so CI
+  remains portable without native IPOPT libraries.
+- Solver adapters consume `ModelView`/DTO contracts so adding a backend does
+  not change Python, KDL, block, or primitive model APIs.
 
 ## User-facing API architecture rules
 

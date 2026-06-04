@@ -1,11 +1,11 @@
 //! IPOPT solution type and trait implementations.
 
 use crate::status::{
-    ipopt_has_solution, ipopt_status_string, ipopt_to_core_status, ipopt_to_generic_status,
+    IpoptSolveStatus, ipopt_has_solution, ipopt_status_string, ipopt_to_core_status,
+    ipopt_to_generic_status,
 };
 use arco_solver::{Solution as CoreSolution, SolverStatus as CoreSolverStatus};
 use arco_solver::{SolutionView, SolverStatus};
-use ipopt::SolveStatus;
 use std::collections::BTreeMap;
 
 /// Solution from the IPOPT solver.
@@ -16,7 +16,7 @@ pub struct Solution {
     pub(crate) constraint_duals: Vec<f64>,
     pub(crate) row_values: Vec<f64>,
     pub(crate) objective_value: f64,
-    pub(crate) status: SolveStatus,
+    pub(crate) status: IpoptSolveStatus,
     pub(crate) solve_time_seconds: f64,
 }
 
@@ -42,7 +42,7 @@ impl Solution {
     }
 
     /// Get the IPOPT-specific status.
-    pub fn ipopt_status(&self) -> SolveStatus {
+    pub fn ipopt_status(&self) -> IpoptSolveStatus {
         self.status
     }
 
@@ -70,7 +70,7 @@ impl Solution {
     pub fn is_optimal(&self) -> bool {
         matches!(
             self.status,
-            SolveStatus::SolveSucceeded | SolveStatus::SolvedToAcceptableLevel
+            IpoptSolveStatus::SolveSucceeded | IpoptSolveStatus::SolvedToAcceptableLevel
         )
     }
 
@@ -83,13 +83,13 @@ impl Solution {
     pub fn is_infeasible(&self) -> bool {
         matches!(
             self.status,
-            SolveStatus::InfeasibleProblemDetected | SolveStatus::RestorationFailed
+            IpoptSolveStatus::InfeasibleProblemDetected | IpoptSolveStatus::RestorationFailed
         )
     }
 
     /// Check if solution is unbounded.
     pub fn is_unbounded(&self) -> bool {
-        matches!(self.status, SolveStatus::DivergingIterates)
+        matches!(self.status, IpoptSolveStatus::DivergingIterates)
     }
 
     /// Get solution status as a human-readable string.
@@ -97,12 +97,12 @@ impl Solution {
         ipopt_status_string(self.status)
     }
 
-    /// Convert the IPOPT status to an `arco_model::SolverStatus`.
+    /// Convert the IPOPT status to an `arco_solver::SolverStatus`.
     pub fn core_status(&self) -> CoreSolverStatus {
         ipopt_to_core_status(self.status)
     }
 
-    /// Convert this IPOPT-specific solution into a solver-agnostic `arco_model::Solution`.
+    /// Convert this IPOPT-specific solution into a solver-agnostic `arco_solver::Solution`.
     pub fn into_core_solution(self) -> CoreSolution {
         CoreSolution {
             primal_values: self.primal_values,
@@ -152,5 +152,59 @@ impl SolutionView for Solution {
 
     fn solve_time_seconds(&self) -> f64 {
         self.solve_time_seconds
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_solution_status_methods() {
+        let optimal = Solution {
+            primal_values: vec![1.0],
+            variable_duals: vec![0.0],
+            constraint_duals: vec![0.0],
+            row_values: vec![0.0],
+            objective_value: 42.0,
+            status: IpoptSolveStatus::SolveSucceeded,
+            solve_time_seconds: 0.1,
+        };
+        assert!(optimal.is_optimal());
+        assert!(optimal.is_feasible());
+        assert!(!optimal.is_infeasible());
+        assert!(!optimal.is_unbounded());
+        assert_eq!(optimal.core_status(), CoreSolverStatus::Optimal);
+        assert_eq!(optimal.status_string(), "optimal");
+
+        let infeasible = Solution {
+            status: IpoptSolveStatus::InfeasibleProblemDetected,
+            ..optimal.clone()
+        };
+        assert!(!infeasible.is_optimal());
+        assert!(!infeasible.is_feasible());
+        assert!(infeasible.is_infeasible());
+        assert!(!infeasible.is_unbounded());
+        assert_eq!(infeasible.core_status(), CoreSolverStatus::Infeasible);
+        assert_eq!(infeasible.status_string(), "infeasible");
+    }
+
+    #[test]
+    fn test_into_core_solution() {
+        let solution = Solution {
+            primal_values: vec![1.0, 2.0],
+            variable_duals: vec![0.0, 0.0],
+            constraint_duals: vec![3.0],
+            row_values: vec![4.0],
+            objective_value: 42.0,
+            status: IpoptSolveStatus::SolveSucceeded,
+            solve_time_seconds: 0.5,
+        };
+
+        let core = solution.into_core_solution();
+        assert_eq!(core.primal_values, vec![1.0, 2.0]);
+        assert!((core.objective_value - 42.0).abs() < f64::EPSILON);
+        assert_eq!(core.status, CoreSolverStatus::Optimal);
+        assert!((core.solve_time_seconds - 0.5).abs() < f64::EPSILON);
     }
 }

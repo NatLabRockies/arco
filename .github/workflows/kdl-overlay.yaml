@@ -18,13 +18,10 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  UV_VERSION: "0.9.4"
-  JUST_VERSION: "1.43.0"
-
 jobs:
   kdl-overlay-check:
     name: kdl overlay parse check
+    if: github.event.action != 'edited'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -32,22 +29,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v6.1.0
         with:
-          python-version: "3.12"
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
-          sync-python-licenses: "false"
-          save-uv-cache: "false"
-          save-rust-cache: "false"
-
-      - name: Ensure npm is available
-        run: |
-          if ! command -v npm >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y nodejs npm
-          fi
+          node-version: "22"
 
       - name: Install tree-sitter CLI
         run: npm install --global tree-sitter-cli
@@ -55,15 +39,12 @@ jobs:
       - name: Regenerate generated parser artifacts from grammar source
         working-directory: tools/tree-sitter-arco-kdl
         run: |
-          npm install
-          # parser.c / grammar.json / node-types.json are normal generated outputs.
-          # src/tree_sitter/parser.h is treated as a vendored, pinned runtime
-          # header and should only change when the Tree-sitter toolchain moves.
+          npm ci
           npx tree-sitter generate
 
-      - name: Run filtered prek hook
-        run: uvx --from prek==0.3.6 prek run --all-files --hook-stage manual
-          --show-diff-on-failure --color always kdl-overlay-check
+      - uses: j178/prek-action@502e92b03ba14f9c5b7dca53a07f9c8349b1e211
+        with:
+          extra-args: "--all-files --hook-stage manual kdl-overlay-check"
 
       - name: Run VS Code extension smoke check
         working-directory: tools/vscode-arco-kdl
