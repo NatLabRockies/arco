@@ -130,6 +130,26 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
+      - name: "Install Rust toolchain manager"
+        run: |
+          set -euo pipefail
+
+          if command -v rustup >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          for attempt in 1 2 3 4 5; do
+            if curl --proto '=https' --tlsv1.2 -LsSf https://sh.rustup.rs -o /tmp/rustup-init.sh; then
+              sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain none
+              echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+
+          echo "failed to download rustup installer after 5 attempts" >&2
+          exit 1
+        shell: "bash"
       - name: "Use workspace Rust toolchain"
         run: "rustup update \"1.85\" --no-self-update && rustup default \"1.85\""
       - name: "Configure manylinux native dependency builds"
