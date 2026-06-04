@@ -66,12 +66,14 @@ jobs:
           save-uv-cache: "false"
 
       - name: Build wheel
+        shell: bash
         env:
           PYTHON_WHEEL_INTERPRETER: ${{ matrix.wheel_python }}
         run: just py-build-wheel
 
       - name: Build sdist
         if: matrix.build_sdist
+        shell: bash
         run: just py-build-sdist
 
       - name: Upload Python distributions
