@@ -20,7 +20,7 @@ The extension does not implement a second KDL parser. The Rust parser in
 
 Prerequisites:
 
-- VS Code with the `code` command available on PATH
+- VS Code with the `code` command available on PATH, or set `VSCODE_CLI` to the CLI path on systems where it is not named `code`
 - Node.js/npm
 - arco CLI available by one of these methods:
   - installed on PATH as `arco`
@@ -28,6 +28,8 @@ Prerequisites:
   - built in this workspace at `target/debug/arco` or `target/release/arco`
 
 One-command local install:
+
+This works on macOS, Linux, and Windows.
 
 ```sh
 cd tools/vscode-arco-kdl
@@ -38,6 +40,13 @@ If VS Code's CLI is not named `code`, set `VSCODE_CLI`:
 
 ```sh
 VSCODE_CLI="/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" npm run install:local
+```
+
+On Windows PowerShell, for example:
+
+```powershell
+$env:VSCODE_CLI = "C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd"
+npm run install:local
 ```
 
 Manual install:

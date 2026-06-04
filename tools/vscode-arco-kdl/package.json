@@ -32,6 +32,7 @@
     "onCommand:arcoKdl.selectCheckCommand",
     "onCommand:arcoKdl.showSetup"
   ],
+  "extensionKind": ["workspace"],
   "main": "./extension.js",
   "contributes": {
     "languages": [
@@ -91,7 +92,7 @@
   },
   "scripts": {
     "check": "node --check extension.js && node --check scripts/install-local.js",
-    "package": "npx --yes @vscode/vsce package --no-dependencies",
+    "package": "npx --yes @vscode/vsce@3.9.1 package --no-dependencies",
     "install:local": "npm run package && node scripts/install-local.js"
   }
 }
