@@ -16,7 +16,7 @@ workspace = true
 [dependencies]
 arco-solver = { workspace = true }
 arco-model = { workspace = true }
-highs = "1.8"
+highs = "2.1"
 highs-sys = "1.12.1"
 tracing = { workspace = true }
 
