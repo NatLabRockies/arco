@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.7.0](https://github.com/NatLabRockies/arco/compare/v0.6.1...v0.7.0) (2026-06-04)
+
+
+### Features
+
+* harden API UX ladder across Rust, Python, and docs ([#281](https://github.com/NatLabRockies/arco/issues/281)) ([62bea77](https://github.com/NatLabRockies/arco/commit/62bea77ba8863ff3c4077b939492fe2415b97208))
+* support generated indexed expression composition ([#267](https://github.com/NatLabRockies/arco/issues/267)) ([59abfa6](https://github.com/NatLabRockies/arco/commit/59abfa6661adce3e38428a79ec34868bbb7c3958))
+
+
+### Bug Fixes
+
+* avoid template expansion in wheel interpreter fallback ([#295](https://github.com/NatLabRockies/arco/issues/295)) ([361b983](https://github.com/NatLabRockies/arco/commit/361b9831686e6c0c003310d4f70522629aaee867))
+* harden PyPI release wheel jobs for zizmor and windows ([#296](https://github.com/NatLabRockies/arco/issues/296)) ([0d17a66](https://github.com/NatLabRockies/arco/commit/0d17a66037e7c8ccb617b82102e2517827e37c78))
+* improving CI for longevity based on lessons learned ([#297](https://github.com/NatLabRockies/arco/issues/297)) ([a81a1bf](https://github.com/NatLabRockies/arco/commit/a81a1bf53461f2ca090d5c8eed41ae727b60f309))
+* publish python windows wheels ([#294](https://github.com/NatLabRockies/arco/issues/294)) ([aa6277d](https://github.com/NatLabRockies/arco/commit/aa6277d298827046b6acc00f5af8185168ff8bf6))
+* restore release-please main manifest ([#291](https://github.com/NatLabRockies/arco/issues/291)) ([5f6ef81](https://github.com/NatLabRockies/arco/commit/5f6ef813c7797c6907dca622f09cd82eb965e326))
+* update approach for ipopt integration ([#284](https://github.com/NatLabRockies/arco/issues/284)) ([750d0e3](https://github.com/NatLabRockies/arco/commit/750d0e3b791b0bb07a02ee01c40c35fb0e63f22a))
+* update release-please manifest to 0.6.3 and remove duplicate 0.2.5 changelog entry ([#288](https://github.com/NatLabRockies/arco/issues/288)) ([5e98e82](https://github.com/NatLabRockies/arco/commit/5e98e821a97ddf37d92377ba6f0829858e926758))
+* **vscode:** vscode kdl plugin. ([#304](https://github.com/NatLabRockies/arco/issues/304)) ([9d517c2](https://github.com/NatLabRockies/arco/commit/9d517c2ca63043931c4186dfed1a317cf8c27a45))
+
+
+### Refactoring
+
+* address code quality audit findings ([#285](https://github.com/NatLabRockies/arco/issues/285)) ([bdda9b2](https://github.com/NatLabRockies/arco/commit/bdda9b22045c600991ab8f012e19010a7bed44b6))
+
+
+### Build
+
+* **deps-dev:** bump maturin from 1.13.2 to 1.13.3 in /bindings/python ([#282](https://github.com/NatLabRockies/arco/issues/282)) ([decfb2d](https://github.com/NatLabRockies/arco/commit/decfb2dfc9dc942a7c099e572189b771c3688221))
+* **deps:** bump actions/setup-node from 4.4.0 to 6.4.0 ([#283](https://github.com/NatLabRockies/arco/issues/283)) ([5636780](https://github.com/NatLabRockies/arco/commit/5636780412a6932e4a3909fdbc46781fff0adb51))
+* **deps:** bump dorny/paths-filter from 3.0.2 to 4.0.1 ([#298](https://github.com/NatLabRockies/arco/issues/298)) ([5b4522f](https://github.com/NatLabRockies/arco/commit/5b4522f8b862a46833944ddf306d2ff21b3769c7))
+* **deps:** update highs requirement from 1.8 to 2.1 ([#303](https://github.com/NatLabRockies/arco/issues/303)) ([99f4748](https://github.com/NatLabRockies/arco/commit/99f47481c63cdfb48aac0a99dbed318dd46317a6))
+* **deps:** update similar requirement from 2 to 3 ([#302](https://github.com/NatLabRockies/arco/issues/302)) ([e0817b6](https://github.com/NatLabRockies/arco/commit/e0817b66a20a22f4debf7ae0189f0c6f12713312))
+* **deps:** update toml requirement from 0.8 to 1.1 ([#301](https://github.com/NatLabRockies/arco/issues/301)) ([8965010](https://github.com/NatLabRockies/arco/commit/89650104a009b4d236f6ff85a323c80957e02f7a))
+* **deps:** update toml_edit requirement from 0.22 to 0.25 ([#299](https://github.com/NatLabRockies/arco/issues/299)) ([c047907](https://github.com/NatLabRockies/arco/commit/c0479078ef260ae509ba3934d900b314db872d91))
+* ship xpress in default python builds ([#290](https://github.com/NatLabRockies/arco/issues/290)) ([a945db2](https://github.com/NatLabRockies/arco/commit/a945db2ffecc930faca6be1183ef124704042ea1))
+
 ## [0.6.1](https://github.com/NatLabRockies/arco/compare/v0.6.0...v0.6.1) (2026-05-16)
 
 
