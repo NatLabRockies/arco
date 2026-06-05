@@ -182,7 +182,7 @@ jobs:
         run: gh release upload "$TAG" arco-kdl-vscode.vsix --clobber
 
   py-build:
-    name: Python Build Artifacts (${{ matrix.os-label }}, py${{ matrix.python-version }})
+    name: Python Build Artifacts (${{ matrix.platform.label }}, py${{ matrix.python-version }})
     timeout-minutes: 15
     permissions:
       contents: read
@@ -192,58 +192,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os-label: linux
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        platform:
+          - label: linux
             os: ubuntu-latest
-            python-version: "3.10"
-            build_sdist: false
             wheel_python: python3
-          - os-label: linux
-            os: ubuntu-latest
-            python-version: "3.11"
-            build_sdist: false
-            wheel_python: python3
-          - os-label: linux
-            os: ubuntu-latest
-            python-version: "3.12"
-            build_sdist: true
-            wheel_python: python3
-          - os-label: linux
-            os: ubuntu-latest
-            python-version: "3.13"
-            build_sdist: false
-            wheel_python: python3
-          - os-label: linux
-            os: ubuntu-latest
-            python-version: "3.14"
-            build_sdist: false
-            wheel_python: python3
-          - os-label: windows
+          - label: windows
             os: windows-latest
-            python-version: "3.10"
-            build_sdist: false
             wheel_python: python
-          - os-label: windows
-            os: windows-latest
-            python-version: "3.11"
-            build_sdist: false
-            wheel_python: python
-          - os-label: windows
-            os: windows-latest
-            python-version: "3.12"
-            build_sdist: false
-            wheel_python: python
-          - os-label: windows
-            os: windows-latest
-            python-version: "3.13"
-            build_sdist: false
-            wheel_python: python
-          - os-label: windows
-            os: windows-latest
-            python-version: "3.14"
-            build_sdist: false
-            wheel_python: python
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.os }}
     steps:
       - name: Checkout release commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -265,7 +222,7 @@ jobs:
       - name: Build wheel
         shell: bash
         env:
-          PYTHON_WHEEL_INTERPRETER: ${{ matrix.wheel_python }}
+          PYTHON_WHEEL_INTERPRETER: ${{ matrix.platform.wheel_python }}
         run: |
           if [[ "${RUNNER_OS}" == "Windows" ]]; then
             just --shell "C:/Program Files/Git/bin/bash.exe" --shell-arg "-eu" --shell-arg "-o" --shell-arg "pipefail" --shell-arg "-c" py-build-wheel
@@ -274,14 +231,14 @@ jobs:
           fi
 
       - name: Build sdist
-        if: matrix.build_sdist
+        if: matrix.platform.label == 'linux' && matrix.python-version == '3.12'
         shell: bash
         run: just py-build-sdist
 
       - name: Store the distribution packages
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: python-package-distributions-${{ matrix.os-label }}-py${{ matrix.python-version }}
+          name: python-package-distributions-${{ matrix.platform.label }}-py${{ matrix.python-version }}
           path: dist/
           retention-days: 3
 
