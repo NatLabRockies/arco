@@ -20,6 +20,8 @@ Use the smallest recovery path first:
 2. If the workflow or packaging code needs a fix, merge the fix and rerun **Manual PyPI Release** from `main` with:
    - `ref`: the release tag or branch to rebuild
    - `skip_existing`: `true`
+   - `release_tag`: the GitHub Release tag, when GitHub Release assets should be updated
+   - `upload_to_release`: `true`, when GitHub Release assets should be updated
 3. Rebuild all Python artifacts rather than stitching together artifacts from multiple runs.
 
 Rebuilding the full reduced matrix is simpler and less error-prone than maintaining a separate artifact staging system.
