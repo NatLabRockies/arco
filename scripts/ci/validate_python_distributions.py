@@ -40,9 +40,9 @@ _REQUIRED_SDIST_PATHS: tuple[tuple[str, ...], ...] = (
 def validate_wheel_file(
     *, wheel_path: Path, python_label: str, platform_label: str
 ) -> None:
-    tags = _parse_wheel_tags(wheel_path=wheel_path)
-    _validate_python_tags(tags=tags, python_label=python_label)
-    _validate_platform_tag(tags=tags, platform_label=platform_label)
+    tags = parse_wheel_tags(wheel_path=wheel_path)
+    validate_python_tags(tags=tags, python_label=python_label)
+    validate_platform_tag(tags=tags, platform_label=platform_label)
 
 
 def validate_wheel_directory(
@@ -56,7 +56,7 @@ def validate_wheel_directory(
     validate_wheel_file(
         wheel_path=wheels[0], python_label=python_label, platform_label=platform_label
     )
-    return _parse_wheel_tags(wheel_path=wheels[0])
+    return parse_wheel_tags(wheel_path=wheels[0])
 
 
 def validate_sdist_directory(
@@ -68,14 +68,14 @@ def validate_sdist_directory(
             f"Expected exactly one sdist in {dist_dir}, found {len(sdists)}"
         )
     sdist_path = sdists[0]
-    distribution, version = _parse_sdist_name(sdist_path=sdist_path)
-    _validate_package_name(name=distribution, filename=sdist_path.name)
+    distribution, version = parse_sdist_name(sdist_path=sdist_path)
+    validate_package_name(name=distribution, filename=sdist_path.name)
     if expected_version is not None and version != expected_version:
         raise ValueError(
             f"sdist {sdist_path.name} version {version!r} does not match "
             f"release tag version {expected_version!r}"
         )
-    _validate_sdist_license_files(sdist_path=sdist_path)
+    validate_sdist_license_files(sdist_path=sdist_path)
     return sdist_path
 
 
@@ -87,14 +87,14 @@ def validate_distribution_manifest(
     if not wheels:
         raise ValueError(f"No wheels found in {dist_dir}")
 
-    expected_version = _version_from_release_tag(release_tag=release_tag)
+    expected_version = version_from_release_tag(release_tag=release_tag)
     matched_wheels: set[Path] = set()
     for platform in matrix.platform:
         for python_build in matrix.python:
             matching = [
                 wheel
                 for wheel in wheels
-                if _wheel_matches(
+                if wheel_matches(
                     wheel_path=wheel,
                     python_label=python_build.label,
                     platform_label=platform.label,
@@ -123,8 +123,8 @@ def validate_distribution_manifest(
         raise ValueError(f"Unexpected wheels in release manifest: {filenames}")
 
     for wheel in matched_wheels:
-        tags = _parse_wheel_tags(wheel_path=wheel)
-        _validate_package_name(name=tags.distribution, filename=tags.filename)
+        tags = parse_wheel_tags(wheel_path=wheel)
+        validate_package_name(name=tags.distribution, filename=tags.filename)
         if expected_version is not None and tags.version != expected_version:
             raise ValueError(
                 f"Wheel {tags.filename} version {tags.version!r} does not match "
@@ -135,14 +135,14 @@ def validate_distribution_manifest(
     return ManifestValidationResult(wheel_count=len(wheels), sdist_count=1)
 
 
-def _wheel_matches(*, wheel_path: Path, python_label: str, platform_label: str) -> bool:
-    tags = _parse_wheel_tags(wheel_path=wheel_path)
-    return _python_tags_match(
+def wheel_matches(*, wheel_path: Path, python_label: str, platform_label: str) -> bool:
+    tags = parse_wheel_tags(wheel_path=wheel_path)
+    return python_tags_match(
         tags=tags, python_label=python_label
-    ) and _platform_tag_matches(tags=tags, platform_label=platform_label)
+    ) and platform_tag_matches(tags=tags, platform_label=platform_label)
 
 
-def _parse_wheel_tags(*, wheel_path: Path) -> WheelTags:
+def parse_wheel_tags(*, wheel_path: Path) -> WheelTags:
     if wheel_path.suffix != ".whl":
         raise ValueError(f"Expected a wheel file, got {wheel_path}")
     stem = wheel_path.name.removesuffix(".whl")
@@ -159,7 +159,7 @@ def _parse_wheel_tags(*, wheel_path: Path) -> WheelTags:
     )
 
 
-def _parse_sdist_name(*, sdist_path: Path) -> tuple[str, str]:
+def parse_sdist_name(*, sdist_path: Path) -> tuple[str, str]:
     name = sdist_path.name
     if not name.endswith(".tar.gz"):
         raise ValueError(f"Expected a .tar.gz sdist, got {name}")
@@ -170,14 +170,14 @@ def _parse_sdist_name(*, sdist_path: Path) -> tuple[str, str]:
     return distribution, version
 
 
-def _validate_package_name(*, name: str, filename: str) -> None:
+def validate_package_name(*, name: str, filename: str) -> None:
     if name != "arco":
         raise ValueError(
             f"Distribution {filename} has unexpected package name {name!r}"
         )
 
 
-def _version_from_release_tag(*, release_tag: str | None) -> str | None:
+def version_from_release_tag(*, release_tag: str | None) -> str | None:
     if release_tag is None or release_tag == "":
         return None
     if not release_tag.startswith("v"):
@@ -188,15 +188,15 @@ def _version_from_release_tag(*, release_tag: str | None) -> str | None:
     return version
 
 
-def _validate_python_tags(*, tags: WheelTags, python_label: str) -> None:
-    if not _python_tags_match(tags=tags, python_label=python_label):
+def validate_python_tags(*, tags: WheelTags, python_label: str) -> None:
+    if not python_tags_match(tags=tags, python_label=python_label):
         raise ValueError(
             f"Wheel {tags.filename} does not match Python lane {python_label}: "
             f"python={tags.python_tag} abi={tags.abi_tag}"
         )
 
 
-def _python_tags_match(*, tags: WheelTags, python_label: str) -> bool:
+def python_tags_match(*, tags: WheelTags, python_label: str) -> bool:
     if python_label == "cp310":
         return tags.python_tag == "cp310" and tags.abi_tag == "cp310"
     if python_label == "abi3":
@@ -204,15 +204,15 @@ def _python_tags_match(*, tags: WheelTags, python_label: str) -> bool:
     raise ValueError(f"Unknown Python distribution label: {python_label}")
 
 
-def _validate_platform_tag(*, tags: WheelTags, platform_label: str) -> None:
-    if not _platform_tag_matches(tags=tags, platform_label=platform_label):
+def validate_platform_tag(*, tags: WheelTags, platform_label: str) -> None:
+    if not platform_tag_matches(tags=tags, platform_label=platform_label):
         raise ValueError(
             f"Wheel {tags.filename} platform tag {tags.platform_tag!r} does not "
             f"match platform lane {platform_label}"
         )
 
 
-def _platform_tag_matches(*, tags: WheelTags, platform_label: str) -> bool:
+def platform_tag_matches(*, tags: WheelTags, platform_label: str) -> bool:
     predicates: dict[str, Callable[[str], bool]] = {
         "linux": lambda tag: "linux" in tag and tag.endswith("x86_64"),
         "macos-x64": lambda tag: tag.startswith("macosx_") and "x86_64" in tag,
@@ -225,13 +225,13 @@ def _platform_tag_matches(*, tags: WheelTags, platform_label: str) -> bool:
     return predicate(tags.platform_tag)
 
 
-def _validate_sdist_license_files(*, sdist_path: Path) -> None:
+def validate_sdist_license_files(*, sdist_path: Path) -> None:
     with tarfile.open(sdist_path, mode="r:gz") as archive:
         member_paths = [Path(member.name) for member in archive.getmembers()]
     missing = [
         "/".join(required)
         for required in _REQUIRED_SDIST_PATHS
-        if not _has_sdist_member(member_paths=member_paths, required=required)
+        if not has_sdist_member(member_paths=member_paths, required=required)
     ]
     if missing:
         missing_paths = ", ".join(missing)
@@ -240,7 +240,7 @@ def _validate_sdist_license_files(*, sdist_path: Path) -> None:
         )
 
 
-def _has_sdist_member(
+def has_sdist_member(
     *, member_paths: Sequence[Path], required: tuple[str, ...]
 ) -> bool:
     for member_path in member_paths:
@@ -297,7 +297,7 @@ def main(*, argv: Sequence[str]) -> int:
     if args.command == "sdist":
         sdist_path = validate_sdist_directory(
             dist_dir=args.dist_dir,
-            expected_version=_version_from_release_tag(release_tag=args.release_tag),
+            expected_version=version_from_release_tag(release_tag=args.release_tag),
         )
         print(f"sdist-ok {sdist_path.name}")
         return 0

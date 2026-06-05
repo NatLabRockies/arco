@@ -53,17 +53,15 @@ def load_distribution_matrix(*, path: Path) -> DistributionMatrix:
         raise ValueError(f"Matrix file must contain a JSON object: {path}")
 
     python_builds = tuple(
-        _parse_python_build(item=item, path=path)
-        for item in _required_list(payload=payload, key="python", path=path)
+        parse_python_build(item=item, path=path)
+        for item in required_list(payload=payload, key="python", path=path)
     )
     platform_builds = tuple(
-        _parse_platform_build(item=item, path=path)
-        for item in _required_list(payload=payload, key="platform", path=path)
+        parse_platform_build(item=item, path=path)
+        for item in required_list(payload=payload, key="platform", path=path)
     )
-    _validate_unique_labels(
-        kind="python", labels=[item.label for item in python_builds]
-    )
-    _validate_unique_labels(
+    validate_unique_labels(kind="python", labels=[item.label for item in python_builds])
+    validate_unique_labels(
         kind="platform", labels=[item.label for item in platform_builds]
     )
     return DistributionMatrix(python=python_builds, platform=platform_builds)
@@ -72,10 +70,10 @@ def load_distribution_matrix(*, path: Path) -> DistributionMatrix:
 def build_github_matrix(
     *, matrix: DistributionMatrix, matrix_filter: MatrixFilter
 ) -> GitHubMatrix:
-    selected_platforms = _select_platforms(
+    selected_platforms = select_platforms(
         platforms=matrix.platform, label=matrix_filter.platform
     )
-    selected_python = _select_python(
+    selected_python = select_python(
         python_builds=matrix.python, label=matrix_filter.python
     )
 
@@ -103,41 +101,41 @@ def matrix_to_json(*, github_matrix: GitHubMatrix) -> str:
     return json.dumps(github_matrix, separators=(",", ":"), sort_keys=True)
 
 
-def _required_list(*, payload: dict[str, Any], key: str, path: Path) -> list[Any]:
+def required_list(*, payload: dict[str, Any], key: str, path: Path) -> list[Any]:
     value = payload.get(key)
     if not isinstance(value, list) or not value:
         raise ValueError(f"Matrix file {path} must define a non-empty {key!r} list")
     return value
 
 
-def _parse_python_build(*, item: Any, path: Path) -> PythonBuild:
+def parse_python_build(*, item: Any, path: Path) -> PythonBuild:
     if not isinstance(item, dict):
         raise ValueError(f"Python matrix entries must be objects in {path}")
     return PythonBuild(
-        label=_required_string(item=item, key="label", path=path),
-        version=_required_string(item=item, key="version", path=path),
-        wheel_features=_required_string(item=item, key="wheel_features", path=path),
+        label=required_string(item=item, key="label", path=path),
+        version=required_string(item=item, key="version", path=path),
+        wheel_features=required_string(item=item, key="wheel_features", path=path),
     )
 
 
-def _parse_platform_build(*, item: Any, path: Path) -> PlatformBuild:
+def parse_platform_build(*, item: Any, path: Path) -> PlatformBuild:
     if not isinstance(item, dict):
         raise ValueError(f"Platform matrix entries must be objects in {path}")
     return PlatformBuild(
-        label=_required_string(item=item, key="label", path=path),
-        os=_required_string(item=item, key="os", path=path),
-        wheel_python=_required_string(item=item, key="wheel_python", path=path),
+        label=required_string(item=item, key="label", path=path),
+        os=required_string(item=item, key="os", path=path),
+        wheel_python=required_string(item=item, key="wheel_python", path=path),
     )
 
 
-def _required_string(*, item: dict[str, Any], key: str, path: Path) -> str:
+def required_string(*, item: dict[str, Any], key: str, path: Path) -> str:
     value = item.get(key)
     if not isinstance(value, str):
         raise ValueError(f"Matrix entry in {path} must define string field {key!r}")
     return value
 
 
-def _validate_unique_labels(*, kind: str, labels: Sequence[str]) -> None:
+def validate_unique_labels(*, kind: str, labels: Sequence[str]) -> None:
     duplicates = sorted({label for label in labels if labels.count(label) > 1})
     if duplicates:
         joined = ", ".join(duplicates)
@@ -146,7 +144,7 @@ def _validate_unique_labels(*, kind: str, labels: Sequence[str]) -> None:
         )
 
 
-def _select_platforms(
+def select_platforms(
     *, platforms: Sequence[PlatformBuild], label: str
 ) -> tuple[PlatformBuild, ...]:
     if label == "all":
@@ -158,7 +156,7 @@ def _select_platforms(
     return selected
 
 
-def _select_python(
+def select_python(
     *, python_builds: Sequence[PythonBuild], label: str
 ) -> tuple[PythonBuild, ...]:
     if label == "all":

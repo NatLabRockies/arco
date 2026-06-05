@@ -19,7 +19,7 @@ def build_wheel(
 ) -> None:
     sync_python_licenses(repo_root=source_dir)
     command = [
-        *_maturin_command(source_dir=source_dir),
+        *build_maturin_command(source_dir=source_dir),
         "build",
         "--release",
         "--manifest-path",
@@ -39,7 +39,7 @@ def build_wheel(
 def build_sdist(*, source_dir: Path, out_dir: Path) -> None:
     sync_python_licenses(repo_root=source_dir)
     command = [
-        *_maturin_command(source_dir=source_dir),
+        *build_maturin_command(source_dir=source_dir),
         "sdist",
         "--manifest-path",
         str(source_dir / "bindings" / "python" / "Cargo.toml"),
@@ -49,7 +49,7 @@ def build_sdist(*, source_dir: Path, out_dir: Path) -> None:
     subprocess.check_call(command)
 
 
-def _maturin_command(*, source_dir: Path) -> list[str]:
+def build_maturin_command(*, source_dir: Path) -> list[str]:
     return [
         "uv",
         "run",
@@ -61,7 +61,7 @@ def _maturin_command(*, source_dir: Path) -> list[str]:
     ]
 
 
-def _existing_path(*, path: Path, name: str) -> Path:
+def require_existing_path(*, path: Path, name: str) -> Path:
     resolved = path.resolve()
     if not resolved.exists():
         raise FileNotFoundError(f"{name} does not exist: {resolved.as_posix()}")
@@ -100,7 +100,7 @@ def _parse_args(*, argv: Sequence[str]) -> argparse.Namespace:
 
 def main(*, argv: Sequence[str]) -> int:
     args = _parse_args(argv=argv)
-    source_dir = _existing_path(path=args.source_dir, name="source directory")
+    source_dir = require_existing_path(path=args.source_dir, name="source directory")
     out_dir = args.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 

@@ -75,7 +75,7 @@ def test_distribution_matrix_emits_all_expected_release_combos() -> None:
 def test_distribution_manifest_requires_all_wheels_and_sdist(tmp_path: Path) -> None:
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _write_complete_dist(dist_dir=dist_dir, version="0.8.0")
+    write_complete_dist(dist_dir=dist_dir, version="0.8.0")
 
     result = validate_distribution_manifest(
         dist_dir=dist_dir,
@@ -107,7 +107,7 @@ def test_distribution_manifest_rejects_sdist_missing_license_file(
 ) -> None:
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _write_complete_dist(dist_dir=dist_dir, version="0.8.0", complete_sdist=False)
+    write_complete_dist(dist_dir=dist_dir, version="0.8.0", complete_sdist=False)
 
     with pytest.raises(ValueError, match="BSD-3-Clause.txt"):
         validate_distribution_manifest(
@@ -120,7 +120,7 @@ def test_distribution_manifest_rejects_sdist_missing_license_file(
 def test_distribution_manifest_rejects_version_mismatch(tmp_path: Path) -> None:
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _write_complete_dist(dist_dir=dist_dir, version="0.8.0")
+    write_complete_dist(dist_dir=dist_dir, version="0.8.0")
 
     with pytest.raises(ValueError, match="does not match release tag version"):
         validate_distribution_manifest(
@@ -133,7 +133,7 @@ def test_distribution_manifest_rejects_version_mismatch(tmp_path: Path) -> None:
 def test_distribution_manifest_rejects_wrong_linux_architecture(tmp_path: Path) -> None:
     dist_dir = tmp_path / "dist"
     dist_dir.mkdir()
-    _write_complete_dist(dist_dir=dist_dir, version="0.8.0")
+    write_complete_dist(dist_dir=dist_dir, version="0.8.0")
     (dist_dir / "arco-0.8.0-cp310-cp310-manylinux_2_38_x86_64.whl").unlink()
     (dist_dir / "arco-0.8.0-cp310-cp310-manylinux_2_38_aarch64.whl").write_text(
         "placeholder", encoding="utf-8"
@@ -164,7 +164,7 @@ def test_sync_python_licenses_accepts_explicit_repo_root(tmp_path: Path) -> None
     }
 
 
-def _write_complete_dist(
+def write_complete_dist(
     *, dist_dir: Path, version: str, complete_sdist: bool = True
 ) -> None:
     for filename in (
@@ -185,10 +185,10 @@ def _write_complete_dist(
     ]
     if complete_sdist:
         sdist_files.append(f"arco-{version}/BSD-3-Clause.txt")
-    _write_sdist(dist_dir / f"arco-{version}.tar.gz", files=tuple(sdist_files))
+    write_sdist(dist_dir / f"arco-{version}.tar.gz", files=tuple(sdist_files))
 
 
-def _write_sdist(path: Path, *, files: tuple[str, ...]) -> None:
+def write_sdist(path: Path, *, files: tuple[str, ...]) -> None:
     with tarfile.open(path, mode="w:gz") as archive:
         for filename in files:
             payload = b"license"
