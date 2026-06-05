@@ -1,0 +1,242 @@
+name: Stage Python Distributions
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Git ref containing the package source to build.
+        required: true
+        type: string
+      tooling_ref:
+        description: Git ref containing release tooling and workflows.
+        required: false
+        default: main
+        type: string
+      release_tag:
+        description: GitHub Release tag to receive staged assets.
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: Platform label to build, or all.
+        required: false
+        default: all
+        type: string
+      python:
+        description: Python distribution label to build, or all.
+        required: false
+        default: all
+        type: string
+      upload_to_release:
+        description: Upload built distributions to release_tag as GitHub Release assets.
+        required: false
+        default: true
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Git ref containing the package source to build.
+        required: true
+        type: string
+      tooling_ref:
+        description: Git ref containing release tooling and workflows.
+        required: true
+        default: main
+        type: string
+      release_tag:
+        description: GitHub Release tag to receive staged assets when upload_to_release is true.
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: Platform label to build, or all.
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux
+          - macos-x64
+          - macos-arm64
+          - windows
+      python:
+        description: Python distribution label to build, or all.
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - cp310
+          - abi3
+      upload_to_release:
+        description: Upload built distributions to release_tag as GitHub Release assets.
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-distributions-stage-${{ inputs.release_tag || inputs.source_ref }}-${{ inputs.platform }}-${{ inputs.python }}
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.43.0"
+  PYTHON_LATEST: "3.12"
+  RUST_TOOLCHAIN_VERSION: "1.85"
+
+jobs:
+  prepare-matrix:
+    name: Prepare Python distribution matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      artifact_prefix: ${{ steps.artifact-prefix.outputs.artifact_prefix }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout release tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.tooling_ref }}
+          persist-credentials: false
+
+      - name: Validate staging inputs
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          UPLOAD_TO_RELEASE: ${{ inputs.upload_to_release }}
+        run: |
+          set -euo pipefail
+          if [[ "${UPLOAD_TO_RELEASE}" == "true" && -z "${RELEASE_TAG}" ]]; then
+            echo "release_tag is required when upload_to_release is true" >&2
+            exit 1
+          fi
+
+      - id: artifact-prefix
+        name: Resolve artifact prefix
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          prefix="${RELEASE_TAG:-$SOURCE_REF}"
+          prefix="$(echo "$prefix" | tr '/:@' '---')"
+          echo "artifact_prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+      - id: matrix
+        name: Emit build matrix
+        shell: bash
+        env:
+          PLATFORM: ${{ inputs.platform }}
+          PYTHON: ${{ inputs.python }}
+        run: |
+          set -euo pipefail
+          python scripts/ci/python_distribution_matrix.py \
+            --platform "$PLATFORM" \
+            --python "$PYTHON" \
+            --github-output "$GITHUB_OUTPUT"
+
+  py-build:
+    name: Stage Python distributions (${{ matrix.platform_label }}, ${{ matrix.python_label }})
+    needs: prepare-matrix
+    runs-on: ${{ matrix.platform_os }}
+    timeout-minutes: 20
+    permissions:
+      contents: write # Required to upload staged Python assets to GitHub Releases.
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
+    steps:
+      - name: Checkout release tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.tooling_ref }}
+          persist-credentials: false
+
+      - name: Checkout package source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.source_ref }}
+          path: source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ matrix.python_version }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          save-rust-cache: "false"
+          save-uv-cache: "false"
+          sync-python-licenses: "false"
+
+      - name: Build wheel
+        shell: bash
+        env:
+          PYTHON_WHEEL_SOURCE_DIR: ${{ github.workspace }}/source
+          PYTHON_WHEEL_OUT_DIR: ${{ github.workspace }}/dist
+          PYTHON_WHEEL_INTERPRETER: ${{ matrix.wheel_python }}
+          PYTHON_WHEEL_FEATURES: ${{ matrix.wheel_features }}
+        run: |
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            # TODO: After the next release, remove this tag-rebuild compatibility override.
+            # New release refs should rely on the justfile's windows-shell setting instead.
+            just --shell "C:/Program Files/Git/bin/bash.exe" --shell-arg "-eu" --shell-arg "-o" --shell-arg "pipefail" --shell-arg "-c" py-build-wheel
+          else
+            just py-build-wheel
+          fi
+
+      - name: Validate wheel tag
+        shell: bash
+        env:
+          PLATFORM_LABEL: ${{ matrix.platform_label }}
+          PYTHON_LABEL: ${{ matrix.python_label }}
+        run: |
+          set -euo pipefail
+          python scripts/ci/validate_python_distributions.py wheel \
+            --dist-dir dist \
+            --platform-label "$PLATFORM_LABEL" \
+            --python-label "$PYTHON_LABEL"
+
+      - name: Smoke-test wheel install
+        shell: bash
+        run: uv run --project source/bindings/python python scripts/python_package_smoke.py --artifact-glob "dist/*.whl"
+
+      - name: Build sdist
+        if: matrix.platform_label == 'linux' && matrix.python_label == 'abi3'
+        shell: bash
+        env:
+          PYTHON_WHEEL_SOURCE_DIR: ${{ github.workspace }}/source
+          PYTHON_WHEEL_OUT_DIR: ${{ github.workspace }}/dist
+        run: just py-build-sdist
+
+      - name: Validate sdist
+        if: matrix.platform_label == 'linux' && matrix.python_label == 'abi3'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python scripts/ci/validate_python_distributions.py sdist --dist-dir dist --release-tag "$RELEASE_TAG"
+
+      - name: Upload staged Python distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-package-distributions-${{ needs.prepare-matrix.outputs.artifact_prefix }}-${{ matrix.platform_label }}-${{ matrix.python_label }}
+          path: dist/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+      - name: Upload Python distributions to release
+        if: inputs.upload_to_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" dist/* --clobber

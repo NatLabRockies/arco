@@ -92,6 +92,9 @@ jobs:
               - 'Cargo.lock'
               - 'justfile'
               - '.github/actions/**'
+              - '.github/python-distribution-matrix.json'
+              - 'scripts/ci/**'
+              - 'scripts/sync_python_licenses.py'
             docs:
               - 'docs/**'
               - 'scripts/test_docs_doctest.py'
@@ -115,11 +118,16 @@ jobs:
             release:
               - '.github/release-please-config.json'
               - '.github/release-please-manifest.json'
+              - '.github/python-distribution-matrix.json'
               - 'dist-workspace.toml'
+              - 'scripts/ci/**'
             github_actions:
               - '.github/workflows/**'
+              - '.github/actions/**'
               - '.github/build-setup.yml'
               - '.github/dependabot.yml'
+              - '.github/python-distribution-matrix.json'
+              - 'scripts/ci/**'
             vscode_extension:
               - 'tools/vscode-arco-kdl/**'
 

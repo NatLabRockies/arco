@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import shutil
 import sys
@@ -13,9 +14,10 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def _sync_python_licenses(*, repo_root: Path) -> list[Path]:
-    source_dir = repo_root / "licenses"
-    python_root = repo_root / "bindings" / "python"
+def sync_python_licenses(*, repo_root: Path) -> list[Path]:
+    resolved_repo_root = repo_root.resolve()
+    source_dir = resolved_repo_root / "licenses"
+    python_root = resolved_repo_root / "bindings" / "python"
     license_dir = python_root / "licenses"
     license_dir.mkdir(parents=True, exist_ok=True)
 
@@ -37,10 +39,22 @@ def _sync_python_licenses(*, repo_root: Path) -> list[Path]:
     return copied
 
 
+def _parse_args(*, argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Sync license files into the Python package tree."
+    )
+    parser.add_argument(
+        "--repo-root",
+        type=Path,
+        default=_repo_root(),
+        help="Repository root whose bindings/python package should receive licenses.",
+    )
+    return parser.parse_args(argv)
+
+
 def main(*, argv: Sequence[str]) -> int:
-    if argv:
-        raise ValueError("This script does not accept positional arguments.")
-    copied = _sync_python_licenses(repo_root=_repo_root())
+    args = _parse_args(argv=argv)
+    copied = sync_python_licenses(repo_root=args.repo_root)
     for path in copied:
         print(f"synced-license {path.as_posix()}")
     return 0
