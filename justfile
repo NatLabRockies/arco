@@ -85,8 +85,6 @@ kdl-overlay-check:
 [group: 'hygiene']
 workflow-quality:
     uvx zizmor --pedantic .github/
-    uv run python scripts/ci/check_python_distribution_workflows.py
-    uv run --with pytest pytest scripts/test_python_distribution_release.py -q
 
 [group: 'rust']
 rust-check:
@@ -128,7 +126,7 @@ py-sync:
 
 [group: 'python']
 py-licenses:
-    uv run python scripts/sync_python_licenses.py --repo-root "${PYTHON_WHEEL_SOURCE_DIR:-.}"
+    uv run python scripts/sync_python_licenses.py
 
 [group: 'python']
 py-dev: py-licenses py-sync
@@ -169,12 +167,12 @@ py-test: py-dev py-cli-build
     cli_bin="$PWD/target/debug/arco"; if [[ ! -x "$cli_bin" && -x "$cli_bin.exe" ]]; then cli_bin="$cli_bin.exe"; fi; ARCO_CLI_BIN="$cli_bin" uv run --project bindings/python --with pytest pytest bindings/python/tests -v
 
 [group: 'python']
-py-build-wheel:
-    uv run python scripts/ci/build_python_distribution.py --build wheel
+py-build-wheel: py-licenses
+    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
 
 [group: 'python']
 py-build-sdist:
-    uv run python scripts/ci/build_python_distribution.py --build sdist
+    uv run --project bindings/python --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
 
 [group: 'python']
 py-build:

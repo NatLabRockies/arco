@@ -3,52 +3,13 @@ name: Manual PyPI Release
 on:
   workflow_dispatch:
     inputs:
-      source_ref:
-        description: Git ref containing package source to build (tag, branch, or SHA).
+      ref:
+        description: Git ref to build and publish (tag, branch, or SHA)
         required: true
         default: main
         type: string
-      tooling_ref:
-        description: Git ref containing current release tooling.
-        required: true
-        default: main
-        type: string
-      release_tag:
-        description: GitHub Release tag for staged Python distribution assets.
-        required: true
-        type: string
-      platform:
-        description: Platform to stage, or all.
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - linux
-          - macos-x64
-          - macos-arm64
-          - windows
-      python:
-        description: Python distribution lane to stage, or all.
-        required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - cp310
-          - abi3
-      upload_to_release:
-        description: Upload staged files to release_tag as GitHub Release assets.
-        required: true
-        default: true
-        type: boolean
-      publish:
-        description: Publish staged release assets to PyPI after a full all-platform/all-Python stage.
-        required: true
-        default: false
-        type: boolean
       skip_existing:
-        description: Skip files that already exist on PyPI when publishing.
+        description: Skip files that already exist on PyPI
         required: true
         default: true
         type: boolean
@@ -60,29 +21,106 @@ concurrency:
 permissions:
   contents: read
 
-jobs:
-  stage-python-distributions:
-    name: Stage Python distributions
-    uses: ./.github/workflows/python-distributions-stage.yaml
-    permissions:
-      contents: write # Required to upload staged Python assets to GitHub Releases.
-    with:
-      source_ref: ${{ inputs.source_ref }}
-      tooling_ref: ${{ inputs.tooling_ref }}
-      release_tag: ${{ inputs.release_tag }}
-      platform: ${{ inputs.platform }}
-      python: ${{ inputs.python }}
-      upload_to_release: ${{ inputs.upload_to_release }}
+# Keep in sync with ci.yaml
+env:
+  UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.43.0"
+  PYTHON_LATEST: "3.12"
+  RUST_TOOLCHAIN_VERSION: "1.85"
 
-  publish-pypi:
-    name: Publish staged distributions to PyPI
-    needs: stage-python-distributions
-    if: inputs.publish && inputs.platform == 'all' && inputs.python == 'all' && inputs.upload_to_release
-    uses: ./.github/workflows/pypi-publish-staged.yaml
+jobs:
+  py-build:
+    name: Build Python distributions (${{ matrix.platform.label }}, ${{ matrix.python.label }})
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 15
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          - label: cp310
+            version: "3.10"
+            wheel_features: ""
+          - label: abi3
+            version: "3.11"
+            wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress"
+        platform:
+          - label: linux
+            os: ubuntu-latest
+            wheel_python: python3
+          - label: macos-x64
+            os: macos-13
+            wheel_python: python3
+          - label: macos-arm64
+            os: macos-14
+            wheel_python: python3
+          - label: windows
+            os: windows-latest
+            wheel_python: python
+    steps:
+      - name: Checkout selected ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ matrix.python.version }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          save-rust-cache: "false"
+          save-uv-cache: "false"
+
+      - name: Build wheel
+        shell: bash
+        env:
+          PYTHON_WHEEL_INTERPRETER: ${{ matrix.platform.wheel_python }}
+          PYTHON_WHEEL_FEATURES: ${{ matrix.python.wheel_features }}
+        run: |
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            # TODO: After the next release, remove this tag-rebuild compatibility override.
+            # New release refs should rely on the justfile's windows-shell setting instead.
+            just --shell "C:/Program Files/Git/bin/bash.exe" --shell-arg "-eu" --shell-arg "-o" --shell-arg "pipefail" --shell-arg "-c" py-build-wheel
+          else
+            just py-build-wheel
+          fi
+
+      - name: Build sdist
+        if: matrix.platform.label == 'linux' && matrix.python.label == 'abi3'
+        shell: bash
+        run: just py-build-sdist
+
+      - name: Upload Python distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-package-distributions-${{ matrix.platform.label }}-${{ matrix.python.label }}
+          path: dist/
+          retention-days: 3
+
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: py-build
+    permissions:
       id-token: write # Required for PyPI trusted publishing via OIDC.
-    with:
-      release_tag: ${{ inputs.release_tag }}
-      tooling_ref: ${{ inputs.tooling_ref }}
-      skip_existing: ${{ inputs.skip_existing }}
+    environment:
+      name: pypi
+      url: https://pypi.org/p/arco
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: python-package-distributions-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          skip-existing: ${{ inputs.skip_existing }}

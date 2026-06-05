@@ -4,18 +4,12 @@ on:
   pull_request:
     paths:
       - ".github/**"
-      - "scripts/ci/**"
-      - "scripts/sync_python_licenses.py"
-      - "justfile"
   push:
     branches:
       - main
       - release/*
     paths:
       - ".github/**"
-      - "scripts/ci/**"
-      - "scripts/sync_python_licenses.py"
-      - "justfile"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}
@@ -60,23 +54,3 @@ jobs:
 
       - name: Run actionlint
         run: uvx --from actionlint-py actionlint .github/workflows/*.yaml
-
-  python-distribution-contract:
-    name: Python distribution release contract
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
-        with:
-          version: "0.9.4"
-          enable-cache: false
-
-      - name: Validate Python distribution release contract
-        run: |
-          uv run python scripts/ci/check_python_distribution_workflows.py
-          uv run --with pytest pytest scripts/test_python_distribution_release.py -q
