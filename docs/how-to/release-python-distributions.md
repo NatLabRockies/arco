@@ -6,11 +6,11 @@ Use this when a release is ready but a Python wheel build or PyPI upload fails.
 
 1. Merge the release-please PR.
 2. Let `release-please` dispatch the cargo-dist release.
-3. Let the Python wheel matrix finish.
+3. Let each Python wheel job upload its artifact to the GitHub Release.
 4. Let PyPI publish after all Python artifacts build.
 5. Verify the release files on PyPI.
 
-The wheel matrix is intentionally small: `cp310` and `abi3` across Linux, macOS x64, macOS arm64, and Windows.
+The wheel matrix is intentionally small: `cp310` and `abi3` across Linux, macOS arm64, and Windows. VS Code extension upload is separate and does not block PyPI publishing.
 
 ## If a wheel job fails
 
