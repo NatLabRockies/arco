@@ -197,6 +197,12 @@ jobs:
           - label: linux
             os: ubuntu-latest
             wheel_python: python3
+          - label: macos-x64
+            os: macos-13
+            wheel_python: python3
+          - label: macos-arm64
+            os: macos-14
+            wheel_python: python3
           - label: windows
             os: windows-latest
             wheel_python: python
