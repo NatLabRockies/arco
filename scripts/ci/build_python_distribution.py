@@ -19,13 +19,7 @@ def build_wheel(
 ) -> None:
     sync_python_licenses(repo_root=source_dir)
     command = [
-        "uv",
-        "run",
-        "--project",
-        str(source_dir / "bindings" / "python"),
-        "--with",
-        "maturin",
-        "maturin",
+        *_maturin_command(source_dir=source_dir),
         "build",
         "--release",
         "--manifest-path",
@@ -45,13 +39,7 @@ def build_wheel(
 def build_sdist(*, source_dir: Path, out_dir: Path) -> None:
     sync_python_licenses(repo_root=source_dir)
     command = [
-        "uv",
-        "run",
-        "--project",
-        str(source_dir / "bindings" / "python"),
-        "--with",
-        "maturin",
-        "maturin",
+        *_maturin_command(source_dir=source_dir),
         "sdist",
         "--manifest-path",
         str(source_dir / "bindings" / "python" / "Cargo.toml"),
@@ -59,6 +47,18 @@ def build_sdist(*, source_dir: Path, out_dir: Path) -> None:
         str(out_dir),
     ]
     subprocess.check_call(command)
+
+
+def _maturin_command(*, source_dir: Path) -> list[str]:
+    return [
+        "uv",
+        "run",
+        "--project",
+        str(source_dir / "bindings" / "python"),
+        "--with",
+        "maturin",
+        "maturin",
+    ]
 
 
 def _existing_path(*, path: Path, name: str) -> Path:
