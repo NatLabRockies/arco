@@ -224,7 +224,12 @@ jobs:
         shell: bash
         env:
           PYTHON_WHEEL_INTERPRETER: ${{ matrix.wheel_python }}
-        run: just py-build-wheel
+        run: |
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            just --shell "C:/Program Files/Git/bin/bash.exe" --shell-arg "-eu" --shell-arg "-o" --shell-arg "pipefail" --shell-arg "-c" py-build-wheel
+          else
+            just py-build-wheel
+          fi
 
       - name: Build sdist
         if: matrix.build_sdist
