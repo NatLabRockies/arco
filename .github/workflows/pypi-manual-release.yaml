@@ -13,6 +13,16 @@ on:
         required: true
         default: true
         type: boolean
+      release_tag:
+        description: GitHub Release tag to receive rebuilt Python artifacts
+        required: false
+        default: ""
+        type: string
+      upload_to_release:
+        description: Upload rebuilt Python artifacts to the GitHub Release
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: manual-pypi-release
@@ -34,7 +44,7 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write # Required when upload_to_release publishes artifacts to a GitHub Release.
     strategy:
       fail-fast: false
       matrix:
@@ -48,9 +58,6 @@ jobs:
         platform:
           - label: linux
             os: ubuntu-latest
-            wheel_python: python3
-          - label: macos-x64
-            os: macos-13
             wheel_python: python3
           - label: macos-arm64
             os: macos-14
@@ -101,6 +108,20 @@ jobs:
           name: python-package-distributions-${{ matrix.platform.label }}-${{ matrix.python.label }}
           path: dist/
           retention-days: 3
+
+      - name: Upload Python distributions to release
+        if: inputs.upload_to_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_TAG" ]]; then
+            echo "release_tag is required when upload_to_release is true" >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber
 
   publish-pypi:
     name: Publish to PyPI

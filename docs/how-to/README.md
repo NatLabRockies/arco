@@ -15,6 +15,7 @@ point with self-contained examples you can copy and run.
 | [Use Expert APIs](use-expert-apis.md)                           | Import/export sparse matrices and use raw solver-order vectors                 |
 | [Handle Errors](handle-errors.md)                               | Catch model-building exceptions and check solver outcomes                      |
 | [Enable Logging](enable-logging.md)                             | Configure Rust-side tracing and solver output                                  |
+| [Release Python Distributions](release-python-distributions.md) | Recover from Python wheel or PyPI upload failures                              |
 
 ---
 
