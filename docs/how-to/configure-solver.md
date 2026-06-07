@@ -146,6 +146,11 @@ problems.
 > [!IMPORTANT]
 > Xpress requires the FICO Xpress Optimizer SDK installed locally.
 
+> [!NOTE]
+> Arco resolves both the Xpress 9 `XPRSloadmip` runtime symbol and the
+> Xpress 8 `XPRSloadglobal` compatibility symbol, so Windows installations on
+> either major version can load MIP models through the same backend.
+
 ### Setup at a glance
 
 1. Install Xpress Community Edition from [fico.com](https://www.fico.com/en/products/fico-xpress-optimization).
