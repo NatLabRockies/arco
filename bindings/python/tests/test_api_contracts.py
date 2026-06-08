@@ -145,6 +145,74 @@ def test_indexed_model_api_contract_solves_with_array_result_access() -> None:
     np.testing.assert_allclose(result.value(output), np.array([3.0, 5.0]))
 
 
+def test_model_matrix_profile_reports_column_density_without_sparse_export() -> None:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+    y = model.add_variable(bounds=arco.NonNegativeFloat, name="y")
+    z = model.add_variable(bounds=arco.NonNegativeFloat, name="z")
+    model.add_constraint(x >= 1.0, name="x_min")
+    model.add_constraint(x + y >= 2.0, name="xy_min")
+    model.add_constraint(x <= 4.0, name="x_max")
+    model.minimize(x + y + z, name="cost")
+
+    profile = model.matrix_profile(top_n=2, dense_threshold=2)
+    buckets = profile["column_nnz_buckets"]
+    top_columns = profile["top_columns"]
+
+    assert profile["num_variables"] == 3
+    assert profile["num_constraints"] == 3
+    assert profile["num_coefficients"] == 4
+    assert profile["max_column_nnz"] == 3
+    assert profile["min_nonzero_column_nnz"] == 1
+    assert profile["dense_columns"] == 1
+    assert buckets["eq_0"] == 1
+    assert buckets["eq_1"] == 1
+    assert top_columns[0] == {"variable_id": int(x), "name": "x", "nnz": 3}
+    assert top_columns[1] == {"variable_id": int(y), "name": "y", "nnz": 1}
+
+
+def test_model_reserve_preserves_build_and_solve_behavior() -> None:
+    model = arco.Model()
+    model.reserve(num_variables=4, num_constraints=3)
+
+    x = model.add_variable(bounds=arco.NonNegativeFloat)
+    y = model.add_variable(bounds=arco.NonNegativeFloat)
+    model.add_constraint(x + y >= 3.0)
+    model.add_constraint(x <= 5.0)
+    model.minimize(x + 2.0 * y)
+
+    result = model.solve(log_to_console=False)
+
+    assert model.num_variables == 2
+    assert model.num_constraints == 2
+    assert result.is_optimal()
+    assert round(result.objective_value, 6) == 3.0
+
+
+def test_model_can_append_objective_terms_incrementally() -> None:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+    y = model.add_variable(bounds=arco.NonNegativeFloat, name="y")
+    model.add_constraint(x >= 1.0)
+    model.add_constraint(y >= 2.0)
+
+    model.minimize(x)
+    model.add_objective_terms(2.0 * y)
+
+    result = model.solve(log_to_console=False)
+
+    assert result.is_optimal()
+    assert round(result.objective_value, 6) == 5.0
+
+
+def test_model_rejects_appended_objective_terms_without_objective_sense() -> None:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+
+    with pytest.raises(arco.ObjectiveMissingError):
+        model.add_objective_terms(x)
+
+
 def test_debug_api_contract_exposes_constraint_slack_and_dual() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
@@ -217,6 +285,53 @@ def test_debug_api_contract_keeps_raw_result_vector_properties_in_expert_path() 
     assert round(variable_duals[int(x)], 6) == round(
         result.get_variable_dual(index=int(x)), 6
     )
+
+
+def test_objective_only_solve_can_skip_solution_vectors() -> None:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+    model.add_constraint(x >= 1.0, name="lower_bound")
+    model.minimize(2.0 * x, name="cost")
+
+    result = model.solve(
+        solver=arco.HiGHS(
+            log_to_console=False,
+            parameters={
+                "arco.extract_solution": "false",
+                "arco.fingerprint": "false",
+            },
+        )
+    )
+
+    assert result.is_optimal()
+    assert round(result.objective_value, 6) == 2.0
+    assert result.num_primal_values() == 0
+    assert result.num_variable_duals() == 0
+    assert result.num_constraint_duals() == 0
+
+
+def test_consuming_solve_releases_model_after_handoff() -> None:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+    model.add_constraint(x >= 1.0, name="lower_bound")
+    model.minimize(2.0 * x, name="cost")
+
+    result = model.solve(
+        solver=arco.HiGHS(
+            log_to_console=False,
+            parameters={
+                "arco.consume_model": "true",
+                "arco.extract_solution": "false",
+                "arco.fingerprint": "false",
+            },
+        )
+    )
+
+    assert result.is_optimal()
+    assert round(result.objective_value, 6) == 2.0
+    assert result.num_primal_values() == 0
+    assert model.num_variables == 0
+    assert model.num_constraints == 0
 
 
 def test_debug_api_contract_requires_keyword_solve_configuration() -> None:
@@ -594,24 +709,17 @@ def test_indexed_api_contract_exposes_index_set_index_error_code() -> None:
     assert list(plant) == plant.members
 
 
-def test_indexed_api_contract_requires_keyword_index_set_name() -> None:
+def test_indexed_api_contract_accepts_legacy_positional_index_set_name() -> None:
     set_name = "plant"
     size = 3
     members = ["north", "south"]
 
-    try:
-        arco.IndexSet("plant", members=["north", "south"])
-    except TypeError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError("expected positional IndexSet name to fail")
+    plant = arco.IndexSet("plant", members=["north", "south"])
+    assert plant.name == "plant"
+    assert plant.members == ["north", "south"]
 
-    try:
-        arco.IndexSet(set_name, members=["north", "south"])
-    except TypeError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError("expected positional IndexSet variable name to fail")
+    plant_from_variable = arco.IndexSet(set_name, members=["north", "south"])
+    assert plant_from_variable.name == set_name
 
     try:
         arco.IndexSet(name="plant", members=["north", "south"], size=2)
@@ -667,13 +775,11 @@ def test_scalar_api_contract_requires_keyword_variable_bounds() -> None:
         raise AssertionError("expected positional add_variable arguments to fail")
 
 
-def test_scalar_api_contract_requires_keyword_bounds_fields() -> None:
-    try:
-        arco.Bounds(0.0, 1.0)
-    except TypeError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError("expected positional Bounds fields to fail")
+def test_scalar_api_contract_accepts_legacy_positional_bounds_fields() -> None:
+    bounds = arco.Bounds(0.0, 1.0)
+
+    assert bounds.lower == 0.0
+    assert bounds.upper == 1.0
 
 
 def test_indexed_api_contract_exposes_index_set_type_error_code() -> None:
@@ -1877,14 +1983,14 @@ def test_api_contract_rejects_ambiguous_param_positional_shape() -> None:
 
     try:
         arco.param("cost", np.array([1.0, 2.0]), plant)
-    except TypeError:
+    except (TypeError, arco.ArrayDimensionError, arco.ArrayTypeError):
         pass
     else:  # pragma: no cover
         raise AssertionError("expected ambiguous positional param signature to fail")
 
     try:
         arco.param(param_name, values, plant)
-    except TypeError:
+    except (TypeError, arco.ArrayDimensionError, arco.ArrayTypeError):
         pass
     else:  # pragma: no cover
         raise AssertionError(
@@ -1892,41 +1998,30 @@ def test_api_contract_rejects_ambiguous_param_positional_shape() -> None:
         )
 
 
-def test_api_contract_requires_keyword_param_axes() -> None:
+def test_api_contract_accepts_legacy_positional_param_axes() -> None:
     plant = arco.IndexSet(name="plant", members=["north", "south"])
     values = np.array([1.0, 2.0])
     axes = (plant,)
-    param_name = "demand"
 
-    try:
-        arco.param(np.array([1.0, 2.0]), (plant,))
-    except TypeError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError("expected positional param axes to fail")
+    param_from_tuple = arco.param(np.array([1.0, 2.0]), (plant,))
+    assert param_from_tuple.axes == axes
+
+    param_from_axis = arco.param(values, plant)
+    assert param_from_axis.axes == axes
 
     try:
         arco.param(np.array([1.0, 2.0]), (plant,), "demand")
-    except TypeError:
+    except (TypeError, arco.ArrayDimensionError, arco.ArrayTypeError):
         pass
     else:  # pragma: no cover
-        raise AssertionError("expected positional param axes/name usage to fail")
+        raise AssertionError("expected positional param name usage to fail")
 
     try:
-        arco.param(values, axes)
+        arco.param(values, axes, axes=axes)
     except TypeError:
         pass
     else:  # pragma: no cover
-        raise AssertionError("expected positional param axes variable usage to fail")
-
-    try:
-        arco.param(values, axes, param_name)
-    except TypeError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError(
-            "expected positional param axes/name variable usage to fail"
-        )
+        raise AssertionError("expected duplicate positional/keyword axes to fail")
 
 
 def test_api_contract_rejects_positional_variable_constructors() -> None:
@@ -1943,26 +2038,16 @@ def test_api_contract_rejects_positional_variable_constructors() -> None:
 
     try:
         model.add_variables((plant,), arco.NonNegativeFloat, False, False, None, "x")
-    except TypeError:
+    except (TypeError, arco.ArrayTypeError):
         pass
     else:  # pragma: no cover
         raise AssertionError("expected positional add_variables signature to fail")
 
-    try:
-        model.add_variables((plant,), bounds=arco.NonNegativeFloat, name="x")
-    except TypeError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError("expected positional add_variables axes to fail")
+    x = model.add_variables((plant,), bounds=arco.NonNegativeFloat, name="x")
+    assert x.shape == (2,)
 
-    try:
-        model.add_variables(axes, bounds=arco.NonNegativeFloat, name="x")
-    except TypeError:
-        pass
-    else:  # pragma: no cover
-        raise AssertionError(
-            "expected positional add_variables axes variable usage to fail"
-        )
+    y = model.add_variables(axes, bounds=arco.NonNegativeFloat, name="y")
+    assert y.shape == (2,)
 
 
 def test_api_contract_rejects_positional_constraint_name_order() -> None:

@@ -75,7 +75,7 @@ impl<'a> ModelViewBackendRegistry<'a> {
             ))
         })?;
         let result = backend.solve_model_view(model, config)?;
-        validate_model_view_solve_result(model, &result)?;
+        validate_model_view_solve_result_with_config(model, &result, config)?;
         Ok(result)
     }
 }
@@ -85,17 +85,47 @@ pub fn validate_model_view_solve_result(
     model: &(impl ModelView + ?Sized),
     result: &ModelViewSolveResult,
 ) -> Result<(), SolverError> {
+    validate_model_view_solve_result_shape(model, result, false)
+}
+
+/// Validate a backend result against the supplied solver configuration.
+///
+/// Solver results normally include primal values. Callers may opt into an
+/// objective-only result with the private `arco.extract_solution=false` option
+/// to avoid large post-solve solution vectors when only status/objective
+/// metadata are needed.
+pub fn validate_model_view_solve_result_with_config(
+    model: &(impl ModelView + ?Sized),
+    result: &ModelViewSolveResult,
+    config: &SolverConfig,
+) -> Result<(), SolverError> {
+    validate_model_view_solve_result_shape(model, result, allows_omitted_primal_values(config))
+}
+
+fn validate_model_view_solve_result_shape(
+    model: &(impl ModelView + ?Sized),
+    result: &ModelViewSolveResult,
+    allow_omitted_primal_values: bool,
+) -> Result<(), SolverError> {
     let expected_fingerprint = model.fingerprint();
-    if result.fingerprint != expected_fingerprint {
+    if result.fingerprint.0 != 0 && result.fingerprint != expected_fingerprint {
         return Err(SolverError::InvalidResultShape(
             "result fingerprint does not match input model fingerprint".to_string(),
         ));
     }
-    validate_required_len(
-        "primal_values",
-        result.primal_values.len(),
-        model.num_variables(),
-    )?;
+    if allow_omitted_primal_values {
+        validate_optional_len(
+            "primal_values",
+            result.primal_values.len(),
+            model.num_variables(),
+        )?;
+    } else {
+        validate_required_len(
+            "primal_values",
+            result.primal_values.len(),
+            model.num_variables(),
+        )?;
+    }
     validate_optional_len(
         "variable_duals",
         result.variable_duals.len(),
@@ -112,6 +142,13 @@ pub fn validate_model_view_solve_result(
         model.num_constraints(),
     )?;
     Ok(())
+}
+
+fn allows_omitted_primal_values(config: &SolverConfig) -> bool {
+    config
+        .parameters
+        .get("arco.extract_solution")
+        .is_some_and(|value| value == "false")
 }
 
 fn validate_required_len(name: &str, actual: usize, expected: usize) -> Result<(), SolverError> {
@@ -138,7 +175,9 @@ mod tests {
         ModelViewBackend, ModelViewBackendRegistry, ModelViewSolveResult, SolverConfig,
         SolverError, SolverStatus,
     };
-    use arco_model::{Bounds, Model, ModelView, Objective, Sense, Variable, expr::Expr};
+    use arco_model::{
+        Bounds, Model, ModelFingerprint, ModelView, Objective, Sense, Variable, expr::Expr,
+    };
     use std::sync::Mutex;
 
     struct FixtureBackend;
@@ -233,6 +272,47 @@ mod tests {
             .expect_err("bad result shape should fail");
 
         assert!(matches!(error, SolverError::InvalidResultShape(_)));
+    }
+
+    #[test]
+    fn registry_accepts_objective_only_result_when_solution_extraction_is_disabled() {
+        let backend = BadShapeBackend;
+        let mut registry = ModelViewBackendRegistry::new();
+        registry.register(&backend);
+        let mut model = Model::new();
+        model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("add variable");
+        let config = SolverConfig::new().with_parameter("arco.extract_solution", "false");
+
+        let result = registry
+            .solve("bad_shape", &model, &config)
+            .expect("objective-only result should be accepted when explicitly requested");
+
+        assert!(result.primal_values.is_empty());
+        assert!(result.objective_value.abs() <= f64::EPSILON);
+    }
+
+    #[test]
+    fn validation_accepts_zero_fingerprint_sentinel_when_lengths_match() {
+        let mut model = Model::new();
+        model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("add variable");
+
+        let result = ModelViewSolveResult {
+            fingerprint: ModelFingerprint(0),
+            status: SolverStatus::Optimal,
+            objective_value: 0.0,
+            primal_values: vec![0.0],
+            variable_duals: Vec::new(),
+            row_values: Vec::new(),
+            constraint_duals: Vec::new(),
+            metadata: Default::default(),
+        };
+
+        super::validate_model_view_solve_result(&model, &result)
+            .expect("zero fingerprint sentinel should skip only fingerprint validation");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
 pub(crate) fn solve_model(
-    model: &PyModel,
+    model: &mut PyModel,
     py: Python<'_>,
     solver_obj: Option<&Bound<'_, PyAny>>,
     log_to_console: Option<bool>,
@@ -49,11 +49,7 @@ pub(crate) fn solve_model(
 
     let config = effective_settings.to_solver_config();
 
-    let result = match arco_ops::ArcoOps::solve_model_view_with_builtin_backend(
-        &selected_backend,
-        &model.inner,
-        &config,
-    ) {
+    let result = match solve_with_selected_backend(model, &selected_backend, &config) {
         Ok(solution) => Ok(PySolveResult::new(solution_from_model_view_result(
             solution,
         ))),
@@ -64,6 +60,28 @@ pub(crate) fn solve_model(
     }?;
 
     Py::new(py, result)
+}
+
+fn solve_with_selected_backend(
+    model: &mut PyModel,
+    selected_backend: &str,
+    config: &arco_ops::solve::SolverConfig,
+) -> Result<ModelViewSolveResult, SolverError> {
+    if matches!(selected_backend, "highs" | "xpress")
+        && config
+            .parameters
+            .get("arco.consume_model")
+            .is_some_and(|value| value == "true")
+    {
+        let owned_model = std::mem::take(&mut model.inner);
+        return arco_ops::ArcoOps::solve_owned_model_with_builtin_backend(
+            selected_backend,
+            owned_model,
+            config,
+        );
+    }
+
+    arco_ops::ArcoOps::solve_model_view_with_builtin_backend(selected_backend, &model.inner, config)
 }
 
 fn reject_unsupported_primal_start(primal_start: Option<&[(u32, f64)]>) -> Result<(), SolverError> {
