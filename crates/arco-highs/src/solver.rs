@@ -903,15 +903,30 @@ fn raw_highs_model_status_to_solver_status(status: highs_sys::HighsInt) -> Solve
     }
 }
 
+fn primal_solution_is_feasible(highs_primal_solution_status: f64) -> bool {
+    let feasible_status = highs_sys::SOLUTION_STATUS_FEASIBLE as f64;
+    (highs_primal_solution_status - feasible_status).abs() <= f64::EPSILON
+}
+
 fn objective_value_for_primal_solution_status(
     objective_value: f64,
     highs_primal_solution_status: f64,
 ) -> f64 {
-    let feasible_status = highs_sys::SOLUTION_STATUS_FEASIBLE as f64;
-    if (highs_primal_solution_status - feasible_status).abs() <= f64::EPSILON {
+    if primal_solution_is_feasible(highs_primal_solution_status) {
         objective_value
     } else {
         f64::NAN
+    }
+}
+
+fn status_with_primal_solution_availability(
+    mapped_status: SolverStatus,
+    highs_primal_solution_status: f64,
+) -> SolverStatus {
+    if mapped_status.is_feasible() && !primal_solution_is_feasible(highs_primal_solution_status) {
+        SolverStatus::Unknown
+    } else {
+        mapped_status
     }
 }
 
@@ -958,9 +973,11 @@ fn finish_prepared_solve(
     let highs_run_seconds = highs_run_start.elapsed().as_secs_f64();
     let objective_value =
         objective_value_for_primal_solution_status(objective_value, highs_primal_solution_status);
-    if !mapped_status.is_feasible() {
+    let reported_status =
+        status_with_primal_solution_availability(mapped_status, highs_primal_solution_status);
+    if !reported_status.is_feasible() {
         return Err(SolverError::SolveFailure {
-            status: mapped_status,
+            status: reported_status,
         });
     }
     let solution_extract_start = Instant::now();
@@ -1016,7 +1033,7 @@ fn finish_prepared_solve(
 
     let result = ModelViewSolveResult {
         fingerprint: prepared.fingerprint,
-        status: mapped_status,
+        status: reported_status,
         objective_value,
         primal_values,
         variable_duals,
@@ -1375,6 +1392,38 @@ mod tests {
         ] {
             assert!(objective_value_for_primal_solution_status(2.0, status).is_nan());
         }
+    }
+
+    #[test]
+    fn limit_status_without_primal_solution_is_not_reported_feasible() {
+        assert_eq!(
+            status_with_primal_solution_availability(
+                SolverStatus::TimeLimit,
+                highs_sys::SOLUTION_STATUS_FEASIBLE as f64
+            ),
+            SolverStatus::TimeLimit
+        );
+        assert_eq!(
+            status_with_primal_solution_availability(
+                SolverStatus::TimeLimit,
+                highs_sys::SOLUTION_STATUS_NONE as f64
+            ),
+            SolverStatus::Unknown
+        );
+        assert_eq!(
+            status_with_primal_solution_availability(
+                SolverStatus::IterationLimit,
+                highs_sys::SOLUTION_STATUS_INFEASIBLE as f64
+            ),
+            SolverStatus::Unknown
+        );
+        assert_eq!(
+            status_with_primal_solution_availability(
+                SolverStatus::Infeasible,
+                highs_sys::SOLUTION_STATUS_NONE as f64
+            ),
+            SolverStatus::Infeasible
+        );
     }
 
     #[test]

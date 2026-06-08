@@ -14,9 +14,14 @@ from __future__ import annotations
 import argparse
 import gc
 import json
-import resource
+import sys
 import time
 from typing import NotRequired, TypedDict
+
+try:
+    import resource
+except ModuleNotFoundError:  # pragma: no cover - resource is unavailable on Windows.
+    resource = None
 
 import arco
 import numpy as np
@@ -27,8 +32,8 @@ from data_generator import SIZES, ProblemData, make_problem
 class BuildStage(TypedDict):
     stage: str
     seconds: float
-    rss_mb: float
-    delta_rss_mb: float
+    rss_mb: float | None
+    delta_rss_mb: float | None
 
 
 LAST_BUILD_PROFILE: list[BuildStage] = []
@@ -59,23 +64,39 @@ def _constraint_reserve_count(data: ProblemData) -> int:
     return max(0, data.n_constraints - transmission_bound_rows + 1024)
 
 
-def _current_rss_mb() -> float:
+def _current_rss_mb() -> float | None:
     try:
         with open("/proc/self/status", encoding="utf-8") as status:
             for line in status:
                 if line.startswith("VmRSS:"):
                     return float(line.split()[1]) / 1024.0
     except OSError:
-        return 0.0
-    return 0.0
+        return None
+    return None
 
 
-def _peak_rss_mb() -> float:
+def _ru_maxrss_to_mb(max_rss: float, platform: str = sys.platform) -> float:
+    if platform == "darwin":
+        return max_rss / (1024.0 * 1024.0)
+    return max_rss / 1024.0
+
+
+def _peak_rss_mb() -> float | None:
+    if resource is None:
+        return None
     max_rss = max(
         float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
         float(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss),
     )
-    return max_rss / 1024.0
+    if max_rss <= 0.0:
+        return None
+    return _ru_maxrss_to_mb(max_rss)
+
+
+def _format_rss_mb(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.1f} MB"
 
 
 def solve(
@@ -130,12 +151,15 @@ def solve(
         if not profile_build:
             return
         rss_mb = _current_rss_mb()
+        delta_rss_mb = (
+            None if rss_mb is None or last_rss_mb is None else rss_mb - last_rss_mb
+        )
         build_profile.append(
             {
                 "stage": stage,
                 "seconds": time.perf_counter() - t0,
                 "rss_mb": rss_mb,
-                "delta_rss_mb": rss_mb - last_rss_mb,
+                "delta_rss_mb": delta_rss_mb,
             }
         )
         last_rss_mb = rss_mb
@@ -388,7 +412,7 @@ class ReedsPayload(TypedDict):
     objective_value: NotRequired[float | None]
     build_seconds: float
     solve_seconds: float
-    peak_rss_mb: float
+    peak_rss_mb: float | None
     status: NotRequired[str]
     build_profile: NotRequired[list[BuildStage]]
     matrix_profile: NotRequired[dict[str, object]]
@@ -515,19 +539,19 @@ def main() -> int:
     elif args.build_only:
         print(
             f"reeds-benchmark built: size={args.size}, {problem.summary()}, "
-            f"build={build_s:.3f}s, peak={payload['peak_rss_mb']:.1f} MB"
+            f"build={build_s:.3f}s, peak={_format_rss_mb(payload['peak_rss_mb'])}"
         )
     elif not solved:
         print(
             f"reeds-benchmark finished: size={args.size}, status={LAST_SOLVE_STATUS}, "
             f"obj={_format_objective_value(obj)}, build={build_s:.3f}s, solve={solve_s:.3f}s, "
-            f"peak={payload['peak_rss_mb']:.1f} MB"
+            f"peak={_format_rss_mb(payload['peak_rss_mb'])}"
         )
     else:
         print(
             f"reeds-benchmark solved: size={args.size}, obj={_format_objective_value(obj)}, "
             f"build={build_s:.3f}s, solve={solve_s:.3f}s, "
-            f"peak={payload['peak_rss_mb']:.1f} MB"
+            f"peak={_format_rss_mb(payload['peak_rss_mb'])}"
         )
     return 0
 
