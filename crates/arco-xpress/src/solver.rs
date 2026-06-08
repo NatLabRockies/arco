@@ -428,10 +428,15 @@ unsafe extern "C" fn xpress_message_callback(
 
 #[allow(unsafe_code)]
 fn enable_console_logging(api: &'static ffi::Api, prob: ffi::XPRSprob) -> Result<(), SolverError> {
-    ffi::check_xprs(unsafe {
-        (api.xprs_setcbmessage)(prob, Some(xpress_message_callback), std::ptr::null_mut())
-    })
-    .map_err(|rc| SolverError::SolverSpecific(format!("XPRSsetcbmessage failed: {rc}")))?;
+    let callback_name = api
+        .message_callback_symbol()
+        .unwrap_or("Xpress message callback registration");
+    let callback_result = unsafe {
+        api.register_message_callback(prob, Some(xpress_message_callback), std::ptr::null_mut())
+    }
+    .map_err(|error| SolverError::SolverSpecific(error.to_string()))?;
+    ffi::check_xprs(callback_result)
+        .map_err(|rc| SolverError::SolverSpecific(format!("{callback_name} failed: {rc}")))?;
     set_int_control(api, prob, ffi::XPRS_LPLOG, 1)?;
     set_int_control(api, prob, ffi::XPRS_MIPLOG, 1)
 }
@@ -617,7 +622,7 @@ fn solve_problem(
                 std::ptr::null(),
             )
         })
-        .map_err(|rc| xpress_failure_error(api, prob, "XPRSloadmip", rc, model))?;
+        .map_err(|rc| xpress_failure_error(api, prob, api.mip_loader_symbol(), rc, model))?;
     } else {
         ffi::check_xprs(unsafe {
             (api.xprs_loadlp)(
