@@ -30,7 +30,7 @@ pub use expr_array::PyExprArray;
 pub use variable_array::PyVariableArray;
 
 // Re-export compact types for use in lib.rs
-pub(crate) use constraint_array::CompactConstraintStorage;
+pub(crate) use constraint_array::{CompactConstraintStorage, CompactRhs};
 
 type LabeledOperand = (Vec<Py<PyIndexSet>>, Vec<f64>);
 
@@ -263,6 +263,617 @@ fn multiply_with_labeled_union(
         target_shape.shape(),
         values,
     )))
+}
+
+pub(super) fn multiply_sparse_variables_with_scalar(
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    active_indices: &[usize],
+    var_ids: &[u32],
+    factor: f64,
+) -> PyExprArray {
+    let values = var_ids
+        .iter()
+        .map(|var_id| PyExpr::from_term(*var_id, 1.0).scale(factor))
+        .collect();
+    PyExprArray::from_sparse(
+        Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+        shape.to_vec(),
+        active_indices.to_vec(),
+        values,
+    )
+}
+
+pub(super) fn multiply_sparse_variables_with_labeled_operand(
+    index_sets: &[Py<PyIndexSet>],
+    active_indices: &[usize],
+    var_ids: &[u32],
+    py: Python<'_>,
+    other: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyExprArray>> {
+    let Some((source_index_sets, source_values)) = extract_labeled_operand(py, other)? else {
+        return Ok(None);
+    };
+
+    let mut union_index_sets = source_index_sets
+        .iter()
+        .map(|index_set| index_set.clone_ref(py))
+        .collect::<Vec<_>>();
+    let union_names = source_index_sets
+        .iter()
+        .map(|index_set| index_set.bind(py).borrow().name.clone())
+        .collect::<BTreeSet<_>>();
+    for index_set in index_sets {
+        let name = index_set.bind(py).borrow().name.clone();
+        if !union_names.contains(&name) {
+            union_index_sets.push(index_set.clone_ref(py));
+        }
+    }
+
+    let target_shape = labeled_shape_from_index_sets(&union_index_sets)?;
+    let variable_shape = labeled_shape_from_index_sets(index_sets)?;
+    let source_shape = labeled_shape_from_index_sets(&source_index_sets)?;
+    let variable_plan = BroadcastPlan::new(variable_shape.clone(), target_shape.clone())
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+    let source_plan = BroadcastPlan::new(source_shape, target_shape.clone())
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+
+    let variable_total = variable_shape.total_len();
+    let mut active_lookup = vec![None; variable_total];
+    for (active_pos, active_idx) in active_indices.iter().copied().enumerate() {
+        if active_idx >= variable_total {
+            return Err(ArrayIndexError::new_err(format!(
+                "active index {active_idx} out of range for sparse array of size {variable_total}"
+            )));
+        }
+        active_lookup[active_idx] = Some(active_pos);
+    }
+
+    let mut out_indices = Vec::new();
+    let mut out_values = Vec::new();
+    for target_flat in 0..target_shape.total_len() {
+        let variable_flat = variable_plan.source_offset_for_target_flat(target_flat);
+        let Some(active_pos) = active_lookup[variable_flat] else {
+            continue;
+        };
+        let source_flat = source_plan.source_offset_for_target_flat(target_flat);
+        let weight = source_values[source_flat];
+        if weight == 0.0 {
+            continue;
+        }
+        out_indices.push(target_flat);
+        out_values.push(PyExpr::from_term(var_ids[active_pos], 1.0).scale(weight));
+    }
+
+    Ok(Some(PyExprArray::from_sparse(
+        union_index_sets,
+        target_shape.shape(),
+        out_indices,
+        out_values,
+    )))
+}
+
+pub(super) fn multiply_sparse_expr_with_scalar(
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    sparse: &SparseExprStorage,
+    factor: f64,
+) -> PyExprArray {
+    let values = sparse
+        .values
+        .iter()
+        .map(|expr| expr.scale(factor))
+        .collect();
+    PyExprArray::from_sparse(
+        Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+        shape.to_vec(),
+        sparse.active_indices.clone(),
+        values,
+    )
+}
+
+pub(super) fn multiply_sparse_expr_with_labeled_operand(
+    index_sets: &[Py<PyIndexSet>],
+    sparse: &SparseExprStorage,
+    py: Python<'_>,
+    other: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyExprArray>> {
+    let Some((source_index_sets, source_values)) = extract_labeled_operand(py, other)? else {
+        return Ok(None);
+    };
+
+    let mut union_index_sets = source_index_sets
+        .iter()
+        .map(|index_set| index_set.clone_ref(py))
+        .collect::<Vec<_>>();
+    let union_names = source_index_sets
+        .iter()
+        .map(|index_set| index_set.bind(py).borrow().name.clone())
+        .collect::<BTreeSet<_>>();
+    for index_set in index_sets {
+        let name = index_set.bind(py).borrow().name.clone();
+        if !union_names.contains(&name) {
+            union_index_sets.push(index_set.clone_ref(py));
+        }
+    }
+
+    let target_shape = labeled_shape_from_index_sets(&union_index_sets)?;
+    let expr_shape = labeled_shape_from_index_sets(index_sets)?;
+    let source_shape = labeled_shape_from_index_sets(&source_index_sets)?;
+    let expr_plan = BroadcastPlan::new(expr_shape.clone(), target_shape.clone())
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+    let source_plan = BroadcastPlan::new(source_shape, target_shape.clone())
+        .map_err(|err| ArrayShapeMismatchError::new_err(err.to_string()))?;
+
+    let expr_total = expr_shape.total_len();
+    let mut active_lookup = vec![None; expr_total];
+    for (active_pos, active_idx) in sparse.active_indices.iter().copied().enumerate() {
+        if active_idx >= expr_total {
+            return Err(ArrayIndexError::new_err(format!(
+                "active index {active_idx} out of range for sparse expression array of size {expr_total}"
+            )));
+        }
+        active_lookup[active_idx] = Some(active_pos);
+    }
+
+    let mut out_indices = Vec::new();
+    let mut out_values = Vec::new();
+    for target_flat in 0..target_shape.total_len() {
+        let expr_flat = expr_plan.source_offset_for_target_flat(target_flat);
+        let Some(active_pos) = active_lookup[expr_flat] else {
+            continue;
+        };
+        let source_flat = source_plan.source_offset_for_target_flat(target_flat);
+        let weight = source_values[source_flat];
+        if weight == 0.0 {
+            continue;
+        }
+        out_indices.push(target_flat);
+        out_values.push(sparse.values[active_pos].scale(weight));
+    }
+
+    Ok(Some(PyExprArray::from_sparse(
+        union_index_sets,
+        target_shape.shape(),
+        out_indices,
+        out_values,
+    )))
+}
+
+fn find_sparse_axis(
+    index_sets: &[Py<PyIndexSet>],
+    py: Python<'_>,
+    index_set: &Bound<'_, PyIndexSet>,
+) -> PyResult<usize> {
+    let target_ptr = index_set.as_ptr();
+    for (idx, stored) in index_sets.iter().enumerate() {
+        if stored.as_ptr() == target_ptr {
+            return Ok(idx);
+        }
+    }
+
+    let target_name = &index_set.borrow().name;
+    for (idx, stored) in index_sets.iter().enumerate() {
+        let stored_ref = stored.bind(py).borrow();
+        if &stored_ref.name == target_name {
+            return Ok(idx);
+        }
+    }
+
+    Err(ArrayIndexError::new_err(format!(
+        "IndexSet '{}' is not a dimension of this array",
+        index_set.borrow().name
+    )))
+}
+
+fn parse_sparse_axes(
+    index_sets: &[Py<PyIndexSet>],
+    py: Python<'_>,
+    selection: &Bound<'_, PyAny>,
+) -> PyResult<Vec<usize>> {
+    let mut axes = Vec::new();
+    if let Ok(single) = selection.cast::<PyIndexSet>() {
+        axes.push(find_sparse_axis(index_sets, py, single)?);
+    } else {
+        let items: Vec<Bound<'_, PyAny>> = selection.try_iter()?.collect::<PyResult<Vec<_>>>()?;
+        for item in &items {
+            let index_set = item.cast::<PyIndexSet>().map_err(|_| {
+                ArrayTypeError::new_err("axis/over must be an IndexSet or tuple of IndexSets")
+            })?;
+            axes.push(find_sparse_axis(index_sets, py, index_set)?);
+        }
+    }
+
+    let mut seen = Vec::with_capacity(axes.len());
+    for axis in &axes {
+        if seen.contains(axis) {
+            return Err(ArrayDimensionError::new_err(
+                "axis/over cannot contain duplicate IndexSet dimensions",
+            ));
+        }
+        seen.push(*axis);
+    }
+    Ok(axes)
+}
+
+fn reduced_sparse_flat_index(
+    flat_idx: usize,
+    shape: &[usize],
+    source_strides: &[usize],
+    reduced_strides: &[usize],
+    summed_axes: &[bool],
+) -> usize {
+    let mut remainder = flat_idx;
+    let mut reduced_axis = 0usize;
+    let mut reduced_idx = 0usize;
+
+    for axis in 0..shape.len() {
+        let coordinate = remainder / source_strides[axis];
+        remainder %= source_strides[axis];
+        if !summed_axes[axis] {
+            reduced_idx += coordinate * reduced_strides[reduced_axis];
+            reduced_axis += 1;
+        }
+    }
+
+    reduced_idx
+}
+
+pub(super) fn sum_sparse_expr(
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    sparse: &SparseExprStorage,
+    py: Python<'_>,
+    over: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyObject> {
+    let Some(over) = over else {
+        let mut acc = PyExpr::default();
+        for expr in &sparse.values {
+            acc.add_assign(expr);
+        }
+        return Ok(acc.into_pyobject(py)?.into_any().unbind());
+    };
+
+    let axes = parse_sparse_axes(index_sets, py, over)?;
+    let mut summed_axes = vec![false; shape.len()];
+    for axis in axes {
+        summed_axes[axis] = true;
+    }
+
+    let mut out_shape = Vec::new();
+    let mut out_index_sets = Vec::new();
+    for (axis, index_set) in index_sets.iter().enumerate() {
+        if !summed_axes[axis] {
+            out_shape.push(shape[axis]);
+            out_index_sets.push(index_set.clone_ref(py));
+        }
+    }
+
+    let source_strides = arco_arrays::row_major_strides(shape);
+    let reduced_strides = arco_arrays::row_major_strides(&out_shape);
+    let out_len = out_shape.iter().product::<usize>().max(1);
+    let mut values = vec![PyExpr::default(); out_len];
+
+    for (active_idx, expr) in sparse.active_indices.iter().zip(sparse.values.iter()) {
+        let reduced_idx = reduced_sparse_flat_index(
+            *active_idx,
+            shape,
+            &source_strides,
+            &reduced_strides,
+            &summed_axes,
+        );
+        values[reduced_idx].add_assign(expr);
+    }
+
+    if out_shape.is_empty() {
+        let expr = values.pop().unwrap_or_default();
+        Ok(expr.into_pyobject(py)?.into_any().unbind())
+    } else {
+        let array = PyExprArray::new(out_index_sets, out_shape, values);
+        Ok(array.into_pyobject(py)?.into_any().unbind())
+    }
+}
+
+fn sparse_output_flat_for_source(
+    flat_idx: usize,
+    shape: &[usize],
+    source_strides: &[usize],
+    output_strides: &[usize],
+    diff_axis: usize,
+    output_axis_coordinate: usize,
+) -> usize {
+    let mut remainder = flat_idx;
+    let mut output_flat = 0usize;
+
+    for axis in 0..shape.len() {
+        let mut coordinate = remainder / source_strides[axis];
+        remainder %= source_strides[axis];
+        if axis == diff_axis {
+            coordinate = output_axis_coordinate;
+        }
+        output_flat += coordinate * output_strides[axis];
+    }
+
+    output_flat
+}
+
+pub(super) fn diff_sparse_expr(
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    active_indices: &[usize],
+    values: &[PyExpr],
+    py: Python<'_>,
+    over: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let axes = parse_sparse_axes(index_sets, py, over)?;
+    if axes.len() != 1 {
+        return Err(ArrayDimensionError::new_err(
+            "np.diff requires exactly one IndexSet axis",
+        ));
+    }
+    let axis = axes[0];
+    let axis_size = shape[axis];
+
+    let mut out_shape = shape.to_vec();
+    out_shape[axis] = axis_size.saturating_sub(1);
+    let mut out_index_sets = Python::attach(|py| {
+        index_sets
+            .iter()
+            .map(|index_set| index_set.clone_ref(py))
+            .collect::<Vec<_>>()
+    });
+    let selected = (1..axis_size).collect::<Vec<_>>();
+    out_index_sets[axis] = slice_index_set(py, &index_sets[axis], &selected)?;
+
+    if axis_size <= 1 {
+        return Ok(
+            PyExprArray::from_sparse(out_index_sets, out_shape, Vec::new(), Vec::new())
+                .into_pyobject(py)?
+                .into_any()
+                .unbind(),
+        );
+    }
+
+    let source_strides = arco_arrays::row_major_strides(shape);
+    let output_strides = arco_arrays::row_major_strides(&out_shape);
+    let mut contributions =
+        Vec::<(usize, PyExpr)>::with_capacity(active_indices.len().saturating_mul(2));
+
+    for (active_idx, expr) in active_indices.iter().zip(values.iter()) {
+        let axis_coordinate = (active_idx / source_strides[axis]) % axis_size;
+        if axis_coordinate > 0 {
+            let output_flat = sparse_output_flat_for_source(
+                *active_idx,
+                shape,
+                &source_strides,
+                &output_strides,
+                axis,
+                axis_coordinate - 1,
+            );
+            contributions.push((output_flat, expr.clone()));
+        }
+        if axis_coordinate + 1 < axis_size {
+            let output_flat = sparse_output_flat_for_source(
+                *active_idx,
+                shape,
+                &source_strides,
+                &output_strides,
+                axis,
+                axis_coordinate,
+            );
+            contributions.push((output_flat, expr.scale(-1.0)));
+        }
+    }
+
+    contributions.sort_unstable_by_key(|(idx, _)| *idx);
+    let mut out_indices = Vec::new();
+    let mut out_values = Vec::<PyExpr>::new();
+    for (idx, expr) in contributions {
+        if out_indices.last().copied() == Some(idx) {
+            if let Some(last) = out_values.last_mut() {
+                last.add_assign_owned(expr);
+            }
+            continue;
+        }
+        if expr.inner().num_terms() == 0 && expr.constant() == 0.0 {
+            continue;
+        }
+        out_indices.push(idx);
+        out_values.push(expr);
+    }
+
+    Ok(
+        PyExprArray::from_sparse(out_index_sets, out_shape, out_indices, out_values)
+            .into_pyobject(py)?
+            .into_any()
+            .unbind(),
+    )
+}
+
+fn sparse_rolled_flat_index(
+    flat_idx: usize,
+    shape: &[usize],
+    strides: &[usize],
+    roll_axis: usize,
+    shift: isize,
+) -> usize {
+    let axis_size = shape[roll_axis];
+    let mut remainder = flat_idx;
+    let mut output_flat = 0usize;
+
+    for (axis, stride) in strides.iter().copied().enumerate().take(shape.len()) {
+        let mut coordinate = remainder / stride;
+        remainder %= stride;
+        if axis == roll_axis && axis_size > 0 {
+            coordinate = (coordinate as isize + shift).rem_euclid(axis_size as isize) as usize;
+        }
+        output_flat += coordinate * stride;
+    }
+
+    output_flat
+}
+
+pub(super) fn roll_sparse_expr(
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    active_indices: &[usize],
+    values: &[PyExpr],
+    py: Python<'_>,
+    shift: isize,
+    over: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let axes = parse_sparse_axes(index_sets, py, over)?;
+    if axes.len() != 1 {
+        return Err(ArrayDimensionError::new_err(
+            "np.roll requires exactly one IndexSet axis",
+        ));
+    }
+
+    if shape[axes[0]] == 0 {
+        return Ok(PyExprArray::from_sparse(
+            Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+            shape.to_vec(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .into_pyobject(py)?
+        .into_any()
+        .unbind());
+    }
+
+    let strides = arco_arrays::row_major_strides(shape);
+    let mut rolled = active_indices
+        .iter()
+        .copied()
+        .zip(values.iter().cloned())
+        .map(|(active_idx, expr)| {
+            (
+                sparse_rolled_flat_index(active_idx, shape, &strides, axes[0], shift),
+                expr,
+            )
+        })
+        .collect::<Vec<_>>();
+    rolled.sort_unstable_by_key(|(idx, _)| *idx);
+
+    let (out_indices, out_values): (Vec<_>, Vec<_>) = rolled.into_iter().unzip();
+    Ok(PyExprArray::from_sparse(
+        Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+        shape.to_vec(),
+        out_indices,
+        out_values,
+    )
+    .into_pyobject(py)?
+    .into_any()
+    .unbind())
+}
+
+pub(super) fn combine_sparse_expr_same_shape(
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    left_indices: &[usize],
+    left_values: &[PyExpr],
+    right_indices: &[usize],
+    right_values: &[PyExpr],
+    right_scale: f64,
+) -> PyExprArray {
+    let mut left_pos = 0usize;
+    let mut right_pos = 0usize;
+    let mut out_indices = Vec::with_capacity(left_indices.len().max(right_indices.len()));
+    let mut out_values = Vec::with_capacity(out_indices.capacity());
+
+    while left_pos < left_indices.len() || right_pos < right_indices.len() {
+        let left_idx = left_indices.get(left_pos).copied();
+        let right_idx = right_indices.get(right_pos).copied();
+        let current_idx = match (left_idx, right_idx) {
+            (Some(left), Some(right)) => left.min(right),
+            (Some(left), None) => left,
+            (None, Some(right)) => right,
+            (None, None) => break,
+        };
+
+        let mut expr = PyExpr::default();
+        if left_idx == Some(current_idx) {
+            expr.add_assign(&left_values[left_pos]);
+            left_pos += 1;
+        }
+        if right_idx == Some(current_idx) {
+            expr.add_assign_owned(right_values[right_pos].scale(right_scale));
+            right_pos += 1;
+        }
+
+        if expr.inner().num_terms() == 0 && expr.constant() == 0.0 {
+            continue;
+        }
+        out_indices.push(current_idx);
+        out_values.push(expr);
+    }
+
+    PyExprArray::from_sparse(
+        Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+        shape.to_vec(),
+        out_indices,
+        out_values,
+    )
+}
+
+pub(super) fn compare_sparse_expr_same_shape(
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    left_indices: &[usize],
+    left_values: &[PyExpr],
+    right_indices: &[usize],
+    right_values: &[PyExpr],
+    sense: ComparisonSense,
+) -> PyConstraintArray {
+    let mut left_pos = 0usize;
+    let mut right_pos = 0usize;
+    let mut exprs = Vec::with_capacity(left_indices.len().max(right_indices.len()));
+    let mut rhs = Vec::with_capacity(exprs.capacity());
+    let mut active_indices = Vec::with_capacity(exprs.capacity());
+
+    while left_pos < left_indices.len() || right_pos < right_indices.len() {
+        let left_idx = left_indices.get(left_pos).copied();
+        let right_idx = right_indices.get(right_pos).copied();
+        let current_idx = match (left_idx, right_idx) {
+            (Some(left), Some(right)) => left.min(right),
+            (Some(left), None) => left,
+            (None, Some(right)) => right,
+            (None, None) => break,
+        };
+
+        let left_expr = if left_idx == Some(current_idx) {
+            let expr = left_values[left_pos].clone();
+            left_pos += 1;
+            expr
+        } else {
+            PyExpr::default()
+        };
+        let right_expr = if right_idx == Some(current_idx) {
+            let expr = right_values[right_pos].clone();
+            right_pos += 1;
+            expr
+        } else {
+            PyExpr::default()
+        };
+
+        let diff = left_expr.inner().add(&right_expr.inner().scale(-1.0));
+        let diff_expr = PyExpr::from_expr(diff);
+        if diff_expr.inner().num_terms() == 0 && diff_expr.constant() == 0.0 {
+            continue;
+        }
+        active_indices.push(current_idx);
+        rhs.push(-diff_expr.constant());
+        exprs.push(diff_expr.without_constant());
+    }
+
+    PyConstraintArray::from_sparse_rows(
+        exprs,
+        sense,
+        rhs,
+        active_indices,
+        shape.to_vec(),
+        Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+    )
 }
 
 fn parse_named_axes(
@@ -655,6 +1266,34 @@ pub(crate) struct CompactExprStorage {
     pub count: usize,
 }
 
+/// Sparse expression storage: inactive dense slots are implicit zeros.
+#[derive(Clone, Debug)]
+pub(crate) struct SparseExprStorage {
+    pub active_indices: Vec<usize>,
+    pub values: Vec<PyExpr>,
+}
+
+impl SparseExprStorage {
+    pub fn term_counts(&self) -> ExpressionTermCounts {
+        expression_term_counts(&self.values)
+    }
+
+    pub fn to_core(&self, index_sets: &[Py<PyIndexSet>], shape: &[usize]) -> LinearArrayCore {
+        let total = shape.iter().product();
+        let mut values = vec![PyExpr::default(); total];
+        for (active_idx, expr) in self.active_indices.iter().zip(self.values.iter()) {
+            values[*active_idx] = expr.clone();
+        }
+        Python::attach(|py| {
+            LinearArrayCore::new(
+                index_sets.iter().map(|set| set.clone_ref(py)).collect(),
+                shape.to_vec(),
+                values,
+            )
+        })
+    }
+}
+
 impl CompactExprStorage {
     /// Create from a single variable array (coefficient 1.0, constant 0.0).
     pub fn from_variable_array(start_var_id: u32, count: usize) -> Self {
@@ -781,6 +1420,11 @@ pub(crate) enum ExprArrayStorage {
         index_sets: Vec<Py<PyIndexSet>>,
         shape: Vec<usize>,
     },
+    Sparse {
+        storage: SparseExprStorage,
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+    },
 }
 
 impl ExprArrayStorage {
@@ -793,6 +1437,11 @@ impl ExprArrayStorage {
                 index_sets,
                 shape,
             } => storage.to_core(index_sets, shape),
+            ExprArrayStorage::Sparse {
+                storage,
+                index_sets,
+                shape,
+            } => storage.to_core(index_sets, shape),
         }
     }
 
@@ -800,6 +1449,7 @@ impl ExprArrayStorage {
         match self {
             ExprArrayStorage::Full(core) => core.values.len(),
             ExprArrayStorage::Compact { storage, .. } => storage.count,
+            ExprArrayStorage::Sparse { shape, .. } => shape.iter().product(),
         }
     }
 
@@ -807,6 +1457,7 @@ impl ExprArrayStorage {
         match self {
             ExprArrayStorage::Full(core) => &core.shape,
             ExprArrayStorage::Compact { shape, .. } => shape,
+            ExprArrayStorage::Sparse { shape, .. } => shape,
         }
     }
 
@@ -814,6 +1465,7 @@ impl ExprArrayStorage {
         match self {
             ExprArrayStorage::Full(core) => &core.index_sets,
             ExprArrayStorage::Compact { index_sets, .. } => index_sets,
+            ExprArrayStorage::Sparse { index_sets, .. } => index_sets,
         }
     }
 
@@ -830,7 +1482,14 @@ impl ExprArrayStorage {
     pub fn as_compact(&self) -> Option<&CompactExprStorage> {
         match self {
             ExprArrayStorage::Compact { storage, .. } => Some(storage),
-            ExprArrayStorage::Full(_) => None,
+            ExprArrayStorage::Full(_) | ExprArrayStorage::Sparse { .. } => None,
+        }
+    }
+
+    pub fn as_sparse(&self) -> Option<&SparseExprStorage> {
+        match self {
+            ExprArrayStorage::Sparse { storage, .. } => Some(storage),
+            ExprArrayStorage::Full(_) | ExprArrayStorage::Compact { .. } => None,
         }
     }
 }

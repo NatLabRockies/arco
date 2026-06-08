@@ -19,7 +19,9 @@ use super::{
     CompactExprStorage, ComparisonSense, ExpressionTermCounts, PyConstraintArray, PyExprArray,
     array_add, array_cumsum, array_diff, array_function, array_mul, array_neg, array_reduce,
     array_roll, array_rsub, array_sub, array_sum, array_truediv, array_ufunc,
-    compare_with_compact_fallback, expression_term_counts, set_solver_matrix_memory_estimate,
+    combine_sparse_expr_same_shape, compare_with_compact_fallback, diff_sparse_expr,
+    expression_term_counts, multiply_sparse_variables_with_labeled_operand,
+    multiply_sparse_variables_with_scalar, roll_sparse_expr, set_solver_matrix_memory_estimate,
     try_extract_compact,
 };
 
@@ -54,10 +56,34 @@ struct FullStorage {
     variables: Vec<Option<PyVariable>>,
 }
 
+enum SparseBounds {
+    Uniform(BoundsSpec),
+    PerSlot(Vec<BoundsSpec>),
+}
+
+impl SparseBounds {
+    fn at(&self, active_pos: usize) -> BoundsSpec {
+        match self {
+            SparseBounds::Uniform(bounds) => *bounds,
+            SparseBounds::PerSlot(bounds) => bounds[active_pos],
+        }
+    }
+}
+
+/// Sparse storage for arrays with inactive dense slots.
+struct SparseStorage {
+    active_indices: Vec<usize>,
+    var_ids: Vec<u32>,
+    bounds: SparseBounds,
+    name: Option<String>,
+}
+
 /// Internal storage enum for VariableArray.
 enum VariableStorage {
     /// Compact: only metadata, no Vec<PyExpr> or Vec<PyVariable>.
     Compact(CompactStorage),
+    /// Sparse: only active variable slots are stored.
+    Sparse(SparseStorage),
     /// Full: stores all expressions and variables.
     Full(FullStorage),
 }
@@ -113,6 +139,47 @@ impl PyVariableArray {
         })
     }
 
+    /// Create a VariableArray with sparse active-slot storage.
+    pub fn new_active_sparse(
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+        active_indices: Vec<usize>,
+        var_ids: Vec<u32>,
+        bounds: BoundsSpec,
+        name: Option<String>,
+    ) -> Self {
+        Self {
+            storage: VariableStorage::Sparse(SparseStorage {
+                active_indices,
+                var_ids,
+                bounds: SparseBounds::Uniform(bounds),
+                name,
+            }),
+            index_sets,
+            shape,
+        }
+    }
+
+    pub fn new_active_sparse_with_bounds(
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+        active_indices: Vec<usize>,
+        var_ids: Vec<u32>,
+        bounds: Vec<BoundsSpec>,
+        name: Option<String>,
+    ) -> Self {
+        Self {
+            storage: VariableStorage::Sparse(SparseStorage {
+                active_indices,
+                var_ids,
+                bounds: SparseBounds::PerSlot(bounds),
+                name,
+            }),
+            index_sets,
+            shape,
+        }
+    }
+
     /// Create a VariableArray with compact storage (scalar bounds, contiguous var IDs).
     pub fn new_compact(
         index_sets: Vec<Py<PyIndexSet>>,
@@ -138,6 +205,14 @@ impl PyVariableArray {
     pub(crate) fn to_core(&self) -> LinearArrayCore {
         match &self.storage {
             VariableStorage::Full(full) => full.core.clone_with_gil(),
+            VariableStorage::Sparse(sparse) => {
+                let mut values = vec![PyExpr::from_expr(Expr::from_constant(0.0)); self.len()];
+                for (active_idx, var_id) in sparse.active_indices.iter().zip(sparse.var_ids.iter())
+                {
+                    values[*active_idx] = PyExpr::from_term(*var_id, 1.0);
+                }
+                LinearArrayCore::new(self.clone_index_sets(), self.shape.clone(), values)
+            }
             VariableStorage::Compact(compact) => {
                 let values = (0..compact.count)
                     .map(|i| PyExpr::from_term(compact.var_id_at(i), 1.0))
@@ -151,6 +226,7 @@ impl PyVariableArray {
     fn len(&self) -> usize {
         match &self.storage {
             VariableStorage::Compact(c) => c.count,
+            VariableStorage::Sparse(_) => self.shape.iter().product(),
             VariableStorage::Full(f) => f.core.values.len(),
         }
     }
@@ -158,6 +234,7 @@ impl PyVariableArray {
     fn active_len(&self) -> usize {
         match &self.storage {
             VariableStorage::Compact(c) => c.count,
+            VariableStorage::Sparse(sparse) => sparse.active_indices.len(),
             VariableStorage::Full(f) => f
                 .variables
                 .iter()
@@ -169,6 +246,7 @@ impl PyVariableArray {
     fn storage_kind(&self) -> &'static str {
         match &self.storage {
             VariableStorage::Compact(_) => "compact",
+            VariableStorage::Sparse(_) => "sparse",
             VariableStorage::Full(_) => "full",
         }
     }
@@ -179,6 +257,11 @@ impl PyVariableArray {
                 CompactExprStorage::from_variable_array(compact.start_var_id, compact.count)
                     .term_counts()
             }
+            VariableStorage::Sparse(sparse) => ExpressionTermCounts {
+                linear: sparse.active_indices.len(),
+                quadratic: 0,
+                cubic: 0,
+            },
             VariableStorage::Full(full) => expression_term_counts(&full.core.values),
         }
     }
@@ -223,6 +306,25 @@ impl PyVariableArray {
     fn variable_at(&self, idx: usize) -> Option<PyVariable> {
         match &self.storage {
             VariableStorage::Full(full) => full.variables.get(idx).cloned().flatten(),
+            VariableStorage::Sparse(sparse) => {
+                sparse
+                    .active_indices
+                    .binary_search(&idx)
+                    .ok()
+                    .map(|active_pos| {
+                        PyVariable::new(
+                            sparse.var_ids[active_pos],
+                            sparse.name.as_ref().map(|base| {
+                                if self.len() == 1 {
+                                    base.clone()
+                                } else {
+                                    format!("{base}[{idx}]")
+                                }
+                            }),
+                            sparse.bounds.at(active_pos),
+                        )
+                    })
+            }
             VariableStorage::Compact(compact) => {
                 if idx >= compact.count {
                     return None;
@@ -240,6 +342,15 @@ impl PyVariableArray {
     fn expr_at(&self, idx: usize) -> Option<PyExpr> {
         match &self.storage {
             VariableStorage::Full(full) => full.core.values.get(idx).cloned(),
+            VariableStorage::Sparse(_) => {
+                if idx >= self.len() {
+                    return None;
+                }
+                Some(self.variable_at(idx).map_or_else(
+                    || PyExpr::from_expr(Expr::from_constant(0.0)),
+                    |v| v.to_expr(),
+                ))
+            }
             VariableStorage::Compact(compact) => {
                 if idx >= compact.count {
                     return None;
@@ -252,6 +363,7 @@ impl PyVariableArray {
     pub fn get_values(&self) -> Vec<PyExpr> {
         match &self.storage {
             VariableStorage::Full(full) => full.core.values.clone(),
+            VariableStorage::Sparse(_) => self.to_core().values,
             VariableStorage::Compact(compact) => (0..compact.count)
                 .map(|i| PyExpr::from_term(compact.var_id_at(i), 1.0))
                 .collect(),
@@ -261,6 +373,24 @@ impl PyVariableArray {
     pub fn get_variable_refs(&self) -> Vec<PyVariable> {
         match &self.storage {
             VariableStorage::Full(full) => full.variables.iter().flatten().cloned().collect(),
+            VariableStorage::Sparse(sparse) => sparse
+                .active_indices
+                .iter()
+                .enumerate()
+                .map(|(active_pos, active_idx)| {
+                    PyVariable::new(
+                        sparse.var_ids[active_pos],
+                        sparse.name.as_ref().map(|base| {
+                            if self.len() == 1 {
+                                base.clone()
+                            } else {
+                                format!("{base}[{active_idx}]")
+                            }
+                        }),
+                        sparse.bounds.at(active_pos),
+                    )
+                })
+                .collect(),
             VariableStorage::Compact(compact) => (0..compact.count)
                 .map(|i| {
                     PyVariable::new(
@@ -276,6 +406,23 @@ impl PyVariableArray {
     pub fn get_variable_slots(&self) -> Vec<Option<PyVariable>> {
         match &self.storage {
             VariableStorage::Full(full) => full.variables.clone(),
+            VariableStorage::Sparse(sparse) => {
+                let mut slots = vec![None; self.len()];
+                for (active_pos, active_idx) in sparse.active_indices.iter().enumerate() {
+                    slots[*active_idx] = Some(PyVariable::new(
+                        sparse.var_ids[active_pos],
+                        sparse.name.as_ref().map(|base| {
+                            if self.len() == 1 {
+                                base.clone()
+                            } else {
+                                format!("{base}[{active_idx}]")
+                            }
+                        }),
+                        sparse.bounds.at(active_pos),
+                    ));
+                }
+                slots
+            }
             VariableStorage::Compact(compact) => (0..compact.count)
                 .map(|i| {
                     Some(PyVariable::new(
@@ -304,7 +451,22 @@ impl PyVariableArray {
                 c.start_var_id,
                 c.count,
             )),
+            VariableStorage::Sparse(_) => None,
             VariableStorage::Full(_) => None,
+        }
+    }
+
+    pub(crate) fn sparse_expr_entries(&self) -> Option<(&[usize], Vec<PyExpr>)> {
+        match &self.storage {
+            VariableStorage::Sparse(sparse) => Some((
+                sparse.active_indices.as_slice(),
+                sparse
+                    .var_ids
+                    .iter()
+                    .map(|var_id| PyExpr::from_term(*var_id, 1.0))
+                    .collect::<Vec<_>>(),
+            )),
+            VariableStorage::Compact(_) | VariableStorage::Full(_) => None,
         }
     }
 
@@ -317,11 +479,163 @@ impl PyVariableArray {
         PyExpr::from_expr(Expr::from_linear(linear))
     }
 
+    fn sum_all_sparse(sparse: &SparseStorage) -> PyExpr {
+        let linear = sparse
+            .var_ids
+            .iter()
+            .map(|var_id| (VariableId::new(*var_id), 1.0))
+            .collect();
+        PyExpr::from_expr(Expr::from_linear(linear))
+    }
+
+    fn find_axis_for_sparse_sum(
+        &self,
+        py: Python<'_>,
+        index_set: &Bound<'_, PyIndexSet>,
+    ) -> PyResult<usize> {
+        let target_ptr = index_set.as_ptr();
+        for (idx, stored) in self.index_sets.iter().enumerate() {
+            if stored.as_ptr() == target_ptr {
+                return Ok(idx);
+            }
+        }
+
+        let target_name = &index_set.borrow().name;
+        for (idx, stored) in self.index_sets.iter().enumerate() {
+            let stored_ref = stored.bind(py).borrow();
+            if &stored_ref.name == target_name {
+                return Ok(idx);
+            }
+        }
+
+        Err(ArrayIndexError::new_err(format!(
+            "IndexSet '{}' is not a dimension of this array",
+            index_set.borrow().name
+        )))
+    }
+
+    fn parse_sparse_sum_axes(
+        &self,
+        py: Python<'_>,
+        selection: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<usize>> {
+        let mut axes = Vec::new();
+        if let Ok(single) = selection.cast::<PyIndexSet>() {
+            axes.push(self.find_axis_for_sparse_sum(py, single)?);
+        } else {
+            let items: Vec<Bound<'_, PyAny>> =
+                selection.try_iter()?.collect::<PyResult<Vec<_>>>()?;
+            for item in &items {
+                let index_set = item.cast::<PyIndexSet>().map_err(|_| {
+                    ArrayDimensionError::new_err(
+                        "axis/over must be an IndexSet or tuple of IndexSets",
+                    )
+                })?;
+                axes.push(self.find_axis_for_sparse_sum(py, index_set)?);
+            }
+        }
+
+        let mut seen = Vec::with_capacity(axes.len());
+        for axis in &axes {
+            if seen.contains(axis) {
+                return Err(ArrayDimensionError::new_err(
+                    "axis/over cannot contain duplicate IndexSet dimensions",
+                ));
+            }
+            seen.push(*axis);
+        }
+        Ok(axes)
+    }
+
+    fn row_major_strides(shape: &[usize]) -> Vec<usize> {
+        let mut strides = vec![1; shape.len()];
+        let mut stride = 1;
+        for (idx, size) in shape.iter().enumerate().rev() {
+            strides[idx] = stride;
+            stride *= *size;
+        }
+        strides
+    }
+
+    fn reduced_flat_index(
+        flat_idx: usize,
+        shape: &[usize],
+        source_strides: &[usize],
+        reduced_strides: &[usize],
+        summed_axes: &[bool],
+    ) -> usize {
+        let mut remainder = flat_idx;
+        let mut reduced_axis = 0usize;
+        let mut reduced_idx = 0usize;
+
+        for axis in 0..shape.len() {
+            let coordinate = remainder / source_strides[axis];
+            remainder %= source_strides[axis];
+            if !summed_axes[axis] {
+                reduced_idx += coordinate * reduced_strides[reduced_axis];
+                reduced_axis += 1;
+            }
+        }
+
+        reduced_idx
+    }
+
+    fn sum_sparse_over_axis(
+        &self,
+        py: Python<'_>,
+        sparse: &SparseStorage,
+        over: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let axes = self.parse_sparse_sum_axes(py, over)?;
+        let mut summed_axes = vec![false; self.shape.len()];
+        for axis in axes {
+            summed_axes[axis] = true;
+        }
+
+        let mut out_shape = Vec::new();
+        let mut out_index_sets = Vec::new();
+        for (axis, index_set) in self.index_sets.iter().enumerate() {
+            if !summed_axes[axis] {
+                out_shape.push(self.shape[axis]);
+                out_index_sets.push(index_set.clone_ref(py));
+            }
+        }
+
+        let source_strides = Self::row_major_strides(&self.shape);
+        let reduced_strides = Self::row_major_strides(&out_shape);
+        let out_len = out_shape.iter().product::<usize>().max(1);
+        let mut values = vec![PyExpr::default(); out_len];
+
+        for (active_idx, var_id) in sparse.active_indices.iter().zip(sparse.var_ids.iter()) {
+            let reduced_idx = Self::reduced_flat_index(
+                *active_idx,
+                &self.shape,
+                &source_strides,
+                &reduced_strides,
+                &summed_axes,
+            );
+            values[reduced_idx].add_assign_owned(PyExpr::from_term(*var_id, 1.0));
+        }
+
+        if out_shape.is_empty() {
+            let expr = values.pop().unwrap_or_default();
+            Ok(expr.into_pyobject(py)?.into_any().unbind())
+        } else {
+            let array = PyExprArray::new(out_index_sets, out_shape, values);
+            Ok(array.into_pyobject(py)?.into_any().unbind())
+        }
+    }
+
     /// Collect linear terms directly for compact storage (for objective extraction).
     pub fn collect_linear_terms_fast(&self) -> Vec<(VariableId, f64)> {
         match &self.storage {
             VariableStorage::Compact(compact) => (0..compact.count)
                 .map(|i| (VariableId::new(compact.var_id_at(i)), 1.0))
+                .collect(),
+            VariableStorage::Sparse(sparse) => sparse
+                .var_ids
+                .iter()
+                .map(|var_id| (VariableId::new(*var_id), 1.0))
                 .collect(),
             VariableStorage::Full(full) => {
                 let total: usize = full
@@ -345,6 +659,14 @@ impl PyVariableArray {
         rhs: &Bound<'_, PyAny>,
         sense: ComparisonSense,
     ) -> PyResult<PyConstraintArray> {
+        if let VariableStorage::Sparse(sparse) = &self.storage {
+            if let Ok(rhs_array) = rhs.extract::<PyRef<'_, PyExprArray>>() {
+                if let Some(constraints) = self.compare_sparse_expr_rhs(sparse, &rhs_array, sense) {
+                    return Ok(constraints);
+                }
+            }
+        }
+
         let compact = self.as_compact_expr();
         compare_with_compact_fallback(
             compact.as_ref(),
@@ -354,6 +676,68 @@ impl PyVariableArray {
             rhs,
             sense,
         )
+    }
+
+    fn compare_sparse_expr_rhs(
+        &self,
+        sparse: &SparseStorage,
+        rhs_array: &PyExprArray,
+        sense: ComparisonSense,
+    ) -> Option<PyConstraintArray> {
+        if rhs_array.storage.shape() != self.shape {
+            return None;
+        }
+        let (rhs_indices, rhs_values) = rhs_array.sparse_entries()?;
+
+        let mut left_pos = 0usize;
+        let mut right_pos = 0usize;
+        let mut exprs = Vec::with_capacity(sparse.active_indices.len().max(rhs_indices.len()));
+        let mut rhs = Vec::with_capacity(exprs.capacity());
+        let mut active_indices = Vec::with_capacity(exprs.capacity());
+
+        while left_pos < sparse.active_indices.len() || right_pos < rhs_indices.len() {
+            let left_idx = sparse.active_indices.get(left_pos).copied();
+            let right_idx = rhs_indices.get(right_pos).copied();
+            let current_idx = match (left_idx, right_idx) {
+                (Some(left), Some(right)) => left.min(right),
+                (Some(left), None) => left,
+                (None, Some(right)) => right,
+                (None, None) => break,
+            };
+
+            let left_expr = if left_idx == Some(current_idx) {
+                let expr = PyExpr::from_term(sparse.var_ids[left_pos], 1.0);
+                left_pos += 1;
+                expr
+            } else {
+                PyExpr::default()
+            };
+            let right_expr = if right_idx == Some(current_idx) {
+                let expr = rhs_values[right_pos].clone();
+                right_pos += 1;
+                expr
+            } else {
+                PyExpr::default()
+            };
+
+            let diff = left_expr.inner().add(&right_expr.inner().scale(-1.0));
+            let diff_expr = PyExpr::from_expr(diff);
+            if diff_expr.inner().num_terms() == 0 && diff_expr.constant() == 0.0 {
+                continue;
+            }
+            active_indices.push(current_idx);
+            rhs.push(-diff_expr.constant());
+            exprs.push(diff_expr.without_constant());
+        }
+
+        Some(PyConstraintArray::from_sparse_rows(
+            exprs,
+            sense,
+            rhs,
+            active_indices,
+            self.shape.clone(),
+            self.clone_index_sets(),
+        ))
     }
 
     fn getitem_tuple(&self, py: Python<'_>, tuple: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
@@ -479,6 +863,38 @@ impl PyVariableArray {
                 return Ok(self.wrap_compact_expr(self_compact.add_constant(value)));
             }
         }
+        if let Some((left_indices, left_values)) = self.sparse_expr_entries() {
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
+                if other_array.shape == self.shape {
+                    if let Some((right_indices, right_values)) = other_array.sparse_expr_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            &self.index_sets,
+                            &self.shape,
+                            left_indices,
+                            &left_values,
+                            right_indices,
+                            &right_values,
+                            1.0,
+                        ));
+                    }
+                }
+            }
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
+                if other_array.storage.shape() == self.shape {
+                    if let Some((right_indices, right_values)) = other_array.sparse_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            &self.index_sets,
+                            &self.shape,
+                            left_indices,
+                            &left_values,
+                            right_indices,
+                            right_values,
+                            1.0,
+                        ));
+                    }
+                }
+            }
+        }
         let core = self.to_core();
         array_add(&core, other)
     }
@@ -496,6 +912,38 @@ impl PyVariableArray {
                 return Ok(self.wrap_compact_expr(self_compact.add_constant(-value)));
             }
         }
+        if let Some((left_indices, left_values)) = self.sparse_expr_entries() {
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
+                if other_array.shape == self.shape {
+                    if let Some((right_indices, right_values)) = other_array.sparse_expr_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            &self.index_sets,
+                            &self.shape,
+                            left_indices,
+                            &left_values,
+                            right_indices,
+                            &right_values,
+                            -1.0,
+                        ));
+                    }
+                }
+            }
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
+                if other_array.storage.shape() == self.shape {
+                    if let Some((right_indices, right_values)) = other_array.sparse_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            &self.index_sets,
+                            &self.shape,
+                            left_indices,
+                            &left_values,
+                            right_indices,
+                            right_values,
+                            -1.0,
+                        ));
+                    }
+                }
+            }
+        }
         let core = self.to_core();
         array_sub(&core, other)
     }
@@ -510,6 +958,38 @@ impl PyVariableArray {
                 }
             }
         }
+        if let Some((right_indices, right_values)) = self.sparse_expr_entries() {
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
+                if other_array.shape == self.shape {
+                    if let Some((left_indices, left_values)) = other_array.sparse_expr_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            &self.index_sets,
+                            &self.shape,
+                            left_indices,
+                            &left_values,
+                            right_indices,
+                            &right_values,
+                            -1.0,
+                        ));
+                    }
+                }
+            }
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
+                if other_array.storage.shape() == self.shape {
+                    if let Some((left_indices, left_values)) = other_array.sparse_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            &self.index_sets,
+                            &self.shape,
+                            left_indices,
+                            left_values,
+                            right_indices,
+                            &right_values,
+                            -1.0,
+                        ));
+                    }
+                }
+            }
+        }
         let core = self.to_core();
         array_rsub(&core, other)
     }
@@ -517,6 +997,26 @@ impl PyVariableArray {
         if let Some(self_compact) = self.as_compact_expr() {
             if let Ok(scalar) = other.extract::<f64>() {
                 return Ok(self.wrap_compact_expr(self_compact.scale(scalar)));
+            }
+        }
+        if let VariableStorage::Sparse(sparse) = &self.storage {
+            if let Ok(scalar) = other.extract::<f64>() {
+                return Ok(multiply_sparse_variables_with_scalar(
+                    &self.index_sets,
+                    &self.shape,
+                    &sparse.active_indices,
+                    &sparse.var_ids,
+                    scalar,
+                ));
+            }
+            if let Some(result) = multiply_sparse_variables_with_labeled_operand(
+                &self.index_sets,
+                &sparse.active_indices,
+                &sparse.var_ids,
+                other.py(),
+                other,
+            )? {
+                return Ok(result);
             }
         }
         let core = self.to_core();
@@ -561,6 +1061,13 @@ impl PyVariableArray {
                 let result = Self::sum_all_compact(compact.start_var_id, compact.count);
                 return Ok(result.into_pyobject(py)?.into_any().unbind());
             }
+            if let VariableStorage::Sparse(sparse) = &self.storage {
+                let result = Self::sum_all_sparse(sparse);
+                return Ok(result.into_pyobject(py)?.into_any().unbind());
+            }
+        }
+        if let (VariableStorage::Sparse(sparse), Some(over)) = (&self.storage, over) {
+            return self.sum_sparse_over_axis(py, sparse, over);
         }
         let core = self.to_core();
         array_sum(&core, py, over)
@@ -572,19 +1079,56 @@ impl PyVariableArray {
     }
     #[pyo3(signature = (*, over))]
     fn diff(&self, py: Python<'_>, over: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let VariableStorage::Sparse(sparse) = &self.storage {
+            let values = sparse
+                .var_ids
+                .iter()
+                .map(|var_id| PyExpr::from_term(*var_id, 1.0))
+                .collect::<Vec<_>>();
+            return diff_sparse_expr(
+                &self.index_sets,
+                &self.shape,
+                &sparse.active_indices,
+                &values,
+                py,
+                over,
+            );
+        }
         let core = self.to_core();
         array_diff(&core, py, over)
     }
     #[pyo3(signature = (*, shift, over))]
     fn roll(&self, py: Python<'_>, shift: isize, over: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let VariableStorage::Sparse(sparse) = &self.storage {
+            let values = sparse
+                .var_ids
+                .iter()
+                .map(|var_id| PyExpr::from_term(*var_id, 1.0))
+                .collect::<Vec<_>>();
+            return roll_sparse_expr(
+                &self.index_sets,
+                &self.shape,
+                &sparse.active_indices,
+                &values,
+                py,
+                shift,
+                over,
+            );
+        }
         let core = self.to_core();
         array_roll(&core, py, shift, over)
     }
     fn __rshift__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let VariableStorage::Sparse(sparse) = &self.storage {
+            return self.sum_sparse_over_axis(py, sparse, rhs);
+        }
         let core = self.to_core();
         array_reduce(&core, py, rhs)
     }
     fn __matmul__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let VariableStorage::Sparse(sparse) = &self.storage {
+            return self.sum_sparse_over_axis(py, sparse, rhs);
+        }
         let core = self.to_core();
         array_reduce(&core, py, rhs)
     }
@@ -674,10 +1218,7 @@ impl PyVariableArray {
                 items.push(expr.into_pyobject(py)?.into_any().unbind());
             }
         }
-        Ok(PyList::new(py, items)?
-            .call_method0("__iter__")?
-            .unbind()
-            .into())
+        Ok(PyList::new(py, items)?.call_method0("__iter__")?.unbind())
     }
 
     #[pyo3(signature = (ufunc, method, *inputs, **kwargs))]
@@ -708,6 +1249,57 @@ impl PyVariableArray {
         args: &Bound<'_, PyTuple>,
         kwargs: &Bound<'_, PyAny>,
     ) -> PyResult<PyObject> {
+        let func_name = func.getattr("__name__")?.extract::<String>()?;
+        if func_name == "diff" {
+            if let VariableStorage::Sparse(sparse) = &self.storage {
+                let axis = kwargs.cast::<PyDict>()?.get_item("axis")?.ok_or_else(|| {
+                    ArrayDimensionError::new_err("np.diff requires axis=IndexSet")
+                })?;
+                let values = sparse
+                    .var_ids
+                    .iter()
+                    .map(|var_id| PyExpr::from_term(*var_id, 1.0))
+                    .collect::<Vec<_>>();
+                return diff_sparse_expr(
+                    &self.index_sets,
+                    &self.shape,
+                    &sparse.active_indices,
+                    &values,
+                    py,
+                    &axis,
+                );
+            }
+        }
+        if func_name == "roll" {
+            if let VariableStorage::Sparse(sparse) = &self.storage {
+                let shift = if args.len() > 1 {
+                    args.get_item(1)?.extract::<isize>()?
+                } else {
+                    kwargs
+                        .cast::<PyDict>()?
+                        .get_item("shift")?
+                        .ok_or_else(|| ArrayDimensionError::new_err("np.roll requires shift"))?
+                        .extract::<isize>()?
+                };
+                let axis = kwargs.cast::<PyDict>()?.get_item("axis")?.ok_or_else(|| {
+                    ArrayDimensionError::new_err("np.roll requires axis=IndexSet")
+                })?;
+                let values = sparse
+                    .var_ids
+                    .iter()
+                    .map(|var_id| PyExpr::from_term(*var_id, 1.0))
+                    .collect::<Vec<_>>();
+                return roll_sparse_expr(
+                    &self.index_sets,
+                    &self.shape,
+                    &sparse.active_indices,
+                    &values,
+                    py,
+                    shift,
+                    &axis,
+                );
+            }
+        }
         let core = self.to_core();
         array_function(&core, py, func, _types, args, kwargs)
     }

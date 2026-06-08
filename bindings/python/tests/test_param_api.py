@@ -40,19 +40,23 @@ def test_param_validates_shape_and_exposes_metadata() -> None:
         )
 
 
-def test_param_requires_keyword_axes() -> None:
+def test_param_accepts_legacy_positional_axes() -> None:
     i = arco.IndexSet(name="i", members=["a", "b"])
 
-    with pytest.raises(TypeError):
-        arco.param(np.array([1.0, 2.0]), i)
+    p = arco.param(np.array([1.0, 2.0]), i)
+
+    assert p.axes == (i,)
+    np.testing.assert_array_equal(p.values, np.array([1.0, 2.0]))
 
 
-def test_add_variables_requires_keyword_axes() -> None:
+def test_add_variables_accepts_legacy_positional_axes() -> None:
     model = arco.Model()
     i = arco.IndexSet(name="i", members=["a", "b"])
 
-    with pytest.raises(TypeError):
-        model.add_variables(i, bounds=arco.NonNegativeFloat)
+    x = model.add_variables(i, bounds=arco.NonNegativeFloat)
+
+    assert x.index_sets == (i,)
+    assert x.shape == (2,)
 
 
 def test_param_rejects_duplicate_axes_without_alias() -> None:
