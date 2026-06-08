@@ -35,6 +35,23 @@ LAST_BUILD_PROFILE: list[BuildStage] = []
 LAST_MATRIX_PROFILE: dict[str, object] = {}
 LAST_SOLVE_METADATA: dict[str, float] = {}
 LAST_SOLVE_STATUS: str | None = None
+HIGHS_PRIMAL_SOLUTION_FEASIBLE = 2.0
+
+
+def _objective_value_for_reporting(
+    objective_value: float, solve_metadata: dict[str, float]
+) -> float:
+    """Return NaN when HiGHS has not reported a feasible primal solution."""
+    primal_status = solve_metadata.get("highs_primal_solution_status")
+    if primal_status is not None and primal_status != HIGHS_PRIMAL_SOLUTION_FEASIBLE:
+        return float("nan")
+    return objective_value
+
+
+def _format_objective_value(objective_value: float) -> str:
+    if objective_value != objective_value:
+        return "n/a"
+    return f"{objective_value:,.0f}"
 
 
 def _constraint_reserve_count(data: ProblemData) -> int:
@@ -357,7 +374,10 @@ def solve(
     LAST_SOLVE_STATUS = str(result.status)
     if require_optimal and not result.is_optimal():
         raise RuntimeError(f"HiGHS did not find an optimal solution: {result.status}")
-    return float(result.objective_value), build_s, solve_s
+    objective_value = _objective_value_for_reporting(
+        float(result.objective_value), LAST_SOLVE_METADATA
+    )
+    return objective_value, build_s, solve_s
 
 
 class ReedsPayload(TypedDict):
@@ -365,7 +385,7 @@ class ReedsPayload(TypedDict):
     size: str
     summary: str
     solved: bool
-    objective_value: NotRequired[float]
+    objective_value: NotRequired[float | None]
     build_seconds: float
     solve_seconds: float
     peak_rss_mb: float
@@ -481,7 +501,7 @@ def main() -> int:
         "peak_rss_mb": _peak_rss_mb(),
     }
     if not args.build_only:
-        payload["objective_value"] = obj
+        payload["objective_value"] = None if obj != obj else obj
         if LAST_SOLVE_STATUS is not None:
             payload["status"] = LAST_SOLVE_STATUS
         payload["solve_metadata"] = LAST_SOLVE_METADATA
@@ -500,12 +520,12 @@ def main() -> int:
     elif not solved:
         print(
             f"reeds-benchmark finished: size={args.size}, status={LAST_SOLVE_STATUS}, "
-            f"obj={obj:,.0f}, build={build_s:.3f}s, solve={solve_s:.3f}s, "
+            f"obj={_format_objective_value(obj)}, build={build_s:.3f}s, solve={solve_s:.3f}s, "
             f"peak={payload['peak_rss_mb']:.1f} MB"
         )
     else:
         print(
-            f"reeds-benchmark solved: size={args.size}, obj={obj:,.0f}, "
+            f"reeds-benchmark solved: size={args.size}, obj={_format_objective_value(obj)}, "
             f"build={build_s:.3f}s, solve={solve_s:.3f}s, "
             f"peak={payload['peak_rss_mb']:.1f} MB"
         )

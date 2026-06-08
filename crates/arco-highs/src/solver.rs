@@ -184,7 +184,7 @@ enum SolvedHighsModel {
     Wrapper(RawSolvedHighsModel),
     Direct {
         model: DirectHighsModel,
-        status: SolverStatus,
+        model_status: highs_sys::HighsInt,
     },
 }
 
@@ -742,15 +742,23 @@ impl DirectHighsModel {
         Ok(model)
     }
 
-    fn solve(&mut self) -> Result<SolverStatus, SolverError> {
+    fn solve(&mut self) -> Result<highs_sys::HighsInt, SolverError> {
         ensure_highs_ok(unsafe { highs_sys::Highs_run(self.ptr) }, "Highs_run")?;
-        Ok(raw_highs_model_status_to_solver_status(unsafe {
-            highs_sys::Highs_getModelStatus(self.ptr)
-        }))
+        Ok(unsafe { highs_sys::Highs_getModelStatus(self.ptr) })
     }
 
     fn objective_value(&self) -> f64 {
         unsafe { highs_sys::Highs_getObjectiveValue(self.ptr) }
+    }
+
+    fn int_info_value(&self, key: &str) -> Result<highs_sys::HighsInt, SolverError> {
+        let key = cstring_highs_key(key)?;
+        let mut value = -1;
+        ensure_highs_ok(
+            unsafe { highs_sys::Highs_getIntInfoValue(self.ptr, key.as_ptr(), &mut value) },
+            key.to_string_lossy().as_ref(),
+        )?;
+        Ok(value)
     }
 
     fn solution_vectors(
@@ -878,6 +886,12 @@ fn cstring_option_key(key: &str) -> Result<CString, SolverError> {
     })
 }
 
+fn cstring_highs_key(key: &str) -> Result<CString, SolverError> {
+    CString::new(key).map_err(|_| {
+        SolverError::SolverSpecific(format!("invalid HiGHS info key {key:?}: contains NUL"))
+    })
+}
+
 fn raw_highs_model_status_to_solver_status(status: highs_sys::HighsInt) -> SolverStatus {
     match status {
         highs_sys::MODEL_STATUS_OPTIMAL => SolverStatus::Optimal,
@@ -901,18 +915,34 @@ fn finish_prepared_solve(
     let solved_model = match prepared.highs_model {
         PreparedHighsModel::Wrapper(model) => SolvedHighsModel::Wrapper(model.solve()),
         PreparedHighsModel::Direct(mut model) => {
-            let status = model.solve()?;
-            SolvedHighsModel::Direct { model, status }
+            let model_status = model.solve()?;
+            SolvedHighsModel::Direct {
+                model,
+                model_status,
+            }
         }
     };
-    let mapped_status = match &solved_model {
-        SolvedHighsModel::Wrapper(model) => highs_model_status(model.status()).to_solver_status(),
-        SolvedHighsModel::Direct { status, .. } => *status,
-    };
-    let objective_value = match &solved_model {
-        SolvedHighsModel::Wrapper(model) => model.objective_value(),
-        SolvedHighsModel::Direct { model, .. } => model.objective_value(),
-    };
+    let (mapped_status, highs_model_status, highs_primal_solution_status, objective_value) =
+        match &solved_model {
+            SolvedHighsModel::Wrapper(model) => {
+                let model_status = model.status();
+                (
+                    highs_model_status(model_status).to_solver_status(),
+                    model_status as isize as f64,
+                    model.primal_solution_status() as isize as f64,
+                    model.objective_value(),
+                )
+            }
+            SolvedHighsModel::Direct {
+                model,
+                model_status,
+            } => (
+                raw_highs_model_status_to_solver_status(*model_status),
+                *model_status as f64,
+                model.int_info_value("primal_solution_status")? as f64,
+                model.objective_value(),
+            ),
+        };
     let highs_run_seconds = highs_run_start.elapsed().as_secs_f64();
     if !mapped_status.is_feasible() {
         return Err(SolverError::SolveFailure {
@@ -955,6 +985,11 @@ fn finish_prepared_solve(
     metadata.insert("highs_run_s".to_string(), highs_run_seconds);
     metadata.insert("solution_extract_s".to_string(), solution_extract_seconds);
     metadata.insert("fingerprint_s".to_string(), prepared.fingerprint_seconds);
+    metadata.insert("highs_model_status".to_string(), highs_model_status);
+    metadata.insert(
+        "highs_primal_solution_status".to_string(),
+        highs_primal_solution_status,
+    );
     metadata.insert("num_variables".to_string(), prepared.num_variables as f64);
     metadata.insert(
         "num_constraints".to_string(),
@@ -1158,6 +1193,14 @@ mod tests {
         assert_eq!(result.metadata.get("num_variables"), Some(&1.0));
         assert_eq!(result.metadata.get("num_constraints"), Some(&1.0));
         assert_eq!(result.metadata.get("num_coefficients"), Some(&1.0));
+        assert_eq!(
+            result.metadata.get("highs_model_status"),
+            Some(&(highs_sys::MODEL_STATUS_OPTIMAL as f64))
+        );
+        assert_eq!(
+            result.metadata.get("highs_primal_solution_status"),
+            Some(&(highs_sys::SOLUTION_STATUS_FEASIBLE as f64))
+        );
     }
 
     #[test]
@@ -1252,6 +1295,14 @@ mod tests {
         assert_eq!(result.primal_values, vec![1.0]);
         assert_eq!(result.objective_value, 2.0);
         assert_eq!(result.metadata.get("highs_direct_load_path"), Some(&1.0));
+        assert_eq!(
+            result.metadata.get("highs_model_status"),
+            Some(&(highs_sys::MODEL_STATUS_OPTIMAL as f64))
+        );
+        assert_eq!(
+            result.metadata.get("highs_primal_solution_status"),
+            Some(&(highs_sys::SOLUTION_STATUS_FEASIBLE as f64))
+        );
     }
 
     #[test]
@@ -1284,6 +1335,14 @@ mod tests {
         assert_eq!(result.objective_value, 2.0);
         assert_eq!(result.metadata.get("highs_direct_load_path"), Some(&1.0));
         assert_eq!(result.metadata.get("num_coefficients"), Some(&1.0));
+        assert_eq!(
+            result.metadata.get("highs_model_status"),
+            Some(&(highs_sys::MODEL_STATUS_OPTIMAL as f64))
+        );
+        assert_eq!(
+            result.metadata.get("highs_primal_solution_status"),
+            Some(&(highs_sys::SOLUTION_STATUS_FEASIBLE as f64))
+        );
     }
 
     #[test]
