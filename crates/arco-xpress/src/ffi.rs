@@ -125,6 +125,90 @@ type XPRSmessageCallbackFn =
     unsafe extern "C" fn(XPRSprob, *mut c_void, *const c_char, c_int, c_int);
 type XPRSsetcbmessageFn =
     unsafe extern "C" fn(XPRSprob, Option<XPRSmessageCallbackFn>, *mut c_void) -> c_int;
+type XPRSaddcbmessageFn =
+    unsafe extern "C" fn(XPRSprob, Option<XPRSmessageCallbackFn>, *mut c_void, c_int) -> c_int;
+
+#[derive(Clone, Copy)]
+enum MessageCallbackRegistration {
+    Add(XPRSaddcbmessageFn),
+    Set(XPRSsetcbmessageFn),
+}
+
+impl MessageCallbackRegistration {
+    fn symbol_name(self) -> &'static str {
+        match self {
+            Self::Add(_) => "XPRSaddcbmessage",
+            Self::Set(_) => "XPRSsetcbmessage",
+        }
+    }
+
+    unsafe fn register(
+        self,
+        prob: XPRSprob,
+        callback: Option<XPRSmessageCallbackFn>,
+        data: *mut c_void,
+    ) -> c_int {
+        match self {
+            Self::Add(add_callback) => unsafe { add_callback(prob, callback, data, 0) },
+            Self::Set(set_callback) => unsafe { set_callback(prob, callback, data) },
+        }
+    }
+}
+
+const MISSING_OPTIONAL_SYMBOL_RC: c_int = -1;
+
+unsafe extern "C" fn missing_xprs_addqmatrix64(
+    _prob: XPRSprob,
+    _row: c_int,
+    _ncoefs: i64,
+    _rowqcol1: *const c_int,
+    _rowqcol2: *const c_int,
+    _rowqcoef: *const c_double,
+) -> c_int {
+    MISSING_OPTIONAL_SYMBOL_RC
+}
+
+unsafe extern "C" fn missing_xprs_addmipsol(
+    _prob: XPRSprob,
+    _length: c_int,
+    _solval: *const c_double,
+    _colind: *const c_int,
+    _name: *const c_char,
+) -> c_int {
+    MISSING_OPTIONAL_SYMBOL_RC
+}
+
+unsafe extern "C" fn missing_xprs_getintcontrol(
+    _prob: XPRSprob,
+    _control: c_int,
+    _value: *mut c_int,
+) -> c_int {
+    MISSING_OPTIONAL_SYMBOL_RC
+}
+
+unsafe extern "C" fn missing_xprs_getdblcontrol(
+    _prob: XPRSprob,
+    _control: c_int,
+    _value: *mut c_double,
+) -> c_int {
+    MISSING_OPTIONAL_SYMBOL_RC
+}
+
+unsafe extern "C" fn missing_xprs_getversion(_version: *mut c_char) -> c_int {
+    MISSING_OPTIONAL_SYMBOL_RC
+}
+
+unsafe extern "C" fn missing_xprs_getbanner(_banner: *mut c_char) -> c_int {
+    MISSING_OPTIONAL_SYMBOL_RC
+}
+
+unsafe extern "C" fn missing_xprs_setcbmessage(
+    _prob: XPRSprob,
+    _callback: Option<XPRSmessageCallbackFn>,
+    _data: *mut c_void,
+) -> c_int {
+    MISSING_OPTIONAL_SYMBOL_RC
+}
 
 #[derive(Clone, Debug)]
 enum LibraryTarget {
@@ -187,14 +271,77 @@ pub struct Api {
     pub xprs_getversion: XPRSgetversionFn,
     pub xprs_getbanner: XPRSgetbannerFn,
     pub xprs_setcbmessage: XPRSsetcbmessageFn,
+    mip_loader_symbol: &'static str,
+    message_callback: Option<MessageCallbackRegistration>,
+}
+
+impl Api {
+    pub(crate) fn mip_loader_symbol(&self) -> &'static str {
+        self.mip_loader_symbol
+    }
+
+    pub(crate) fn message_callback_symbol(&self) -> Option<&'static str> {
+        self.message_callback
+            .map(MessageCallbackRegistration::symbol_name)
+    }
+
+    pub(crate) unsafe fn register_message_callback(
+        &self,
+        prob: XPRSprob,
+        callback: Option<XPRSmessageCallbackFn>,
+        data: *mut c_void,
+    ) -> Result<c_int, RuntimeLoadError> {
+        let Some(message_callback) = self.message_callback else {
+            return Err(RuntimeLoadError::new(
+                "missing Xpress message callback registration symbol \
+                 (tried XPRSaddcbmessage, XPRSsetcbmessage)"
+                    .to_string(),
+            ));
+        };
+
+        Ok(unsafe { message_callback.register(prob, callback, data) })
+    }
 }
 
 static API: OnceLock<Result<Api, RuntimeLoadError>> = OnceLock::new();
+
+const REQUIRED_SYMBOLS: &[&[u8]] = &[
+    b"XPRSinit\0",
+    b"XPRSfree\0",
+    b"XPRScreateprob\0",
+    b"XPRSdestroyprob\0",
+    b"XPRSloadlp\0",
+    b"XPRSchgobjsense\0",
+    b"XPRSlpoptimize\0",
+    b"XPRSmipoptimize\0",
+    b"XPRSgetlpsol\0",
+    b"XPRSgetmipsol\0",
+    b"XPRSsetintcontrol\0",
+    b"XPRSsetdblcontrol\0",
+    b"XPRSgetintattrib\0",
+    b"XPRSgetdblattrib\0",
+    b"XPRSgetlasterror\0",
+    b"XPRSlicense\0",
+    b"XPRSgetlicerrmsg\0",
+];
+
+const MIP_LOADER_SYMBOLS: &[(&str, &[u8])] = &[
+    ("XPRSloadmip", b"XPRSloadmip\0"),
+    ("XPRSloadglobal", b"XPRSloadglobal\0"),
+];
 
 macro_rules! load_symbol {
     ($handle:expr, $symbol:literal, $ty:ty) => {{
         let raw = lookup_symbol($handle, concat!($symbol, "\0").as_bytes())?;
         unsafe { std::mem::transmute::<*mut c_void, $ty>(raw) }
+    }};
+}
+
+macro_rules! load_optional_symbol {
+    ($handle:expr, $symbol:literal, $ty:ty, $fallback:expr) => {{
+        lookup_symbol($handle, concat!($symbol, "\0").as_bytes())
+            .map(|raw| unsafe { std::mem::transmute::<*mut c_void, $ty>(raw) })
+            .unwrap_or($fallback)
     }};
 }
 
@@ -262,7 +409,12 @@ fn versioned_unix_library_candidates(lib_dir: &Path) -> Vec<LibraryTarget> {
 pub fn runtime_library_available(xpress_dir: Option<&Path>) -> bool {
     runtime_library_candidates(xpress_dir)
         .into_iter()
-        .any(|target| open_library(&target).is_ok_and(|handle| close_library(handle).is_ok()))
+        .any(|target| {
+            open_library(&target).is_ok_and(|handle| {
+                let has_required_symbols = required_symbols_available(handle).is_ok();
+                close_library(handle).is_ok() && has_required_symbols
+            })
+        })
 }
 
 pub fn api() -> Result<&'static Api, RuntimeLoadError> {
@@ -279,52 +431,20 @@ fn load_api() -> Result<Api, RuntimeLoadError> {
 
     for target in candidates {
         match open_library(&target) {
-            Ok(handle) => {
-                return Ok(Api {
-                    xprs_init: load_symbol!(handle, "XPRSinit", XPRSinitFn),
-                    xprs_free: load_symbol!(handle, "XPRSfree", XPRSfreeFn),
-                    xprs_createprob: load_symbol!(handle, "XPRScreateprob", XPRScreateprobFn),
-                    xprs_destroyprob: load_symbol!(handle, "XPRSdestroyprob", XPRSdestroyprobFn),
-                    xprs_loadlp: load_symbol!(handle, "XPRSloadlp", XPRSloadlpFn),
-                    xprs_loadmip: load_symbol!(handle, "XPRSloadmip", XPRSloadmipFn),
-                    xprs_addqmatrix64: load_symbol!(handle, "XPRSaddqmatrix64", XPRSaddqmatrix64Fn),
-                    xprs_chgobjsense: load_symbol!(handle, "XPRSchgobjsense", XPRSchgobjsenseFn),
-                    xprs_lpoptimize: load_symbol!(handle, "XPRSlpoptimize", XPRSlpoptimizeFn),
-                    xprs_mipoptimize: load_symbol!(handle, "XPRSmipoptimize", XPRSmipoptimizeFn),
-                    xprs_getlpsol: load_symbol!(handle, "XPRSgetlpsol", XPRSgetlpsolFn),
-                    xprs_getmipsol: load_symbol!(handle, "XPRSgetmipsol", XPRSgetmipsolFn),
-                    xprs_addmipsol: load_symbol!(handle, "XPRSaddmipsol", XPRSaddmipsolFn),
-                    xprs_chgbounds: load_symbol!(handle, "XPRSchgbounds", XPRSchgboundsFn),
-                    xprs_setintcontrol: load_symbol!(
-                        handle,
-                        "XPRSsetintcontrol",
-                        XPRSsetintcontrolFn
-                    ),
-                    xprs_getintcontrol: load_symbol!(
-                        handle,
-                        "XPRSgetintcontrol",
-                        XPRSgetintcontrolFn
-                    ),
-                    xprs_setdblcontrol: load_symbol!(
-                        handle,
-                        "XPRSsetdblcontrol",
-                        XPRSsetdblcontrolFn
-                    ),
-                    xprs_getdblcontrol: load_symbol!(
-                        handle,
-                        "XPRSgetdblcontrol",
-                        XPRSgetdblcontrolFn
-                    ),
-                    xprs_getintattrib: load_symbol!(handle, "XPRSgetintattrib", XPRSgetintattribFn),
-                    xprs_getdblattrib: load_symbol!(handle, "XPRSgetdblattrib", XPRSgetdblattribFn),
-                    xprs_getlasterror: load_symbol!(handle, "XPRSgetlasterror", XPRSgetlasterrorFn),
-                    xprs_license: load_symbol!(handle, "XPRSlicense", XPRSlicenseFn),
-                    xprs_getlicerrmsg: load_symbol!(handle, "XPRSgetlicerrmsg", XPRSgetlicerrmsgFn),
-                    xprs_getversion: load_symbol!(handle, "XPRSgetversion", XPRSgetversionFn),
-                    xprs_getbanner: load_symbol!(handle, "XPRSgetbanner", XPRSgetbannerFn),
-                    xprs_setcbmessage: load_symbol!(handle, "XPRSsetcbmessage", XPRSsetcbmessageFn),
-                });
-            }
+            Ok(handle) => match load_api_from_handle(handle) {
+                Ok(api) => return Ok(api),
+                Err(error) => {
+                    let close_result = close_library(handle);
+                    let close_details = close_result
+                        .err()
+                        .map(|close_error| format!("; close failed: {close_error}"))
+                        .unwrap_or_default();
+                    failures.push(format!(
+                        "{} ({error}{close_details})",
+                        target.display_name()
+                    ));
+                }
+            },
             Err(error) => failures.push(format!("{} ({error})", target.display_name())),
         }
     }
@@ -333,6 +453,143 @@ fn load_api() -> Result<Api, RuntimeLoadError> {
         "unable to load Xpress runtime library; tried: {}",
         failures.join(", ")
     )))
+}
+
+fn load_api_from_handle(handle: LibraryHandle) -> Result<Api, RuntimeLoadError> {
+    let (xprs_loadmip, mip_loader_symbol) = load_mip_loader(handle)?;
+    let message_callback = load_message_callback_registration(handle);
+
+    Ok(Api {
+        xprs_init: load_symbol!(handle, "XPRSinit", XPRSinitFn),
+        xprs_free: load_symbol!(handle, "XPRSfree", XPRSfreeFn),
+        xprs_createprob: load_symbol!(handle, "XPRScreateprob", XPRScreateprobFn),
+        xprs_destroyprob: load_symbol!(handle, "XPRSdestroyprob", XPRSdestroyprobFn),
+        xprs_loadlp: load_symbol!(handle, "XPRSloadlp", XPRSloadlpFn),
+        xprs_loadmip,
+        xprs_addqmatrix64: load_optional_symbol!(
+            handle,
+            "XPRSaddqmatrix64",
+            XPRSaddqmatrix64Fn,
+            missing_xprs_addqmatrix64 as XPRSaddqmatrix64Fn
+        ),
+        xprs_chgobjsense: load_symbol!(handle, "XPRSchgobjsense", XPRSchgobjsenseFn),
+        xprs_lpoptimize: load_symbol!(handle, "XPRSlpoptimize", XPRSlpoptimizeFn),
+        xprs_mipoptimize: load_symbol!(handle, "XPRSmipoptimize", XPRSmipoptimizeFn),
+        xprs_getlpsol: load_symbol!(handle, "XPRSgetlpsol", XPRSgetlpsolFn),
+        xprs_getmipsol: load_symbol!(handle, "XPRSgetmipsol", XPRSgetmipsolFn),
+        xprs_addmipsol: load_optional_symbol!(
+            handle,
+            "XPRSaddmipsol",
+            XPRSaddmipsolFn,
+            missing_xprs_addmipsol as XPRSaddmipsolFn
+        ),
+        xprs_chgbounds: load_symbol!(handle, "XPRSchgbounds", XPRSchgboundsFn),
+        xprs_setintcontrol: load_symbol!(handle, "XPRSsetintcontrol", XPRSsetintcontrolFn),
+        xprs_getintcontrol: load_optional_symbol!(
+            handle,
+            "XPRSgetintcontrol",
+            XPRSgetintcontrolFn,
+            missing_xprs_getintcontrol as XPRSgetintcontrolFn
+        ),
+        xprs_setdblcontrol: load_symbol!(handle, "XPRSsetdblcontrol", XPRSsetdblcontrolFn),
+        xprs_getdblcontrol: load_optional_symbol!(
+            handle,
+            "XPRSgetdblcontrol",
+            XPRSgetdblcontrolFn,
+            missing_xprs_getdblcontrol as XPRSgetdblcontrolFn
+        ),
+        xprs_getintattrib: load_symbol!(handle, "XPRSgetintattrib", XPRSgetintattribFn),
+        xprs_getdblattrib: load_symbol!(handle, "XPRSgetdblattrib", XPRSgetdblattribFn),
+        xprs_getlasterror: load_symbol!(handle, "XPRSgetlasterror", XPRSgetlasterrorFn),
+        xprs_license: load_symbol!(handle, "XPRSlicense", XPRSlicenseFn),
+        xprs_getlicerrmsg: load_symbol!(handle, "XPRSgetlicerrmsg", XPRSgetlicerrmsgFn),
+        xprs_getversion: load_optional_symbol!(
+            handle,
+            "XPRSgetversion",
+            XPRSgetversionFn,
+            missing_xprs_getversion as XPRSgetversionFn
+        ),
+        xprs_getbanner: load_optional_symbol!(
+            handle,
+            "XPRSgetbanner",
+            XPRSgetbannerFn,
+            missing_xprs_getbanner as XPRSgetbannerFn
+        ),
+        xprs_setcbmessage: load_optional_symbol!(
+            handle,
+            "XPRSsetcbmessage",
+            XPRSsetcbmessageFn,
+            missing_xprs_setcbmessage as XPRSsetcbmessageFn
+        ),
+        mip_loader_symbol,
+        message_callback,
+    })
+}
+
+fn load_mip_loader(
+    handle: LibraryHandle,
+) -> Result<(XPRSloadmipFn, &'static str), RuntimeLoadError> {
+    let (symbol_name, raw) = resolve_alternative_symbol_with(
+        |symbol| lookup_symbol(handle, symbol),
+        "MIP loader",
+        MIP_LOADER_SYMBOLS,
+    )?;
+    Ok((
+        unsafe { std::mem::transmute::<*mut c_void, XPRSloadmipFn>(raw) },
+        symbol_name,
+    ))
+}
+
+fn load_message_callback_registration(
+    handle: LibraryHandle,
+) -> Option<MessageCallbackRegistration> {
+    lookup_symbol(handle, b"XPRSaddcbmessage\0")
+        .map(|raw| {
+            MessageCallbackRegistration::Add(unsafe {
+                std::mem::transmute::<*mut c_void, XPRSaddcbmessageFn>(raw)
+            })
+        })
+        .or_else(|_| {
+            lookup_symbol(handle, b"XPRSsetcbmessage\0").map(|raw| {
+                MessageCallbackRegistration::Set(unsafe {
+                    std::mem::transmute::<*mut c_void, XPRSsetcbmessageFn>(raw)
+                })
+            })
+        })
+        .ok()
+}
+
+fn resolve_alternative_symbol_with(
+    mut lookup: impl FnMut(&[u8]) -> Result<*mut c_void, RuntimeLoadError>,
+    label: &str,
+    candidates: &[(&'static str, &'static [u8])],
+) -> Result<(&'static str, *mut c_void), RuntimeLoadError> {
+    let mut failures = Vec::with_capacity(candidates.len());
+    for (name, symbol) in candidates {
+        match lookup(symbol) {
+            Ok(raw) => return Ok((*name, raw)),
+            Err(error) => failures.push(format!("{name}: {error}")),
+        }
+    }
+
+    Err(RuntimeLoadError::new(format!(
+        "missing Xpress {label} symbol (tried {})",
+        failures.join("; ")
+    )))
+}
+
+fn required_symbols_available(handle: LibraryHandle) -> Result<(), RuntimeLoadError> {
+    required_symbols_available_with(|symbol| lookup_symbol(handle, symbol))
+}
+
+fn required_symbols_available_with(
+    mut lookup: impl FnMut(&[u8]) -> Result<*mut c_void, RuntimeLoadError>,
+) -> Result<(), RuntimeLoadError> {
+    for symbol in REQUIRED_SYMBOLS {
+        lookup(symbol)?;
+    }
+    resolve_alternative_symbol_with(|symbol| lookup(symbol), "MIP loader", MIP_LOADER_SYMBOLS)?;
+    Ok(())
 }
 
 /// Check an Xpress return code. Returns `Ok(())` for 0 or `Err(code)` otherwise.
@@ -464,4 +721,72 @@ unsafe extern "system" {
     fn GetProcAddress(h_module: *mut c_void, lp_proc_name: *const u8) -> *mut c_void;
     fn FreeLibrary(h_lib_module: *mut c_void) -> i32;
     fn GetLastError() -> u32;
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ffi::{RuntimeLoadError, required_symbols_available_with};
+    use std::ffi::c_void;
+    use std::ptr::NonNull;
+
+    fn present_symbol() -> *mut c_void {
+        NonNull::<c_void>::dangling().as_ptr()
+    }
+
+    fn missing_symbol_error(symbol: &[u8]) -> RuntimeLoadError {
+        RuntimeLoadError::new(format!(
+            "missing Xpress symbol {}",
+            String::from_utf8_lossy(&symbol[..symbol.len() - 1])
+        ))
+    }
+
+    #[test]
+    fn runtime_probe_accepts_xpress8_loadglobal_mip_loader_alias() {
+        required_symbols_available_with(|symbol| {
+            if symbol == b"XPRSloadmip\0" {
+                return Err(missing_symbol_error(symbol));
+            }
+
+            Ok(present_symbol())
+        })
+        .expect("XPRSloadglobal should satisfy the MIP loader requirement");
+    }
+
+    #[test]
+    fn runtime_probe_rejects_library_missing_both_mip_loader_symbols() {
+        let error = required_symbols_available_with(|symbol| {
+            if symbol == b"XPRSloadmip\0" || symbol == b"XPRSloadglobal\0" {
+                return Err(missing_symbol_error(symbol));
+            }
+
+            Ok(present_symbol())
+        })
+        .expect_err("one Xpress MIP loader symbol is required");
+
+        let message = error.to_string();
+        assert!(message.contains("XPRSloadmip"));
+        assert!(message.contains("XPRSloadglobal"));
+    }
+
+    #[test]
+    fn runtime_probe_does_not_require_unused_or_logging_symbols() {
+        let optional_symbols: &[&[u8]] = &[
+            b"XPRSaddqmatrix64\0",
+            b"XPRSaddmipsol\0",
+            b"XPRSgetintcontrol\0",
+            b"XPRSgetdblcontrol\0",
+            b"XPRSgetversion\0",
+            b"XPRSgetbanner\0",
+            b"XPRSsetcbmessage\0",
+        ];
+
+        required_symbols_available_with(|symbol| {
+            if optional_symbols.contains(&symbol) {
+                return Err(missing_symbol_error(symbol));
+            }
+
+            Ok(present_symbol())
+        })
+        .expect("unused and log-only symbols should not block runtime detection");
+    }
 }
