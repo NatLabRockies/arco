@@ -270,6 +270,18 @@ impl ArcoOps {
         crate::execution_backends::solve_model_view_with_builtin_backend(family, model, config)
     }
 
+    /// Solve an owned in-memory model through a builtin backend.
+    ///
+    /// This is intended for memory-sensitive callers that will not use the
+    /// model after solver handoff.
+    pub fn solve_owned_model_with_builtin_backend(
+        family: &str,
+        model: arco_model::Model,
+        config: &SolverConfig,
+    ) -> Result<ModelViewSolveResult, SolverError> {
+        crate::execution_backends::solve_owned_model_with_builtin_backend(family, model, config)
+    }
+
     /// Return the version for a builtin backend family when available.
     pub fn builtin_solver_version(family: &str) -> Option<String> {
         crate::execution_backends::builtin_solver_version(family)

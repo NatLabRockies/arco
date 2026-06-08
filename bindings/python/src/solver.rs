@@ -1,6 +1,7 @@
 //! Python wrappers for solver configuration and instances.
 
 use crate::py_modules::errors::SolverInvalidSettingError;
+use arco_ops::ArcoOps;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::BTreeMap;
@@ -656,6 +657,10 @@ fn solver_runtime_info_for_family(py: Python<'_>, family: &str) -> PyResult<Py<P
             let configured = std::env::var("XPAUTH_PATH").ok();
             info.set_item("configured_license_path", configured)?;
             info.set_item("backend_enabled", xpress_backend_enabled())?;
+            info.set_item(
+                "runtime_available",
+                ArcoOps::builtin_solver_version("xpress").as_deref() == Some("available"),
+            )?;
         }
         "highs" | "scip" | "ipopt" => {
             info.set_item("requires_license", false)?;
@@ -663,6 +668,10 @@ fn solver_runtime_info_for_family(py: Python<'_>, family: &str) -> PyResult<Py<P
             info.set_item("runtime_env_var", Option::<String>::None)?;
             info.set_item("runtime_dir", Option::<String>::None)?;
             info.set_item("configured_license_path", Option::<String>::None)?;
+            info.set_item(
+                "runtime_available",
+                ArcoOps::builtin_solver_version(family).is_some(),
+            )?;
             info.set_item(
                 "backend_enabled",
                 family != "ipopt" || cfg!(feature = "ipopt"),

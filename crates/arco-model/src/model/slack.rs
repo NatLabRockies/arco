@@ -68,7 +68,7 @@ impl Model {
             objective_terms.push((slack_var, objective_coeff));
         }
 
-        self.add_objective_terms(objective_terms);
+        self.add_objective_terms(objective_terms)?;
 
         tracing::debug!(
             component = "slack",

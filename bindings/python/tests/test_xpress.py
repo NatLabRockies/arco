@@ -20,6 +20,12 @@ HAS_XPRESS_RUNTIME = bool(XPRESS_RUNTIME_INFO.get("runtime_dir"))
 HAS_XPRESS_BACKEND = bool(XPRESS_RUNTIME_INFO.get("backend_enabled"))
 
 
+def test_xpress_runtime_info_reports_library_availability() -> None:
+    assert isinstance(XPRESS_RUNTIME_INFO["runtime_available"], bool)
+    if not XPRESS_RUNTIME_INFO.get("runtime_dir"):
+        assert XPRESS_RUNTIME_INFO["runtime_available"] is False
+
+
 @pytest.mark.skipif(
     not HAS_XPRESS_RUNTIME,
     reason="local Xpress runtime not available",

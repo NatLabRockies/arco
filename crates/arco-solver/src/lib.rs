@@ -23,6 +23,7 @@ pub use conformance::{
 };
 pub use model_view_backend::{
     ModelViewBackend, ModelViewBackendRegistry, validate_model_view_solve_result,
+    validate_model_view_solve_result_with_config,
 };
 pub use preflight::{
     PreflightError, SolverRequirements, preflight_model_view, preflight_selection,

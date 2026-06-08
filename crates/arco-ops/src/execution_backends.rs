@@ -56,6 +56,22 @@ pub(crate) fn solve_model_view_with_builtin_backend(
     registry.solve(family, model, config)
 }
 
+pub(crate) fn solve_owned_model_with_builtin_backend(
+    family: &str,
+    model: arco_model::Model,
+    config: &SolverConfig,
+) -> Result<ModelViewSolveResult, SolverError> {
+    let family = normalize_model_view_backend_family(family);
+    if family == "highs" {
+        return arco_highs::solve_owned_model(model, config);
+    }
+    #[cfg(feature = "xpress")]
+    if family == "xpress" {
+        return arco_xpress::solve_owned_model(model, config);
+    }
+    solve_model_view_with_builtin_backend(family, &model, config)
+}
+
 pub(crate) fn builtin_solver_version(family: &str) -> Option<String> {
     match normalize_model_view_backend_family(family) {
         "highs" => highs_version(),
