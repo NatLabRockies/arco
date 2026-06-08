@@ -2051,6 +2051,13 @@ def test_api_contract_rejects_positional_variable_constructors() -> None:
     y = model.add_variables(axes, bounds=arco.NonNegativeFloat, name="y")
     assert y.shape == (2,)
 
+    try:
+        model.add_variables(axes)
+    except TypeError as exc:
+        assert "bounds" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected missing bounds to fail")
+
 
 def test_api_contract_rejects_positional_constraint_name_order() -> None:
     model = arco.Model()

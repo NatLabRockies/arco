@@ -581,6 +581,7 @@ def _param_einsum(subscripts: object, *operands: object, **kwargs: object) -> ob
 
 
 _MODEL_ADD_VARIABLES = _arco.Model.add_variables
+_MISSING_BOUNDS = object()
 
 
 def _normalise_axis_args(
@@ -599,12 +600,14 @@ def _add_variables_compat(
     self: object,
     *axis_args: object,
     axes: tuple[object, ...] | None = None,
-    bounds: object | None = None,
+    bounds: object = _MISSING_BOUNDS,
     is_integer: bool = False,
     is_binary: bool = False,
     active: object | None = None,
     name: str | None = None,
 ) -> object:
+    if bounds is _MISSING_BOUNDS:
+        raise TypeError("missing required keyword-only argument: 'bounds'")
     return _MODEL_ADD_VARIABLES(
         self,
         axes=_normalise_axis_args(axis_args, axes),
