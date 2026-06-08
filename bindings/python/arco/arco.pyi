@@ -738,6 +738,12 @@ class Model:
         is_integer: object,
         simplify_level: SimplifyLevel | None = None,
     ) -> Model: ...
+    def reserve(
+        self,
+        *,
+        num_variables: int = 0,
+        num_constraints: int = 0,
+    ) -> None: ...
     def add_variable(
         self,
         *,

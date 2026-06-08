@@ -521,6 +521,17 @@ impl PyModel {
         )
     }
 
+    /// Pre-allocate storage for additional variables and constraints.
+    #[pyo3(signature = (*, num_variables=0, num_constraints=0))]
+    fn reserve(&mut self, num_variables: usize, num_constraints: usize) {
+        if num_variables > 0 {
+            self.inner.reserve_variables(num_variables);
+        }
+        if num_constraints > 0 {
+            self.inner.reserve_constraints(num_constraints);
+        }
+    }
+
     /// Add a variable to the model.
     ///
     /// # Arguments

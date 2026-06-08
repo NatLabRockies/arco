@@ -391,6 +391,16 @@ mod tests {
     }
 
     #[test]
+    fn test_reserve_constraints_preallocates_without_adding_rows() {
+        let mut model = Model::new();
+
+        model.reserve_constraints(16);
+
+        assert_eq!(model.num_constraints(), 0);
+        assert!(model.constraints.capacity() >= 16);
+    }
+
+    #[test]
     fn test_variable_flags_are_packed() {
         let mut model = Model::new();
         for idx in 0..130 {

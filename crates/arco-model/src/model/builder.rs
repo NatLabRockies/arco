@@ -22,6 +22,11 @@ impl Model {
         }
     }
 
+    /// Pre-allocate capacity for the given number of additional constraints.
+    pub fn reserve_constraints(&mut self, count: usize) {
+        self.constraints.reserve(count);
+    }
+
     /// Add a variable to the model.
     pub fn add_variable(&mut self, variable: Variable) -> Result<VariableId, ModelError> {
         if !bounds_are_valid(variable.bounds.lower, variable.bounds.upper) {

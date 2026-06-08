@@ -145,6 +145,24 @@ def test_indexed_model_api_contract_solves_with_array_result_access() -> None:
     np.testing.assert_allclose(result.value(output), np.array([3.0, 5.0]))
 
 
+def test_model_reserve_preserves_build_and_solve_behavior() -> None:
+    model = arco.Model()
+    model.reserve(num_variables=4, num_constraints=3)
+
+    x = model.add_variable(bounds=arco.NonNegativeFloat)
+    y = model.add_variable(bounds=arco.NonNegativeFloat)
+    model.add_constraint(x + y >= 3.0)
+    model.add_constraint(x <= 5.0)
+    model.minimize(x + 2.0 * y)
+
+    result = model.solve(log_to_console=False)
+
+    assert model.num_variables == 2
+    assert model.num_constraints == 2
+    assert result.is_optimal()
+    assert round(result.objective_value, 6) == 3.0
+
+
 def test_debug_api_contract_exposes_constraint_slack_and_dual() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")

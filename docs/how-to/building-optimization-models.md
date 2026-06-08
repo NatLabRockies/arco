@@ -2,6 +2,22 @@
 
 This guide covers the core operations for constructing linear and mixed-integer optimization problems with arco.
 
+## Preallocate Large Models
+
+Use `model.reserve()` when you know approximate variable and constraint counts
+before construction. It preallocates internal storage without adding model
+objects, reducing transient allocation pressure in large array-built models.
+
+```python doctest
+>>> import arco
+>>> model = arco.Model()
+>>> model.reserve(num_variables=1000, num_constraints=500)
+>>> model.num_variables
+0
+>>> model.num_constraints
+0
+```
+
 ## Variables
 
 Use `model.add_variable()` to create decision variables with bounds, integrality, or binary restrictions.
