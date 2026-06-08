@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import argparse
-import gc
 import json
 import sys
 import time
@@ -37,7 +36,6 @@ class BuildStage(TypedDict):
 
 
 LAST_BUILD_PROFILE: list[BuildStage] = []
-LAST_MATRIX_PROFILE: dict[str, object] = {}
 LAST_SOLVE_METADATA: dict[str, float] = {}
 LAST_SOLVE_STATUS: str | None = None
 HIGHS_PRIMAL_SOLUTION_FEASIBLE = 2.0
@@ -46,7 +44,6 @@ HIGHS_PRIMAL_SOLUTION_FEASIBLE = 2.0
 def _objective_value_for_reporting(
     objective_value: float, solve_metadata: dict[str, float]
 ) -> float:
-    """Return NaN when HiGHS has not reported a feasible primal solution."""
     primal_status = solve_metadata.get("highs_primal_solution_status")
     if primal_status is not None and primal_status != HIGHS_PRIMAL_SOLUTION_FEASIBLE:
         return float("nan")
@@ -57,11 +54,6 @@ def _format_objective_value(objective_value: float) -> str:
     if objective_value != objective_value:
         return "n/a"
     return f"{objective_value:,.0f}"
-
-
-def _constraint_reserve_count(data: ProblemData) -> int:
-    transmission_bound_rows = len(data.routes) * len(data.hours) * len(data.years)
-    return max(0, data.n_constraints - transmission_bound_rows + 1024)
 
 
 def _current_rss_mb() -> float | None:
@@ -116,18 +108,9 @@ def solve(
     if solver != "highs":
         raise ValueError("solve only supports solver='highs'")
 
-    global LAST_SOLVE_METADATA
-    global LAST_SOLVE_STATUS
-    LAST_SOLVE_METADATA = {}
-    LAST_SOLVE_STATUS = None
-
     regions, techs, hours, years = data.regions, data.techs, data.hours, data.years
     region_index = data.r_idx
     total_hours_weight = float(np.sum(data.hours_weight))
-    tranloss_factor = 1.0 - float(data.tranloss)
-    reserve_margin_factor = 1.0 + float(data.prm)
-    duration_h = float(data.duration_h)
-    charge_eff = float(data.charge_eff)
 
     route_active_matrix = np.zeros((len(regions), len(regions)), dtype=bool)
     transcap_matrix = np.zeros((len(regions), len(regions)), dtype=float)
@@ -139,10 +122,6 @@ def solve(
 
     t0 = time.perf_counter()
     model = arco.Model()
-    model.reserve(
-        num_variables=data.n_vars,
-        num_constraints=_constraint_reserve_count(data),
-    )
     build_profile: list[BuildStage] = []
     last_rss_mb = _current_rss_mb()
 
@@ -197,7 +176,6 @@ def solve(
 
     route_active = arco.param(route_active_matrix, axes=(R_from, R_to))
     transcap = arco.param(transcap_matrix, axes=(R_from, R_to))
-    del route_active_matrix, transcap_matrix
     mark("sets_and_params")
 
     cap = model.add_variables(
@@ -224,7 +202,6 @@ def solve(
         active=route_active,
         name="FLOW",
     )
-    del route_active, transcap
     rampup = model.add_variables(
         axes=(I, R, H_ramp, T),
         bounds=arco.NonNegativeFloat,
@@ -250,70 +227,59 @@ def solve(
         name="eq_cap_accum",
     )
     mark("eq_cap_accum")
-    del cap_init
     model.add_constraints(
         gen <= cf * cap,
         name="eq_cap_limit",
     )
     mark("eq_cap_limit")
-    del cf
     model.add_constraints(
         gen >= minloadfrac * cap,
         active=valcap & (minloadfrac > 0) & ~is_storage,
         name="eq_mingen",
     )
     mark("eq_mingen")
-    del minloadfrac, is_vre
 
     gen_by_region = gen @ I
     charge_by_region = charge @ I
-    imports_by_region = (flow @ R_from).relabel_axis(R_to, R)
-    exports_by_region = (flow @ R_to).relabel_axis(R_from, R)
-    model.add_constraints(
-        gen_by_region
-        + tranloss_factor * imports_by_region
-        - exports_by_region
-        - charge_by_region
-        == load,
-        name="eq_supply_demand_balance",
-    )
+    tranloss_factor = 1.0 - float(data.tranloss)
+    for r_idx, region in enumerate(regions):
+        for h_idx, hour in enumerate(hours):
+            for t_idx, year in enumerate(years):
+                imports = tranloss_factor * flow[:, r_idx, h_idx, t_idx].sum()
+                exports = flow[r_idx, :, h_idx, t_idx].sum()
+                model.add_constraint(
+                    gen_by_region[r_idx, h_idx, t_idx]
+                    + imports
+                    - exports
+                    - charge_by_region[r_idx, h_idx, t_idx]
+                    == load[r_idx, h_idx, t_idx],
+                    name=f"eq_supply_demand_balance[{region},{hour},{year}]",
+                )
     mark("eq_supply_demand_balance")
-    del (
-        gen_by_region,
-        charge_by_region,
-        imports_by_region,
-        exports_by_region,
-        flow,
-        load,
-    )
     model.add_constraints(
-        (cap @ I) >= reserve_margin_factor * peak_load,
+        (cap @ I) >= (1.0 + float(data.prm)) * peak_load,
         name="eq_reserve_margin",
     )
     mark("eq_reserve_margin")
-    del peak_load
     model.add_constraints(
         (emit_rate * hours_weight * gen) @ (I, R, H) <= emit_cap,
         name="eq_emit_cap",
     )
     mark("eq_emit_cap")
-    del emit_rate, emit_cap
     model.add_constraints(
         rampup >= np.diff(gen, axis=H),
         active=dispatch_active,
         name="eq_ramping",
     )
     mark("eq_ramping")
-    del dispatch_active, is_dispatch
     model.add_constraints(
         (hours_weight * gen) @ H >= min_cf * total_hours_weight * cap,
         active=valcap & (min_cf > 0),
         name="eq_min_cf",
     )
     mark("eq_min_cf")
-    del min_cf, total_hours_weight
     model.add_constraints(
-        soc <= duration_h * cap,
+        soc <= float(data.duration_h) * cap,
         active=storage_active,
         name="eq_soc_cap",
     )
@@ -324,26 +290,17 @@ def solve(
         name="eq_charge_cap",
     )
     mark("eq_charge_cap")
-    del cap
     model.add_constraints(
-        np.roll(soc, -1, axis=H) == soc + charge_eff * charge - gen,
+        np.roll(soc, -1, axis=H) == soc + float(data.charge_eff) * charge - gen,
         active=storage_active,
         name="eq_soc",
     )
     mark("eq_soc")
-    del charge, soc, storage_active, is_storage
 
     objective = (pvf * cost_inv * inv).sum()
+    objective += (pvf * cost_op * hours_weight * gen).sum()
+    objective += (pvf * startcost * rampup).sum()
     model.minimize(objective)
-    del objective, cost_inv, inv
-    objective = (pvf * cost_op * hours_weight * gen).sum()
-    model.add_objective_terms(objective)
-    del objective, cost_op, gen, hours_weight
-    objective = (pvf * startcost * rampup).sum()
-    model.add_objective_terms(objective)
-    del objective, rampup, startcost, pvf
-    global LAST_MATRIX_PROFILE
-    LAST_MATRIX_PROFILE = model.matrix_profile() if profile_matrix else {}
     mark("objective")
 
     build_s = time.perf_counter() - t0
@@ -352,34 +309,12 @@ def solve(
     if build_only:
         return float("nan"), build_s, 0.0
 
-    del (
-        data,
-        valcap,
-        I,
-        R,
-        H,
-        T,
-        H_ramp,
-        R_from,
-        R_to,
-        regions,
-        techs,
-        hours,
-        years,
-        region_index,
-    )
-    gc.collect()
-    mark("cleanup")
-    build_s = time.perf_counter() - t0
-
     t1 = time.perf_counter()
     highs_kwargs = {
         "log_to_console": False,
         "parameters": {
             "solver": highs_solver,
-            "arco.consume_model": "true",
             "arco.fingerprint": "false",
-            "arco.extract_solution": "false",
         },
     }
     if time_limit is not None:
@@ -390,11 +325,13 @@ def solve(
         highs_kwargs["threads"] = threads
     if highs_run_crossover is not None:
         highs_kwargs["parameters"]["run_crossover"] = highs_run_crossover
-    if highs_load_path is not None:
+    if highs_load_path not in (None, "wrapper"):
         highs_kwargs["parameters"]["arco.highs_load_path"] = highs_load_path
     result = model.solve(solver=arco.HiGHS(**highs_kwargs))
     solve_s = time.perf_counter() - t1
-    LAST_SOLVE_METADATA = dict(result.metadata)
+    global LAST_SOLVE_METADATA
+    global LAST_SOLVE_STATUS
+    LAST_SOLVE_METADATA = dict(getattr(result, "metadata", {}))
     LAST_SOLVE_STATUS = str(result.status)
     if require_optimal and not result.is_optimal():
         raise RuntimeError(f"HiGHS did not find an optimal solution: {result.status}")
@@ -415,7 +352,6 @@ class ReedsPayload(TypedDict):
     peak_rss_mb: float | None
     status: NotRequired[str]
     build_profile: NotRequired[list[BuildStage]]
-    matrix_profile: NotRequired[dict[str, object]]
     solve_metadata: NotRequired[dict[str, float]]
 
 
@@ -450,7 +386,7 @@ def main() -> int:
     parser.add_argument(
         "--profile-matrix",
         action="store_true",
-        help="Include sparse column-density diagnostics without exporting matrix arrays",
+        help="Accepted for compatibility; matrix profiling is unavailable in this slice",
     )
     parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable output"
@@ -489,7 +425,7 @@ def main() -> int:
         "--highs-load-path",
         choices=("wrapper", "direct"),
         default=None,
-        help="Select the Arco-to-HiGHS model load path for memory probes",
+        help="Accepted for compatibility; direct load path requires a later solver slice",
     )
     parser.add_argument(
         "--allow-nonoptimal",
@@ -509,9 +445,7 @@ def main() -> int:
         threads=args.threads,
         highs_solver=args.highs_solver,
         highs_run_crossover=args.highs_run_crossover,
-        highs_load_path=None
-        if args.highs_load_path in (None, "wrapper")
-        else args.highs_load_path,
+        highs_load_path=args.highs_load_path,
         require_optimal=not args.allow_nonoptimal,
     )
     solved = not args.build_only and LAST_SOLVE_STATUS == "SolutionStatus.OPTIMAL"
@@ -531,8 +465,6 @@ def main() -> int:
         payload["solve_metadata"] = LAST_SOLVE_METADATA
     if args.profile_build:
         payload["build_profile"] = LAST_BUILD_PROFILE
-    if args.profile_matrix:
-        payload["matrix_profile"] = LAST_MATRIX_PROFILE
 
     if args.json:
         print(json.dumps(payload, indent=2))
