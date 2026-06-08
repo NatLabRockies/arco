@@ -903,6 +903,18 @@ fn raw_highs_model_status_to_solver_status(status: highs_sys::HighsInt) -> Solve
     }
 }
 
+fn objective_value_for_primal_solution_status(
+    objective_value: f64,
+    highs_primal_solution_status: f64,
+) -> f64 {
+    let feasible_status = highs_sys::SOLUTION_STATUS_FEASIBLE as f64;
+    if (highs_primal_solution_status - feasible_status).abs() <= f64::EPSILON {
+        objective_value
+    } else {
+        f64::NAN
+    }
+}
+
 fn finish_prepared_solve(
     prepared: PreparedHighsSolve,
     config: &SolverConfig,
@@ -944,6 +956,8 @@ fn finish_prepared_solve(
             ),
         };
     let highs_run_seconds = highs_run_start.elapsed().as_secs_f64();
+    let objective_value =
+        objective_value_for_primal_solution_status(objective_value, highs_primal_solution_status);
     if !mapped_status.is_feasible() {
         return Err(SolverError::SolveFailure {
             status: mapped_status,
@@ -1343,6 +1357,24 @@ mod tests {
             result.metadata.get("highs_primal_solution_status"),
             Some(&(highs_sys::SOLUTION_STATUS_FEASIBLE as f64))
         );
+    }
+
+    #[test]
+    fn objective_value_is_omitted_without_primal_solution() {
+        assert_eq!(
+            objective_value_for_primal_solution_status(
+                2.0,
+                highs_sys::SOLUTION_STATUS_FEASIBLE as f64
+            ),
+            2.0
+        );
+
+        for status in [
+            highs_sys::SOLUTION_STATUS_NONE as f64,
+            highs_sys::SOLUTION_STATUS_INFEASIBLE as f64,
+        ] {
+            assert!(objective_value_for_primal_solution_status(2.0, status).is_nan());
+        }
     }
 
     #[test]
