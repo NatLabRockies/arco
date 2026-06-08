@@ -106,7 +106,7 @@ def test_large_active_mask_reports_active_count_without_dense_variable_creation(
     assert flow.dense_count == 4096
     assert flow.active_count == 64
     estimate = flow.memory_estimate()
-    assert estimate["storage"] == "full"
+    assert estimate["storage"] == "sparse"
     assert estimate["dense_slots"] == 4096
     assert estimate["active_slots"] == 64
     assert estimate["inactive_slots"] == 4032
@@ -125,6 +125,405 @@ def test_large_active_mask_reports_active_count_without_dense_variable_creation(
     assert model.num_variables == 64
     assert snapshot.metadata.variables == 64
     assert snapshot.metadata.memory.sparse_matrix_bytes > 0
+
+
+def test_sparse_active_mask_with_array_bounds_avoids_inactive_storage() -> None:
+    model = arco.Model()
+    source = arco.IndexSet(name="source", members=range(8))
+    sink = arco.IndexSet(name="sink", members=range(8))
+    active = np.eye(8, dtype=bool)
+    upper = np.full((8, 8), 10.0)
+
+    flow = model.add_variables(
+        axes=(source, sink),
+        bounds=arco.Bounds(lower=np.zeros_like(upper), upper=upper),
+        active=active,
+        name="flow",
+    )
+
+    estimate = flow.memory_estimate()
+    assert estimate["storage"] == "sparse"
+    assert flow.dense_count == 64
+    assert flow.active_count == 8
+    assert estimate["linear_terms"] == 8
+    assert model.num_variables == 8
+
+
+def test_sparse_active_mask_reconstructs_variable_names_and_bounds_on_demand() -> None:
+    model = arco.Model()
+    source = arco.IndexSet(name="source", members=range(3))
+    sink = arco.IndexSet(name="sink", members=range(3))
+    active = np.eye(3, dtype=bool)
+    lower = np.zeros((3, 3))
+    upper = np.arange(1.0, 10.0).reshape((3, 3))
+
+    flow = model.add_variables(
+        axes=(source, sink),
+        bounds=arco.Bounds(lower=lower, upper=upper),
+        active=active,
+        name="flow",
+    )
+
+    diagonal = flow.variables
+
+    assert [variable.name for variable in diagonal] == ["flow[0]", "flow[4]", "flow[8]"]
+    assert [variable.bounds.upper for variable in diagonal] == [1.0, 5.0, 9.0]
+    assert flow[4].name == "flow[4]"
+    assert flow[4].bounds.upper == 5.0
+
+
+def test_sparse_active_mask_with_labeled_array_bounds_reads_only_active_slots() -> None:
+    model = arco.Model()
+    source = arco.IndexSet(name="source", members=range(3))
+    sink = arco.IndexSet(name="sink", members=range(3))
+    hour = arco.IndexSet(name="hour", members=range(2))
+    active = arco.param(np.eye(3, dtype=bool), axes=(source, sink))
+    upper = arco.param(np.arange(1.0, 10.0).reshape((3, 3)), axes=(source, sink))
+
+    flow = model.add_variables(
+        axes=(source, sink, hour),
+        bounds=arco.Bounds(lower=0, upper=upper),
+        active=active,
+        name="flow",
+    )
+
+    assert flow.shape == (3, 3, 2)
+    assert flow.active_count == 6
+    assert [variable.bounds.upper for variable in flow.variables] == [
+        1.0,
+        1.0,
+        5.0,
+        5.0,
+        9.0,
+        9.0,
+    ]
+
+
+def test_sparse_active_mask_snapshot_reconstructs_array_variable_names() -> None:
+    model = arco.Model()
+    source = arco.IndexSet(name="source", members=range(3))
+    sink = arco.IndexSet(name="sink", members=range(3))
+    active = np.eye(3, dtype=bool)
+
+    _ = model.add_variables(
+        axes=(source, sink),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="flow",
+    )
+
+    snapshot = model.inspect()
+
+    assert [variable.name for variable in snapshot.variables] == [
+        "flow[0]",
+        "flow[4]",
+        "flow[8]",
+    ]
+    assert model.get_variable(name="flow[4]").name == "flow[4]"
+
+
+def test_constraint_block_names_reconstruct_without_per_row_metadata() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(3))
+    x = model.add_variables(axes=(i,), bounds=arco.NonNegativeFloat, name="x")
+
+    constraints = model.add_constraints(
+        x,
+        sense="ge",
+        rhs=0.0,
+        active=[True, False, True],
+        name="limit",
+    )
+    snapshot = model.inspect()
+
+    assert [constraint.name for constraint in model.constraints] == [
+        "limit[0]",
+        "limit[1]",
+    ]
+    assert [constraint.name for constraint in model.list_constraints()] == [
+        "limit[0]",
+        "limit[1]",
+    ]
+    assert [constraint.name for constraint in snapshot.constraints] == [
+        "limit[0]",
+        "limit[1]",
+    ]
+    assert constraints[1].name == "limit[1]"
+    assert int(model.get_constraint(name="limit[1]")) == 1
+
+
+def test_scalar_constraint_name_still_uses_explicit_metadata() -> None:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+
+    _ = model.add_constraint(x >= 0.0, name="limit")
+
+    assert model.constraints[0].name == "limit"
+    assert model.inspect().constraints[0].name == "limit"
+    assert int(model.get_constraint(name="limit")) == 0
+
+
+def test_sparse_active_mask_reduction_counts_only_active_terms() -> None:
+    model = arco.Model()
+    source = arco.IndexSet(name="source", members=range(128))
+    sink = arco.IndexSet(name="sink", members=range(128))
+    active = np.eye(128, dtype=bool)
+
+    flow = model.add_variables(
+        axes=(source, sink),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="flow",
+    )
+
+    reduced = flow.sum(over=source)
+    estimate = reduced.memory_estimate()
+
+    assert reduced.shape == (128,)
+    assert estimate["dense_slots"] == 128
+    assert estimate["linear_terms"] == 128
+
+
+def test_sparse_active_mask_labeled_multiply_compare_skips_inactive_rows() -> None:
+    model = arco.Model()
+    tech = arco.IndexSet(name="tech", members=range(4))
+    region = arco.IndexSet(name="region", members=range(4))
+    hour = arco.IndexSet(name="hour", members=range(3))
+    active_ir = np.eye(4, dtype=bool)
+    active_irh = active_ir[:, :, None]
+    cf = arco.param(np.full((4, 4, 3), 0.5), axes=(tech, region, hour))
+
+    cap = model.add_variables(
+        axes=(tech, region),
+        bounds=arco.NonNegativeFloat,
+        active=active_ir,
+        name="cap",
+    )
+    gen = model.add_variables(
+        axes=(tech, region, hour),
+        bounds=arco.NonNegativeFloat,
+        active=active_irh,
+        name="gen",
+    )
+
+    scaled_cap = cf * cap
+    scaled_estimate = scaled_cap.memory_estimate()
+
+    assert scaled_cap.shape == (4, 4, 3)
+    assert scaled_estimate["storage"] == "sparse"
+    assert scaled_estimate["dense_slots"] == 48
+    assert scaled_estimate["active_slots"] == 12
+    assert scaled_estimate["linear_terms"] == 12
+
+    _ = model.add_constraints(gen <= scaled_cap, name="cap_limit")
+
+    assert model.num_constraints == 12
+
+
+def test_sparse_active_mask_chained_labeled_products_sum_active_terms() -> None:
+    model = arco.Model()
+    tech = arco.IndexSet(name="tech", members=range(4))
+    region = arco.IndexSet(name="region", members=range(4))
+    hour = arco.IndexSet(name="hour", members=range(3))
+    year = arco.IndexSet(name="year", members=range(2))
+    active_irt = np.eye(4, dtype=bool)[:, :, None]
+    active_irth = active_irt[:, :, None, :]
+    cost = arco.param(np.arange(1.0, 5.0), axes=(tech,))
+    hours_weight = arco.param(np.array([2.0, 3.0, 4.0]), axes=(hour,))
+    pvf = arco.param(np.array([0.95, 0.90]), axes=(year,))
+
+    gen = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active_irth,
+        name="gen",
+    )
+
+    operating_cost = pvf * cost * hours_weight * gen
+    estimate = operating_cost.memory_estimate()
+    objective = operating_cost.sum()
+
+    assert estimate["storage"] == "sparse"
+    assert estimate["dense_slots"] == 96
+    assert estimate["active_slots"] == 24
+    assert estimate["linear_terms"] == 24
+    model.minimize(objective)
+    snapshot = model.inspect()
+    assert snapshot.objective is not None
+    assert len(snapshot.objective.terms) == 24
+
+
+def test_sparse_active_mask_diff_counts_ramping_terms_without_dense_storage() -> None:
+    model = arco.Model()
+    tech = arco.IndexSet(name="tech", members=range(4))
+    region = arco.IndexSet(name="region", members=range(4))
+    hour = arco.IndexSet(name="hour", members=range(5))
+    year = arco.IndexSet(name="year", members=range(2))
+    active_irt = np.eye(4, dtype=bool)[:, :, None]
+    active_irth = active_irt[:, :, None, :]
+
+    gen = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active_irth,
+        name="gen",
+    )
+
+    ramp_delta = np.diff(gen, axis=hour)
+    estimate = ramp_delta.memory_estimate()
+
+    assert ramp_delta.shape == (4, 4, 4, 2)
+    assert estimate["storage"] == "sparse"
+    assert estimate["dense_slots"] == 128
+    assert estimate["active_slots"] == 32
+    assert estimate["linear_terms"] == 64
+
+
+def test_sparse_ramping_constraints_intersect_labeled_active_mask() -> None:
+    model = arco.Model()
+    tech = arco.IndexSet(name="tech", members=range(4))
+    region = arco.IndexSet(name="region", members=range(4))
+    hour = arco.IndexSet(name="hour", members=range(5))
+    year = arco.IndexSet(name="year", members=range(2))
+    hour_ramp = hour[:-1]
+    active_irt = np.eye(4, dtype=bool)[:, :, None].repeat(2, axis=2)
+    constraint_active = active_irt.copy()
+    constraint_active[0, 0, 0] = False
+
+    gen = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active_irt[:, :, None, :],
+        name="gen",
+    )
+    rampup = model.add_variables(
+        axes=(tech, region, hour_ramp, year),
+        bounds=arco.NonNegativeFloat,
+        active=active_irt[:, :, None, :],
+        name="rampup",
+    )
+
+    constraints = model.add_constraints(
+        rampup >= np.diff(gen, axis=hour),
+        active=arco.param(constraint_active, axes=(tech, region, year)),
+        name="ramping",
+    )
+
+    assert len(constraints) == 28
+    assert model.num_constraints == 28
+
+
+def test_sparse_active_mask_storage_balance_add_sub_stays_sparse() -> None:
+    model = arco.Model()
+    tech = arco.IndexSet(name="tech", members=range(4))
+    region = arco.IndexSet(name="region", members=range(4))
+    hour = arco.IndexSet(name="hour", members=range(5))
+    year = arco.IndexSet(name="year", members=range(2))
+    active = np.eye(4, dtype=bool)[:, :, None, None]
+
+    soc = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="soc",
+    )
+    charge = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="charge",
+    )
+    gen = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="gen",
+    )
+
+    balance = soc + 0.92 * charge - gen
+    estimate = balance.memory_estimate()
+
+    assert balance.shape == (4, 4, 5, 2)
+    assert estimate["storage"] == "sparse"
+    assert estimate["dense_slots"] == 160
+    assert estimate["active_slots"] == 40
+    assert estimate["linear_terms"] == 120
+
+
+def test_sparse_active_mask_rolled_storage_balance_constraints_skip_inactive_rows() -> (
+    None
+):
+    model = arco.Model()
+    tech = arco.IndexSet(name="tech", members=range(4))
+    region = arco.IndexSet(name="region", members=range(4))
+    hour = arco.IndexSet(name="hour", members=range(5))
+    year = arco.IndexSet(name="year", members=range(2))
+    active = np.eye(4, dtype=bool)[:, :, None, None]
+
+    soc = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="soc",
+    )
+    charge = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="charge",
+    )
+    gen = model.add_variables(
+        axes=(tech, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="gen",
+    )
+
+    next_soc = np.roll(soc, -1, axis=hour)
+    balance = soc + 0.92 * charge - gen
+    rolled_estimate = next_soc.memory_estimate()
+
+    assert rolled_estimate["storage"] == "sparse"
+    assert rolled_estimate["dense_slots"] == 160
+    assert rolled_estimate["active_slots"] == 40
+
+    _ = model.add_constraints(next_soc == balance, name="storage_balance")
+
+    assert model.num_constraints == 40
+
+
+def test_reduced_alias_axes_can_relabel_for_vectorized_supply_balance() -> None:
+    model = arco.Model()
+    region = arco.IndexSet(name="r", members=range(4))
+    region_from = region.alias("from")
+    region_to = region.alias("to")
+    hour = arco.IndexSet(name="h", members=range(3))
+    active_routes = np.eye(4, dtype=bool)
+    load = arco.param(np.full((4, 3), 10.0), axes=(region, hour))
+
+    gen = model.add_variables(
+        axes=(region, hour),
+        bounds=arco.NonNegativeFloat,
+        name="gen",
+    )
+    flow = model.add_variables(
+        axes=(region_from, region_to, hour),
+        bounds=arco.NonNegativeFloat,
+        active=active_routes[:, :, None],
+        name="flow",
+    )
+
+    imports = (flow @ region_from).relabel_axis(region_to, region)
+    exports = (flow @ region_to).relabel_axis(region_from, region)
+    balance = gen + 0.95 * imports - exports
+
+    assert [axis.name for axis in imports.index_sets] == ["r", "h"]
+    assert [axis.name for axis in exports.index_sets] == ["r", "h"]
+    assert balance.shape == (4, 3)
+
+    _ = model.add_constraints(balance == load, name="supply_balance")
+
+    assert model.num_constraints == 12
 
 
 def test_expression_array_memory_estimate_preserves_compact_storage() -> None:
@@ -157,6 +556,37 @@ def test_expression_array_memory_estimate_preserves_compact_storage() -> None:
     assert expression_estimate["estimated_solver_sparse_matrix_bytes"] == (128 * 16) + (
         129 * 8
     )
+
+
+def test_sparse_expression_sum_builds_objective_without_dense_slots() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(4))
+    h = arco.IndexSet(name="h", members=range(3))
+    active = arco.param(
+        np.array([True, False, True, False], dtype=bool),
+        axes=(i,),
+    )
+    weights = arco.param(np.array([1.0, 10.0, 2.0, 20.0]), axes=(i,))
+
+    x = model.add_variables(
+        axes=(i, h),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="x",
+    )
+    weighted = weights * x
+    model.minimize(weighted.sum())
+
+    assert x.active_count == 6
+    assert weighted.memory_estimate()["storage"] == "sparse"
+    assert model.inspect().objective.terms == [
+        (0, 1.0),
+        (1, 1.0),
+        (2, 1.0),
+        (3, 2.0),
+        (4, 2.0),
+        (5, 2.0),
+    ]
 
 
 def test_labeled_active_mask_rejects_duplicate_axes_through_shared_shape_contract() -> (

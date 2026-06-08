@@ -30,6 +30,7 @@ class SolverRuntimeInfo(TypedDict):
     license_env_var: str | None
     runtime_env_var: str | None
     runtime_dir: str | None
+    runtime_available: bool
     configured_license_path: str | None
     backend_enabled: bool
 
@@ -150,7 +151,6 @@ Binary: BoundType
 class Bounds:
     def __init__(
         self,
-        *,
         lower: BoundValue | None = None,
         upper: BoundValue | None = None,
     ) -> None: ...
@@ -268,6 +268,15 @@ class Scip(Solver):
     ) -> None: ...
 
 class IndexSet:
+    @overload
+    def __init__(
+        self,
+        name: str,
+        *,
+        size: int | None = None,
+        members: Sequence[IndexMember] | None = None,
+    ) -> None: ...
+    @overload
     def __init__(
         self,
         *,
@@ -315,8 +324,8 @@ class ParamArray:
 
 def param(
     values: object,
-    *,
-    axes: tuple[IndexSet, ...],
+    *axes_pos: IndexSet,
+    axes: tuple[IndexSet, ...] | None = None,
     name: str | None = None,
 ) -> ParamArray: ...
 
@@ -738,6 +747,12 @@ class Model:
         is_integer: object,
         simplify_level: SimplifyLevel | None = None,
     ) -> Model: ...
+    def reserve(
+        self,
+        *,
+        num_variables: int = 0,
+        num_constraints: int = 0,
+    ) -> None: ...
     def add_variable(
         self,
         *,
@@ -748,8 +763,8 @@ class Model:
     ) -> Variable: ...
     def add_variables(
         self,
-        *,
-        axes: tuple[IndexSet, ...],
+        *axes_pos: IndexSet,
+        axes: tuple[IndexSet, ...] | None = None,
         bounds: Bounds | BoundType,
         is_integer: bool = False,
         is_binary: bool = False,
@@ -820,6 +835,10 @@ class Model:
         *,
         name: str | None = None,
     ) -> None: ...
+    def add_objective_terms(
+        self,
+        expr: Expr | Variable | VariableArray | ExprArray,
+    ) -> None: ...
     def solve(
         self,
         *,
@@ -838,6 +857,9 @@ class Model:
         variable_ids: Sequence[int] | None = None,
         constraint_ids: Sequence[int] | None = None,
     ) -> ModelSnapshot: ...
+    def matrix_profile(
+        self, *, top_n: int = 20, dense_threshold: int = 100
+    ) -> dict[str, object]: ...
     def pprint(self) -> None: ...
     def add_block(
         self,

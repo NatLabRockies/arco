@@ -42,10 +42,7 @@ impl PyConstraintIterator {
         let model = slf.model.borrow(py);
         let con_id = ConstraintId::new(i as u32);
         let con = model.inner.get_constraint(con_id).ok()?;
-        let name = model
-            .inner
-            .get_constraint_name(con_id)
-            .map(|s| s.to_string());
+        let name = model.reconstruct_constraint_name(i as u32);
         Some(PyConstraint::new(i as u32, name, con.bounds))
     }
 
@@ -89,7 +86,7 @@ impl PyVariableIterator {
         let model = slf.model.borrow(py);
         let var_id = VariableId::new(i as u32);
         let var = model.inner.get_variable(var_id).ok()?;
-        let name = model.inner.get_variable_name(var_id).map(|s| s.to_string());
+        let name = model.reconstruct_variable_name(i as u32);
         Some(PyVariable::from_model_variable(i as u32, name, &var))
     }
 

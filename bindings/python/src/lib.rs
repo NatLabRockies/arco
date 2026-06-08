@@ -12,7 +12,7 @@ use arco_ops::modeling::types::Bounds;
 use arco_ops::modeling::{InspectOptions, Model, Objective, Sense, SlackBound, Variable};
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyType};
+use pyo3::types::{PyDict, PyList, PyType};
 
 pub(crate) type PyObject = Py<PyAny>;
 
@@ -447,6 +447,8 @@ pub struct PyModel {
     link_defs: Vec<pym::model_blocks::LinkDef>,
     /// Compact metadata for arrays created via add_variables() for pretty-printing.
     array_print_specs: Vec<pym::model_pretty::ArrayPrintSpec>,
+    /// Compact metadata for named constraint blocks.
+    constraint_print_specs: Vec<pym::model_pretty::ConstraintPrintSpec>,
     /// Nonlinear constraints and objective registered via `add_nonlinear_constraint`
     /// and `minimize`/`maximize` with a `NonlinearExpr`. Only meaningful when the
     /// `ipopt` feature is enabled.
@@ -468,6 +470,7 @@ impl PyModel {
             block_defs: Vec::new(),
             link_defs: Vec::new(),
             array_print_specs: Vec::new(),
+            constraint_print_specs: Vec::new(),
             #[cfg(feature = "ipopt")]
             nonlinear_state: pym::nonlinear_state::NonlinearState::default(),
         }
@@ -519,6 +522,17 @@ impl PyModel {
             is_integer,
             simplify_level,
         )
+    }
+
+    /// Pre-allocate storage for additional variables and constraints.
+    #[pyo3(signature = (*, num_variables=0, num_constraints=0))]
+    fn reserve(&mut self, num_variables: usize, num_constraints: usize) {
+        if num_variables > 0 {
+            self.inner.reserve_variables(num_variables);
+        }
+        if num_constraints > 0 {
+            self.inner.reserve_constraints(num_constraints);
+        }
     }
 
     /// Add a variable to the model.
@@ -726,6 +740,18 @@ impl PyModel {
                     left,
                     right,
                     lazy_sense,
+                    active,
+                    name,
+                    array.shape_ref(),
+                    &array.clone_index_sets(),
+                );
+            }
+            if let Some((exprs, sparse_rhs, row_indices, sparse_sense)) = array.as_sparse_rows() {
+                return self.add_constraints_sparse_rows_internal(
+                    exprs,
+                    sparse_sense,
+                    sparse_rhs,
+                    row_indices,
                     active,
                     name,
                     array.shape_ref(),
@@ -997,6 +1023,12 @@ impl PyModel {
         self.set_objective_from_expr(expr, Sense::Maximize, name)
     }
 
+    /// Append linear expression terms to an existing objective.
+    #[pyo3(signature = (expr))]
+    fn add_objective_terms(&mut self, expr: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.add_objective_terms_from_expr(expr)
+    }
+
     /// Add a nonlinear constraint to the model.
     ///
     /// Accepts a `NonlinearConstraintExpr` (the result of comparing a
@@ -1152,10 +1184,7 @@ impl PyModel {
         for i in 0..num {
             let con_id = ConstraintId::new(i as u32);
             if let Ok(con) = self.inner.get_constraint(con_id) {
-                let name = self
-                    .inner
-                    .get_constraint_name(con_id)
-                    .map(|s| s.to_string());
+                let name = self.reconstruct_constraint_name(i as u32);
                 result.push(PyConstraint::new(i as u32, name, con.bounds));
             }
         }
@@ -1179,7 +1208,7 @@ impl PyModel {
     /// Raises ConstraintNotFoundError if no constraint with the given name exists.
     #[pyo3(signature = (*, name))]
     fn get_constraint(&self, name: &str) -> PyResult<PyConstraint> {
-        let con_id = self.inner.get_constraint_by_name(name).ok_or_else(|| {
+        let con_id = self.find_constraint_by_name(name).ok_or_else(|| {
             pym::errors::ConstraintNotFoundError::new_err(format!(
                 "constraint named '{name}' does not exist"
             ))
@@ -1294,8 +1323,125 @@ impl PyModel {
                 .map(|ids| ids.into_iter().map(ConstraintId::new).collect()),
         };
 
-        let snapshot = self.inner.inspect(options);
+        let mut snapshot = self.inner.inspect(options);
+        for variable in &mut snapshot.variables {
+            if variable.name.is_none() {
+                variable.name = self.reconstruct_variable_name(variable.id.inner());
+            }
+        }
+        for constraint in &mut snapshot.constraints {
+            if constraint.name.is_none() {
+                constraint.name = self.reconstruct_constraint_name(constraint.id.inner());
+            }
+        }
         PyModelSnapshot::from_snapshot(py, snapshot)
+    }
+
+    /// Return sparse matrix column-density diagnostics without exporting matrix arrays.
+    #[pyo3(signature = (*, top_n=20, dense_threshold=100))]
+    fn matrix_profile(
+        &self,
+        py: Python<'_>,
+        top_n: usize,
+        dense_threshold: usize,
+    ) -> PyResult<PyObject> {
+        let columns = self.inner.columns();
+        let mut empty_columns = 0usize;
+        let mut singleton_columns = 0usize;
+        let mut two_entry_columns = 0usize;
+        let mut nnz_le_5_columns = 0usize;
+        let mut nnz_le_10_columns = 0usize;
+        let mut nnz_le_50_columns = 0usize;
+        let mut nnz_le_100_columns = 0usize;
+        let mut nnz_le_500_columns = 0usize;
+        let mut nnz_le_1000_columns = 0usize;
+        let mut nnz_gt_1000_columns = 0usize;
+        let mut dense_columns = 0usize;
+        let mut max_column_nnz = 0usize;
+        let mut min_nonzero_column_nnz: Option<usize> = None;
+        let mut total_nnz = 0usize;
+        let mut top_columns: Vec<(u32, usize)> = Vec::with_capacity(top_n);
+
+        for (variable_id, column) in columns {
+            let nnz = column.len();
+            total_nnz = total_nnz.saturating_add(nnz);
+            max_column_nnz = max_column_nnz.max(nnz);
+            if nnz > 0 {
+                min_nonzero_column_nnz =
+                    Some(min_nonzero_column_nnz.map_or(nnz, |min| min.min(nnz)));
+            }
+            if nnz >= dense_threshold {
+                dense_columns = dense_columns.saturating_add(1);
+            }
+            match nnz {
+                0 => empty_columns = empty_columns.saturating_add(1),
+                1 => singleton_columns = singleton_columns.saturating_add(1),
+                2 => two_entry_columns = two_entry_columns.saturating_add(1),
+                3..=5 => nnz_le_5_columns = nnz_le_5_columns.saturating_add(1),
+                6..=10 => nnz_le_10_columns = nnz_le_10_columns.saturating_add(1),
+                11..=50 => nnz_le_50_columns = nnz_le_50_columns.saturating_add(1),
+                51..=100 => nnz_le_100_columns = nnz_le_100_columns.saturating_add(1),
+                101..=500 => nnz_le_500_columns = nnz_le_500_columns.saturating_add(1),
+                501..=1000 => nnz_le_1000_columns = nnz_le_1000_columns.saturating_add(1),
+                _ => nnz_gt_1000_columns = nnz_gt_1000_columns.saturating_add(1),
+            }
+
+            if top_n > 0 {
+                if top_columns.len() < top_n {
+                    top_columns.push((variable_id.inner(), nnz));
+                } else if let Some((min_idx, (_, min_nnz))) = top_columns
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, (_, candidate_nnz))| *candidate_nnz)
+                {
+                    if nnz > *min_nnz {
+                        top_columns[min_idx] = (variable_id.inner(), nnz);
+                    }
+                }
+            }
+        }
+
+        top_columns.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+
+        let profile = PyDict::new(py);
+        let num_variables = self.inner.num_variables();
+        let average_column_nnz = if num_variables == 0 {
+            0.0
+        } else {
+            total_nnz as f64 / num_variables as f64
+        };
+        profile.set_item("num_variables", num_variables)?;
+        profile.set_item("num_constraints", self.inner.num_constraints())?;
+        profile.set_item("num_coefficients", total_nnz)?;
+        profile.set_item("average_column_nnz", average_column_nnz)?;
+        profile.set_item("max_column_nnz", max_column_nnz)?;
+        profile.set_item("min_nonzero_column_nnz", min_nonzero_column_nnz)?;
+        profile.set_item("dense_threshold", dense_threshold)?;
+        profile.set_item("dense_columns", dense_columns)?;
+
+        let buckets = PyDict::new(py);
+        buckets.set_item("eq_0", empty_columns)?;
+        buckets.set_item("eq_1", singleton_columns)?;
+        buckets.set_item("eq_2", two_entry_columns)?;
+        buckets.set_item("le_5", nnz_le_5_columns)?;
+        buckets.set_item("le_10", nnz_le_10_columns)?;
+        buckets.set_item("le_50", nnz_le_50_columns)?;
+        buckets.set_item("le_100", nnz_le_100_columns)?;
+        buckets.set_item("le_500", nnz_le_500_columns)?;
+        buckets.set_item("le_1000", nnz_le_1000_columns)?;
+        buckets.set_item("gt_1000", nnz_gt_1000_columns)?;
+        profile.set_item("column_nnz_buckets", buckets)?;
+
+        let top = PyList::empty(py);
+        for (variable_id, nnz) in top_columns {
+            let row = PyDict::new(py);
+            row.set_item("variable_id", variable_id)?;
+            row.set_item("name", self.reconstruct_variable_name(variable_id))?;
+            row.set_item("nnz", nnz)?;
+            top.append(row)?;
+        }
+        profile.set_item("top_columns", top)?;
+        Ok(profile.unbind().into())
     }
 
     /// Add a typed block function to this model for composed optimization.

@@ -249,7 +249,98 @@ impl BroadcastPlan {
         Ok(indices)
     }
 
-    fn source_offset_for_target_flat(&self, target_flat: usize) -> usize {
+    /// Return target-flat coordinates where the broadcasted predicate is true,
+    /// expanding from true source entries instead of scanning every target slot.
+    ///
+    /// This is substantially cheaper when a small labeled mask broadcasts over
+    /// large missing axes, for example `(from,to)` route activity over
+    /// `(from,to,h,t)` flow variables.
+    pub fn active_target_indices_from_source<T>(
+        &self,
+        values: &[T],
+        predicate: impl Fn(&T) -> bool,
+    ) -> Result<Vec<usize>, ShapeError> {
+        let expected = self.source.total_len();
+        if values.len() != expected {
+            return Err(ShapeError::ValueCountMismatch {
+                expected,
+                actual: values.len(),
+            });
+        }
+
+        let target_shape = self.target.shape();
+        let source_to_target = self
+            .source
+            .axes()
+            .iter()
+            .map(|source_axis| {
+                self.target
+                    .axis_index(source_axis)
+                    .expect("BroadcastPlan source axes must exist in target")
+            })
+            .collect::<Vec<_>>();
+        let missing_target_axes = self
+            .target_to_source
+            .iter()
+            .enumerate()
+            .filter_map(|(target_axis, source_axis)| source_axis.is_none().then_some(target_axis))
+            .collect::<Vec<_>>();
+
+        let mut indices = Vec::new();
+        for (source_flat, value) in values.iter().enumerate() {
+            if !predicate(value) {
+                continue;
+            }
+
+            let mut remainder = source_flat;
+            let mut target_base = 0usize;
+            for (source_axis, source_stride) in self.source_strides.iter().enumerate() {
+                let coordinate = remainder / source_stride;
+                remainder %= source_stride;
+                let target_axis = source_to_target[source_axis];
+                target_base += coordinate * self.target_strides[target_axis];
+            }
+
+            self.expand_missing_target_axes(
+                0,
+                target_base,
+                &missing_target_axes,
+                &target_shape,
+                &mut indices,
+            );
+        }
+        indices.sort_unstable();
+        Ok(indices)
+    }
+
+    fn expand_missing_target_axes(
+        &self,
+        axis_pos: usize,
+        base: usize,
+        missing_target_axes: &[usize],
+        target_shape: &[usize],
+        out: &mut Vec<usize>,
+    ) {
+        if axis_pos == missing_target_axes.len() {
+            out.push(base);
+            return;
+        }
+
+        let target_axis = missing_target_axes[axis_pos];
+        let stride = self.target_strides[target_axis];
+        for coordinate in 0..target_shape[target_axis] {
+            self.expand_missing_target_axes(
+                axis_pos + 1,
+                base + coordinate * stride,
+                missing_target_axes,
+                target_shape,
+                out,
+            );
+        }
+    }
+
+    #[must_use]
+    pub fn source_offset_for_target_flat(&self, target_flat: usize) -> usize {
         let mut remainder = target_flat;
         let mut source_flat = 0;
 
@@ -321,5 +412,33 @@ mod tests {
             .expect("active indices");
 
         assert_eq!(active, vec![0, 2, 4, 7, 9, 11]);
+    }
+
+    #[test]
+    fn source_driven_active_indices_match_target_scan() {
+        let source = LabeledShape::new(vec![AxisSpec::new("from", 3), AxisSpec::new("to", 2)])
+            .expect("source shape");
+        let target = LabeledShape::new(vec![
+            AxisSpec::new("h", 2),
+            AxisSpec::new("to", 2),
+            AxisSpec::new("from", 3),
+            AxisSpec::new("t", 2),
+        ])
+        .expect("target shape");
+        let plan = BroadcastPlan::new(source, target).expect("broadcast plan");
+        let mask = vec![true, false, false, true, true, false];
+
+        let target_scan = plan
+            .active_target_indices(&mask, |value| *value)
+            .expect("target scan active indices");
+        let source_driven = plan
+            .active_target_indices_from_source(&mask, |value| *value)
+            .expect("source driven active indices");
+
+        assert_eq!(source_driven, target_scan);
+        assert_eq!(
+            source_driven,
+            vec![0, 1, 4, 5, 8, 9, 12, 13, 16, 17, 20, 21]
+        );
     }
 }

@@ -108,6 +108,8 @@ type XPRSgetlpsolFn = unsafe extern "C" fn(
 type XPRSgetmipsolFn = unsafe extern "C" fn(XPRSprob, *mut c_double, *mut c_double) -> c_int;
 type XPRSaddmipsolFn =
     unsafe extern "C" fn(XPRSprob, c_int, *const c_double, *const c_int, *const c_char) -> c_int;
+type XPRSchgboundsFn =
+    unsafe extern "C" fn(XPRSprob, c_int, *const c_int, *const c_char, *const c_double) -> c_int;
 type XPRSsetintcontrolFn = unsafe extern "C" fn(XPRSprob, c_int, c_int) -> c_int;
 type XPRSgetintcontrolFn = unsafe extern "C" fn(XPRSprob, c_int, *mut c_int) -> c_int;
 type XPRSsetdblcontrolFn = unsafe extern "C" fn(XPRSprob, c_int, c_double) -> c_int;
@@ -172,6 +174,7 @@ pub struct Api {
     pub xprs_getlpsol: XPRSgetlpsolFn,
     pub xprs_getmipsol: XPRSgetmipsolFn,
     pub xprs_addmipsol: XPRSaddmipsolFn,
+    pub xprs_chgbounds: XPRSchgboundsFn,
     pub xprs_setintcontrol: XPRSsetintcontrolFn,
     pub xprs_getintcontrol: XPRSgetintcontrolFn,
     pub xprs_setdblcontrol: XPRSsetdblcontrolFn,
@@ -291,6 +294,7 @@ fn load_api() -> Result<Api, RuntimeLoadError> {
                     xprs_getlpsol: load_symbol!(handle, "XPRSgetlpsol", XPRSgetlpsolFn),
                     xprs_getmipsol: load_symbol!(handle, "XPRSgetmipsol", XPRSgetmipsolFn),
                     xprs_addmipsol: load_symbol!(handle, "XPRSaddmipsol", XPRSaddmipsolFn),
+                    xprs_chgbounds: load_symbol!(handle, "XPRSchgbounds", XPRSchgboundsFn),
                     xprs_setintcontrol: load_symbol!(
                         handle,
                         "XPRSsetintcontrol",

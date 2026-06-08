@@ -1,5 +1,5 @@
 use crate::{PyIndexSet, PyModel};
-use arco_ops::expression::VariableId;
+use arco_ops::expression::{ConstraintId, VariableId};
 use arco_ops::modeling::Model;
 use arco_ops::modeling::model::{
     PrettyBoundGroup, PrettyPrintAdapter, PrettySection, format_ascii_number,
@@ -18,6 +18,13 @@ pub(crate) struct ArrayPrintSpec {
     pub(crate) shape: Vec<usize>,
     pub(crate) strides: Vec<usize>,
     pub(crate) index_sets: Vec<Py<PyIndexSet>>,
+    pub(crate) dense_indices: Option<Vec<usize>>,
+}
+
+pub(crate) struct ConstraintPrintSpec {
+    pub(crate) start_constraint_id: u32,
+    pub(crate) len: usize,
+    pub(crate) base_name: String,
 }
 
 pub(crate) struct PythonPrettyAdapter<'a> {
@@ -34,6 +41,11 @@ impl PrettyPrintAdapter for PythonPrettyAdapter<'_> {
             }
         }
         Some(array_label)
+    }
+
+    fn constraint_label(&self, _model: &Model, constraint_id: ConstraintId) -> Option<String> {
+        self.model
+            .reconstruct_constraint_name(constraint_id.inner())
     }
 
     fn sections(&self, _model: &Model) -> Vec<PrettySection> {
@@ -64,6 +76,17 @@ impl ArrayPrintSpec {
     }
 }
 
+impl ConstraintPrintSpec {
+    pub(crate) fn offset_of(&self, constraint_id: ConstraintId) -> Option<usize> {
+        let raw = constraint_id.inner();
+        if raw < self.start_constraint_id {
+            return None;
+        }
+        let offset = (raw - self.start_constraint_id) as usize;
+        (offset < self.len).then_some(offset)
+    }
+}
+
 impl PyModel {
     pub(crate) fn register_array_print_spec(
         &mut self,
@@ -88,6 +111,34 @@ impl PyModel {
             shape: shape.to_vec(),
             strides,
             index_sets: index_sets.iter().map(|set| set.clone_ref(py)).collect(),
+            dense_indices: None,
+        });
+    }
+
+    pub(crate) fn register_sparse_array_print_spec(
+        &mut self,
+        py: Python<'_>,
+        start_var_id: u32,
+        active_indices: &[usize],
+        index_sets: &[Py<PyIndexSet>],
+        shape: &[usize],
+        base_name: Option<&str>,
+    ) {
+        if active_indices.is_empty() || index_sets.is_empty() {
+            return;
+        }
+        let strides = (0..shape.len())
+            .map(|axis| shape[axis + 1..].iter().product::<usize>().max(1))
+            .collect::<Vec<_>>();
+
+        self.array_print_specs.push(ArrayPrintSpec {
+            start_var_id,
+            len: active_indices.len(),
+            base_name: base_name.unwrap_or("x").to_string(),
+            shape: shape.to_vec(),
+            strides,
+            index_sets: index_sets.iter().map(|set| set.clone_ref(py)).collect(),
+            dense_indices: Some(active_indices.to_vec()),
         });
     }
 
@@ -99,6 +150,11 @@ impl PyModel {
 
     pub(crate) fn array_label_for_var(spec: &ArrayPrintSpec, var_id: VariableId) -> Option<String> {
         let offset = spec.offset_of(var_id)?;
+        let dense_offset = spec
+            .dense_indices
+            .as_ref()
+            .and_then(|indices| indices.get(offset).copied())
+            .unwrap_or(offset);
         if spec.shape.is_empty() {
             return Some(spec.base_name.clone());
         }
@@ -114,7 +170,7 @@ impl PyModel {
                 if size == 0 {
                     return None;
                 }
-                let coord = (offset / stride) % size;
+                let coord = (dense_offset / stride) % size;
                 let set_ref = spec.index_sets.get(axis)?.borrow(py);
                 let member = set_ref.members.get(coord)?;
                 parts.push(format_index_member(member));
@@ -134,7 +190,12 @@ impl PyModel {
         if spec.len == 1 {
             return name == spec.base_name || name == format!("{}[0]", spec.base_name);
         }
-        name == format!("{}[{offset}]", spec.base_name)
+        let dense_offset = spec
+            .dense_indices
+            .as_ref()
+            .and_then(|indices| indices.get(offset).copied())
+            .unwrap_or(offset);
+        name == format!("{}[{dense_offset}]", spec.base_name)
     }
 
     fn render_index_set_lines(&self) -> Vec<String> {

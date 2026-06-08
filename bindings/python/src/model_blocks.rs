@@ -295,10 +295,7 @@ impl PyBlockResults {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let keys = self.keys();
-        Ok(PyList::new(py, keys)?
-            .call_method0("__iter__")?
-            .unbind()
-            .into())
+        Ok(PyList::new(py, keys)?.call_method0("__iter__")?.unbind())
     }
 
     fn keys(&self) -> Vec<String> {
