@@ -85,7 +85,7 @@ pub fn validate_model_view_solve_result(
     model: &(impl ModelView + ?Sized),
     result: &ModelViewSolveResult,
 ) -> Result<(), SolverError> {
-    validate_model_view_solve_result_shape(model, result, false)
+    validate_model_view_solve_result_shape(model, result, false, false)
 }
 
 /// Validate a backend result against the supplied solver configuration.
@@ -99,16 +99,27 @@ pub fn validate_model_view_solve_result_with_config(
     result: &ModelViewSolveResult,
     config: &SolverConfig,
 ) -> Result<(), SolverError> {
-    validate_model_view_solve_result_shape(model, result, allows_omitted_primal_values(config))
+    validate_model_view_solve_result_shape(
+        model,
+        result,
+        allows_omitted_primal_values(config),
+        allows_omitted_fingerprint(config),
+    )
 }
 
 fn validate_model_view_solve_result_shape(
     model: &(impl ModelView + ?Sized),
     result: &ModelViewSolveResult,
     allow_omitted_primal_values: bool,
+    allow_omitted_fingerprint: bool,
 ) -> Result<(), SolverError> {
-    let expected_fingerprint = model.fingerprint();
-    if result.fingerprint.0 != 0 && result.fingerprint != expected_fingerprint {
+    if result.fingerprint.0 == 0 {
+        if !allow_omitted_fingerprint {
+            return Err(SolverError::InvalidResultShape(
+                "result fingerprint does not match input model fingerprint".to_string(),
+            ));
+        }
+    } else if result.fingerprint != model.fingerprint() {
         return Err(SolverError::InvalidResultShape(
             "result fingerprint does not match input model fingerprint".to_string(),
         ));
@@ -148,6 +159,13 @@ fn allows_omitted_primal_values(config: &SolverConfig) -> bool {
     config
         .parameters
         .get("arco.extract_solution")
+        .is_some_and(|value| value == "false")
+}
+
+fn allows_omitted_fingerprint(config: &SolverConfig) -> bool {
+    config
+        .parameters
+        .get("arco.fingerprint")
         .is_some_and(|value| value == "false")
 }
 
@@ -294,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn validation_accepts_zero_fingerprint_sentinel_when_lengths_match() {
+    fn validation_rejects_zero_fingerprint_without_config_opt_out() {
         let mut model = Model::new();
         model
             .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
@@ -311,8 +329,16 @@ mod tests {
             metadata: Default::default(),
         };
 
-        super::validate_model_view_solve_result(&model, &result)
-            .expect("zero fingerprint sentinel should skip only fingerprint validation");
+        assert!(matches!(
+            super::validate_model_view_solve_result(&model, &result),
+            Err(SolverError::InvalidResultShape(_))
+        ));
+        super::validate_model_view_solve_result_with_config(
+            &model,
+            &result,
+            &SolverConfig::new().with_parameter("arco.fingerprint", "false"),
+        )
+        .expect("config opt-out permits omitted fingerprint");
     }
 
     #[test]
