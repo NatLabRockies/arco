@@ -172,7 +172,7 @@ impl Model {
 
         let variables = self
             .variables
-            .iter_bounds()
+            .iter()
             .enumerate()
             .map(|(idx, bounds)| (VariableId::new(idx as u32), bounds))
             .filter(|(id, _)| var_filter.as_ref().is_none_or(|filter| filter.contains(id)))
@@ -184,7 +184,7 @@ impl Model {
                         .variable_names
                         .as_ref()
                         .and_then(|names| names.get(&id).cloned()),
-                    bounds,
+                    bounds: *bounds,
                     is_integer: Self::read_packed_flag(&self.variable_is_integer_bits, idx),
                     is_active: !Self::read_packed_flag(&self.variable_is_inactive_bits, idx),
                     metadata: self

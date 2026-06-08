@@ -88,7 +88,7 @@ impl Model {
                 bounds: Bounds::new(lower, upper),
                 is_integer: is_integer[idx],
                 is_active: true,
-            })?;
+            });
         }
 
         for idx in 0..num_constraints {

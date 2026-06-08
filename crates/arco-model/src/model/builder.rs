@@ -3,9 +3,7 @@
 use crate::expr::{ComparisonSense, ConstraintExpr, Expr};
 use crate::ids::{ConstraintId, VariableId};
 use crate::model::error::ModelError;
-use crate::model::{
-    BITS_PER_WORD, ColumnVec, Model, bounds_are_valid, coefficient_is_valid, column_upsert,
-};
+use crate::model::{BITS_PER_WORD, Model, bounds_are_valid, coefficient_is_valid, column_upsert};
 use crate::types::{Bounds, Constraint, Objective, Sense, Variable};
 
 impl Model {
@@ -41,115 +39,9 @@ impl Model {
         let id = VariableId::new(self.next_variable_id);
         self.next_variable_id += 1;
 
-        self.push_variable(variable)?;
+        self.push_variable(variable);
 
         Ok(id)
-    }
-
-    /// Add a contiguous block of variables that share bounds and integrality.
-    ///
-    /// This avoids repeated validation and per-variable method dispatch in large
-    /// array builders while preserving the same contiguous ID assignment as
-    /// calling `add_variable` repeatedly.
-    pub fn add_variables_uniform(
-        &mut self,
-        variable: Variable,
-        count: usize,
-    ) -> Result<VariableId, ModelError> {
-        if !bounds_are_valid(variable.bounds.lower, variable.bounds.upper) {
-            return Err(ModelError::InvalidVariableBounds {
-                lower: variable.bounds.lower,
-                upper: variable.bounds.upper,
-            });
-        }
-        if count == 0 {
-            return Ok(VariableId::new(self.next_variable_id));
-        }
-
-        let count_u32 = u32::try_from(count).map_err(|_| ModelError::InvalidCscData {
-            reason: "variable block size exceeds u32 id space".to_string(),
-        })?;
-        let first_id = self.next_variable_id;
-        let next_id =
-            first_id
-                .checked_add(count_u32)
-                .ok_or_else(|| ModelError::InvalidCscData {
-                    reason: "variable block would exceed u32 id space".to_string(),
-                })?;
-
-        self.reserve_variables(count);
-
-        let start_idx = self.variables.len();
-        self.variables.extend_repeated(variable.bounds, count)?;
-        self.columns.resize_with(start_idx + count, ColumnVec::new);
-        if variable.is_integer {
-            for idx in start_idx..start_idx + count {
-                Self::write_packed_flag(&mut self.variable_is_integer_bits, idx, true);
-            }
-        }
-        if !variable.is_active {
-            for idx in start_idx..start_idx + count {
-                Self::write_packed_flag(&mut self.variable_is_inactive_bits, idx, true);
-            }
-        }
-        self.next_variable_id = next_id;
-
-        Ok(VariableId::new(first_id))
-    }
-
-    /// Add a contiguous block of variables with per-variable bounds and shared flags.
-    ///
-    /// This is the array-bounds companion to `add_variables_uniform`: callers can
-    /// validate and insert a large variable block without per-variable method
-    /// dispatch while preserving contiguous IDs.
-    pub fn add_variables_with_bounds(
-        &mut self,
-        bounds: &[Bounds],
-        is_integer: bool,
-        is_active: bool,
-    ) -> Result<VariableId, ModelError> {
-        for bound in bounds {
-            if !bounds_are_valid(bound.lower, bound.upper) {
-                return Err(ModelError::InvalidVariableBounds {
-                    lower: bound.lower,
-                    upper: bound.upper,
-                });
-            }
-        }
-        if bounds.is_empty() {
-            return Ok(VariableId::new(self.next_variable_id));
-        }
-
-        let count_u32 = u32::try_from(bounds.len()).map_err(|_| ModelError::InvalidCscData {
-            reason: "variable block size exceeds u32 id space".to_string(),
-        })?;
-        let first_id = self.next_variable_id;
-        let next_id =
-            first_id
-                .checked_add(count_u32)
-                .ok_or_else(|| ModelError::InvalidCscData {
-                    reason: "variable block would exceed u32 id space".to_string(),
-                })?;
-
-        self.reserve_variables(bounds.len());
-
-        let start_idx = self.variables.len();
-        self.variables.extend_from_slice(bounds)?;
-        self.columns
-            .resize_with(start_idx + bounds.len(), ColumnVec::new);
-        if is_integer {
-            for idx in start_idx..start_idx + bounds.len() {
-                Self::write_packed_flag(&mut self.variable_is_integer_bits, idx, true);
-            }
-        }
-        if !is_active {
-            for idx in start_idx..start_idx + bounds.len() {
-                Self::write_packed_flag(&mut self.variable_is_inactive_bits, idx, true);
-            }
-        }
-        self.next_variable_id = next_id;
-
-        Ok(VariableId::new(first_id))
     }
 
     /// Add a constraint to the model.
@@ -181,14 +73,12 @@ impl Model {
             }
         }
 
-        let mut normalized = self.normalize_terms(objective.terms);
-        normalized.shrink_to_fit();
+        let normalized = self.normalize_terms(objective.terms);
         self.objective = Objective {
             sense: Some(sense),
             terms: normalized,
         };
         self.objective_name = None;
-        self.shrink_retained_storage();
         tracing::debug!(
             component = "model",
             operation = "set_objective",
@@ -291,59 +181,6 @@ impl Model {
         Ok(ConstraintId::new(first_constraint_id))
     }
 
-    /// Add compact constraints where each row maps term patterns through a dense row index.
-    ///
-    /// For each inserted row, a pattern `(start_var_id, coeff)` is expanded to
-    /// variable `start_var_id + row_index`. This keeps Python active-mask paths
-    /// from allocating a per-row term vector when active rows are sparse.
-    pub fn add_constraints_compact_indexed(
-        &mut self,
-        term_patterns: &[(u32, f64)],
-        row_indices: &[usize],
-        bounds_list: &[Bounds],
-    ) -> Result<ConstraintId, ModelError> {
-        let count = row_indices.len();
-        if count == 0 {
-            return Ok(ConstraintId::new(self.next_constraint_id));
-        }
-        if bounds_list.len() != count {
-            return Err(ModelError::InvalidCscData {
-                reason: "compact indexed constraint bounds length must match row indices"
-                    .to_string(),
-            });
-        }
-
-        self.constraints.reserve(count);
-        let first_constraint_id = self.next_constraint_id;
-
-        for (row_index, bounds) in row_indices.iter().copied().zip(bounds_list.iter()) {
-            if !bounds_are_valid(bounds.lower, bounds.upper) {
-                return Err(ModelError::InvalidConstraintBounds {
-                    lower: bounds.lower,
-                    upper: bounds.upper,
-                });
-            }
-
-            let constraint_id = ConstraintId::new(self.next_constraint_id);
-            self.next_constraint_id += 1;
-            self.constraints.push(Constraint { bounds: *bounds });
-
-            for &(start_var_id, coeff) in term_patterns {
-                let Some(var_idx) = (start_var_id as usize).checked_add(row_index) else {
-                    return Err(ModelError::InvalidVariableId(VariableId::new(u32::MAX)));
-                };
-                if var_idx >= self.variables.len() {
-                    return Err(ModelError::InvalidVariableId(VariableId::new(
-                        var_idx as u32,
-                    )));
-                }
-                self.columns[var_idx].push((constraint_id, coeff));
-            }
-        }
-
-        Ok(ConstraintId::new(first_constraint_id))
-    }
-
     /// Add a batch of constraints with pre-normalized terms.
     ///
     /// Each constraint is given as a slice of `(VariableId, f64)` terms and a `Bounds`.
@@ -355,27 +192,7 @@ impl Model {
         &mut self,
         constraints: &[(Vec<(VariableId, f64)>, Bounds)],
     ) -> Result<ConstraintId, ModelError> {
-        self.add_constraints_batch_streaming(
-            constraints.len(),
-            constraints
-                .iter()
-                .map(|(terms, bounds)| (terms.as_slice(), *bounds)),
-        )
-    }
-
-    /// Add a streamed batch of constraints with pre-normalized term slices.
-    ///
-    /// Rows are consumed one at a time, so callers do not need to retain a full
-    /// batch of row vectors before inserting them into the model.
-    pub fn add_constraints_batch_streaming<I, T>(
-        &mut self,
-        count: usize,
-        constraints: I,
-    ) -> Result<ConstraintId, ModelError>
-    where
-        I: IntoIterator<Item = (T, Bounds)>,
-        T: AsRef<[(VariableId, f64)]>,
-    {
+        let count = constraints.len();
         if count == 0 {
             return Ok(ConstraintId::new(self.next_constraint_id));
         }
@@ -384,7 +201,6 @@ impl Model {
         let first_constraint_id = self.next_constraint_id;
 
         for (terms, bounds) in constraints {
-            let terms = terms.as_ref();
             if !bounds_are_valid(bounds.lower, bounds.upper) {
                 return Err(ModelError::InvalidConstraintBounds {
                     lower: bounds.lower,
@@ -394,7 +210,7 @@ impl Model {
 
             let constraint_id = ConstraintId::new(self.next_constraint_id);
             self.next_constraint_id += 1;
-            self.constraints.push(Constraint { bounds });
+            self.constraints.push(Constraint { bounds: *bounds });
 
             for &(var_id, coeff) in terms {
                 // Skip validation for each coefficient since terms are pre-normalized.
