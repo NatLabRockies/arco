@@ -15,14 +15,16 @@ use super::indexing::{
     AxisIndex, maybe_boolean_mask_indices, resolve_axis_index, selected_flat_indices,
     slice_indices, sliced_2d_index_sets, sliced_and_index_sets,
 };
+use arco_arrays;
+
 use super::{
     CompactExprStorage, ComparisonSense, ExpressionTermCounts, PyConstraintArray, PyExprArray,
     array_add, array_cumsum, array_diff, array_function, array_mul, array_neg, array_reduce,
     array_roll, array_rsub, array_sub, array_sum, array_truediv, array_ufunc,
     combine_sparse_expr_same_shape, compare_with_compact_fallback, diff_sparse_expr,
     expression_term_counts, multiply_sparse_variables_with_labeled_operand,
-    multiply_sparse_variables_with_scalar, roll_sparse_expr, set_solver_matrix_memory_estimate,
-    try_extract_compact,
+    multiply_sparse_variables_with_scalar, parse_sparse_axes, reduced_sparse_flat_index,
+    roll_sparse_expr, set_solver_matrix_memory_estimate, try_extract_compact,
 };
 
 /// Compact metadata for a contiguous block of variables with scalar bounds.
@@ -65,7 +67,14 @@ impl SparseBounds {
     fn at(&self, active_pos: usize) -> BoundsSpec {
         match self {
             SparseBounds::Uniform(bounds) => *bounds,
-            SparseBounds::PerSlot(bounds) => bounds[active_pos],
+            SparseBounds::PerSlot(bounds) => {
+                debug_assert!(
+                    active_pos < bounds.len(),
+                    "active_pos {active_pos} out of range for per-slot bounds (len {})",
+                    bounds.len()
+                );
+                bounds[active_pos]
+            }
         }
     }
 }
@@ -148,6 +157,11 @@ impl PyVariableArray {
         bounds: BoundsSpec,
         name: Option<String>,
     ) -> Self {
+        debug_assert_eq!(
+            active_indices.len(),
+            var_ids.len(),
+            "active_indices and var_ids must have the same length"
+        );
         Self {
             storage: VariableStorage::Sparse(SparseStorage {
                 active_indices,
@@ -168,6 +182,16 @@ impl PyVariableArray {
         bounds: Vec<BoundsSpec>,
         name: Option<String>,
     ) -> Self {
+        debug_assert_eq!(
+            active_indices.len(),
+            var_ids.len(),
+            "active_indices and var_ids must have the same length"
+        );
+        debug_assert_eq!(
+            active_indices.len(),
+            bounds.len(),
+            "active_indices and per-slot bounds must have the same length"
+        );
         Self {
             storage: VariableStorage::Sparse(SparseStorage {
                 active_indices,
@@ -488,105 +512,13 @@ impl PyVariableArray {
         PyExpr::from_expr(Expr::from_linear(linear))
     }
 
-    fn find_axis_for_sparse_sum(
-        &self,
-        py: Python<'_>,
-        index_set: &Bound<'_, PyIndexSet>,
-    ) -> PyResult<usize> {
-        let target_ptr = index_set.as_ptr();
-        for (idx, stored) in self.index_sets.iter().enumerate() {
-            if stored.as_ptr() == target_ptr {
-                return Ok(idx);
-            }
-        }
-
-        let target_name = &index_set.borrow().name;
-        for (idx, stored) in self.index_sets.iter().enumerate() {
-            let stored_ref = stored.bind(py).borrow();
-            if &stored_ref.name == target_name {
-                return Ok(idx);
-            }
-        }
-
-        Err(ArrayIndexError::new_err(format!(
-            "IndexSet '{}' is not a dimension of this array",
-            index_set.borrow().name
-        )))
-    }
-
-    fn parse_sparse_sum_axes(
-        &self,
-        py: Python<'_>,
-        selection: &Bound<'_, PyAny>,
-    ) -> PyResult<Vec<usize>> {
-        let mut axes = Vec::new();
-        if let Ok(single) = selection.cast::<PyIndexSet>() {
-            axes.push(self.find_axis_for_sparse_sum(py, single)?);
-        } else {
-            let items: Vec<Bound<'_, PyAny>> =
-                selection.try_iter()?.collect::<PyResult<Vec<_>>>()?;
-            for item in &items {
-                let index_set = item.cast::<PyIndexSet>().map_err(|_| {
-                    ArrayDimensionError::new_err(
-                        "axis/over must be an IndexSet or tuple of IndexSets",
-                    )
-                })?;
-                axes.push(self.find_axis_for_sparse_sum(py, index_set)?);
-            }
-        }
-
-        let mut seen = Vec::with_capacity(axes.len());
-        for axis in &axes {
-            if seen.contains(axis) {
-                return Err(ArrayDimensionError::new_err(
-                    "axis/over cannot contain duplicate IndexSet dimensions",
-                ));
-            }
-            seen.push(*axis);
-        }
-        Ok(axes)
-    }
-
-    fn row_major_strides(shape: &[usize]) -> Vec<usize> {
-        let mut strides = vec![1; shape.len()];
-        let mut stride = 1;
-        for (idx, size) in shape.iter().enumerate().rev() {
-            strides[idx] = stride;
-            stride *= *size;
-        }
-        strides
-    }
-
-    fn reduced_flat_index(
-        flat_idx: usize,
-        shape: &[usize],
-        source_strides: &[usize],
-        reduced_strides: &[usize],
-        summed_axes: &[bool],
-    ) -> usize {
-        let mut remainder = flat_idx;
-        let mut reduced_axis = 0usize;
-        let mut reduced_idx = 0usize;
-
-        for axis in 0..shape.len() {
-            let coordinate = remainder / source_strides[axis];
-            remainder %= source_strides[axis];
-            if !summed_axes[axis] {
-                reduced_idx += coordinate * reduced_strides[reduced_axis];
-                reduced_axis += 1;
-            }
-        }
-
-        reduced_idx
-    }
-
     fn sum_sparse_over_axis(
         &self,
         py: Python<'_>,
         sparse: &SparseStorage,
         over: &Bound<'_, PyAny>,
     ) -> PyResult<PyObject> {
-        let axes = self.parse_sparse_sum_axes(py, over)?;
+        let axes = parse_sparse_axes(&self.index_sets, py, over)?;
         let mut summed_axes = vec![false; self.shape.len()];
         for axis in axes {
             summed_axes[axis] = true;
@@ -601,13 +533,13 @@ impl PyVariableArray {
             }
         }
 
-        let source_strides = Self::row_major_strides(&self.shape);
-        let reduced_strides = Self::row_major_strides(&out_shape);
+        let source_strides = arco_arrays::row_major_strides(&self.shape);
+        let reduced_strides = arco_arrays::row_major_strides(&out_shape);
         let out_len = out_shape.iter().product::<usize>().max(1);
         let mut values = vec![PyExpr::default(); out_len];
 
         for (active_idx, var_id) in sparse.active_indices.iter().zip(sparse.var_ids.iter()) {
-            let reduced_idx = Self::reduced_flat_index(
+            let reduced_idx = reduced_sparse_flat_index(
                 *active_idx,
                 &self.shape,
                 &source_strides,
@@ -684,6 +616,18 @@ impl PyVariableArray {
         rhs_array: &PyExprArray,
         sense: ComparisonSense,
     ) -> Option<PyConstraintArray> {
+        debug_assert_eq!(
+            sparse.active_indices.len(),
+            sparse.var_ids.len(),
+            "SparseStorage invariant: active_indices and var_ids must have the same length"
+        );
+        if let SparseBounds::PerSlot(bounds) = &sparse.bounds {
+            debug_assert_eq!(
+                sparse.active_indices.len(),
+                bounds.len(),
+                "SparseStorage invariant: active_indices and per-slot bounds must have the same length"
+            );
+        }
         if rhs_array.storage.shape() != self.shape {
             return None;
         }

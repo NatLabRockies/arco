@@ -70,6 +70,15 @@ pub(crate) fn solve_model(
 
     if consume_model {
         model.inner = Default::default();
+        model.last_solution = None;
+        model.array_print_specs.clear();
+        model.constraint_print_specs.clear();
+        model.block_defs.clear();
+        model.link_defs.clear();
+        #[cfg(feature = "ipopt")]
+        {
+            model.nonlinear_state = crate::py_modules::nonlinear_state::NonlinearState::default();
+        }
     }
 
     Py::new(py, result)

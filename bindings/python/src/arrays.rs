@@ -440,7 +440,7 @@ pub(super) fn multiply_sparse_expr_with_labeled_operand(
     )))
 }
 
-fn find_sparse_axis(
+pub(super) fn find_sparse_axis(
     index_sets: &[Py<PyIndexSet>],
     py: Python<'_>,
     index_set: &Bound<'_, PyIndexSet>,
@@ -466,7 +466,7 @@ fn find_sparse_axis(
     )))
 }
 
-fn parse_sparse_axes(
+pub(super) fn parse_sparse_axes(
     index_sets: &[Py<PyIndexSet>],
     py: Python<'_>,
     selection: &Bound<'_, PyAny>,
@@ -496,7 +496,7 @@ fn parse_sparse_axes(
     Ok(axes)
 }
 
-fn reduced_sparse_flat_index(
+pub(super) fn reduced_sparse_flat_index(
     flat_idx: usize,
     shape: &[usize],
     source_strides: &[usize],

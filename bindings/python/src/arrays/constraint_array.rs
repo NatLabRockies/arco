@@ -113,6 +113,16 @@ impl PyConstraintArray {
         shape: Vec<usize>,
         index_sets: Vec<Py<PyIndexSet>>,
     ) -> Self {
+        debug_assert_eq!(
+            exprs.len(),
+            rhs.len(),
+            "SparseRows invariant: exprs and rhs must have the same length"
+        );
+        debug_assert_eq!(
+            exprs.len(),
+            active_indices.len(),
+            "SparseRows invariant: exprs and active_indices must have the same length"
+        );
         Self {
             storage: ConstraintArrayStorage::SparseRows {
                 exprs,

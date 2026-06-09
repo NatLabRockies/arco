@@ -53,6 +53,11 @@ impl PyExprArray {
         active_indices: Vec<usize>,
         values: Vec<PyExpr>,
     ) -> Self {
+        debug_assert_eq!(
+            active_indices.len(),
+            values.len(),
+            "SparseExprStorage invariant: active_indices and values must have the same length"
+        );
         Self {
             storage: ExprArrayStorage::Sparse {
                 storage: SparseExprStorage {
