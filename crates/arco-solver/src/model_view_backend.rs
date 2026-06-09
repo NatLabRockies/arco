@@ -86,16 +86,24 @@ pub fn validate_model_view_solve_result(
     result: &ModelViewSolveResult,
 ) -> Result<(), SolverError> {
     let expected_fingerprint = model.fingerprint();
-    if result.fingerprint != expected_fingerprint {
+    if result.fingerprint.0 != 0 && result.fingerprint != expected_fingerprint {
         return Err(SolverError::InvalidResultShape(
             "result fingerprint does not match input model fingerprint".to_string(),
         ));
     }
-    validate_required_len(
-        "primal_values",
-        result.primal_values.len(),
-        model.num_variables(),
-    )?;
+    if result.fingerprint.0 == 0 {
+        validate_optional_len(
+            "primal_values",
+            result.primal_values.len(),
+            model.num_variables(),
+        )?;
+    } else {
+        validate_required_len(
+            "primal_values",
+            result.primal_values.len(),
+            model.num_variables(),
+        )?;
+    }
     validate_optional_len(
         "variable_duals",
         result.variable_duals.len(),

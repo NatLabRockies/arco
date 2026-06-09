@@ -44,6 +44,57 @@ impl Model {
         Ok(id)
     }
 
+    /// Add a contiguous block of variables with identical attributes.
+    pub fn add_variables_uniform(
+        &mut self,
+        variable: Variable,
+        count: usize,
+    ) -> Result<VariableId, ModelError> {
+        if !bounds_are_valid(variable.bounds.lower, variable.bounds.upper) {
+            return Err(ModelError::InvalidVariableBounds {
+                lower: variable.bounds.lower,
+                upper: variable.bounds.upper,
+            });
+        }
+
+        let first_variable_id = self.next_variable_id;
+        self.reserve_variables(count);
+        for _ in 0..count {
+            self.next_variable_id += 1;
+            self.push_variable(variable);
+        }
+        Ok(VariableId::new(first_variable_id))
+    }
+
+    /// Add a contiguous block of variables that share integrality and active state.
+    pub fn add_variables_with_bounds(
+        &mut self,
+        bounds: &[Bounds],
+        is_integer: bool,
+        is_active: bool,
+    ) -> Result<VariableId, ModelError> {
+        for bound in bounds {
+            if !bounds_are_valid(bound.lower, bound.upper) {
+                return Err(ModelError::InvalidVariableBounds {
+                    lower: bound.lower,
+                    upper: bound.upper,
+                });
+            }
+        }
+
+        let first_variable_id = self.next_variable_id;
+        self.reserve_variables(bounds.len());
+        for bound in bounds {
+            self.next_variable_id += 1;
+            self.push_variable(Variable {
+                bounds: *bound,
+                is_integer,
+                is_active,
+            });
+        }
+        Ok(VariableId::new(first_variable_id))
+    }
+
     /// Add a constraint to the model.
     pub fn add_constraint(&mut self, constraint: Constraint) -> Result<ConstraintId, ModelError> {
         if !bounds_are_valid(constraint.bounds.lower, constraint.bounds.upper) {
@@ -147,28 +198,44 @@ impl Model {
         term_patterns: &[(u32, f64)],
         bounds_list: &[Bounds],
     ) -> Result<ConstraintId, ModelError> {
+        let indices = (0..bounds_list.len()).collect::<Vec<_>>();
+        self.add_constraints_compact_indexed(term_patterns, &indices, bounds_list)
+    }
+
+    /// Add constraints from compact term patterns using explicit source row indices.
+    pub fn add_constraints_compact_indexed(
+        &mut self,
+        term_patterns: &[(u32, f64)],
+        row_indices: &[usize],
+        bounds_list: &[Bounds],
+    ) -> Result<ConstraintId, ModelError> {
         let count = bounds_list.len();
         if count == 0 {
             return Ok(ConstraintId::new(self.next_constraint_id));
         }
 
-        self.constraints.reserve(count);
-        let first_constraint_id = self.next_constraint_id;
-
-        for (i, bounds) in bounds_list.iter().enumerate() {
+        for bounds in bounds_list {
             if !bounds_are_valid(bounds.lower, bounds.upper) {
                 return Err(ModelError::InvalidConstraintBounds {
                     lower: bounds.lower,
                     upper: bounds.upper,
                 });
             }
+        }
 
+        self.constraints.reserve(count);
+        let first_constraint_id = self.next_constraint_id;
+
+        for (&source_idx, bounds) in row_indices.iter().zip(bounds_list) {
             let constraint_id = ConstraintId::new(self.next_constraint_id);
             self.next_constraint_id += 1;
             self.constraints.push(Constraint { bounds: *bounds });
 
             for &(start_var_id, coeff) in term_patterns {
-                let var_idx = (start_var_id + i as u32) as usize;
+                if !coefficient_is_valid(coeff) {
+                    return Err(ModelError::InvalidCoefficient { coefficient: coeff });
+                }
+                let var_idx = (start_var_id as usize) + source_idx;
                 if var_idx >= self.variables.len() {
                     return Err(ModelError::InvalidVariableId(VariableId::new(
                         var_idx as u32,
@@ -192,7 +259,20 @@ impl Model {
         &mut self,
         constraints: &[(Vec<(VariableId, f64)>, Bounds)],
     ) -> Result<ConstraintId, ModelError> {
-        let count = constraints.len();
+        self.add_constraints_batch_streaming(
+            constraints.len(),
+            constraints
+                .iter()
+                .map(|(terms, bounds)| (terms.clone(), *bounds)),
+        )
+    }
+
+    /// Add a batch of constraints from a streaming row iterator.
+    pub fn add_constraints_batch_streaming(
+        &mut self,
+        count: usize,
+        constraints: impl IntoIterator<Item = (Vec<(VariableId, f64)>, Bounds)>,
+    ) -> Result<ConstraintId, ModelError> {
         if count == 0 {
             return Ok(ConstraintId::new(self.next_constraint_id));
         }
@@ -210,11 +290,12 @@ impl Model {
 
             let constraint_id = ConstraintId::new(self.next_constraint_id);
             self.next_constraint_id += 1;
-            self.constraints.push(Constraint { bounds: *bounds });
+            self.constraints.push(Constraint { bounds });
 
-            for &(var_id, coeff) in terms {
-                // Skip validation for each coefficient since terms are pre-normalized.
-                // We still check variable bounds.
+            for (var_id, coeff) in terms {
+                if !coefficient_is_valid(coeff) {
+                    return Err(ModelError::InvalidCoefficient { coefficient: coeff });
+                }
                 let var_idx = var_id.inner() as usize;
                 if var_idx >= self.variables.len() {
                     return Err(ModelError::InvalidVariableId(var_id));

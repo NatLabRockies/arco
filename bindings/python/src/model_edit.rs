@@ -236,7 +236,7 @@ impl PyModel {
                     .call_method0("flatten")?;
                 let mask_values: Vec<bool> = flat.extract()?;
                 let indices = plan
-                    .active_target_indices_from_source(&mask_values, |value| *value)
+                    .active_target_indices(&mask_values, |value| *value)
                     .map_err(|err| errors::ArrayShapeMismatchError::new_err(err.to_string()))?;
                 return Ok(indices);
             }

@@ -145,7 +145,6 @@ def test_indexed_model_api_contract_solves_with_array_result_access() -> None:
     np.testing.assert_allclose(result.value(output), np.array([3.0, 5.0]))
 
 
-
 def test_model_matrix_profile_reports_column_density_without_sparse_export() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
@@ -188,7 +187,6 @@ def test_model_reserve_preserves_build_and_solve_behavior() -> None:
     assert model.num_constraints == 2
     assert result.is_optimal()
     assert round(result.objective_value, 6) == 3.0
-
 
 
 def test_model_can_append_objective_terms_incrementally() -> None:
