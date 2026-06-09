@@ -358,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn model_view_solver_rejects_missing_conformance_fields() {
+    fn model_view_solver_can_skip_fingerprint_and_solution_extraction() {
         let mut model = Model::new();
         let x = model
             .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
@@ -379,9 +379,10 @@ mod tests {
         let config = SolverConfig::new()
             .with_parameter("arco.fingerprint", "false")
             .with_parameter("arco.extract_solution", "false");
-        let error = solve_model_view(&model, &config)
-            .expect_err("missing fingerprint and primal values should fail conformance");
+        let result = solve_model_view(&model, &config).expect("solve succeeds");
 
-        assert!(matches!(error, SolverError::InvalidResultShape(_)));
+        assert!(result.status.is_feasible());
+        assert_eq!(result.fingerprint.0, 0);
+        assert!(result.primal_values.is_empty());
     }
 }

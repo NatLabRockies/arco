@@ -319,13 +319,25 @@ impl Model {
         terms
     }
 
-    pub(crate) fn add_objective_terms(&mut self, terms: Vec<(VariableId, f64)>) {
+    pub fn add_objective_terms(&mut self, terms: Vec<(VariableId, f64)>) -> Result<(), ModelError> {
+        if self.objective.sense.is_none() {
+            return Err(ModelError::NoObjective);
+        }
         if terms.is_empty() {
-            return;
+            return Ok(());
+        }
+        for (var_id, coeff) in &terms {
+            self.ensure_variable_exists(*var_id)?;
+            if !coefficient_is_valid(*coeff) {
+                return Err(ModelError::InvalidCoefficient {
+                    coefficient: *coeff,
+                });
+            }
         }
         let mut merged = std::mem::take(&mut self.objective.terms);
         merged.extend(terms);
         self.objective.terms = self.normalize_terms(merged);
+        Ok(())
     }
 }
 
@@ -574,7 +586,9 @@ mod tests {
             })
             .unwrap();
 
-        model.add_objective_terms(vec![(x, 2.0), (y, 3.0), (x, -1.0)]);
+        model
+            .add_objective_terms(vec![(x, 2.0), (y, 3.0), (x, -1.0)])
+            .unwrap();
 
         assert_eq!(model.objective().sense, Some(Sense::Minimize));
         let mut terms = model.objective().terms.clone();
@@ -600,7 +614,7 @@ mod tests {
             })
             .unwrap();
 
-        model.add_objective_terms(Vec::new());
+        model.add_objective_terms(Vec::new()).unwrap();
 
         assert_eq!(model.objective().terms, vec![(x, 1.0)]);
     }

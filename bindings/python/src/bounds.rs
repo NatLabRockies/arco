@@ -88,7 +88,7 @@ impl PyBounds {
 #[pymethods]
 impl PyBounds {
     #[new]
-    #[pyo3(signature = (*, lower=None, upper=None))]
+    #[pyo3(signature = (lower=None, upper=None))]
     fn new(
         _py: Python<'_>,
         lower: Option<&Bound<'_, PyAny>>,

@@ -580,10 +580,52 @@ def _param_einsum(subscripts: object, *operands: object, **kwargs: object) -> ob
     return np.einsum(subscripts, *dense_operands, **kwargs)
 
 
+_MODEL_ADD_VARIABLES = _arco.Model.add_variables
+_MISSING_BOUNDS = object()
+
+
+def _normalise_axis_args(
+    axis_args: tuple[object, ...], axes: tuple[object, ...] | None
+) -> tuple[object, ...]:
+    if axis_args and axes is not None:
+        raise TypeError("axes may be provided positionally or by keyword, not both")
+    if axes is not None:
+        return tuple(axes)
+    if len(axis_args) == 1 and isinstance(axis_args[0], tuple):
+        return tuple(axis_args[0])
+    return tuple(axis_args)
+
+
+def _add_variables_compat(
+    self: object,
+    *axis_args: object,
+    axes: tuple[object, ...] | None = None,
+    bounds: object = _MISSING_BOUNDS,
+    is_integer: bool = False,
+    is_binary: bool = False,
+    active: object | None = None,
+    name: str | None = None,
+) -> object:
+    if bounds is _MISSING_BOUNDS:
+        raise TypeError("missing required keyword-only argument: 'bounds'")
+    return _MODEL_ADD_VARIABLES(
+        self,
+        axes=_normalise_axis_args(axis_args, axes),
+        bounds=bounds,
+        is_integer=is_integer,
+        is_binary=is_binary,
+        active=active,
+        name=name,
+    )
+
+
+_arco.Model.add_variables = _add_variables_compat
+
+
 def param(
     values: object,
-    *,
-    axes: tuple[object, ...],
+    *axis_args: object,
+    axes: tuple[object, ...] | None = None,
     name: str | None = None,
 ) -> ParamArray:
     try:
@@ -593,7 +635,7 @@ def param(
 
     np_values = np.asarray(values)
 
-    resolved_axes = tuple(axes)
+    resolved_axes = _normalise_axis_args(axis_args, axes)
 
     if np_values.ndim != len(resolved_axes):
         raise _arco.ArrayDimensionError(

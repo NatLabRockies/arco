@@ -249,7 +249,8 @@ impl BroadcastPlan {
         Ok(indices)
     }
 
-    fn source_offset_for_target_flat(&self, target_flat: usize) -> usize {
+    #[must_use]
+    pub fn source_offset_for_target_flat(&self, target_flat: usize) -> usize {
         let mut remainder = target_flat;
         let mut source_flat = 0;
 

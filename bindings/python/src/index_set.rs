@@ -75,7 +75,7 @@ pub struct PyIndexSet {
 #[pymethods]
 impl PyIndexSet {
     #[new]
-    #[pyo3(signature = (*, name, size=None, members=None))]
+    #[pyo3(signature = (name, *, size=None, members=None))]
     fn new(name: String, size: Option<usize>, members: Option<Vec<PyObject>>) -> PyResult<Self> {
         match (size, members) {
             (Some(size), None) => {
@@ -194,10 +194,7 @@ impl PyIndexSet {
             .iter()
             .map(|member| member.to_pyobject(py))
             .collect::<PyResult<Vec<PyObject>>>()?;
-        Ok(PyList::new(py, items)?
-            .call_method0("__iter__")?
-            .unbind()
-            .into())
+        Ok(PyList::new(py, items)?.call_method0("__iter__")?.unbind())
     }
 
     fn __repr__(&self) -> String {

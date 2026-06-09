@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
 pub(crate) fn solve_model(
-    model: &PyModel,
+    model: &mut PyModel,
     py: Python<'_>,
     solver_obj: Option<&Bound<'_, PyAny>>,
     log_to_console: Option<bool>,
@@ -49,6 +49,11 @@ pub(crate) fn solve_model(
 
     let config = effective_settings.to_solver_config();
 
+    let consume_model = config
+        .parameters
+        .get("arco.consume_model")
+        .is_some_and(|value| value == "true");
+
     let result = match arco_ops::ArcoOps::solve_model_view_with_builtin_backend(
         &selected_backend,
         &model.inner,
@@ -62,6 +67,19 @@ pub(crate) fn solve_model(
         }
         Err(error) => Err(errors::generic_solver_error_to_py(error)),
     }?;
+
+    if consume_model {
+        model.inner = Default::default();
+        model.last_solution = None;
+        model.array_print_specs.clear();
+        model.constraint_print_specs.clear();
+        model.block_defs.clear();
+        model.link_defs.clear();
+        #[cfg(feature = "ipopt")]
+        {
+            model.nonlinear_state = crate::py_modules::nonlinear_state::NonlinearState::default();
+        }
+    }
 
     Py::new(py, result)
 }
