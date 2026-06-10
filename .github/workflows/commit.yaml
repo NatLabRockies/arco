@@ -36,7 +36,7 @@ jobs:
           save-uv-cache: "false"
           save-rust-cache: "false"
 
-      - uses: j178/prek-action@502e92b03ba14f9c5b7dca53a07f9c8349b1e211
+      - uses: j178/prek-action@446c0bed2d0528e9487dd8ee32e930b088af91c8
         with:
           extra-args: "--all-files --hook-stage pre-commit"
 
