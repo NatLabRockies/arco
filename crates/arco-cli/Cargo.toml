@@ -45,7 +45,7 @@ similar = "3"
 thiserror = "2.0"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
-axoupdater = { version = "0.9", default-features = false, features = [
+axoupdater = { version = "0.10", default-features = false, features = [
   "github_releases",
 ] }
 homedir = "=0.3.4"
