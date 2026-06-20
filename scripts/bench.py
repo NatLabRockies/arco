@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -16,6 +17,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 DEFAULT_CASES: tuple[str, ...] = (
@@ -60,6 +62,12 @@ class BenchmarkResult:
     median_duration_ms: float
     peak_rss_mb: float
     samples: int
+
+
+@dataclass(frozen=True)
+class BenchmarkEnvironment:
+    env: Mapping[str, str] | None
+    solver_config_mode: str
 
 
 def _canonical_workflow(workflow: str) -> str:
@@ -126,10 +134,14 @@ def _tail(text: str, *, max_lines: int = 8) -> str:
     return "\n".join(lines[-max_lines:])
 
 
-def _estimate_inner_iterations(arco_cmd: list[str]) -> int | None:
+def _estimate_inner_iterations(
+    arco_cmd: list[str], *, env: Mapping[str, str] | None
+) -> int | None:
     started = time.perf_counter()
     try:
-        result = subprocess.run(arco_cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(
+            arco_cmd, capture_output=True, text=True, timeout=300, env=env
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"  benchmark command failed to launch: {exc}", file=sys.stderr)
         return None
@@ -164,7 +176,10 @@ def _build_monitored_command(
 
 
 def run_benchmark(
-    arco_binary: str, case: BenchmarkCase, repetitions: int
+    arco_binary: str,
+    case: BenchmarkCase,
+    repetitions: int,
+    benchmark_env: BenchmarkEnvironment,
 ) -> BenchmarkResult | None:
     """Run benchmark for a single case with multiple repetitions."""
     durations: list[float] = []
@@ -174,7 +189,7 @@ def run_benchmark(
         arco_binary,
         *_build_arco_args(workflow=case.workflow, model_path=case.kdl_path),
     ]
-    inner_iterations = _estimate_inner_iterations(arco_cmd)
+    inner_iterations = _estimate_inner_iterations(arco_cmd, env=benchmark_env.env)
     if inner_iterations is None:
         return None
 
@@ -196,6 +211,7 @@ def run_benchmark(
                 capture_output=True,
                 text=True,
                 timeout=300,
+                env=benchmark_env.env,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             print(f"  arco command failed to launch: {exc}", file=sys.stderr)
@@ -226,7 +242,11 @@ def run_benchmark(
             ]
             try:
                 result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=300
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    env=benchmark_env.env,
                 )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 print(f"  rmon failed to launch: {exc}", file=sys.stderr)
@@ -261,6 +281,19 @@ def _parse_csv(value: str) -> list[str]:
     return [entry.strip() for entry in value.split(",") if entry.strip()]
 
 
+def isolated_solver_config_environment(config_root: Path) -> dict[str, str]:
+    """Return an environment that ignores user/project solver config files."""
+    user_config = config_root / "user"
+    project_config = config_root / "project"
+    user_config.mkdir(parents=True, exist_ok=True)
+    project_config.mkdir(parents=True, exist_ok=True)
+
+    env = dict(os.environ)
+    env["ARCO_CONFIG_DIR"] = str(user_config)
+    env["ARCO_PROJECT_CONFIG_DIR"] = str(project_config)
+    return env
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark arco CLI workflows")
     parser.add_argument("--arco-binary", default="arco", help="Path to arco binary")
@@ -280,6 +313,14 @@ def main() -> int:
     )
     parser.add_argument("--repetitions", type=int, default=10)
     parser.add_argument("--output", type=Path, default=Path("benchmark-results.json"))
+    parser.add_argument(
+        "--inherit-solver-config",
+        action="store_true",
+        help=(
+            "Use the caller's ARCO_CONFIG_DIR/ARCO_PROJECT_CONFIG_DIR and user "
+            "solver.toml files instead of isolated temporary config directories."
+        ),
+    )
     args = parser.parse_args()
 
     all_cases = discover_cases()
@@ -303,21 +344,24 @@ def main() -> int:
         print("No benchmark cases matched the selection.", file=sys.stderr)
         return 2
 
-    results: list[BenchmarkResult] = []
     failures = 0
-    for case in filtered:
-        print(f"Benchmarking {case.name}/{case.workflow}...", file=sys.stderr)
-        result = run_benchmark(args.arco_binary, case, args.repetitions)
-        if result is None:
-            failures += 1
-            print("  FAILED", file=sys.stderr)
-            continue
-
-        results.append(result)
-        print(
-            f"  {result.median_duration_ms:.1f}ms, {result.peak_rss_mb:.1f}MiB",
-            file=sys.stderr,
+    if args.inherit_solver_config:
+        benchmark_env = BenchmarkEnvironment(env=None, solver_config_mode="inherited")
+        results = _run_filtered_benchmarks(
+            args.arco_binary, filtered, args.repetitions, benchmark_env
         )
+    else:
+        with tempfile.TemporaryDirectory(prefix="arco-bench-config-") as config_root:
+            benchmark_env = BenchmarkEnvironment(
+                env=isolated_solver_config_environment(Path(config_root)),
+                solver_config_mode="isolated",
+            )
+            results = _run_filtered_benchmarks(
+                args.arco_binary, filtered, args.repetitions, benchmark_env
+            )
+
+    failures = sum(1 for result in results if result is None)
+    results = [result for result in results if result is not None]
 
     validate_medians = {
         r.case: r.median_duration_ms for r in results if r.workflow == "validate"
@@ -329,6 +373,7 @@ def main() -> int:
             f"workflow={r.workflow}",
             f"case={r.case}",
             f"peak_rss_mb={r.peak_rss_mb:.2f}",
+            f"solver_config={benchmark_env.solver_config_mode}",
             "aggregation=median",
         ]
         if r.workflow == "run" and r.case in validate_medians:
@@ -353,6 +398,27 @@ def main() -> int:
     print(f"Results written to {args.output}", file=sys.stderr)
 
     return 1 if failures else 0
+
+
+def _run_filtered_benchmarks(
+    arco_binary: str,
+    filtered: list[BenchmarkCase],
+    repetitions: int,
+    benchmark_env: BenchmarkEnvironment,
+) -> list[BenchmarkResult | None]:
+    results: list[BenchmarkResult | None] = []
+    for case in filtered:
+        print(f"Benchmarking {case.name}/{case.workflow}...", file=sys.stderr)
+        result = run_benchmark(arco_binary, case, repetitions, benchmark_env)
+        if result is None:
+            print("  FAILED", file=sys.stderr)
+        else:
+            print(
+                f"  {result.median_duration_ms:.1f}ms, {result.peak_rss_mb:.1f}MiB",
+                file=sys.stderr,
+            )
+        results.append(result)
+    return results
 
 
 if __name__ == "__main__":
