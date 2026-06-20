@@ -18,3 +18,9 @@ For comparison, the Python benchmark remains available:
 ```bash
 uv run examples/reeds-benchmark/formulation.py --size small --json
 ```
+
+To compare HiGHS matrix loading paths for solver-memory probes:
+
+```bash
+uv run examples/reeds-benchmark/formulation.py --size medium --json --profile-build --profile-matrix --highs-load-path direct
+```

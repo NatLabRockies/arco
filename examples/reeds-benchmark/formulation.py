@@ -315,6 +315,7 @@ def solve(
         "parameters": {
             "solver": highs_solver,
             "arco.fingerprint": "false",
+            "arco.extract_solution": "false",
         },
     }
     if time_limit is not None:
@@ -425,7 +426,7 @@ def main() -> int:
         "--highs-load-path",
         choices=("wrapper", "direct"),
         default=None,
-        help="Accepted for compatibility; direct load path requires a later solver slice",
+        help="Choose wrapper or direct HiGHS matrix loading for solver-memory probes",
     )
     parser.add_argument(
         "--allow-nonoptimal",
