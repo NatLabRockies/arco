@@ -48,7 +48,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 axoupdater = { version = "0.10", default-features = false, features = [
   "github_releases",
 ] }
-homedir = "=0.3.4"
+homedir = "=0.3.6"
 http = "1"
 owo-colors = "4"
 tokio = { version = "1", features = ["rt-multi-thread"] }
