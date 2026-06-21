@@ -384,12 +384,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Cache torc binary
+      - name: Cache torc binaries
         if: github.event_name != 'pull_request'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5 # zizmor: ignore[cache-poisoning]
         id: torc-cache
         with:
-          path: ~/.cargo/bin/torc
+          path: |
+            ~/.cargo/bin/torc
+            ~/.cargo/bin/torc-server
           key: ${{ runner.os }}-torc-${{ hashFiles('.github/workflows/ci.yaml') }}
 
       - name: Set up build environment
@@ -406,10 +408,11 @@ jobs:
 
       - name: Ensure torc is installed
         run: |
-          if [ ! -x "$HOME/.cargo/bin/torc" ]; then
+          if [ ! -x "$HOME/.cargo/bin/torc" ] || [ ! -x "$HOME/.cargo/bin/torc-server" ]; then
             cargo install torc --features server-bin
           fi
           "$HOME/.cargo/bin/torc" --version
+          "$HOME/.cargo/bin/torc-server" --version
 
       - name: Add cargo bin to PATH
         run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"

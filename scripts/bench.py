@@ -23,6 +23,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,6 +43,11 @@ SUPPORTED_WORKFLOWS: tuple[str, ...] = (
     "compile",  # backward-compatible alias for print-model
     "solve",  # backward-compatible alias for run
 )
+
+# Minimum total runtime needed for torc's sysinfo monitor to capture at least
+# one memory sample.  With --sample-interval-seconds 1, a job must live >1s.
+MIN_MONITORED_RUNTIME_S = 4.0
+MAX_INNER_ITERATIONS = 5_000
 
 
 @dataclass(frozen=True)
@@ -115,6 +121,34 @@ def parse_csv(value: str) -> list[str]:
     return [entry.strip() for entry in value.split(",") if entry.strip()]
 
 
+def calibrate_inner_iterations(arco_cmd: list[str]) -> int | None:
+    """Run arco once to estimate runtime and determine how many inner
+    iterations are needed to reach MIN_MONITORED_RUNTIME_S total time."""
+    started = time.perf_counter()
+    try:
+        result = subprocess.run(arco_cmd, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        print("  calibration timed out", file=sys.stderr)
+        return None
+    except OSError as exc:
+        print(f"  calibration failed to launch: {exc}", file=sys.stderr)
+        return None
+
+    elapsed_s = time.perf_counter() - started
+    if result.returncode != 0:
+        print("  calibration command failed", file=sys.stderr)
+        tail = tail_lines(result.stderr)
+        if tail:
+            print(tail, file=sys.stderr)
+        return None
+
+    if elapsed_s <= 0.0:
+        return 1
+
+    estimated = int(MIN_MONITORED_RUNTIME_S / elapsed_s) + 1
+    return max(1, min(MAX_INNER_ITERATIONS, estimated))
+
+
 def run_benchmark(
     arco_binary: str, *, case: BenchmarkCase, repetitions: int
 ) -> BenchmarkResult | None:
@@ -123,9 +157,33 @@ def run_benchmark(
     Creates a torc workflow with *repetitions* identical jobs, runs them
     sequentially, then extracts peak memory and duration from torc's result
     records.
+
+    For commands faster than MIN_MONITORED_RUNTIME_S, each job wraps the
+    arco command in a shell loop so torc's sysinfo monitor has time to
+    capture at least one memory sample.
     """
     arco_args = build_arco_args(workflow=case.workflow, model_path=case.kdl_path)
-    arco_cmd_str = shlex.join([arco_binary, *arco_args])
+    arco_cmd = [arco_binary, *arco_args]
+
+    inner_iterations = calibrate_inner_iterations(arco_cmd)
+    if inner_iterations is None:
+        return None
+
+    if inner_iterations > 1:
+        print(
+            f"  using {inner_iterations} inner iterations for memory sampling",
+            file=sys.stderr,
+        )
+
+    # Build the per-job command.  For fast commands we wrap a shell loop;
+    # for commands that already run >MIN_MONITORED_RUNTIME_S we run once.
+    arco_cmd_quoted = shlex.join(arco_cmd)
+    if inner_iterations > 1:
+        job_cmd = (
+            f"for _ in $(seq 1 {inner_iterations}); do {arco_cmd_quoted}; done"
+        )
+    else:
+        job_cmd = arco_cmd_quoted
 
     with tempfile.TemporaryDirectory(prefix="arco-bench-torc-") as tmpdir:
         tmp = Path(tmpdir)
@@ -133,12 +191,16 @@ def run_benchmark(
         commands_path = tmp / "commands.txt"
 
         # Write N identical commands (one per repetition).
-        commands_path.write_text("\n".join([arco_cmd_str] * repetitions) + "\n")
+        commands_path.write_text("\n".join([job_cmd] * repetitions) + "\n")
 
         exec_cmd: list[str] = [
             "torc",
-            "exec",
             "--standalone",
+            "--format",
+            "json",
+            "--db",
+            str(db_path),
+            "exec",
             "-C",
             str(commands_path),
             "--name",
@@ -149,10 +211,6 @@ def run_benchmark(
             "1",
             "--sample-interval-seconds",
             "1",
-            "--format",
-            "json",
-            "--db",
-            str(db_path),
             "-o",
             str(tmp),
         ]
@@ -192,14 +250,14 @@ def run_benchmark(
         # Query results for this workflow.
         results_cmd: list[str] = [
             "torc",
+            "--standalone",
+            "--format",
+            "json",
+            "--db",
+            str(db_path),
             "results",
             "list",
             str(workflow_id),
-            "--format",
-            "json",
-            "--standalone",
-            "--db",
-            str(db_path),
         ]
         try:
             results_result = subprocess.run(
@@ -244,7 +302,8 @@ def run_benchmark(
             peak_bytes = item.get("peak_memory_bytes")
 
             if isinstance(exec_min, (int, float)):
-                durations.append(float(exec_min) * 60_000.0)
+                total_ms = float(exec_min) * 60_000.0
+                durations.append(total_ms / inner_iterations)
 
             # peak_memory_bytes can be None (torc didn't collect data) or 0
             # (collected zero / no samples fired).  Treat both as 0.0 MiB.
