@@ -18,3 +18,14 @@ For comparison, the Python benchmark remains available:
 ```bash
 uv run examples/reeds-benchmark/formulation.py --size small --json
 ```
+
+To capture build-stage RSS and sparse matrix diagnostics for memory regression
+work:
+
+```bash
+uv run examples/reeds-benchmark/formulation.py --size small --json --profile-build --profile-matrix
+```
+
+Memory fields report `null` in JSON, or `n/a` in text output, when a platform
+does not expose the measurement. They do not use `0.0` as an unavailable-memory
+sentinel.

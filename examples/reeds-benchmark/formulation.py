@@ -36,6 +36,7 @@ class BuildStage(TypedDict):
 
 
 LAST_BUILD_PROFILE: list[BuildStage] = []
+LAST_MATRIX_PROFILE: dict[str, object] = {}
 LAST_SOLVE_METADATA: dict[str, float] = {}
 LAST_SOLVE_STATUS: str | None = None
 HIGHS_PRIMAL_SOLUTION_FEASIBLE = 2.0
@@ -107,6 +108,13 @@ def solve(
 ) -> tuple[float, float, float]:
     if solver != "highs":
         raise ValueError("solve only supports solver='highs'")
+
+    global LAST_MATRIX_PROFILE
+    global LAST_SOLVE_METADATA
+    global LAST_SOLVE_STATUS
+    LAST_MATRIX_PROFILE = {}
+    LAST_SOLVE_METADATA = {}
+    LAST_SOLVE_STATUS = None
 
     regions, techs, hours, years = data.regions, data.techs, data.hours, data.years
     region_index = data.r_idx
@@ -301,6 +309,7 @@ def solve(
     objective += (pvf * cost_op * hours_weight * gen).sum()
     objective += (pvf * startcost * rampup).sum()
     model.minimize(objective)
+    LAST_MATRIX_PROFILE = model.matrix_profile() if profile_matrix else {}
     mark("objective")
 
     build_s = time.perf_counter() - t0
@@ -329,8 +338,6 @@ def solve(
         highs_kwargs["parameters"]["arco.highs_load_path"] = highs_load_path
     result = model.solve(solver=arco.HiGHS(**highs_kwargs))
     solve_s = time.perf_counter() - t1
-    global LAST_SOLVE_METADATA
-    global LAST_SOLVE_STATUS
     LAST_SOLVE_METADATA = dict(getattr(result, "metadata", {}))
     LAST_SOLVE_STATUS = str(result.status)
     if require_optimal and not result.is_optimal():
@@ -352,6 +359,7 @@ class ReedsPayload(TypedDict):
     peak_rss_mb: float | None
     status: NotRequired[str]
     build_profile: NotRequired[list[BuildStage]]
+    matrix_profile: NotRequired[dict[str, object]]
     solve_metadata: NotRequired[dict[str, float]]
 
 
@@ -386,7 +394,7 @@ def main() -> int:
     parser.add_argument(
         "--profile-matrix",
         action="store_true",
-        help="Accepted for compatibility; matrix profiling is unavailable in this slice",
+        help="Include sparse matrix column-density diagnostics in JSON output",
     )
     parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable output"
@@ -465,6 +473,8 @@ def main() -> int:
         payload["solve_metadata"] = LAST_SOLVE_METADATA
     if args.profile_build:
         payload["build_profile"] = LAST_BUILD_PROFILE
+    if args.profile_matrix:
+        payload["matrix_profile"] = LAST_MATRIX_PROFILE
 
     if args.json:
         print(json.dumps(payload, indent=2))
