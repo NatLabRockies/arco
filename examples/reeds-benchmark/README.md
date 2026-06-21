@@ -19,8 +19,13 @@ For comparison, the Python benchmark remains available:
 uv run examples/reeds-benchmark/formulation.py --size small --json
 ```
 
-To compare HiGHS matrix loading paths for solver-memory probes:
+To capture build-stage RSS and sparse matrix diagnostics for memory regression
+work:
 
 ```bash
-uv run examples/reeds-benchmark/formulation.py --size medium --json --profile-build --profile-matrix --highs-load-path direct
+uv run examples/reeds-benchmark/formulation.py --size small --json --profile-build --profile-matrix
 ```
+
+Memory fields report `null` in JSON, or `n/a` in text output, when a platform
+does not expose the measurement. They do not use `0.0` as an unavailable-memory
+sentinel.

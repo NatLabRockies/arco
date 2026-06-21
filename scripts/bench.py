@@ -1,14 +1,25 @@
 #!/usr/bin/env python3
-"""CLI benchmark runner for arco using rmon resource monitoring.
+"""Benchmark runner for arco using torc resource monitoring.
 
-Wraps arco CLI commands with rmon to measure wall-clock duration and peak RSS.
-Outputs github-action-benchmark compatible JSON.
+Wraps arco CLI commands with torc's built-in resource monitoring to measure
+wall-clock duration and peak RSS.  Outputs github-action-benchmark-compatible JSON
+on stdout; diagnostics go to stderr.
+
+Requires ``torc`` and ``torc-server`` on PATH (install from
+`GitHub releases <https://github.com/NatLabRockies/torc/releases>`_
+or ``cargo install torc --features server-bin``).
+
+Exit codes
+  0  all benchmarks succeeded
+  1  one or more benchmark cases failed
+  2  invalid arguments (unsupported workflow, no matching cases)
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import statistics
 import subprocess
 import sys
@@ -33,21 +44,17 @@ SUPPORTED_WORKFLOWS: tuple[str, ...] = (
     "compile",  # backward-compatible alias for print-model
     "solve",  # backward-compatible alias for run
 )
-MIN_MONITORED_RUNTIME_MS = 4_000.0
+
+# Minimum total runtime needed for torc's sysinfo monitor to capture at least
+# one memory sample.  With --sample-interval-seconds 1, a job must live >1s.
+MIN_MONITORED_RUNTIME_S = 4.0
 MAX_INNER_ITERATIONS = 5_000
-_INNER_LOOP_RUNNER = (
-    "import subprocess,sys\n"
-    "iterations=int(sys.argv[1])\n"
-    "cmd=sys.argv[2:]\n"
-    "for _ in range(iterations):\n"
-    "    rc=subprocess.run(cmd).returncode\n"
-    "    if rc:\n"
-    "        raise SystemExit(rc)\n"
-)
 
 
 @dataclass(frozen=True)
 class BenchmarkCase:
+    """A single arco CLI benchmark case (model path + workflow)."""
+
     name: str
     kdl_path: Path
     workflow: str
@@ -55,6 +62,8 @@ class BenchmarkCase:
 
 @dataclass
 class BenchmarkResult:
+    """Aggregated benchmark results across repetitions."""
+
     case: str
     workflow: str
     median_duration_ms: float
@@ -62,7 +71,8 @@ class BenchmarkResult:
     samples: int
 
 
-def _canonical_workflow(workflow: str) -> str:
+def canonical_workflow(workflow: str) -> str:
+    """Resolve backward-compatible workflow aliases to canonical names."""
     if workflow == "compile":
         return "print-model"
     if workflow == "solve":
@@ -71,7 +81,7 @@ def _canonical_workflow(workflow: str) -> str:
 
 
 def discover_cases() -> list[BenchmarkCase]:
-    """Discover curated, runnable KDL benchmark cases."""
+    """Discover curated, runnable KDL benchmark cases under examples/."""
     case_models: list[tuple[str, Path]] = []
     for case_name in DEFAULT_CASES:
         kdl_path = EXAMPLES_DIR / case_name / "input.kdl"
@@ -88,7 +98,8 @@ def discover_cases() -> list[BenchmarkCase]:
     return sorted(cases, key=lambda c: (c.name, c.workflow))
 
 
-def _build_arco_args(*, workflow: str, model_path: Path) -> list[str]:
+def build_arco_args(*, workflow: str, model_path: Path) -> list[str]:
+    """Build the arco CLI argument list for a given workflow and model path."""
     if workflow == "validate":
         return ["validate", str(model_path)]
     if workflow == "print-model":
@@ -98,167 +109,231 @@ def _build_arco_args(*, workflow: str, model_path: Path) -> list[str]:
     raise ValueError(f"unsupported workflow: {workflow}")
 
 
-def _parse_rmon_peak_rss_mb(results_path: Path) -> float:
-    if not results_path.is_file():
-        return 0.0
-
-    peak_rss_bytes = 0.0
-    for line in results_path.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        payload = json.loads(line)
-        for entry in payload.get("results", []):
-            if entry.get("resource_type") != "process":
-                continue
-            maximum = entry.get("maximum", {})
-            rss = maximum.get("rss")
-            if isinstance(rss, int | float):
-                peak_rss_bytes = max(peak_rss_bytes, float(rss))
-
-    return peak_rss_bytes / (1024.0 * 1024.0)
-
-
-def _tail(text: str, *, max_lines: int = 8) -> str:
+def tail_lines(text: str, *, max_lines: int = 8) -> str:
+    """Return the last non-blank lines of *text* for diagnostic display."""
     lines = [line for line in text.strip().splitlines() if line.strip()]
     if not lines:
         return ""
     return "\n".join(lines[-max_lines:])
 
 
-def _estimate_inner_iterations(arco_cmd: list[str]) -> int | None:
+def parse_csv(value: str) -> list[str]:
+    """Split a comma-separated string into trimmed, non-empty entries."""
+    return [entry.strip() for entry in value.split(",") if entry.strip()]
+
+
+def calibrate_inner_iterations(arco_cmd: list[str]) -> int | None:
+    """Run arco once to estimate runtime and determine how many inner
+    iterations are needed to reach MIN_MONITORED_RUNTIME_S total time."""
     started = time.perf_counter()
     try:
         result = subprocess.run(arco_cmd, capture_output=True, text=True, timeout=300)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"  benchmark command failed to launch: {exc}", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print("  calibration timed out", file=sys.stderr)
+        return None
+    except OSError as exc:
+        print(f"  calibration failed to launch: {exc}", file=sys.stderr)
         return None
 
-    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    elapsed_s = time.perf_counter() - started
     if result.returncode != 0:
-        print("  benchmark command failed during calibration", file=sys.stderr)
-        stderr_tail = _tail(result.stderr)
-        if stderr_tail:
-            print(stderr_tail, file=sys.stderr)
+        print("  calibration command failed", file=sys.stderr)
+        tail = tail_lines(result.stderr)
+        if tail:
+            print(tail, file=sys.stderr)
         return None
 
-    if elapsed_ms <= 0.0:
+    if elapsed_s <= 0.0:
         return 1
 
-    estimated = int(MIN_MONITORED_RUNTIME_MS / elapsed_ms) + 1
+    estimated = int(MIN_MONITORED_RUNTIME_S / elapsed_s) + 1
     return max(1, min(MAX_INNER_ITERATIONS, estimated))
 
 
-def _build_monitored_command(
-    arco_cmd: list[str], *, inner_iterations: int
-) -> list[str]:
-    if inner_iterations <= 1:
-        return arco_cmd
-    return [
-        sys.executable,
-        "-c",
-        _INNER_LOOP_RUNNER,
-        str(inner_iterations),
-        *arco_cmd,
-    ]
-
-
 def run_benchmark(
-    arco_binary: str, case: BenchmarkCase, repetitions: int
+    arco_binary: str, *, case: BenchmarkCase, repetitions: int
 ) -> BenchmarkResult | None:
-    """Run benchmark for a single case with multiple repetitions."""
-    durations: list[float] = []
-    peak_rss: list[float] = []
+    """Run a single benchmark case with torc and return aggregated results.
 
-    arco_cmd = [
-        arco_binary,
-        *_build_arco_args(workflow=case.workflow, model_path=case.kdl_path),
-    ]
-    inner_iterations = _estimate_inner_iterations(arco_cmd)
+    Creates a torc workflow with *repetitions* identical jobs, runs them
+    sequentially, then extracts peak memory and duration from torc's result
+    records.
+
+    For commands faster than MIN_MONITORED_RUNTIME_S, each job wraps the
+    arco command in a shell loop so torc's sysinfo monitor has time to
+    capture at least one memory sample.
+    """
+    arco_args = build_arco_args(workflow=case.workflow, model_path=case.kdl_path)
+    arco_cmd = [arco_binary, *arco_args]
+
+    inner_iterations = calibrate_inner_iterations(arco_cmd)
     if inner_iterations is None:
         return None
 
     if inner_iterations > 1:
         print(
-            f"  using {inner_iterations} inner iterations for process-memory sampling",
+            f"  using {inner_iterations} inner iterations for memory sampling",
             file=sys.stderr,
         )
 
-    monitored_cmd = _build_monitored_command(
-        arco_cmd, inner_iterations=inner_iterations
-    )
+    # Build the per-job command.  For fast commands we wrap a shell loop;
+    # for commands that already run >MIN_MONITORED_RUNTIME_S we run once.
+    arco_cmd_quoted = shlex.join(arco_cmd)
+    if inner_iterations > 1:
+        job_cmd = (
+            f"for _ in $(seq 1 {inner_iterations}); do {arco_cmd_quoted}; done"
+        )
+    else:
+        job_cmd = arco_cmd_quoted
 
-    for repetition in range(repetitions):
-        started = time.perf_counter()
+    with tempfile.TemporaryDirectory(prefix="arco-bench-torc-") as tmpdir:
+        tmp = Path(tmpdir)
+        db_path = tmp / "torc.db"
+        commands_path = tmp / "commands.txt"
+
+        # Write N identical commands (one per repetition).
+        commands_path.write_text("\n".join([job_cmd] * repetitions) + "\n")
+
+        exec_cmd: list[str] = [
+            "torc",
+            "--standalone",
+            "--format",
+            "json",
+            "--db",
+            str(db_path),
+            "exec",
+            "-C",
+            str(commands_path),
+            "--name",
+            f"arco-bench-{case.name}-{case.workflow}",
+            "--monitor",
+            "summary",
+            "--max-parallel-jobs",
+            "1",
+            "--sample-interval-seconds",
+            "1",
+            "-o",
+            str(tmp),
+        ]
+
         try:
-            timed_result = subprocess.run(
-                arco_cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,
+            exec_result = subprocess.run(
+                exec_cmd, capture_output=True, text=True, timeout=600
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            print(f"  arco command failed to launch: {exc}", file=sys.stderr)
+        except subprocess.TimeoutExpired:
+            print("  torc exec timed out after 600s", file=sys.stderr)
+            return None
+        except OSError as exc:
+            print(f"  torc exec failed to launch: {exc}", file=sys.stderr)
             return None
 
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
-        if timed_result.returncode != 0:
-            print("  arco command failed", file=sys.stderr)
-            stderr_tail = _tail(timed_result.stderr)
+        if exec_result.returncode != 0:
+            print("  torc exec command failed", file=sys.stderr)
+            stderr_tail = tail_lines(exec_result.stderr)
             if stderr_tail:
                 print(stderr_tail, file=sys.stderr)
             return None
 
-        with tempfile.TemporaryDirectory(prefix="arco-bench-rmon-") as output_dir:
-            run_name = f"{case.name}-{case.workflow}-{repetition}"
-            results_path = Path(output_dir) / f"{run_name}_results.json"
-            cmd = [
-                "rmon",
-                "monitor-process",
-                "--interval",
-                "1",
-                "--output",
-                output_dir,
-                "--name",
-                run_name,
-                "--",
-                *monitored_cmd,
-            ]
-            try:
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=300
+        # Parse the workflow_id from torc exec JSON output.
+        try:
+            exec_payload = json.loads(exec_result.stdout)
+        except json.JSONDecodeError as exc:
+            print(f"  failed to parse torc exec JSON: {exc}", file=sys.stderr)
+            return None
+        try:
+            workflow_id = exec_payload["workflow_id"]
+        except KeyError:
+            print(
+                "  torc exec output missing workflow_id field", file=sys.stderr
+            )
+            return None
+
+        # Query results for this workflow.
+        results_cmd: list[str] = [
+            "torc",
+            "--standalone",
+            "--format",
+            "json",
+            "--db",
+            str(db_path),
+            "results",
+            "list",
+            str(workflow_id),
+        ]
+        try:
+            results_result = subprocess.run(
+                results_cmd, capture_output=True, text=True, timeout=30
+            )
+        except subprocess.TimeoutExpired:
+            print("  torc results list timed out", file=sys.stderr)
+            return None
+        except OSError as exc:
+            print(
+                f"  torc results list failed to launch: {exc}", file=sys.stderr
+            )
+            return None
+
+        if results_result.returncode != 0:
+            print("  torc results list command failed", file=sys.stderr)
+            stderr_tail = tail_lines(results_result.stderr)
+            if stderr_tail:
+                print(stderr_tail, file=sys.stderr)
+            return None
+
+        try:
+            results_payload = json.loads(results_result.stdout)
+        except json.JSONDecodeError as exc:
+            print(
+                f"  failed to parse torc results JSON: {exc}", file=sys.stderr
+            )
+            return None
+        try:
+            items = results_payload["items"]
+        except KeyError:
+            print(
+                "  torc results output missing items field", file=sys.stderr
+            )
+            return None
+
+        durations: list[float] = []
+        peak_rss: list[float] = []
+
+        for item in items:
+            exec_min = item.get("exec_time_minutes")
+            peak_bytes = item.get("peak_memory_bytes")
+
+            if isinstance(exec_min, (int, float)):
+                total_ms = float(exec_min) * 60_000.0
+                durations.append(total_ms / inner_iterations)
+
+            # peak_memory_bytes can be None (torc didn't collect data) or 0
+            # (collected zero / no samples fired).  Treat both as 0.0 MiB.
+            if isinstance(peak_bytes, (int, float)):
+                peak_rss.append(
+                    max(float(peak_bytes), 0.0) / (1024.0 * 1024.0)
                 )
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                print(f"  rmon failed to launch: {exc}", file=sys.stderr)
-                return None
+            else:
+                peak_rss.append(0.0)
 
-            if result.returncode != 0:
-                print("  rmon/arco command failed", file=sys.stderr)
-                stderr_tail = _tail(result.stderr)
-                if stderr_tail:
-                    print(stderr_tail, file=sys.stderr)
-                return None
+        if not durations:
+            print(
+                f"  no duration data from {len(items)} results", file=sys.stderr
+            )
+            return None
 
-            try:
-                peak_rss_mb = _parse_rmon_peak_rss_mb(results_path)
-            except json.JSONDecodeError as exc:
-                print(f"  failed to parse rmon output JSON: {exc}", file=sys.stderr)
-                return None
+        if len(durations) < repetitions:
+            print(
+                f"  warning: expected {repetitions} results, got {len(durations)}",
+                file=sys.stderr,
+            )
 
-            durations.append(elapsed_ms)
-            peak_rss.append(peak_rss_mb)
-
-    return BenchmarkResult(
-        case=case.name,
-        workflow=case.workflow,
-        median_duration_ms=statistics.median(durations),
-        peak_rss_mb=max(peak_rss) if peak_rss else 0.0,
-        samples=repetitions,
-    )
-
-
-def _parse_csv(value: str) -> list[str]:
-    return [entry.strip() for entry in value.split(",") if entry.strip()]
+        return BenchmarkResult(
+            case=case.name,
+            workflow=case.workflow,
+            median_duration_ms=statistics.median(durations),
+            peak_rss_mb=max(peak_rss) if peak_rss else 0.0,
+            samples=len(durations),
+        )
 
 
 def main() -> int:
@@ -275,26 +350,31 @@ def main() -> int:
         "--workflows",
         default=",".join(DEFAULT_WORKFLOWS),
         help=(
-            "Comma-separated workflows. Supported: " + ", ".join(SUPPORTED_WORKFLOWS)
+            "Comma-separated workflows. Supported: "
+            + ", ".join(SUPPORTED_WORKFLOWS)
         ),
     )
     parser.add_argument("--repetitions", type=int, default=10)
-    parser.add_argument("--output", type=Path, default=Path("benchmark-results.json"))
+    parser.add_argument(
+        "--output", type=Path, default=Path("benchmark-results.json")
+    )
     args = parser.parse_args()
 
     all_cases = discover_cases()
 
-    requested_workflows = set(_parse_csv(args.workflows))
+    requested_workflows = set(parse_csv(args.workflows))
     unsupported = sorted(requested_workflows - set(SUPPORTED_WORKFLOWS))
     if unsupported:
         print("Unsupported workflows: " + ", ".join(unsupported), file=sys.stderr)
         return 2
-    workflows = {_canonical_workflow(item) for item in requested_workflows}
+    workflows = {canonical_workflow(item) for item in requested_workflows}
 
     if args.cases:
-        case_names = set(_parse_csv(args.cases))
+        case_names = set(parse_csv(args.cases))
         filtered = [
-            c for c in all_cases if c.name in case_names and c.workflow in workflows
+            c
+            for c in all_cases
+            if c.name in case_names and c.workflow in workflows
         ]
     else:
         filtered = [c for c in all_cases if c.workflow in workflows]
@@ -307,7 +387,9 @@ def main() -> int:
     failures = 0
     for case in filtered:
         print(f"Benchmarking {case.name}/{case.workflow}...", file=sys.stderr)
-        result = run_benchmark(args.arco_binary, case, args.repetitions)
+        result = run_benchmark(
+            args.arco_binary, case=case, repetitions=args.repetitions
+        )
         if result is None:
             failures += 1
             print("  FAILED", file=sys.stderr)
@@ -320,7 +402,9 @@ def main() -> int:
         )
 
     validate_medians = {
-        r.case: r.median_duration_ms for r in results if r.workflow == "validate"
+        r.case: r.median_duration_ms
+        for r in results
+        if r.workflow == "validate"
     }
 
     output = []
@@ -333,7 +417,9 @@ def main() -> int:
         ]
         if r.workflow == "run" and r.case in validate_medians:
             validate_median = validate_medians[r.case]
-            extra_lines.append(f"validate_median_ms={validate_median:.3f}")
+            extra_lines.append(
+                f"validate_median_ms={validate_median:.3f}"
+            )
             extra_lines.append(
                 f"solve_estimate_ms={max(0.0, r.median_duration_ms - validate_median):.3f}"
             )
