@@ -50,7 +50,7 @@ jobs:
       issues: write # required to update PR labels
       pull-requests: write # required to update release PR lifecycle labels
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -157,7 +157,7 @@ jobs:
       contents: write # required to upload the VS Code extension asset to the GitHub Release
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ needs.dispatch-dist-release.outputs.tag }}
           persist-credentials: false
@@ -212,7 +212,7 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
     steps:
       - name: Checkout release commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ needs.dispatch-dist-release.outputs.tag }}
           fetch-depth: 1
