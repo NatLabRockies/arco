@@ -22,6 +22,7 @@ env:
   JUST_VERSION: "1.43.0"
   PYTHON_LATEST: "3.12"
   RUST_TOOLCHAIN_VERSION: "1.85"
+  TORC_VERSION: "0.37.2"
 
 jobs:
   version-consistency:
@@ -392,7 +393,7 @@ jobs:
           path: |
             ~/.cargo/bin/torc
             ~/.cargo/bin/torc-server
-          key: ${{ runner.os }}-torc-${{ hashFiles('.github/workflows/ci.yaml') }}
+          key: ${{ runner.os }}-torc-${{ env.TORC_VERSION }}
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -406,10 +407,13 @@ jobs:
           save-rust-cache: "false"
           rust-cache-shared-key: product-build
 
-      - name: Ensure torc is installed
+      - name: Install torc
         run: |
           if [ ! -x "$HOME/.cargo/bin/torc" ] || [ ! -x "$HOME/.cargo/bin/torc-server" ]; then
-            cargo install torc --features server-bin
+            mkdir -p "$HOME/.cargo/bin"
+            curl -fsSL "https://github.com/NatLabRockies/torc/releases/download/v$TORC_VERSION/torc-x86_64-unknown-linux-musl.tar.gz" \
+              | tar xz -C "$HOME/.cargo/bin" torc torc-server
+            chmod +x "$HOME/.cargo/bin/torc" "$HOME/.cargo/bin/torc-server"
           fi
           "$HOME/.cargo/bin/torc" --version
           "$HOME/.cargo/bin/torc-server" --version

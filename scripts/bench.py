@@ -5,8 +5,9 @@ Wraps arco CLI commands with torc's built-in resource monitoring to measure
 wall-clock duration and peak RSS.  Outputs github-action-benchmark-compatible JSON
 on stdout; diagnostics go to stderr.
 
-Requires ``torc`` and ``torc-server`` on PATH (install with
-``cargo install torc --features server-bin``).
+Requires ``torc`` and ``torc-server`` on PATH (install from
+`GitHub releases <https://github.com/NatLabRockies/torc/releases>`_
+or ``cargo install torc --features server-bin``).
 
 Exit codes
   0  all benchmarks succeeded
