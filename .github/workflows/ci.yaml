@@ -416,7 +416,7 @@ jobs:
             chmod +x "$HOME/.cargo/bin/torc" "$HOME/.cargo/bin/torc-server"
           fi
           "$HOME/.cargo/bin/torc" --version
-          "$HOME/.cargo/bin/torc-server" --version
+          "$HOME/.cargo/bin/torc-server" run --help >/dev/null
 
       - name: Add cargo bin to PATH
         run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
