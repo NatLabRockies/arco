@@ -103,3 +103,7 @@ unimplemented = "deny"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[patch.crates-io]
+zip = { path = "third_party/zip-0.5.13" }
+zip-extract = { path = "third_party/zip-extract-0.1.3" }

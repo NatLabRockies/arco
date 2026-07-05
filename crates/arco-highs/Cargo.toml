@@ -17,7 +17,7 @@ workspace = true
 arco-solver = { workspace = true }
 arco-model = { workspace = true }
 highs = "2.1"
-highs-sys = "1.12.1"
+highs-sys = { version = "=1.15.0", features = ["discover"] }
 tracing = { workspace = true }
 
 [dev-dependencies]

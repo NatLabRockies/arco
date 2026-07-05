@@ -70,6 +70,10 @@ runs:
         rustup component add rustfmt clippy --toolchain "$RUST_TOOLCHAIN_VERSION"
         rustup default "$RUST_TOOLCHAIN_VERSION"
 
+    - name: Configure HiGHS static binary discovery
+      shell: bash
+      run: bash ./scripts/setup_highs_binary_env.sh "$GITHUB_ENV"
+
     - name: Cache Rust build artifacts
       uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
       with:
