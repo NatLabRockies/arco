@@ -168,7 +168,7 @@ py-test: py-dev py-cli-build
 
 [group: 'python']
 py-build-wheel: py-licenses
-    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
+    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
 
 [group: 'python']
 py-build-sdist:

@@ -74,6 +74,10 @@ runs:
       shell: bash
       run: bash ./scripts/setup_highs_binary_env.sh "$GITHUB_ENV"
 
+    - name: Configure SCIP bundled binary discovery
+      shell: bash
+      run: bash ./scripts/setup_scip_binary_env.sh "$GITHUB_ENV"
+
     - name: Cache Rust build artifacts
       uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
       with:

@@ -161,6 +161,11 @@ jobs:
         shell: "bash"
         env:
           "ARCO_HIGHS_TARGETS": "${{ join(matrix.targets, ',') }}"
+      - name: "Configure SCIP bundled binary discovery"
+        run: "bash ./scripts/setup_scip_binary_env.sh \"$GITHUB_ENV\""
+        shell: "bash"
+        env:
+          "ARCO_SCIP_TARGETS": "${{ join(matrix.targets, ',') }}"
       - name: "Install uv for solver runtime setup"
         uses: "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
         with:

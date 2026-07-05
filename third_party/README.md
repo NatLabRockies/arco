@@ -4,20 +4,23 @@ This directory contains small Cargo patches for upstream crates when the
 workspace needs a behavior-preserving build fix before the change is available
 from crates.io.
 
-## `zip-extract-0.1.3`
+## `russcip-0.9.1`
 
-`scip-sys` uses `zip-extract` only in its build script to unpack SCIP release
-zip files. The upstream `zip-extract` default feature set also enables zstd,
-AES, and bzip2 archive support, which forces expensive native build
-dependencies that are not needed for SCIP's release archives. The vendored
-patch keeps the crate API and version unchanged while narrowing the default
-feature set to deflate extraction.
+`russcip` enables `scip-sys` default features on its dependency edge even when
+Arco uses the bundled SCIP path. The bundled path has prebuilt bindings, so
+compiling `bindgen` for SCIP is unnecessary. The vendored patch keeps the crate
+API and version unchanged while disabling default features on the `scip-sys`
+dependency; `russcip/bundled` still enables `scip-sys/bundled`.
 
-## `zip-0.5.13`
+## `scip-sys-0.1.28`
 
-`scip-sys` also declares the older `zip` crate as a build dependency under its
-bundled feature, but its build script extracts SCIP release zips through
-`zip-extract`. The upstream `zip` default feature set enables bzip2 support,
-which compiles `bzip2-sys` even though the bundled SCIP archives do not need
-it. The vendored patch keeps the crate API and version unchanged while removing
-bzip2 from the default feature set.
+`scip-sys/bundled` downloads a pinned SCIP release and uses prebuilt bindings,
+but the upstream feature compiles Rust HTTP/TLS/ZIP dependencies only to fetch
+and unpack that build-time archive. The vendored patch keeps bundled SCIP
+enabled and version-pinned while:
+
+- accepting `SCIP_SYS_BUNDLED_DIR_<target>` or `SCIP_SYS_BUNDLED_DIR` for a
+  pre-extracted SCIP install,
+- preserving an external `curl` + Python fallback download for local builds,
+- removing the unused library dependency on `cmake`, and
+- removing Rust download/archive crates from the bundled feature graph.

@@ -85,6 +85,7 @@ jobs:
               - 'Cargo.lock'
               - 'justfile'
               - 'scripts/setup_highs_binary_env.sh'
+              - 'scripts/setup_scip_binary_env.sh'
               - 'dist-workspace.toml'
               - '.github/build-setup.yml'
               - '.github/actions/**'
@@ -94,6 +95,7 @@ jobs:
               - 'Cargo.lock'
               - 'justfile'
               - 'scripts/setup_highs_binary_env.sh'
+              - 'scripts/setup_scip_binary_env.sh'
               - '.github/actions/**'
             docs:
               - 'docs/**'
@@ -101,6 +103,7 @@ jobs:
               - 'justfile'
             solver:
               - 'scripts/setup_highs_binary_env.sh'
+              - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/setup_solver_runtime_env.sh'
               - 'scripts/smoke_solver.py'
               - 'crates/arco-highs/**'

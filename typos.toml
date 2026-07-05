@@ -10,6 +10,7 @@ arange = "arange" # numpy.arange
 
 [files]
 extend-exclude = [
-  "CHANGELOG.md", # auto-generated, full of commit SHA fragments
-  ".gitignore",   # glob patterns like [Ss]cripts trigger false positives
+  "CHANGELOG.md",   # auto-generated, full of commit SHA fragments
+  ".gitignore",     # glob patterns like [Ss]cripts trigger false positives
+  "third_party/**",
 ]

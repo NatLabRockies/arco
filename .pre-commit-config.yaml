@@ -21,6 +21,7 @@ repos:
 
       - id: check-added-large-files
         args: ["--maxkb=1000"]
+        exclude: ^third_party/
 
       - id: end-of-file-fixer
       - id: check-case-conflict
@@ -66,6 +67,7 @@ repos:
     rev: v1.44.0
     hooks:
       - id: typos
+        exclude: ^third_party/
 
   - repo: local
     hooks:
@@ -136,6 +138,7 @@ repos:
         language: node
         additional_dependencies: ["prettier@3.8.3"]
         types_or: [yaml, json5, markdown]
+        exclude: ^third_party/
 
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
     rev: v1.14.0

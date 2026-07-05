@@ -1,3 +1,4 @@
 .github/workflows/v-release.yml
 CHANGELOG.md
 README.md
+third_party/
