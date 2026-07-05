@@ -149,8 +149,7 @@ enum SelfAction {
         /// Update to a specific release tag instead of the latest release
         #[arg(long)]
         version: Option<String>,
-        /// GitHub token for higher API rate limits
-        #[arg(long)]
+        #[arg(long, hide = true)]
         token: Option<String>,
     },
 }
