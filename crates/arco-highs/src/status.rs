@@ -2,7 +2,6 @@
 
 use crate::ffi::HighsStatus;
 use arco_solver::{SolverStatus, SolverStatusMapping};
-use highs::HighsModelStatus;
 
 impl SolverStatusMapping for HighsStatus {
     fn to_solver_status(self) -> SolverStatus {
@@ -16,26 +15,6 @@ impl SolverStatusMapping for HighsStatus {
             HighsStatus::Unknown => SolverStatus::Unknown,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct HighsModelStatusMapping(pub(crate) HighsModelStatus);
-
-impl SolverStatusMapping for HighsModelStatusMapping {
-    fn to_solver_status(self) -> SolverStatus {
-        match self.0 {
-            HighsModelStatus::Optimal => SolverStatus::Optimal,
-            HighsModelStatus::Infeasible => SolverStatus::Infeasible,
-            HighsModelStatus::Unbounded => SolverStatus::Unbounded,
-            HighsModelStatus::ReachedTimeLimit => SolverStatus::TimeLimit,
-            HighsModelStatus::ReachedIterationLimit => SolverStatus::IterationLimit,
-            _ => SolverStatus::Unknown,
-        }
-    }
-}
-
-pub(crate) fn highs_model_status(status: HighsModelStatus) -> HighsModelStatusMapping {
-    HighsModelStatusMapping(status)
 }
 
 pub(crate) fn highs_to_core_status(status: HighsStatus) -> SolverStatus {
@@ -76,20 +55,6 @@ mod tests {
             highs_to_core_status(HighsStatus::ReachedIterationLimit),
             SolverStatus::IterationLimit
         );
-    }
-
-    #[test]
-    fn test_highs_model_status_mapping() {
-        assert_eq!(
-            highs_model_status(HighsModelStatus::Optimal).to_solver_status(),
-            SolverStatus::Optimal
-        );
-        assert_eq!(
-            highs_model_status(HighsModelStatus::ReachedTimeLimit).to_solver_status(),
-            SolverStatus::TimeLimit
-        );
-        assert!(highs_model_status(HighsModelStatus::Optimal).has_solution());
-        assert!(!highs_model_status(HighsModelStatus::Infeasible).has_solution());
     }
 
     #[test]

@@ -1491,6 +1491,11 @@ scenario S1 {
 
 #[test]
 fn run_fails_for_unsupported_embedded_family_selection() {
+    #[cfg(feature = "xpress")]
+    if local_xpress_dir().is_some() {
+        return;
+    }
+
     let model_path = example_path("examples/dense-lp/input.kdl");
     let model = model_path
         .to_str()

@@ -158,6 +158,26 @@ To build with both Xpress and IPOPT:
 cargo build -p arco-cli --bin arco --features ipopt,xpress
 ```
 
+Workspace-wide Rust `just` targets run through the solver build environment
+wrapper, which reuses prebuilt SCIP and HiGHS artifacts when the current target
+has a supported archive. When no safe HiGHS archive is available, the wrapper
+builds a native HiGHS cache under `~/.cache/arco-highs` and exposes it through
+`pkg-config`, so fresh Cargo targets do not rebuild HiGHS. Set
+`ARCO_HIGHS_ENABLE_SOURCE_CACHE=0` to force the old `highs-sys` source-build
+fallback.
+
+Check and test recipes opt in to the official Apple Silicon HiGHS static archive
+for faster local validation. Product build recipes and direct calls to
+`scripts/setup_highs_binary_env.sh` only use that archive when
+`ARCO_HIGHS_ENABLE_APPLE_STATIC=1` is set; release jobs should opt in only after
+confirming the archive's macOS deployment target is acceptable for that product.
+The source-built macOS cache defaults to `MACOSX_DEPLOYMENT_TARGET=11.0` unless
+`ARCO_HIGHS_MACOS_DEPLOYMENT_TARGET` or `MACOSX_DEPLOYMENT_TARGET` overrides it.
+Linux HiGHS static archives require glibc 2.38 or newer; older Linux images use
+the source-built cache when native build tools are present. SCIP-enabled Linux
+product builds also need the GNU Fortran runtime (`libgfortran.so.5`; on
+Debian/Ubuntu install `libgfortran5` or `gfortran`).
+
 > [!NOTE]
 > IPOPT is intentionally outside the normal `--all-features` workspace path.
 > The `arco-ipopt` crate compiles without native IPOPT libraries; this

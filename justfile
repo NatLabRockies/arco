@@ -10,6 +10,7 @@ clippy-packages := "--workspace --exclude arco-python"
 arco-debug-bin := justfile_directory() / "target/debug/arco"
 arco-release-bin := justfile_directory() / "target/release/arco"
 cli-artifact := justfile_directory() / "artifacts/arco-cli-linux.tar.gz"
+solver-build-env := justfile_directory() / "scripts/with_solver_build_env.sh"
 
 alias t := test
 alias rt := rust-test
@@ -88,15 +89,15 @@ workflow-quality:
 
 [group: 'rust']
 rust-check:
-    cargo check {{ rust-packages }} --all-features --tests --benches --examples
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check {{ rust-packages }} --all-features --tests --benches --examples
 
 [group: 'rust']
 rust-clippy:
-    cargo clippy {{ clippy-packages }} --benches --tests --examples --all-features -- -D warnings
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy {{ clippy-packages }} --benches --tests --examples --all-features -- -D warnings
 
 [group: 'rust']
 rust-test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --all-features
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --all-features
 
 [group: 'rust']
 check-pkg package:
@@ -130,7 +131,7 @@ py-licenses:
 
 [group: 'python']
 py-dev: py-licenses py-sync
-    cd bindings/python && uv run --with maturin maturin develop
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash -lc 'cd bindings/python && uv run --with maturin maturin develop'
 
 [group: 'python']
 py-fmt:
@@ -160,7 +161,7 @@ py-check:
 
 [group: 'python']
 py-cli-build:
-    cargo build -p arco-cli --no-default-features --bin arco
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo build -p arco-cli --no-default-features --bin arco
 
 [group: 'python']
 py-test: py-dev py-cli-build
@@ -168,7 +169,7 @@ py-test: py-dev py-cli-build
 
 [group: 'python']
 py-build-wheel: py-licenses
-    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
+    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then "{{ solver-build-env }}" uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else "{{ solver-build-env }}" uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
 
 [group: 'python']
 py-build-sdist:
@@ -194,7 +195,7 @@ py-shell: py-dev
 
 [group: 'docs']
 docs-test:
-    uv run --project bindings/python pytest scripts/test_docs_doctest.py -v
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" uv run --project bindings/python pytest scripts/test_docs_doctest.py -v
 
 [group: 'docs']
 doc:
@@ -206,15 +207,15 @@ arch-check:
 
 [group: 'product']
 build-cli:
-    cargo build -p arco-cli --bin arco
+    "{{ solver-build-env }}" cargo build -p arco-cli --bin arco
 
 [group: 'product']
 build-cli-feature features:
-    cargo build -p arco-cli --bin arco --features "{{ features }}"
+    "{{ solver-build-env }}" cargo build -p arco-cli --bin arco --features "{{ features }}"
 
 [group: 'product']
 build-cli-release:
-    cargo build --release -p arco-cli --bin arco --all-features
+    "{{ solver-build-env }}" cargo build --release -p arco-cli --bin arco --all-features
 
 [group: 'examples']
 kdl-examples args="":

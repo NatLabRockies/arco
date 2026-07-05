@@ -1,13 +1,10 @@
 //! HiGHS solver implementation over solver-facing targets.
 
-use crate::status::highs_model_status;
 use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
 use arco_solver::{
-    ModelViewBackend, ModelViewSolveResult, SolverConfig, SolverStatus, SolverStatusMapping,
+    ModelViewBackend, ModelViewSolveResult, SolverConfig, SolverStatus,
     validate_model_view_solve_result,
 };
-use highs::SolvedModel as RawSolvedHighsModel;
-use highs::{ColProblem, Model as RawHighsModel, Sense as HighsSense};
 use std::collections::BTreeMap;
 use std::ffi::{CString, c_void};
 use std::time::Instant;
@@ -47,47 +44,6 @@ fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
     Ok(())
 }
 
-fn apply_solver_config(
-    highs_model: &mut RawHighsModel,
-    config: &SolverConfig,
-) -> Result<(), SolverError> {
-    validate_solver_config(config)?;
-
-    if config.verbosity.unwrap_or(0) == 0 && !config.log_to_console.unwrap_or(false) {
-        highs_model.make_quiet();
-    }
-    if let Some(level) = config.verbosity {
-        highs_model.set_option("output_flag", level > 0);
-    }
-    if config.log_to_console.unwrap_or(false) {
-        highs_model.set_option("log_to_console", true);
-        highs_model.set_option("output_flag", true);
-    }
-    if let Some(limit) = config.time_limit {
-        highs_model.set_option("time_limit", limit);
-    }
-    if let Some(gap) = config.mip_gap {
-        highs_model.set_option("mip_rel_gap", gap);
-    }
-    if let Some(presolve) = config.presolve {
-        highs_model.set_option("presolve", if presolve { "on" } else { "off" });
-    }
-    if let Some(threads) = config.threads {
-        highs_model.set_option("threads", threads as i32);
-    }
-    if let Some(tolerance) = config.tolerance {
-        highs_model.set_option("primal_feasibility_tolerance", tolerance);
-        highs_model.set_option("dual_feasibility_tolerance", tolerance);
-    }
-    for (key, value) in &config.parameters {
-        if key.starts_with("arco.") {
-            continue;
-        }
-        highs_model.set_option(key.as_str(), value.as_str());
-    }
-    Ok(())
-}
-
 /// Adapter implementation for primitive model-view solves through HiGHS.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HighsModelViewBackend;
@@ -119,61 +75,24 @@ pub fn solve_model_view(
     }
 
     let sense = match model.objective().sense.unwrap_or(Sense::Minimize) {
-        Sense::Minimize => HighsSense::Minimise,
-        Sense::Maximize => HighsSense::Maximise,
+        Sense::Minimize => highs_sys::OBJECTIVE_SENSE_MINIMIZE,
+        Sense::Maximize => highs_sys::OBJECTIVE_SENSE_MAXIMIZE,
     };
     let objective_coefficients = objective_coefficients(model);
-    let load_path = requested_load_path(config)?;
+    let _requested_load_path = requested_load_path(config)?;
     let matrix_start = Instant::now();
-    let highs_model = match load_path {
-        HighsLoadPath::Wrapper => {
-            let problem = build_wrapper_highs_problem(model, &objective_coefficients)?;
-            let mut highs_model = problem.optimise(sense);
-            apply_solver_config(&mut highs_model, config)?;
-            PreparedHighsModel::Wrapper(highs_model)
-        }
-        HighsLoadPath::Direct => {
-            let load_data = build_direct_highs_load_data(model, &objective_coefficients)?;
-            let mut highs_model = DirectHighsModel::load(load_data, sense)?;
-            apply_direct_solver_config(&mut highs_model, config)?;
-            PreparedHighsModel::Direct(highs_model)
-        }
-    };
+    let load_data = build_direct_highs_load_data(model, &objective_coefficients)?;
+    let mut highs_model = DirectHighsModel::load(load_data, sense)?;
+    apply_direct_solver_config(&mut highs_model, config)?;
     let matrix_build_seconds = matrix_start.elapsed().as_secs_f64();
 
     let highs_run_start = Instant::now();
-    let solved = match highs_model {
-        PreparedHighsModel::Wrapper(model) => SolvedHighsModel::Wrapper(model.solve()),
-        PreparedHighsModel::Direct(mut model) => {
-            let model_status = model.solve()?;
-            SolvedHighsModel::Direct {
-                model,
-                model_status,
-            }
-        }
-    };
+    let model_status = highs_model.solve()?;
     let highs_run_seconds = highs_run_start.elapsed().as_secs_f64();
-    let (mapped_status, highs_model_status, highs_primal_solution_status, objective_value) =
-        match &solved {
-            SolvedHighsModel::Wrapper(model) => {
-                let model_status = model.status();
-                (
-                    highs_model_status(model_status).to_solver_status(),
-                    model_status as isize as f64,
-                    model.primal_solution_status() as isize as f64,
-                    model.objective_value(),
-                )
-            }
-            SolvedHighsModel::Direct {
-                model,
-                model_status,
-            } => (
-                raw_highs_model_status_to_solver_status(*model_status),
-                *model_status as f64,
-                model.int_info_value("primal_solution_status")? as f64,
-                model.objective_value(),
-            ),
-        };
+    let mapped_status = raw_highs_model_status_to_solver_status(model_status);
+    let highs_model_status = model_status as f64;
+    let highs_primal_solution_status = highs_model.int_info_value("primal_solution_status")? as f64;
+    let objective_value = highs_model.objective_value();
     let objective_value =
         objective_value_for_primal_solution_status(objective_value, highs_primal_solution_status);
     let reported_status =
@@ -189,20 +108,7 @@ pub fn solve_model_view(
         .is_none_or(|value| value != "false");
     let solution_extract_start = Instant::now();
     let (primal_values, variable_duals, row_values, constraint_duals) = if extract_solution {
-        match &solved {
-            SolvedHighsModel::Wrapper(model) => {
-                let solution = model.get_solution();
-                (
-                    solution.columns().to_vec(),
-                    solution.dual_columns().to_vec(),
-                    solution.rows().to_vec(),
-                    solution.dual_rows().to_vec(),
-                )
-            }
-            SolvedHighsModel::Direct {
-                model: highs_model, ..
-            } => highs_model.solution_vectors(model.num_variables(), model.num_constraints())?,
-        }
+        highs_model.solution_vectors(model.num_variables(), model.num_constraints())?
     } else {
         (Vec::new(), Vec::new(), Vec::new(), Vec::new())
     };
@@ -222,13 +128,7 @@ pub fn solve_model_view(
 
     let mut metadata = BTreeMap::new();
     metadata.insert("highs_matrix_build_s".to_string(), matrix_build_seconds);
-    metadata.insert(
-        "highs_direct_load_path".to_string(),
-        match load_path {
-            HighsLoadPath::Wrapper => 0.0,
-            HighsLoadPath::Direct => 1.0,
-        },
-    );
+    metadata.insert("highs_direct_load_path".to_string(), 1.0);
     metadata.insert("highs_run_s".to_string(), highs_run_seconds);
     metadata.insert("solution_extract_s".to_string(), solution_extract_seconds);
     metadata.insert("fingerprint_s".to_string(), fingerprint_seconds);
@@ -261,23 +161,10 @@ pub fn solve_model_view(
     Ok(result)
 }
 
-enum PreparedHighsModel {
-    Wrapper(RawHighsModel),
-    Direct(DirectHighsModel),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HighsLoadPath {
     Wrapper,
     Direct,
-}
-
-enum SolvedHighsModel {
-    Wrapper(RawSolvedHighsModel),
-    Direct {
-        model: DirectHighsModel,
-        model_status: highs_sys::HighsInt,
-    },
 }
 
 struct DirectHighsLoadData {
@@ -339,57 +226,6 @@ fn objective_coefficients(model: &(impl ModelView + ?Sized)) -> Vec<f64> {
     coefficients
 }
 
-fn build_wrapper_highs_problem(
-    model: &(impl ModelView + ?Sized),
-    objective_coefficients: &[f64],
-) -> Result<ColProblem, SolverError> {
-    let mut problem = ColProblem::new();
-    let rows = (0..model.num_constraints())
-        .map(|index| {
-            let constraint = model
-                .constraint(ConstraintId::new(index as u32))
-                .ok_or_else(|| {
-                    SolverError::SolverSpecific(format!("constraint ID {index} does not exist"))
-                })?;
-            Ok(problem.add_row(constraint.bounds.lower..=constraint.bounds.upper))
-        })
-        .collect::<Result<Vec<_>, SolverError>>()?;
-
-    for (index, objective) in objective_coefficients.iter().copied().enumerate() {
-        let variable_id = VariableId::new(index as u32);
-        let variable = model
-            .variable(variable_id)
-            .ok_or(SolverError::InvalidVariableId(index as u32))?;
-        let column = model.column(variable_id).unwrap_or(&[]);
-        for (constraint_id, _) in column {
-            let row_index = constraint_id.inner() as usize;
-            if row_index >= rows.len() {
-                return Err(SolverError::SolverSpecific(format!(
-                    "constraint ID {row_index} does not exist"
-                )));
-            }
-        }
-        let factors = column.iter().map(|(constraint_id, coefficient)| {
-            (rows[constraint_id.inner() as usize], *coefficient)
-        });
-        if variable.is_integer {
-            problem.add_integer_column(
-                objective,
-                variable.bounds.lower..=variable.bounds.upper,
-                factors,
-            );
-        } else {
-            problem.add_column(
-                objective,
-                variable.bounds.lower..=variable.bounds.upper,
-                factors,
-            );
-        }
-    }
-
-    Ok(problem)
-}
-
 fn build_direct_highs_load_data(
     model: &(impl ModelView + ?Sized),
     objective_coefficients: &[f64],
@@ -426,13 +262,13 @@ fn build_direct_highs_load_data(
             .variable(variable_id)
             .ok_or(SolverError::InvalidVariableId(index as u32))?;
         if variable.is_integer && integrality.is_none() {
-            integrality = Some(vec![highs_sys::kHighsVarTypeContinuous; index]);
+            integrality = Some(vec![highs_sys::VAR_TYPE_CONTINUOUS; index]);
         }
         if let Some(integrality) = &mut integrality {
             integrality.push(if variable.is_integer {
-                highs_sys::kHighsVarTypeInteger
+                highs_sys::VAR_TYPE_INTEGER
             } else {
-                highs_sys::kHighsVarTypeContinuous
+                highs_sys::VAR_TYPE_CONTINUOUS
             });
         }
         col_cost.push(objective);
@@ -476,7 +312,10 @@ fn checked_highs_int(value: usize, name: &str) -> Result<highs_sys::HighsInt, So
 
 #[allow(unsafe_code)]
 impl DirectHighsModel {
-    fn load(load_data: DirectHighsLoadData, sense: HighsSense) -> Result<Self, SolverError> {
+    fn load(
+        load_data: DirectHighsLoadData,
+        sense: highs_sys::HighsInt,
+    ) -> Result<Self, SolverError> {
         // SAFETY: `Highs_create` takes no arguments and returns either a valid
         // HiGHS handle or NULL, which is checked immediately.
         let ptr = unsafe { highs_sys::Highs_create() };
@@ -488,10 +327,6 @@ impl DirectHighsModel {
         let mut model = Self { ptr };
         model.set_bool_option("output_flag", false)?;
         model.set_bool_option("log_to_console", false)?;
-        let sense = match sense {
-            HighsSense::Minimise => highs_sys::OBJECTIVE_SENSE_MINIMIZE,
-            HighsSense::Maximise => highs_sys::OBJECTIVE_SENSE_MAXIMIZE,
-        };
         // SAFETY: all slices passed to HiGHS are owned by `load_data` and stay
         // alive for the entire call. Dimensions are converted with
         // `checked_highs_int`, and `MATRIX_FORMAT_COLUMN_WISE` matches `a_start`
@@ -828,6 +663,7 @@ mod tests {
         assert_eq!(result.primal_values, vec![1.0]);
         assert_eq!(result.objective_value, 2.0);
         assert_eq!(result.fingerprint, model.fingerprint());
+        assert_eq!(result.metadata.get("highs_direct_load_path"), Some(&1.0));
         assert_eq!(result.metadata.get("num_variables"), Some(&1.0));
         assert_eq!(result.metadata.get("num_constraints"), Some(&1.0));
         assert_eq!(result.metadata.get("num_coefficients"), Some(&1.0));
@@ -899,6 +735,34 @@ mod tests {
             result.metadata.get("highs_primal_solution_status"),
             Some(&(highs_sys::SOLUTION_STATUS_FEASIBLE as f64))
         );
+    }
+
+    #[test]
+    fn legacy_wrapper_load_path_alias_solves_with_direct_backend() {
+        let mut model = Model::new();
+        let x = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
+            .expect("variable");
+        let demand = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(1.0, f64::INFINITY),
+            })
+            .expect("constraint");
+        model.set_coefficient(x, demand, 1.0).expect("coefficient");
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(x, 2.0)],
+            })
+            .expect("objective");
+
+        let config = SolverConfig::new().with_parameter("arco.highs_load_path", "wrapper");
+        let result = solve_model_view(&model, &config).expect("legacy wrapper alias succeeds");
+
+        assert!(result.status.is_feasible());
+        assert_eq!(result.primal_values, vec![1.0]);
+        assert_eq!(result.objective_value, 2.0);
+        assert_eq!(result.metadata.get("highs_direct_load_path"), Some(&1.0));
     }
 
     #[test]

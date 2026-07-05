@@ -3,6 +3,7 @@ set -euo pipefail
 
 readonly HIGHS_VERSION="${ARCO_HIGHS_VERSION:-1.15.0}"
 readonly HIGHS_LINUX_GLIBC_MIN="${ARCO_HIGHS_LINUX_GLIBC_MIN:-2.38}"
+readonly HIGHS_SOURCE_SHA256="${ARCO_HIGHS_SOURCE_SHA256:-c3fc3e9ee43e6d562361f8647b4c69f958c95356a1af8bc5a3647f5882230d44}"
 
 usage() {
 	printf 'usage: %s <github-env-file>\n' "$0" >&2
@@ -26,9 +27,28 @@ host_target() {
 	rustc -vV | awk '/^host:/ { print $2; found = 1 } END { exit found ? 0 : 1 }'
 }
 
+default_cache_root() {
+	if [[ -n "${ARCO_HIGHS_CACHE_DIR:-}" ]]; then
+		printf '%s\n' "$ARCO_HIGHS_CACHE_DIR"
+	elif [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+		printf '%s\n' "$XDG_CACHE_HOME/arco-highs"
+	elif [[ -n "${HOME:-}" ]]; then
+		printf '%s\n' "$HOME/.cache/arco-highs"
+	else
+		printf '%s\n' "${RUNNER_TEMP:-/tmp}/arco-highs"
+	fi
+}
+
 asset_for_target() {
 	local target="$1"
 	case "$target" in
+		aarch64-apple-darwin)
+			if [[ "${ARCO_HIGHS_ENABLE_APPLE_STATIC:-0}" != "1" ]]; then
+				log "official HiGHS macOS static archive discovery is opt-in; set ARCO_HIGHS_ENABLE_APPLE_STATIC=1 to use it"
+				return 1
+			fi
+			printf 'highs-%s-arm-apple-static-mit.tar.gz\n' "$HIGHS_VERSION"
+			;;
 		x86_64-unknown-linux-gnu)
 			printf 'highs-%s-x86_64-linux-gnu-static-mit.tar.gz\n' "$HIGHS_VERSION"
 			;;
@@ -39,6 +59,18 @@ asset_for_target() {
 			return 1
 			;;
 	esac
+}
+
+host_jobs() {
+	if [[ -n "${ARCO_HIGHS_BUILD_JOBS:-}" ]]; then
+		printf '%s\n' "$ARCO_HIGHS_BUILD_JOBS"
+	elif command -v nproc >/dev/null 2>&1; then
+		nproc
+	elif command -v sysctl >/dev/null 2>&1; then
+		sysctl -n hw.ncpu 2>/dev/null || printf '4\n'
+	else
+		printf '4\n'
+	fi
 }
 
 host_glibc_version() {
@@ -91,12 +123,19 @@ host_can_link_zlib() {
 	return 1
 }
 
-host_can_link_linux_archive() {
+host_can_link_archive() {
 	local target="$1"
 	local host
 	local glibc_version
 
 	case "$target" in
+		*-apple-darwin)
+			host="$(host_target 2>/dev/null || true)"
+			if [[ "$target" != "$host" ]]; then
+				log "official HiGHS static archive discovery is only enabled for native macOS targets; host is '${host:-unknown}', target is $target, using source-build fallback"
+				return 1
+			fi
+			;;
 		*-unknown-linux-gnu)
 			host="$(host_target 2>/dev/null || true)"
 			if [[ "$target" != "$host" ]]; then
@@ -119,24 +158,73 @@ host_can_link_linux_archive() {
 	esac
 }
 
+host_can_build_source_cache() {
+	local target="$1"
+	local host
+
+	if [[ "${ARCO_HIGHS_ENABLE_SOURCE_CACHE:-1}" != "1" ]]; then
+		log "HiGHS source cache disabled; set ARCO_HIGHS_ENABLE_SOURCE_CACHE=1 to use it"
+		return 1
+	fi
+
+	case "$target" in
+		*-apple-darwin | *-unknown-linux-gnu) ;;
+		*) return 1 ;;
+	esac
+
+	host="$(host_target 2>/dev/null || true)"
+	if [[ "$target" != "$host" ]]; then
+		log "HiGHS source cache is only enabled for native targets; host is '${host:-unknown}', target is $target"
+		return 1
+	fi
+
+	for program in cmake cc c++; do
+		if ! command -v "$program" >/dev/null 2>&1; then
+			log "could not find $program for HiGHS source cache; using highs-sys source-build fallback"
+			return 1
+		fi
+	done
+}
+
 rewrite_pkg_config() {
 	local root="$1"
+	local target="$2"
+	local link_zlib="${3:-1}"
+	local link_extras="${4:-0}"
 	local pc_file="$root/lib/pkgconfig/highs.pc"
 	local python_bin
 	python_bin="$(find_python)"
 
-	"$python_bin" - "$pc_file" "$root" <<'PY'
+	"$python_bin" - "$pc_file" "$root" "$target" "$link_zlib" "$link_extras" <<'PY'
 from pathlib import Path
 import sys
 
 pc_file = Path(sys.argv[1])
 root = sys.argv[2]
+target = sys.argv[3]
+link_zlib = sys.argv[4] == "1"
+link_extras = sys.argv[5] == "1"
+
+if "apple-darwin" in target:
+    libs = "-L${libdir} -lhighs"
+    if link_extras:
+        libs += " -lhighs_extras"
+    if link_zlib:
+        libs += " -lz"
+    libs += " -lc++"
+else:
+    libs = "-L${libdir} -lhighs"
+    if link_extras:
+        libs += " -lhighs_extras"
+    if link_zlib:
+        libs += " -lz"
+    libs += " -lstdc++"
 
 rewrites = {
     "prefix": root,
     "libdir": "${prefix}/lib",
     "includedir": "${prefix}/include/highs",
-    "Libs": "-L${libdir} -lhighs -lz -lstdc++",
+    "Libs": libs,
 }
 
 lines = []
@@ -161,6 +249,7 @@ download_and_extract() {
 
 	if [[ -f "$marker" ]]; then
 		log "using cached HiGHS $HIGHS_VERSION for $target at $root"
+		rewrite_pkg_config "$root" "$target" 1 0
 		return
 	fi
 
@@ -169,8 +258,100 @@ download_and_extract() {
 	log "downloading HiGHS $HIGHS_VERSION for $target"
 	curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$archive"
 	tar -xzf "$archive" -C "$root"
-	rewrite_pkg_config "$root"
+	rewrite_pkg_config "$root" "$target" 1 0
 	touch "$marker"
+}
+
+sha256_file() {
+	local path="$1"
+
+	if command -v sha256sum >/dev/null 2>&1; then
+		sha256sum "$path" | awk '{ print $1 }'
+	elif command -v shasum >/dev/null 2>&1; then
+		shasum -a 256 "$path" | awk '{ print $1 }'
+	else
+		log "could not find sha256sum or shasum to verify HiGHS source"
+		return 1
+	fi
+}
+
+download_source_archive() {
+	local archive="$1"
+	local actual_sha
+
+	if [[ ! -f "$archive" ]]; then
+		log "downloading HiGHS $HIGHS_VERSION source"
+		curl --proto '=https' --tlsv1.2 -fsSL \
+			"https://github.com/ERGO-Code/HiGHS/archive/refs/tags/v${HIGHS_VERSION}.tar.gz" \
+			-o "$archive"
+	fi
+
+	actual_sha="$(sha256_file "$archive")"
+	if [[ "$actual_sha" != "$HIGHS_SOURCE_SHA256" ]]; then
+		rm -f "$archive"
+		log "HiGHS source checksum mismatch: expected $HIGHS_SOURCE_SHA256, got $actual_sha"
+		return 1
+	fi
+}
+
+build_source_cache() {
+	local target="$1"
+	local root="$2"
+	local marker="$root/.arco-highs-source-complete"
+	local parent
+	local archive
+	local source_dir
+	local build_dir
+	local install_dir
+	local jobs
+	local cmake_args
+
+	if [[ -f "$marker" && -f "$root/lib/pkgconfig/highs.pc" && -f "$root/lib/libhighs.a" ]]; then
+		log "using cached source-built HiGHS $HIGHS_VERSION for $target at $root"
+		rewrite_pkg_config "$root" "$target" 0 1
+		return
+	fi
+
+	parent="$(dirname -- "$root")"
+	mkdir -p "$parent"
+	archive="$parent/highs-${HIGHS_VERSION}-source.tar.gz"
+	source_dir="$(mktemp -d "$parent/source.XXXXXX")"
+	build_dir="$(mktemp -d "$parent/build.XXXXXX")"
+	install_dir="$(mktemp -d "$parent/install.XXXXXX")"
+	jobs="$(host_jobs)"
+
+	download_source_archive "$archive"
+	tar -xzf "$archive" -C "$source_dir" --strip-components 1
+
+	cmake_args=(
+		-S "$source_dir"
+		-B "$build_dir"
+		-DCMAKE_BUILD_TYPE=Release
+		-DCMAKE_INSTALL_PREFIX="$install_dir"
+		-DBUILD_CXX_EXE=OFF
+		-DBUILD_EXAMPLES=OFF
+		-DBUILD_SHARED_EXTRAS_LIB=OFF
+		-DFAST_BUILD=ON
+		-DBUILD_SHARED_LIBS=OFF
+		-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=FALSE
+		-DZLIB=OFF
+		-DCMAKE_INSTALL_DOCDIR=
+	)
+	if [[ "$target" == *-apple-darwin ]]; then
+		cmake_args+=(
+			-DCMAKE_OSX_DEPLOYMENT_TARGET="${ARCO_HIGHS_MACOS_DEPLOYMENT_TARGET:-${MACOSX_DEPLOYMENT_TARGET:-11.0}}"
+		)
+	fi
+
+	log "building source HiGHS $HIGHS_VERSION for $target"
+	cmake "${cmake_args[@]}" >/dev/null
+	cmake --build "$build_dir" --target install --parallel "$jobs" >/dev/null
+
+	rm -rf "$root"
+	mv "$install_dir" "$root"
+	rewrite_pkg_config "$root" "$target" 0 1
+	touch "$marker"
+	rm -rf "$source_dir" "$build_dir"
 }
 
 append_env() {
@@ -178,6 +359,26 @@ append_env() {
 	local name="$2"
 	local value="$3"
 	printf '%s=%s\n' "$name" "$value" >>"$env_file"
+}
+
+append_pkg_config_env() {
+	local env_file="$1"
+	local target="$2"
+	local root="$3"
+	local pkg_config_dir="$root/lib/pkgconfig"
+	local suffix="${target//-/_}"
+
+	append_env "$env_file" "PKG_CONFIG_PATH_${suffix}" "$pkg_config_dir"
+	if [[ "$configured" -eq 0 ]]; then
+		local current_path="${PKG_CONFIG_PATH:-}"
+		if [[ -n "$current_path" ]]; then
+			append_env "$env_file" "PKG_CONFIG_PATH" "$pkg_config_dir:$current_path"
+		else
+			append_env "$env_file" "PKG_CONFIG_PATH" "$pkg_config_dir"
+		fi
+		append_env "$env_file" "ARCO_HIGHS_ROOT" "$root"
+	fi
+	configured=1
 }
 
 main() {
@@ -192,8 +393,9 @@ main() {
 		raw_targets="$(host_target)"
 	fi
 
-	local cache_root="${ARCO_HIGHS_CACHE_DIR:-${RUNNER_TEMP:-/tmp}/arco-highs}"
+	local cache_root
 	local configured=0
+	cache_root="$(default_cache_root)"
 	IFS=',' read -r -a targets <<<"$raw_targets"
 
 	for target in "${targets[@]}"; do
@@ -201,30 +403,23 @@ main() {
 		[[ -n "$target" ]] || continue
 
 		local asset
-		if ! asset="$(asset_for_target "$target")"; then
+		if asset="$(asset_for_target "$target")" && host_can_link_archive "$target"; then
+			local root="$cache_root/$HIGHS_VERSION/$target"
+			download_and_extract "$target" "$asset" "$root"
+			append_pkg_config_env "$env_file" "$target" "$root"
+			continue
+		elif [[ -z "${asset:-}" ]]; then
 			log "no official static HiGHS archive configured for $target; using source-build fallback"
-			continue
 		fi
-		if ! host_can_link_linux_archive "$target"; then
+
+		if host_can_build_source_cache "$target"; then
+			local root="$cache_root/$HIGHS_VERSION/$target-source"
+			build_source_cache "$target" "$root"
+			append_pkg_config_env "$env_file" "$target" "$root"
 			continue
 		fi
 
-		local root="$cache_root/$HIGHS_VERSION/$target"
-		download_and_extract "$target" "$asset" "$root"
-
-		local pkg_config_dir="$root/lib/pkgconfig"
-		local suffix="${target//-/_}"
-		append_env "$env_file" "PKG_CONFIG_PATH_${suffix}" "$pkg_config_dir"
-		if [[ "$configured" -eq 0 ]]; then
-			local current_path="${PKG_CONFIG_PATH:-}"
-			if [[ -n "$current_path" ]]; then
-				append_env "$env_file" "PKG_CONFIG_PATH" "$pkg_config_dir:$current_path"
-			else
-				append_env "$env_file" "PKG_CONFIG_PATH" "$pkg_config_dir"
-			fi
-			append_env "$env_file" "ARCO_HIGHS_ROOT" "$root"
-		fi
-		configured=1
+		log "no supported HiGHS prebuilt or source-cache target found for $target"
 	done
 
 	if [[ "$configured" -eq 1 ]]; then

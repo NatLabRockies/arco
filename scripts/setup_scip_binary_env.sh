@@ -136,9 +136,71 @@ prepend_runtime_paths() {
 	[[ -n "$paths" ]] || return
 	append_env "$env_file" "LD_LIBRARY_PATH" "$paths${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 	append_env "$env_file" "DYLD_LIBRARY_PATH" "$paths${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+	append_env "$env_file" "LIBRARY_PATH" "$paths${LIBRARY_PATH:+:$LIBRARY_PATH}"
 	if [[ -n "${GITHUB_PATH:-}" ]]; then
 		printf '%s\n' "${paths//:/$'\n'}" >>"$GITHUB_PATH"
 	fi
+}
+
+fortran_runtime_dir_for_target() {
+	local target="$1"
+	local candidate=""
+
+	case "$target" in
+		*-unknown-linux-gnu) ;;
+		*) return 1 ;;
+	esac
+
+	if command -v ldconfig >/dev/null 2>&1; then
+		candidate="$(ldconfig -p 2>/dev/null | awk '/libgfortran\.so\.5/ { print $NF; exit }')"
+		if [[ -n "$candidate" && -f "$candidate" ]]; then
+			dirname -- "$candidate"
+			return 0
+		fi
+	fi
+
+	for candidate in \
+		/usr/lib/*/libgfortran.so.5 \
+		/usr/lib/libgfortran.so.5 \
+		/lib/*/libgfortran.so.5 \
+		/lib/libgfortran.so.5; do
+		if [[ -f "$candidate" ]]; then
+			dirname -- "$candidate"
+			return 0
+		fi
+	done
+
+	log "could not find libgfortran.so.5 for $target; install libgfortran5 or gfortran for SCIP-enabled product builds"
+	return 1
+}
+
+gcc_runtime_dir_for_target() {
+	local target="$1"
+	local brew_prefix=""
+	local candidate
+
+	case "$target" in
+		*-apple-darwin) ;;
+		*) return 1 ;;
+	esac
+
+	if command -v brew >/dev/null 2>&1; then
+		brew_prefix="$(brew --prefix gcc 2>/dev/null || true)"
+	fi
+
+	for candidate in \
+		"${brew_prefix:+$brew_prefix/lib/gcc/current}" \
+		/opt/homebrew/opt/gcc/lib/gcc/current \
+		/usr/local/opt/gcc/lib/gcc/current; do
+		[[ -n "$candidate" ]] || continue
+		if [[ -f "$candidate/libgcc_s.1.1.dylib" ]]; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done
+
+	log "could not find Homebrew GCC runtime for $target; SCIP wheel repair may require libgcc_s.1.1.dylib"
+	return 1
 }
 
 main() {
@@ -180,6 +242,20 @@ main() {
 			append_env "$env_file" "ARCO_SCIP_LIBRARY_PATH" "$library_path"
 		fi
 		runtime_paths="${runtime_paths:+$runtime_paths:}$library_path"
+		if fortran_runtime_dir="$(fortran_runtime_dir_for_target "$target")"; then
+			append_env "$env_file" "ARCO_SCIP_FORTRAN_RUNTIME_PATH_${suffix}" "$fortran_runtime_dir"
+			if [[ "$configured" -eq 0 ]]; then
+				append_env "$env_file" "ARCO_SCIP_FORTRAN_RUNTIME_PATH" "$fortran_runtime_dir"
+			fi
+			runtime_paths="${runtime_paths:+$runtime_paths:}$fortran_runtime_dir"
+		fi
+		if gcc_runtime_dir="$(gcc_runtime_dir_for_target "$target")"; then
+			append_env "$env_file" "ARCO_SCIP_GCC_RUNTIME_PATH_${suffix}" "$gcc_runtime_dir"
+			if [[ "$configured" -eq 0 ]]; then
+				append_env "$env_file" "ARCO_SCIP_GCC_RUNTIME_PATH" "$gcc_runtime_dir"
+			fi
+			runtime_paths="${runtime_paths:+$runtime_paths:}$gcc_runtime_dir"
+		fi
 		configured=1
 	done
 
