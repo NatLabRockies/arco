@@ -15,7 +15,6 @@ use super::indexing::{
     AxisIndex, maybe_boolean_mask_indices, resolve_axis_index, selected_flat_indices,
     slice_indices, sliced_2d_index_sets, sliced_and_index_sets,
 };
-use arco_arrays;
 
 use super::{
     CompactExprStorage, ComparisonSense, ExpressionTermCounts, PyConstraintArray, PyExprArray,

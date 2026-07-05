@@ -44,14 +44,14 @@ sysinfo = { workspace = true }
 similar = "3"
 thiserror = "2.0"
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
-axoupdater = { version = "0.10", default-features = false, features = [
-  "github_releases",
+tracing-subscriber = { workspace = true, features = [
+  "ansi",
+  "env-filter",
+  "fmt",
+  "smallvec",
+  "tracing-log",
 ] }
-homedir = "=0.3.4"
-http = "1"
 owo-colors = "4"
-tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [dev-dependencies]
 csv = "1.4"

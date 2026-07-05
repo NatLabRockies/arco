@@ -17,9 +17,9 @@ workspace = true
 arco-solver = { workspace = true }
 arco-format = { workspace = true }
 arco-model = { workspace = true }
-miette = { version = "7", features = ["fancy"] }
+miette = { version = "7", default-features = false, features = ["derive"] }
 russcip = { version = "0.9.1", default-features = false, features = [
-  "from-source",
+  "bundled",
 ] }
 thiserror = "2.0"
 tracing = { workspace = true }

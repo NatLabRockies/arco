@@ -168,7 +168,7 @@ py-test: py-dev py-cli-build
 
 [group: 'python']
 py-build-wheel: py-licenses
-    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else uv run --project bindings/python --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
+    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
 
 [group: 'python']
 py-build-sdist:
@@ -250,7 +250,7 @@ smoke-solver-ipopt-unavailable:
 [group: 'benchmarks']
 benchmarks arco_binary=arco-debug-bin:
     if [[ ! -x "{{ arco_binary }}" ]]; then just _build-cli-for-path "{{ arco_binary }}"; fi
-    uv run python scripts/bench.py --arco-binary "{{ arco_binary }}" --workflows validate,run --repetitions 10 --output artifacts/benchmark-results.json
+    LD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${DYLD_LIBRARY_PATH:-}" uv run python scripts/bench.py --arco-binary "{{ arco_binary }}" --workflows validate,run --repetitions 10 --output artifacts/benchmark-results.json
 
 [group: 'benchmarks']
 benchmark-guard:
@@ -286,7 +286,24 @@ ci-cli-build:
 [group: 'ci']
 ci-package-cli-artifact archive=cli-artifact:
     mkdir -p "$(dirname "{{ archive }}")"
-    tar -C "$(dirname "{{ arco-release-bin }}")" -czf "{{ archive }}" "$(basename "{{ arco-release-bin }}")"
+    staging_dir="$(mktemp -d)"; \
+    scip_lib_dir="${ARCO_SCIP_LIBRARY_PATH:-}"; \
+    if [[ -z "$scip_lib_dir" && -n "${SCIP_SYS_BUNDLED_DIR:-}" ]]; then scip_lib_dir="$SCIP_SYS_BUNDLED_DIR/lib"; fi; \
+    if [[ -z "$scip_lib_dir" || ! -d "$scip_lib_dir" ]]; then \
+        printf 'error: SCIP shared library directory is unavailable; run scripts/setup_scip_binary_env.sh first\n' >&2; \
+        exit 1; \
+    fi; \
+    trap 'rm -rf "$staging_dir"' EXIT; \
+    cp "{{ arco-release-bin }}" "$staging_dir/"; \
+    find "$scip_lib_dir" -maxdepth 1 \
+        \( -name "*.so*" -o -name "*.dylib" \) \
+        \( -type f -o -type l \) \
+        -exec cp -a {} "$staging_dir/" \; ; \
+    if ! compgen -G "$staging_dir/libscip.so*" >/dev/null && ! compgen -G "$staging_dir/libscip*.dylib" >/dev/null; then \
+        printf 'error: SCIP shared libraries missing from %s\n' "$scip_lib_dir" >&2; \
+        exit 1; \
+    fi; \
+    tar -C "$staging_dir" -czf "{{ archive }}" .
 
 [group: 'ci']
 ci-unpack-cli-artifact archive=cli-artifact:
@@ -295,7 +312,7 @@ ci-unpack-cli-artifact archive=cli-artifact:
 
 [group: 'ci']
 ci-solver-smoke solver check_unavailable="":
-    uv run python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary "{{ arco-release-bin }}" {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
+    LD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${DYLD_LIBRARY_PATH:-}" uv run python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary "{{ arco-release-bin }}" {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
 
 [group: 'ci']
 ci-kdl-examples:
@@ -336,7 +353,7 @@ ci-workflow-quality:
 [private]
 _kdl-examples arco_binary args="":
     if [[ ! -x "{{ arco_binary }}" ]]; then just _build-cli-for-path "{{ arco_binary }}"; fi
-    uv run python -c "from scripts.test_example_formulations import run_example_formulations_smoke; raise SystemExit(run_example_formulations_smoke())" --arco-binary "{{ arco_binary }}" {{ args }}
+    LD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${DYLD_LIBRARY_PATH:-}" uv run python -c "from scripts.test_example_formulations import run_example_formulations_smoke; raise SystemExit(run_example_formulations_smoke())" --arco-binary "{{ arco_binary }}" {{ args }}
 
 [private]
 _build-cli-for-path arco_binary:

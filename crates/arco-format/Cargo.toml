@@ -15,5 +15,5 @@ workspace = true
 
 [dependencies]
 arco-model = { workspace = true }
-miette = "7"
+miette = { version = "7", default-features = false, features = ["derive"] }
 thiserror = "2.0"

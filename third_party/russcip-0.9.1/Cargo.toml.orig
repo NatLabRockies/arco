@@ -1,0 +1,27 @@
+[package]
+name = "russcip"
+authors = ["Mohammed Ghannam <ghannam@zib.de>"]
+description = "Rust interface for SCIP"
+license = "Apache-2.0"
+repository = "https://github.com/scipopt/russcip"
+version = "0.9.1"
+edition = "2024"
+exclude = ["data/test/*"]
+
+[features]
+default = ["datastore"]
+bundled = ["scip-sys/bundled"]
+from-source = ["scip-sys/from-source"]
+datastore = ["anymap3"]
+
+[dependencies]
+scip-sys = { version = "0.1.22", default-features = false }
+anymap3 = { version = "1.0.1", optional = true }
+
+[dev-dependencies]
+rayon = "1.5.1"
+petgraph = "0.7.1"
+rand = "0.8"
+
+[lints.clippy]
+too_many_arguments = "allow"

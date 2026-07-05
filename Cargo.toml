@@ -1,6 +1,10 @@
 [workspace]
 members = ["crates/*", "bindings/python"]
-exclude = ["scripts"]
+exclude = [
+  "scripts",
+  "third_party/russcip-0.9.1",
+  "third_party/scip-sys-0.1.28",
+]
 default-members = [
   "crates/arco-blocks",
   "crates/arco-cli",
@@ -24,7 +28,7 @@ tracing = "0.1"
 serde_json = "1.0"
 sysinfo = "0.33"
 pyo3 = "0.28"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", default-features = false }
 smallvec = "1"
 arco-arrays = { path = "crates/arco-arrays" }
 arco-solver = { path = "crates/arco-solver" }
@@ -103,3 +107,7 @@ unimplemented = "deny"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[patch.crates-io]
+russcip = { path = "third_party/russcip-0.9.1" }
+scip-sys = { path = "third_party/scip-sys-0.1.28" }
