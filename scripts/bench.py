@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
+import shutil
 import statistics
 import subprocess
 import sys
@@ -122,12 +124,85 @@ def parse_csv(value: str) -> list[str]:
     return [entry.strip() for entry in value.split(",") if entry.strip()]
 
 
-def calibrate_inner_iterations(arco_cmd: list[str]) -> int | None:
+def isolated_solver_config_environment(config_root: Path) -> dict[str, str]:
+    """Build an environment with benchmark-local Arco config directories."""
+    user_config = config_root / "user"
+    project_config = config_root / "project"
+    user_config.mkdir(parents=True, exist_ok=True)
+    project_config.mkdir(parents=True, exist_ok=True)
+
+    env = os.environ.copy()
+    env["ARCO_CONFIG_DIR"] = str(user_config)
+    env["ARCO_PROJECT_CONFIG_DIR"] = str(project_config)
+    return env
+
+
+def resolve_executable_dir(executable: str) -> Path | None:
+    """Resolve an executable path or PATH lookup to its containing directory."""
+    binary_path = Path(executable)
+    if binary_path.is_file():
+        return binary_path.resolve().parent
+
+    resolved = shutil.which(executable)
+    if resolved is None:
+        return None
+
+    return Path(resolved).resolve().parent
+
+
+def prepend_env_path(env: dict[str, str], *, name: str, path: Path) -> None:
+    """Prepend *path* to a path-list environment variable in-place."""
+    existing = env.get(name)
+    path_value = str(path)
+    env[name] = path_value if not existing else f"{path_value}{os.pathsep}{existing}"
+
+
+def benchmark_environment(*, arco_binary: str, config_root: Path) -> dict[str, str]:
+    """Build the subprocess environment for benchmarked Arco commands."""
+    env = isolated_solver_config_environment(config_root)
+    if binary_dir := resolve_executable_dir(arco_binary):
+        prepend_env_path(env, name="LD_LIBRARY_PATH", path=binary_dir)
+        prepend_env_path(env, name="DYLD_LIBRARY_PATH", path=binary_dir)
+    return env
+
+
+def shell_environment_prefix(env: dict[str, str]) -> str:
+    """Render environment assignments needed by torc job shell commands."""
+    names = (
+        "ARCO_CONFIG_DIR",
+        "ARCO_PROJECT_CONFIG_DIR",
+        "LD_LIBRARY_PATH",
+        "DYLD_LIBRARY_PATH",
+    )
+    return " ".join(f"{name}={shlex.quote(env[name])}" for name in names if name in env)
+
+
+def parse_torc_results_items(payload: object) -> list[object] | None:
+    """Extract result records from supported torc JSON output shapes."""
+    if isinstance(payload, list):
+        return payload
+
+    if isinstance(payload, dict):
+        items = payload.get("items")
+        if isinstance(items, list):
+            return items
+        results = payload.get("results")
+        if isinstance(results, list):
+            return results
+
+    return None
+
+
+def calibrate_inner_iterations(
+    arco_cmd: list[str], *, env: dict[str, str]
+) -> int | None:
     """Run arco once to estimate runtime and determine how many inner
     iterations are needed to reach MIN_MONITORED_RUNTIME_S total time."""
     started = time.perf_counter()
     try:
-        result = subprocess.run(arco_cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(
+            arco_cmd, capture_output=True, text=True, timeout=300, env=env
+        )
     except subprocess.TimeoutExpired:
         print("  calibration timed out", file=sys.stderr)
         return None
@@ -166,28 +241,33 @@ def run_benchmark(
     arco_args = build_arco_args(workflow=case.workflow, model_path=case.kdl_path)
     arco_cmd = [arco_binary, *arco_args]
 
-    inner_iterations = calibrate_inner_iterations(arco_cmd)
-    if inner_iterations is None:
-        return None
-
-    if inner_iterations > 1:
-        print(
-            f"  using {inner_iterations} inner iterations for memory sampling",
-            file=sys.stderr,
-        )
-
-    # Build the per-job command.  For fast commands we wrap a shell loop;
-    # for commands that already run >MIN_MONITORED_RUNTIME_S we run once.
-    arco_cmd_quoted = shlex.join(arco_cmd)
-    if inner_iterations > 1:
-        job_cmd = (
-            f"for _ in $(seq 1 {inner_iterations}); do {arco_cmd_quoted}; done"
-        )
-    else:
-        job_cmd = arco_cmd_quoted
-
     with tempfile.TemporaryDirectory(prefix="arco-bench-torc-") as tmpdir:
         tmp = Path(tmpdir)
+        env = benchmark_environment(arco_binary=arco_binary, config_root=tmp / "config")
+
+        inner_iterations = calibrate_inner_iterations(arco_cmd, env=env)
+        if inner_iterations is None:
+            return None
+
+        if inner_iterations > 1:
+            print(
+                f"  using {inner_iterations} inner iterations for memory sampling",
+                file=sys.stderr,
+            )
+
+        # Build the per-job command.  For fast commands we wrap a shell loop;
+        # for commands that already run >MIN_MONITORED_RUNTIME_S we run once.
+        env_prefix = shell_environment_prefix(env)
+        arco_cmd_quoted = shlex.join(arco_cmd)
+        if env_prefix:
+            arco_cmd_quoted = f"{env_prefix} {arco_cmd_quoted}"
+        if inner_iterations > 1:
+            job_cmd = (
+                f"for _ in $(seq 1 {inner_iterations}); do {arco_cmd_quoted}; done"
+            )
+        else:
+            job_cmd = arco_cmd_quoted
+
         db_path = tmp / "torc.db"
         commands_path = tmp / "commands.txt"
 
@@ -218,7 +298,7 @@ def run_benchmark(
 
         try:
             exec_result = subprocess.run(
-                exec_cmd, capture_output=True, text=True, timeout=600
+                exec_cmd, capture_output=True, text=True, timeout=600, env=env
             )
         except subprocess.TimeoutExpired:
             print("  torc exec timed out after 600s", file=sys.stderr)
@@ -243,9 +323,7 @@ def run_benchmark(
         try:
             workflow_id = exec_payload["workflow_id"]
         except KeyError:
-            print(
-                "  torc exec output missing workflow_id field", file=sys.stderr
-            )
+            print("  torc exec output missing workflow_id field", file=sys.stderr)
             return None
 
         # Query results for this workflow.
@@ -262,15 +340,13 @@ def run_benchmark(
         ]
         try:
             results_result = subprocess.run(
-                results_cmd, capture_output=True, text=True, timeout=30
+                results_cmd, capture_output=True, text=True, timeout=30, env=env
             )
         except subprocess.TimeoutExpired:
             print("  torc results list timed out", file=sys.stderr)
             return None
         except OSError as exc:
-            print(
-                f"  torc results list failed to launch: {exc}", file=sys.stderr
-            )
+            print(f"  torc results list failed to launch: {exc}", file=sys.stderr)
             return None
 
         if results_result.returncode != 0:
@@ -283,16 +359,11 @@ def run_benchmark(
         try:
             results_payload = json.loads(results_result.stdout)
         except json.JSONDecodeError as exc:
-            print(
-                f"  failed to parse torc results JSON: {exc}", file=sys.stderr
-            )
+            print(f"  failed to parse torc results JSON: {exc}", file=sys.stderr)
             return None
-        try:
-            items = results_payload["items"]
-        except KeyError:
-            print(
-                "  torc results output missing items field", file=sys.stderr
-            )
+        items = parse_torc_results_items(results_payload)
+        if items is None:
+            print("  torc results output has unsupported JSON shape", file=sys.stderr)
             return None
 
         durations: list[float] = []
@@ -309,16 +380,12 @@ def run_benchmark(
             # peak_memory_bytes can be None (torc didn't collect data) or 0
             # (collected zero / no samples fired).  Treat both as 0.0 MiB.
             if isinstance(peak_bytes, (int, float)):
-                peak_rss.append(
-                    max(float(peak_bytes), 0.0) / (1024.0 * 1024.0)
-                )
+                peak_rss.append(max(float(peak_bytes), 0.0) / (1024.0 * 1024.0))
             else:
                 peak_rss.append(0.0)
 
         if not durations:
-            print(
-                f"  no duration data from {len(items)} results", file=sys.stderr
-            )
+            print(f"  no duration data from {len(items)} results", file=sys.stderr)
             return None
 
         if len(durations) < repetitions:
@@ -350,14 +417,11 @@ def main() -> int:
         "--workflows",
         default=",".join(DEFAULT_WORKFLOWS),
         help=(
-            "Comma-separated workflows. Supported: "
-            + ", ".join(SUPPORTED_WORKFLOWS)
+            "Comma-separated workflows. Supported: " + ", ".join(SUPPORTED_WORKFLOWS)
         ),
     )
     parser.add_argument("--repetitions", type=int, default=10)
-    parser.add_argument(
-        "--output", type=Path, default=Path("benchmark-results.json")
-    )
+    parser.add_argument("--output", type=Path, default=Path("benchmark-results.json"))
     args = parser.parse_args()
 
     all_cases = discover_cases()
@@ -372,9 +436,7 @@ def main() -> int:
     if args.cases:
         case_names = set(parse_csv(args.cases))
         filtered = [
-            c
-            for c in all_cases
-            if c.name in case_names and c.workflow in workflows
+            c for c in all_cases if c.name in case_names and c.workflow in workflows
         ]
     else:
         filtered = [c for c in all_cases if c.workflow in workflows]
@@ -402,9 +464,7 @@ def main() -> int:
         )
 
     validate_medians = {
-        r.case: r.median_duration_ms
-        for r in results
-        if r.workflow == "validate"
+        r.case: r.median_duration_ms for r in results if r.workflow == "validate"
     }
 
     output = []
@@ -417,9 +477,7 @@ def main() -> int:
         ]
         if r.workflow == "run" and r.case in validate_medians:
             validate_median = validate_medians[r.case]
-            extra_lines.append(
-                f"validate_median_ms={validate_median:.3f}"
-            )
+            extra_lines.append(f"validate_median_ms={validate_median:.3f}")
             extra_lines.append(
                 f"solve_estimate_ms={max(0.0, r.median_duration_ms - validate_median):.3f}"
             )
