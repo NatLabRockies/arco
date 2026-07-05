@@ -23,7 +23,7 @@ find_python() {
 }
 
 host_target() {
-	rustc -vV | awk '/^host:/ { print $2; exit }'
+	rustc -vV | awk '/^host:/ { print $2; found = 1 } END { exit found ? 0 : 1 }'
 }
 
 asset_for_target() {
@@ -43,9 +43,9 @@ asset_for_target() {
 
 host_glibc_version() {
 	if command -v getconf >/dev/null 2>&1; then
-		getconf GNU_LIBC_VERSION 2>/dev/null | awk '$1 == "glibc" { print $2; exit }'
+		getconf GNU_LIBC_VERSION 2>/dev/null | awk '$1 == "glibc" { print $2 }'
 	elif command -v ldd >/dev/null 2>&1; then
-		ldd --version 2>&1 | awk 'NR == 1 { print $NF; exit }'
+		ldd --version 2>&1 | awk 'NR == 1 { version = $NF } END { print version }'
 	fi
 }
 
