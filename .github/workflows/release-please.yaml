@@ -255,6 +255,7 @@ jobs:
           retention-days: 3
 
       - name: Upload Python distributions to release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.dispatch-dist-release.outputs.tag }}
