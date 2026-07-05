@@ -287,14 +287,20 @@ ci-cli-build:
 ci-package-cli-artifact archive=cli-artifact:
     mkdir -p "$(dirname "{{ archive }}")"
     staging_dir="$(mktemp -d)"; \
+    scip_lib_dir="${ARCO_SCIP_LIBRARY_PATH:-}"; \
+    if [[ -z "$scip_lib_dir" && -n "${SCIP_SYS_BUNDLED_DIR:-}" ]]; then scip_lib_dir="$SCIP_SYS_BUNDLED_DIR/lib"; fi; \
+    if [[ -z "$scip_lib_dir" || ! -d "$scip_lib_dir" ]]; then \
+        printf 'error: SCIP shared library directory is unavailable; run scripts/setup_scip_binary_env.sh first\n' >&2; \
+        exit 1; \
+    fi; \
     trap 'rm -rf "$staging_dir"' EXIT; \
     cp "{{ arco-release-bin }}" "$staging_dir/"; \
-    find "$(dirname "{{ arco-release-bin }}")/build" \
-        \( -path "*/scip_install/lib/*.so*" -o -path "*/scip_install/lib/*.dylib" \) \
+    find "$scip_lib_dir" -maxdepth 1 \
+        \( -name "*.so*" -o -name "*.dylib" \) \
         \( -type f -o -type l \) \
         -exec cp -a {} "$staging_dir/" \; ; \
     if ! compgen -G "$staging_dir/libscip.so*" >/dev/null && ! compgen -G "$staging_dir/libscip*.dylib" >/dev/null; then \
-        printf 'error: SCIP shared libraries missing from release build output\n' >&2; \
+        printf 'error: SCIP shared libraries missing from %s\n' "$scip_lib_dir" >&2; \
         exit 1; \
     fi; \
     tar -C "$staging_dir" -czf "{{ archive }}" .

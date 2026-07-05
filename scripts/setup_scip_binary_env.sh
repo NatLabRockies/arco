@@ -129,6 +129,18 @@ append_env() {
 	printf '%s=%s\n' "$name" "$value" >>"$env_file"
 }
 
+prepend_runtime_paths() {
+	local env_file="$1"
+	local paths="$2"
+
+	[[ -n "$paths" ]] || return
+	append_env "$env_file" "LD_LIBRARY_PATH" "$paths${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+	append_env "$env_file" "DYLD_LIBRARY_PATH" "$paths${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+	if [[ -n "${GITHUB_PATH:-}" ]]; then
+		printf '%s\n' "${paths//:/$'\n'}" >>"$GITHUB_PATH"
+	fi
+}
+
 main() {
 	if [[ $# -ne 1 ]]; then
 		usage
@@ -143,6 +155,7 @@ main() {
 
 	local cache_root="${ARCO_SCIP_CACHE_DIR:-${RUNNER_TEMP:-/tmp}/arco-scip}"
 	local configured=0
+	local runtime_paths=""
 	IFS=',' read -r -a targets <<<"$raw_targets"
 
 	for target in "${targets[@]}"; do
@@ -159,15 +172,21 @@ main() {
 		download_and_extract "$target" "$asset" "$install_dir"
 
 		local suffix="${target//-/_}"
+		local library_path="$install_dir/lib"
 		append_env "$env_file" "SCIP_SYS_BUNDLED_DIR_${suffix}" "$install_dir"
+		append_env "$env_file" "ARCO_SCIP_LIBRARY_PATH_${suffix}" "$library_path"
 		if [[ "$configured" -eq 0 ]]; then
 			append_env "$env_file" "SCIP_SYS_BUNDLED_DIR" "$install_dir"
+			append_env "$env_file" "ARCO_SCIP_LIBRARY_PATH" "$library_path"
 		fi
+		runtime_paths="${runtime_paths:+$runtime_paths:}$library_path"
 		configured=1
 	done
 
 	if [[ "$configured" -eq 0 ]]; then
 		log "no supported SCIP prebuilt target found in '$raw_targets'"
+	else
+		prepend_runtime_paths "$env_file" "$runtime_paths"
 	fi
 }
 
