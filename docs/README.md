@@ -69,4 +69,6 @@ the way it does.
 
 - [API Reference](reference/) -- type stubs, classes, and method signatures for the full Python API.
 - [Known Problems](contracts/known-problems.md) -- solver-correctness contract encoding canonical optimization problems with expected solutions.
+- [Python Array Modeling Contract](contracts/python-array-modeling.md) -- array-algebra and indexed model semantics locked as executable doctests.
+- [Python Variable Metadata Contract](contracts/python-variable-metadata.md) -- creation-time variable metadata and handle-based retrieval behavior locked as executable doctests.
 - [Migration Notes](migration/) -- intentional pre-1.0 API changes and old-to-new mappings.

@@ -155,6 +155,18 @@ def test_model_stub_exposes_active_kwargs_for_array_builders() -> None:
     assert _normalize_whitespace("def add_constraints(") in normalized_model
 
 
+def test_model_stub_exposes_variable_metadata_accessors() -> None:
+    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
+    model_block = _class_block(source=source, class_name="Model")
+    expected_signatures = [
+        "def add_variable( self, *, bounds: Bounds | BoundType, is_integer: bool = False, is_binary: bool = False, name: str | None = None, metadata: JsonValue | None = None, ) -> Variable: ...",
+        "def get_variable_metadata(self, variable: Variable) -> JsonValue | None: ...",
+    ]
+    _assert_signatures_present(
+        block=model_block, expected_signatures=expected_signatures
+    )
+
+
 def test_model_stub_exposes_expert_sparse_apis_without_internal_columns() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
     model_block = _class_block(source=source, class_name="Model")
