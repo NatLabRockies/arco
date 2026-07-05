@@ -70,6 +70,23 @@ SolutionStatus.OPTIMAL
 1.0
 ```
 
+### Attach variable metadata
+
+Use `metadata=` to tag a scalar variable at creation time. The same handle can
+return that metadata later through `model.get_variable_metadata(...)`.
+
+```python doctest
+>>> import arco
+>>> model = arco.Model()
+>>> flow = model.add_variable(
+...     bounds=arco.Bounds(lower=0.0, upper=10.0),
+...     name="flow",
+...     metadata={"role": "output", "units": "MW"},
+... )
+>>> model.get_variable_metadata(flow)
+{'role': 'output', 'units': 'MW'}
+```
+
 ## Expressions
 
 Use Python arithmetic operators to combine variables into linear expressions that serve as objectives or constraint bodies.

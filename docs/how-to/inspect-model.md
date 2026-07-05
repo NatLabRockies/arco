@@ -151,6 +151,24 @@ True
 'balance'
 ```
 
+### Read variable metadata from a snapshot
+
+If you attach metadata when creating a variable, the snapshot preserves it on
+the matching `VariableView`.
+
+```python doctest
+>>> import arco
+>>> model = arco.Model()
+>>> flow = model.add_variable(
+...     bounds=arco.Bounds(lower=0.0, upper=10.0),
+...     name="flow",
+...     metadata={"role": "output", "units": "MW"},
+... )
+>>> snapshot = model.inspect()
+>>> snapshot.variables[0].metadata
+{'role': 'output', 'units': 'MW'}
+```
+
 For sparse arrays created with an `active=` mask, inspect the array before
 solving to compare the dense shape with the variables actually created.
 
