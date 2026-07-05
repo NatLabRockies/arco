@@ -33,14 +33,15 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install tree-sitter CLI
-        run: npm install --global tree-sitter-cli
-
-      - name: Regenerate generated parser artifacts from grammar source
+      - name: Install tree-sitter dependencies
         working-directory: tools/tree-sitter-arco-kdl
         run: |
           npm ci
-          npx tree-sitter generate
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Regenerate generated parser artifacts from grammar source
+        working-directory: tools/tree-sitter-arco-kdl
+        run: tree-sitter generate
 
       - uses: j178/prek-action@dec4adcd2fa1db9d50a39668b22112a37235e730
         with:
