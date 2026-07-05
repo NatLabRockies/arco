@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.8.0](https://github.com/NatLabRockies/arco/compare/v0.7.0...v0.8.0) (2026-07-05)
+
+
+### Features
+
+* expose variable metadata in Python add_variable ([#344](https://github.com/NatLabRockies/arco/issues/344)) ([d1bb552](https://github.com/NatLabRockies/arco/commit/d1bb552fd655e8f8a67b38d924e274eb80146376))
+* migrate benchmark memory profiling from rmon to torc ([#335](https://github.com/NatLabRockies/arco/issues/335)) ([8bb1cce](https://github.com/NatLabRockies/arco/commit/8bb1cce41bfcb5fbcf463c8b3cefff7a8e5b197f))
+
+
+### Bug Fixes
+
+* **ci:** avoid ad hoc tree-sitter install ([#346](https://github.com/NatLabRockies/arco/issues/346)) ([aca1a07](https://github.com/NatLabRockies/arco/commit/aca1a0709866a7e2fe22c0b567f09a06c5218c93))
+* **xpress:** reject runtimes missing required symbols ([#313](https://github.com/NatLabRockies/arco/issues/313)) ([dc24342](https://github.com/NatLabRockies/arco/commit/dc2434259da493bf40d9ebbcc99caa2e70b56242))
+
+
+### Performance
+
+* add direct HiGHS matrix loading ([#334](https://github.com/NatLabRockies/arco/issues/334)) ([a4a17c7](https://github.com/NatLabRockies/arco/commit/a4a17c7654bc504b4c372db9c009811bbf268481))
+* expose ReEDS matrix profiling ([#333](https://github.com/NatLabRockies/arco/issues/333)) ([0accd69](https://github.com/NatLabRockies/arco/commit/0accd69ff792be51b6ee95756859791f4da3fc32))
+* extract model capacity reservation API ([#322](https://github.com/NatLabRockies/arco/issues/322)) ([8273cc3](https://github.com/NatLabRockies/arco/commit/8273cc37c0ae9b8c025d283c0ca925d6e57598b6))
+* extract ReEDS memory benchmark observability ([#321](https://github.com/NatLabRockies/arco/issues/321)) ([4b80da8](https://github.com/NatLabRockies/arco/commit/4b80da8579fdb5aa6f656a93341ac527062629d2))
+* extract sparse active array construction ([#323](https://github.com/NatLabRockies/arco/issues/323)) ([c8a84e2](https://github.com/NatLabRockies/arco/commit/c8a84e26e10c079e67413831a5b9e4cf148eb298))
+* isolate benchmark solver config ([#332](https://github.com/NatLabRockies/arco/issues/332)) ([0769d9e](https://github.com/NatLabRockies/arco/commit/0769d9e7cd2e393fff8b13f3f1ce44d71a2f4f3c))
+
+
+### Build
+
+* **deps-dev:** bump maturin from 1.13.3 to 1.14.1 in /bindings/python ([#342](https://github.com/NatLabRockies/arco/issues/342)) ([d67534a](https://github.com/NatLabRockies/arco/commit/d67534a422230502b50ca7297f02bf907d0246b0))
+* **deps:** bump actions/checkout from 6.0.2 to 6.0.3 ([#327](https://github.com/NatLabRockies/arco/issues/327)) ([dfc5183](https://github.com/NatLabRockies/arco/commit/dfc5183b536398e0307d26aa817766897b2ccfe7))
+* **deps:** bump astral-sh/setup-uv from 8.1.0 to 8.2.0 ([#326](https://github.com/NatLabRockies/arco/issues/326)) ([d49add9](https://github.com/NatLabRockies/arco/commit/d49add90b44d01e0a2ceea09b43547af84278256))
+* **deps:** bump j178/prek-action ([#331](https://github.com/NatLabRockies/arco/issues/331)) ([ecf3127](https://github.com/NatLabRockies/arco/commit/ecf3127c6689e896fa36beb794d6806ed5fa5e95))
+* **deps:** update axoupdater requirement from 0.9 to 0.10 ([#330](https://github.com/NatLabRockies/arco/issues/330)) ([fdd0919](https://github.com/NatLabRockies/arco/commit/fdd0919e35a3a4582662c4f4d57ef7cb004939da))
+
 ## [0.7.0](https://github.com/NatLabRockies/arco/compare/v0.6.1...v0.7.0) (2026-06-04)
 
 

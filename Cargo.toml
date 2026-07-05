@@ -45,7 +45,7 @@ arco-scip = { path = "crates/arco-scip" }
 arco-validate = { path = "crates/arco-validate" }
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.85"
 license-file = "licenses/BSD-3-Clause.txt"
