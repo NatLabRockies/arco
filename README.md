@@ -402,6 +402,21 @@ print(f"Optimal: x={solution.value(x):.1f}, y={solution.value(y):.1f}")
 print(f"Cost: {solution.objective_value:.1f}")
 ```
 
+You can also attach JSON-compatible metadata when creating a scalar variable and
+recover it later from the returned handle:
+
+```python
+flow = model.add_variable(
+    bounds=arco.NonNegativeFloat,
+    name="flow",
+    metadata={"role": "output", "units": "MW"},
+)
+assert model.get_variable_metadata(flow) == {"role": "output", "units": "MW"}
+```
+
+Variables created without metadata still return `None`, and the Python surface
+stays handle-based rather than exposing raw-ID metadata shortcuts.
+
 <details>
 <summary><strong>Indexed Variables</strong></summary>
 

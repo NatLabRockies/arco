@@ -17,6 +17,8 @@ use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use thiserror::Error;
 
+const SCIP_INFINITY: f64 = 1.0e20;
+
 pub const FAMILY_NAME: &str = "scip";
 pub const BACKEND_NAME: &str = "arco-rust-scip";
 
@@ -445,8 +447,8 @@ fn scip_var_type(kind: PortableVariableKind) -> VarType {
 
 fn scip_constraint_bounds(sense: PortableConstraintSense, rhs: f64) -> (f64, f64) {
     match sense {
-        PortableConstraintSense::GreaterEqual => (rhs, f64::INFINITY),
-        PortableConstraintSense::LessEqual => (f64::NEG_INFINITY, rhs),
+        PortableConstraintSense::GreaterEqual => (rhs, SCIP_INFINITY),
+        PortableConstraintSense::LessEqual => (-SCIP_INFINITY, rhs),
         PortableConstraintSense::Equal => (rhs, rhs),
     }
 }

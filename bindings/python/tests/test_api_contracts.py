@@ -459,7 +459,7 @@ def test_model_api_contract_removes_beginner_name_metadata_shortcuts() -> None:
     assert not hasattr(model, "get_constraint_by_name")
     assert not hasattr(model, "get_variable_name")
     assert not hasattr(model, "get_constraint_name")
-    assert not hasattr(model, "get_variable_metadata")
+    assert hasattr(model, "get_variable_metadata")
     assert not hasattr(model, "get_constraint_metadata")
     assert not hasattr(model, "set_variable_metadata")
     assert not hasattr(model, "set_constraint_metadata")
@@ -467,6 +467,25 @@ def test_model_api_contract_removes_beginner_name_metadata_shortcuts() -> None:
     assert not hasattr(model, "set_objective_name")
     assert not hasattr(model, "get_columns")
     assert not hasattr(model, "export_arrow")
+
+
+def test_scalar_model_api_contract_round_trips_variable_metadata() -> None:
+    model = arco.Model()
+    metadata = {"role": "output", "tags": ["primary", "tracked"]}
+
+    x = model.add_variable(
+        bounds=arco.Bounds(lower=1.0, upper=float("inf")),
+        name="x",
+        metadata=metadata,
+    )
+    y = model.add_variable(bounds=arco.Bounds(lower=2.0, upper=float("inf")), name="y")
+
+    snapshot = model.inspect()
+
+    assert model.get_variable_metadata(x) == metadata
+    assert model.get_variable_metadata(y) is None
+    assert snapshot.variables[0].metadata == metadata
+    assert snapshot.variables[1].metadata is None
 
 
 def test_debug_api_contract_exposes_named_lookup_error_codes() -> None:

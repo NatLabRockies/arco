@@ -6,6 +6,7 @@
 mod py_modules;
 
 use crate::py_modules as pym;
+use crate::py_modules::serde_bridge;
 use arco_ops::expression::{ComparisonSense, ConstraintId, VariableId};
 use arco_ops::modeling::model::PrettyPrintOptions;
 use arco_ops::modeling::types::Bounds;
@@ -542,17 +543,20 @@ impl PyModel {
     /// * `is_integer` - Whether the variable is integer-constrained
     /// * `is_binary` - Whether the variable is binary
     /// * `name` - Optional name for the variable
+    /// * `metadata` - Optional JSON-compatible metadata attached to the variable
     ///
     /// # Returns
     /// A Variable object
-    #[pyo3(signature = (*, bounds, is_integer=false, is_binary=false, name=None))]
+    #[pyo3(signature = (*, bounds, is_integer=false, is_binary=false, name=None, metadata=None))]
     fn add_variable(
         &mut self,
         bounds: BoundsSpec,
         is_integer: bool,
         is_binary: bool,
         name: Option<String>,
+        metadata: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyVariable> {
+        let metadata = metadata.map(serde_bridge::py_to_json).transpose()?;
         let effective_bounds = Self::effective_bounds(&bounds, is_integer, is_binary)?;
 
         let var = Variable {
@@ -569,6 +573,12 @@ impl PyModel {
         if let Some(ref n) = name {
             self.inner
                 .set_variable_name(var_id, n.clone())
+                .map_err(pym::errors::model_error_to_py)?;
+        }
+
+        if let Some(metadata) = metadata {
+            self.inner
+                .set_variable_metadata(var_id, metadata)
                 .map_err(pym::errors::model_error_to_py)?;
         }
 
@@ -1245,6 +1255,23 @@ impl PyModel {
             Some(name.to_string()),
             &var,
         ))
+    }
+
+    /// Returns metadata for a variable handle.
+    #[pyo3(signature = (variable))]
+    fn get_variable_metadata(
+        &self,
+        py: Python<'_>,
+        variable: &PyVariable,
+    ) -> PyResult<Option<PyObject>> {
+        let var_id = VariableId::new(variable.var_id);
+        self.inner
+            .get_variable(var_id)
+            .map_err(pym::errors::model_error_to_py)?;
+        self.inner
+            .get_variable_metadata(var_id)
+            .map(|metadata| serde_bridge::json_to_py(py, metadata))
+            .transpose()
     }
 
     fn __str__(&self) -> String {
