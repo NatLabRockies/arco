@@ -317,15 +317,43 @@ sanitize_cache_component() {
 	printf '%s' "$value" | tr -c 'A-Za-z0-9._-' '-'
 }
 
+msvc_toolset_version_from_value() {
+	local value="$1"
+
+	value="${value//\\//}"
+	if [[ "$value" == *MSVC/* ]]; then
+		value="${value#*MSVC/}"
+	fi
+	value="${value%%/*}"
+
+	if [[ "$value" =~ ^[0-9]+([.][0-9]+)+$ ]]; then
+		printf '%s\n' "$value"
+	fi
+}
+
+latest_installed_msvc_toolset_version() {
+	local dir
+
+	for dir in \
+		"/c/Program Files/Microsoft Visual Studio/2022/"*/VC/Tools/MSVC/* \
+		"/c/Program Files (x86)/Microsoft Visual Studio/2022/"*/VC/Tools/MSVC/*; do
+		[[ -d "$dir" ]] && basename -- "$dir"
+	done | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -n 1
+}
+
 msvc_toolset_cache_component() {
 	local program
 	local output
 	local version
+	local value
 
-	if [[ -n "${VCToolsVersion:-}" ]]; then
-		sanitize_cache_component "$VCToolsVersion"
-		return
-	fi
+	for value in "${VCToolsVersion:-}" "${VCToolsInstallDir:-}" "${VCINSTALLDIR:-}" "${PATH:-}" "$(latest_installed_msvc_toolset_version)"; do
+		version="$(msvc_toolset_version_from_value "$value")"
+		if [[ -n "$version" ]]; then
+			sanitize_cache_component "$version"
+			return
+		fi
+	done
 
 	for program in link.exe cl.exe; do
 		if ! command -v "$program" >/dev/null 2>&1; then
