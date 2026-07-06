@@ -160,21 +160,20 @@ jobs:
         id: "highs-cache-restore"
         uses: "actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7"
         with:
-          "path": "~/.cache/arco-highs"
           "key": "${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}"
-          "restore-keys": |
-            ${{ runner.os }}-highs-
+          "path": "~/.cache/arco-highs"
+          "restore-keys": "${{ runner.os }}-highs-\n"
       - name: "Configure HiGHS static binary discovery"
         run: "bash ./scripts/setup_highs_binary_env.sh \"$GITHUB_ENV\""
         shell: "bash"
         env:
           "ARCO_HIGHS_TARGETS": "${{ join(matrix.targets, ',') }}"
       - name: "Save HiGHS native cache"
-        if: "${{ steps.highs-cache-restore.outputs.cache-hit != 'true' }}"
         uses: "actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7"
+        if: "${{ steps.highs-cache-restore.outputs.cache-hit != 'true' }}"
         with:
-          "path": "~/.cache/arco-highs"
           "key": "${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}"
+          "path": "~/.cache/arco-highs"
       - name: "Configure SCIP bundled binary discovery"
         run: "bash ./scripts/setup_scip_binary_env.sh \"$GITHUB_ENV\""
         shell: "bash"
