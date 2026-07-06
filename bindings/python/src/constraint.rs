@@ -1,12 +1,12 @@
 //! Python wrapper for Constraint objects returned by add_constraint/add_constraints.
 
-use arco_ops::modeling::types::Bounds;
+use arco_model::Bounds;
 use pyo3::prelude::*;
 
 use crate::py_modules::bounds::PyBounds;
 
 /// A constraint returned by `add_constraint()`.
-#[pyclass(from_py_object, name = "Constraint")]
+#[pyo3_macros::pyclass(from_py_object, name = "Constraint")]
 #[derive(Debug, Clone)]
 pub struct PyConstraint {
     pub constraint_id: u32,
@@ -24,7 +24,7 @@ impl PyConstraint {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyConstraint {
     /// The constraint name, or None if unnamed.
     #[getter]

@@ -1,6 +1,6 @@
 //! Python wrappers for model view types.
 
-use arco_ops::modeling::types::Bounds;
+use arco_model::Bounds;
 use pyo3::prelude::*;
 
 use crate::PyObject;
@@ -18,7 +18,7 @@ fn pythonize_metadata(
 }
 
 /// View of a variable in a model snapshot.
-#[pyclass(from_py_object, name = "VariableView")]
+#[pyo3_macros::pyclass(from_py_object, name = "VariableView")]
 #[derive(Clone)]
 pub struct PyVariableView {
     pub id: u32,
@@ -29,7 +29,7 @@ pub struct PyVariableView {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyVariableView {
     #[getter]
     fn id(&self) -> u32 {
@@ -63,7 +63,7 @@ impl PyVariableView {
 }
 
 /// View of a constraint in a model snapshot.
-#[pyclass(from_py_object, name = "ConstraintView")]
+#[pyo3_macros::pyclass(from_py_object, name = "ConstraintView")]
 #[derive(Clone)]
 pub struct PyConstraintView {
     pub id: u32,
@@ -73,7 +73,7 @@ pub struct PyConstraintView {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyConstraintView {
     #[getter]
     fn id(&self) -> u32 {
@@ -102,7 +102,7 @@ impl PyConstraintView {
 }
 
 /// View of a coefficient in a model snapshot.
-#[pyclass(from_py_object, name = "CoefficientView")]
+#[pyo3_macros::pyclass(from_py_object, name = "CoefficientView")]
 #[derive(Clone)]
 pub struct PyCoefficientView {
     pub variable_id: u32,
@@ -110,7 +110,7 @@ pub struct PyCoefficientView {
     pub value: f64,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyCoefficientView {
     #[getter]
     fn variable_id(&self) -> u32 {
@@ -129,7 +129,7 @@ impl PyCoefficientView {
 }
 
 /// View of the objective in a model snapshot.
-#[pyclass(from_py_object, name = "ObjectiveView")]
+#[pyo3_macros::pyclass(from_py_object, name = "ObjectiveView")]
 #[derive(Clone)]
 pub struct PyObjectiveView {
     pub sense: Option<String>,
@@ -137,7 +137,7 @@ pub struct PyObjectiveView {
     pub name: Option<String>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyObjectiveView {
     #[getter]
     fn sense(&self) -> Option<String> {
@@ -156,7 +156,7 @@ impl PyObjectiveView {
 }
 
 /// View of a slack variable in a model snapshot.
-#[pyclass(from_py_object, name = "SlackView")]
+#[pyo3_macros::pyclass(from_py_object, name = "SlackView")]
 #[derive(Clone)]
 pub struct PySlackView {
     pub constraint_id: u32,
@@ -167,7 +167,7 @@ pub struct PySlackView {
     pub name: Option<String>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySlackView {
     #[getter]
     fn constraint_id(&self) -> u32 {

@@ -15,27 +15,43 @@ workspace = true
 
 [dependencies]
 arco-diagnostics = { workspace = true }
-arco-model = { workspace = true }
-arco-format = { workspace = true }
+arco-model = { workspace = true, features = ["serde"] }
+arco-format = { workspace = true, default-features = false, optional = true }
 arco-highs = { workspace = true }
 arco-ipopt = { workspace = true, optional = true }
-arco-kdl = { workspace = true }
-arco-scip = { workspace = true }
-arco-solver = { workspace = true }
+arco-kdl = { workspace = true, optional = true }
+arco-scip = { workspace = true, default-features = false, optional = true }
+arco-solver = { workspace = true, features = ["serde"] }
 arco-xpress = { workspace = true, optional = true }
-arco-validate = { workspace = true }
-csv = "1.4"
-miette = { version = "7", default-features = false, features = ["derive"] }
-serde = { version = "1.0", features = ["derive"] }
+arco-validate = { workspace = true, optional = true }
+csv = { version = "1.4", optional = true }
+miette = { version = "7", default-features = false, features = [
+  "derive",
+], optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { workspace = true }
-toml = { workspace = true }
-toml_edit = "0.25"
-thiserror = "2.0"
+toml = { workspace = true, optional = true }
+toml_edit = { version = "0.25", optional = true }
+thiserror = { version = "2.0", optional = true }
 tracing = { workspace = true }
 
 [features]
-default = []
-ipopt = ["dep:arco-ipopt"]
+default = ["compile", "scip"]
+bundled-highs = ["arco-highs/bundled-highs"]
+compile = [
+  "dep:arco-format",
+  "arco-format/diagnostics",
+  "dep:arco-kdl",
+  "dep:arco-validate",
+  "dep:csv",
+  "dep:miette",
+  "dep:serde",
+  "dep:thiserror",
+  "dep:toml",
+  "dep:toml_edit",
+]
+ipopt = ["compile", "dep:arco-ipopt"]
+scip = ["dep:arco-format", "dep:arco-scip"]
 xpress = ["dep:arco-xpress"]
 
 [dev-dependencies]

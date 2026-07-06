@@ -1,6 +1,6 @@
 //! Python wrapper for SlackVariable objects returned by add_slack/add_slacks.
 
-use arco_ops::modeling::slack::SlackVariables;
+use arco_model::SlackVariables;
 use pyo3::prelude::*;
 
 use crate::PyObject;
@@ -10,7 +10,7 @@ use crate::py_modules::errors::SlackValueUnavailableError;
 /// A slack variable returned by `add_slack()`.
 ///
 /// The `.value` property is available after solve and returns the slack amount used.
-#[pyclass(name = "SlackVariable")]
+#[pyo3_macros::pyclass(name = "SlackVariable")]
 pub struct PySlackVariable {
     /// The constraint this slack softens (stored as a Python reference for identity).
     constraint: Py<PyConstraint>,
@@ -46,7 +46,7 @@ impl PySlackVariable {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySlackVariable {
     /// The constraint this slack softens.
     #[getter]

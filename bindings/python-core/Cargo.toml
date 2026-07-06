@@ -1,0 +1,39 @@
+[package]
+name = "arco-python-core"
+version = { workspace = true }
+description = "Core PyO3 binding implementation for Arco's Python extension"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lib]
+path = "../python/src/core.rs"
+test = false
+
+[dependencies]
+pyo3 = { workspace = true }
+pyo3-macros = { workspace = true }
+arco-arrays = { workspace = true }
+arco-blocks = { workspace = true }
+arco-diagnostics = { workspace = true }
+arco-highs = { workspace = true }
+arco-model = { workspace = true, default-features = false }
+arco-ops = { workspace = true, optional = true }
+arco-python-types = { workspace = true }
+arco-scip = { workspace = true, optional = true }
+arco-solver = { workspace = true, default-features = false }
+arco-xpress = { workspace = true, optional = true }
+serde_json = { workspace = true }
+
+[features]
+default = ["scip", "xpress"]
+ipopt = ["dep:arco-ops", "arco-ops/ipopt", "arco-python-types/ipopt"]
+scip = ["dep:arco-scip"]
+xpress = ["dep:arco-xpress"]
+
+[lints]
+workspace = true

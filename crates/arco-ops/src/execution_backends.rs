@@ -1,28 +1,42 @@
+#[cfg(feature = "compile")]
 use crate::compile::compile::CompiledProblem;
-#[cfg(feature = "xpress")]
+#[cfg(all(feature = "compile", feature = "xpress"))]
 use crate::execution::XpressArcoAdapter;
+#[cfg(feature = "compile")]
 use crate::execution::{
     AdapterSolveOutput, ExecutionError, OptimizationAdapter, RustArcoAdapter, ScalarArtifactValue,
     ScipArcoAdapter, SolveStatus, VariableArtifactValue, VariableInstanceArtifactValue,
     build_model, evaluate_linear_report, extract_dual_report_values, lookup_primal_value,
     map_solver_status,
 };
+#[cfg(feature = "compile")]
 use crate::{ops_problem_from_algebraic, portable_problem_from_ops};
 use arco_highs::{HighsModelViewBackend, highs_version};
+#[cfg(feature = "scip")]
 use arco_scip as scip;
 use arco_solver::{
-    ModelViewBackendRegistry, ModelViewSolveResult, ResolvedSelection, SolverConfig, SolverError,
-    SolverProfile, SolverRegistry, SolverTransport,
+    ModelViewBackendRegistry, ModelViewSolveResult, SolverConfig, SolverError, SolverRegistry,
 };
+#[cfg(feature = "compile")]
+use arco_solver::{ResolvedSelection, SolverProfile, SolverTransport};
 #[cfg(feature = "xpress")]
 use arco_xpress::{XpressModelViewBackend, xpress_runtime_available};
+#[cfg(feature = "compile")]
 use std::time::Instant;
+#[cfg(feature = "compile")]
 use tracing::info;
 
 pub(crate) fn solver_registry_with_builtin_families() -> SolverRegistry {
-    let mut registry = SolverRegistry::with_builtin_families();
-    scip::register_solver_family(&mut registry);
-    registry
+    #[cfg(feature = "scip")]
+    {
+        let mut registry = SolverRegistry::with_builtin_families();
+        scip::register_solver_family(&mut registry);
+        registry
+    }
+    #[cfg(not(feature = "scip"))]
+    {
+        SolverRegistry::with_builtin_families()
+    }
 }
 
 pub(crate) fn solve_model_view_with_builtin_backend(
@@ -37,6 +51,12 @@ pub(crate) fn solve_model_view_with_builtin_backend(
                 .to_string(),
         ));
     }
+    #[cfg(not(feature = "scip"))]
+    if family == "scip" {
+        return Err(SolverError::SolverNotAvailable(
+            "SCIP model-view backend is not enabled; rebuild with --features scip".to_string(),
+        ));
+    }
     #[cfg(not(feature = "xpress"))]
     if family == "xpress" {
         return Err(SolverError::SolverNotAvailable(
@@ -45,9 +65,11 @@ pub(crate) fn solve_model_view_with_builtin_backend(
     }
 
     let highs = HighsModelViewBackend;
-    let scip = scip::ScipModelViewBackend;
     let mut registry = ModelViewBackendRegistry::new();
     registry.register(&highs);
+    #[cfg(feature = "scip")]
+    let scip = scip::ScipModelViewBackend;
+    #[cfg(feature = "scip")]
     registry.register(&scip);
     #[cfg(feature = "xpress")]
     let xpress = XpressModelViewBackend;
@@ -78,6 +100,7 @@ fn normalize_model_view_backend_family(family: &str) -> &str {
     }
 }
 
+#[cfg(feature = "compile")]
 pub(crate) fn adapter_for_selection(
     selection: &ResolvedSelection,
     log_to_console: bool,
@@ -95,10 +118,16 @@ pub(crate) fn adapter_for_selection(
                 "embedded solver family 'xpress' is not available (rebuild with --features xpress)"
                     .to_string(),
             ),
+            #[cfg(feature = "scip")]
             "scip" => Ok(Box::new(ScipArcoAdapter::with_native_profile(
                 log_to_console,
                 profile.map_or_else(SolverConfig::default, |value| value.options.clone()),
             ))),
+            #[cfg(not(feature = "scip"))]
+            "scip" => Err(
+                "embedded solver family 'scip' is not available (rebuild with --features scip)"
+                    .to_string(),
+            ),
             #[cfg(feature = "ipopt")]
             "ipopt" => Ok(Box::new(
                 crate::execution::IpoptArcoAdapter::with_console_log(log_to_console),
@@ -121,6 +150,7 @@ pub(crate) fn adapter_for_selection(
     }
 }
 
+#[cfg(feature = "compile")]
 impl OptimizationAdapter for RustArcoAdapter {
     fn backend_name(&self) -> &'static str {
         "arco-rust-highs"
@@ -250,6 +280,7 @@ impl OptimizationAdapter for RustArcoAdapter {
     }
 }
 
+#[cfg(all(feature = "compile", feature = "scip"))]
 impl OptimizationAdapter for ScipArcoAdapter {
     fn backend_name(&self) -> &'static str {
         scip::BACKEND_NAME
@@ -339,7 +370,7 @@ impl OptimizationAdapter for ScipArcoAdapter {
     }
 }
 
-#[cfg(feature = "xpress")]
+#[cfg(all(feature = "compile", feature = "xpress"))]
 impl XpressArcoAdapter {
     pub fn new() -> Self {
         Self {
@@ -352,7 +383,7 @@ impl XpressArcoAdapter {
     }
 }
 
-#[cfg(feature = "xpress")]
+#[cfg(all(feature = "compile", feature = "xpress"))]
 impl OptimizationAdapter for XpressArcoAdapter {
     fn backend_name(&self) -> &'static str {
         "arco-rust-xpress"
@@ -511,6 +542,7 @@ mod tests {
         assert!(error.to_string().contains("IPOPT model-view backend"));
     }
 
+    #[cfg(feature = "scip")]
     #[test]
     fn builtin_model_view_backend_reports_scip_empty_model() {
         let model = Model::new();

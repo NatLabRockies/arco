@@ -65,14 +65,14 @@ impl IndexMember {
 }
 
 /// A named set of indices for array dimensions.
-#[pyclass(from_py_object, name = "IndexSet")]
+#[pyo3_macros::pyclass(from_py_object, name = "IndexSet")]
 #[derive(Debug, Clone)]
 pub struct PyIndexSet {
     pub name: String,
     pub members: Vec<IndexMember>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyIndexSet {
     #[new]
     #[pyo3(signature = (name, *, size=None, members=None))]

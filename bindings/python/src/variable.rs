@@ -1,6 +1,6 @@
 //! Python wrapper for Variable objects returned by add_variable/add_variables.
 
-use arco_ops::expression::ComparisonSense;
+use arco_model::expr::ComparisonSense;
 use pyo3::prelude::*;
 
 use crate::PyObject;
@@ -12,7 +12,7 @@ use crate::py_modules::expr::{PyExpr, nl_or_linear_compare};
 ///
 /// Participates in arithmetic to produce `Expr` objects and in
 /// comparisons to produce `ConstraintExpr` objects.
-#[pyclass(from_py_object, name = "Variable")]
+#[pyo3_macros::pyclass(from_py_object, name = "Variable")]
 #[derive(Debug, Clone)]
 pub struct PyVariable {
     pub var_id: u32,
@@ -34,7 +34,7 @@ impl PyVariable {
     pub fn from_model_variable(
         var_id: u32,
         name: Option<String>,
-        var: &arco_ops::modeling::types::Variable,
+        var: &arco_model::Variable,
     ) -> Self {
         let is_binary = var.is_integer && var.bounds.lower == 0.0 && var.bounds.upper == 1.0;
         Self {
@@ -94,7 +94,7 @@ impl PyVariable {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyVariable {
     /// The variable name, or None if unnamed.
     #[getter]

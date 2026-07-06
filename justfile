@@ -131,7 +131,7 @@ py-licenses:
 
 [group: 'python']
 py-dev: py-licenses py-sync
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash -lc 'cd bindings/python && uv run --with maturin maturin develop'
+    CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash -lc 'cd bindings/python && ./.venv/bin/maturin develop'
 
 [group: 'python']
 py-fmt:

@@ -4,17 +4,29 @@ The Python package remains in `bindings/python` for path compatibility with exis
 
 Python-facing solve orchestration is routed through the shared `arco-ops` facade where it overlaps with other interaction surfaces. The public Python API is unchanged.
 
-Build and install locally with uv:
+Build and install locally with the repository solver setup:
 
 ```bash
-cd bindings/python
-uv sync --group dev
-uv run --with maturin maturin develop
+just py-dev
 ```
 
-Default Python builds include the runtime-loaded Xpress backend. Solving with
-`arco.Xpress(...)` still requires the FICO Xpress runtime and a valid license on
-the target machine.
+Default Python builds include HiGHS, SCIP, and the runtime-loaded Xpress
+backend. Solving with `arco.Xpress(...)` still requires the FICO Xpress runtime
+and a valid license on the target machine.
+
+For direct `maturin` workflows, run through the solver build environment so the
+bindings link against the cached HiGHS and SCIP distributions:
+
+```bash
+cd ../..
+CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 ARCO_HIGHS_ENABLE_APPLE_STATIC=1 ./scripts/with_solver_build_env.sh \
+  bash -lc 'cd bindings/python && uv sync --group dev && ./.venv/bin/maturin develop'
+```
+
+`CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=0` are intentional for cold
+editable builds: they avoid incremental bookkeeping and debug-info generation
+that slow a clean `maturin develop` build. Leave them unset for normal Rust
+edit-compile-test loops where incremental rebuilds and debug info help.
 
 To enable the IPOPT nonlinear backend, build with the `ipopt` feature (requires
 a system IPOPT install):
@@ -24,15 +36,16 @@ cd bindings/python
 uv run --with maturin maturin develop --features ipopt
 ```
 
-To disable Xpress for a source build, turn off default Cargo features:
+To disable optional commercial or native solver features for a source build,
+turn off default Cargo features and opt back into the backends you need:
 
 ```bash
 cd bindings/python
 uv run --with maturin maturin develop --no-default-features --features pyo3/extension-module
 ```
 
-Without this feature, `arco.Xpress(...)` is importable but solve will fail fast
-with a rebuild hint.
+Without a solver feature, that solver's Python class remains importable but
+solve will fail fast with a rebuild hint.
 
 Run linting:
 

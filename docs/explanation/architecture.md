@@ -10,6 +10,8 @@ remaining migration debt tracked in ADR chunk checklists. This page tracks the
 ```text
 User surfaces
   bindings/python (arco-python)
+    ├─ bindings/python-core (arco-python-core)
+    └─ bindings/python-types (arco-python-types)
   crates/arco-cli
         │
         ├──────────────► crates/arco-blocks
@@ -49,9 +51,10 @@ Runtime facade
 - `arco-validate`: user-facing validation and reporting over model views.
 - `arco-solver`: solver contracts, capability metadata, selection, preflight,
   shared configuration, status mapping, and backend traits.
-- `arco-ops`: stable runtime facade used by CLI, Python core APIs, and block
-  composition. It owns solve orchestration, validation routing, inspection
-  routing, solver selection, result mapping, and stable DTO boundaries.
+- `arco-ops`: stable runtime facade used by CLI workflows, optional compile
+  paths, and block composition. It owns solve orchestration, validation
+  routing, inspection routing, solver selection, result mapping, and stable DTO
+  boundaries.
 - `arco-blocks`: block composition, typed input/output contracts, stage
   diagnostics, and swappability checks. Blocks compose public model/runtime
   APIs instead of reaching into primitive storage.
@@ -60,6 +63,13 @@ Runtime facade
   built-in.
 - `arco-highs`/`arco-scip`/`arco-xpress`: shipped solver adapters included in
   default product artifacts.
+- `arco-python`: final Python extension module crate. It stays thin over
+  `arco-python-core` and module-level Python helpers so editable extension
+  builds do not recompile the full binding implementation on every link.
+- `arco-python-core`: PyO3 model, block, solve, and inspection implementation
+  shared by the final extension module.
+- `arco-python-types`: shared PyO3 classes and conversion helpers used by
+  `arco-python-core` and the extension module.
 - `arco-ipopt`: portable facade crate. The default build provides solver
   selection and a clear unavailable diagnostic for solve attempts. Native
   IPOPT solve execution requires the `ipopt` feature on `arco-ops`, which is

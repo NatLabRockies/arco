@@ -357,56 +357,44 @@ pyo3::create_exception!(
     "Variable index out of range for objective."
 );
 
-/// Convert a `arco_ops::modeling::model::ModelError` into the appropriate ArcoError subclass.
-pub fn model_error_to_py(e: arco_ops::modeling::model::ModelError) -> PyErr {
+/// Convert a `arco_model::ModelError` into the appropriate ArcoError subclass.
+pub fn model_error_to_py(e: arco_model::ModelError) -> PyErr {
     let msg = e.to_string();
     match e {
-        arco_ops::modeling::model::ModelError::EmptyModel => ModelEmptyError::new_err(msg),
-        arco_ops::modeling::model::ModelError::InvalidVariableId(_) => {
-            VariableInvalidIdError::new_err(msg)
-        }
-        arco_ops::modeling::model::ModelError::InvalidVariableBounds { .. } => {
+        arco_model::ModelError::EmptyModel => ModelEmptyError::new_err(msg),
+        arco_model::ModelError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
+        arco_model::ModelError::InvalidVariableBounds { .. } => {
             VariableInvalidBoundsError::new_err(msg)
         }
-        arco_ops::modeling::model::ModelError::InvalidConstraintId(_) => {
-            ConstraintInvalidIdError::new_err(msg)
-        }
-        arco_ops::modeling::model::ModelError::InvalidConstraintBounds { .. } => {
+        arco_model::ModelError::InvalidConstraintId(_) => ConstraintInvalidIdError::new_err(msg),
+        arco_model::ModelError::InvalidConstraintBounds { .. } => {
             ConstraintInvalidBoundsError::new_err(msg)
         }
-        arco_ops::modeling::model::ModelError::NoObjective => ObjectiveMissingError::new_err(msg),
-        arco_ops::modeling::model::ModelError::MultipleObjectives => {
-            ObjectiveAlreadySetError::new_err(msg)
-        }
-        arco_ops::modeling::model::ModelError::InvalidSlackPenalty { .. } => {
+        arco_model::ModelError::NoObjective => ObjectiveMissingError::new_err(msg),
+        arco_model::ModelError::MultipleObjectives => ObjectiveAlreadySetError::new_err(msg),
+        arco_model::ModelError::InvalidSlackPenalty { .. } => {
             SlackInvalidPenaltyError::new_err(msg)
         }
-        arco_ops::modeling::model::ModelError::InvalidCscData { .. } => {
-            CscInvalidDataError::new_err(msg)
-        }
-        arco_ops::modeling::model::ModelError::InvalidCoefficient { .. } => {
-            ExprCoefficientError::new_err(msg)
-        }
+        arco_model::ModelError::InvalidCscData { .. } => CscInvalidDataError::new_err(msg),
+        arco_model::ModelError::InvalidCoefficient { .. } => ExprCoefficientError::new_err(msg),
     }
 }
 
-/// Convert a `arco_ops::solve::SolverError` into the appropriate ArcoError subclass.
-pub fn generic_solver_error_to_py(e: arco_ops::solve::SolverError) -> PyErr {
+/// Convert a `arco_solver::SolverError` into the appropriate ArcoError subclass.
+pub fn generic_solver_error_to_py(e: arco_solver::SolverError) -> PyErr {
     let msg = e.to_string();
     match e {
-        arco_ops::solve::SolverError::EmptyModel => ModelEmptyError::new_err(msg),
-        arco_ops::solve::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
-        arco_ops::solve::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
-        arco_ops::solve::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
-        arco_ops::solve::SolverError::InvalidResultShape(_) => SolverInternalError::new_err(msg),
-        arco_ops::solve::SolverError::InvalidSettings(_) => SolverInvalidSettingError::new_err(msg),
-        arco_ops::solve::SolverError::SolverNotAvailable(_) => {
-            SolverNotAvailableError::new_err(msg)
-        }
-        arco_ops::solve::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
-        arco_ops::solve::SolverError::Diagnostic(_) => SolverInternalError::new_err(msg),
-        arco_ops::solve::SolverError::SolveFailure { status } => {
-            use arco_ops::solve::SolverStatus;
+        arco_solver::SolverError::EmptyModel => ModelEmptyError::new_err(msg),
+        arco_solver::SolverError::NoObjective => ObjectiveMissingError::new_err(msg),
+        arco_solver::SolverError::InvalidObjectiveSense => SolverInternalError::new_err(msg),
+        arco_solver::SolverError::InvalidVariableId(_) => VariableInvalidIdError::new_err(msg),
+        arco_solver::SolverError::InvalidResultShape(_) => SolverInternalError::new_err(msg),
+        arco_solver::SolverError::InvalidSettings(_) => SolverInvalidSettingError::new_err(msg),
+        arco_solver::SolverError::SolverNotAvailable(_) => SolverNotAvailableError::new_err(msg),
+        arco_solver::SolverError::SolverSpecific(_) => SolverInternalError::new_err(msg),
+        arco_solver::SolverError::Diagnostic(_) => SolverInternalError::new_err(msg),
+        arco_solver::SolverError::SolveFailure { status } => {
+            use arco_solver::SolverStatus;
             match status {
                 SolverStatus::Infeasible => SolverInfeasibleError::new_err(msg),
                 SolverStatus::Unbounded => SolverUnboundedError::new_err(msg),

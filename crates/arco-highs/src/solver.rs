@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 use std::ffi::{CString, c_void};
 use std::time::Instant;
 
+use crate::sys as highs_sys;
+
 /// Re-export of contract solver error for backward compatibility.
 pub type SolverError = arco_solver::SolverError;
 

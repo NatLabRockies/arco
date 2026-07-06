@@ -1,6 +1,6 @@
 //! Python iterators for model constraints and variables.
 
-use arco_ops::expression::{ConstraintId, VariableId};
+use arco_model::{ConstraintId, VariableId};
 use pyo3::prelude::*;
 
 use crate::PyModel;
@@ -8,7 +8,7 @@ use crate::py_modules::constraint::PyConstraint;
 use crate::py_modules::variable::PyVariable;
 
 /// Iterator over constraints in a model.
-#[pyclass(name = "ConstraintIterator")]
+#[pyo3_macros::pyclass(name = "ConstraintIterator")]
 pub struct PyConstraintIterator {
     model: Py<PyModel>,
     index: usize,
@@ -25,7 +25,7 @@ impl PyConstraintIterator {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyConstraintIterator {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
@@ -52,7 +52,7 @@ impl PyConstraintIterator {
 }
 
 /// Iterator over variables in a model.
-#[pyclass(name = "VariableIterator")]
+#[pyo3_macros::pyclass(name = "VariableIterator")]
 pub struct PyVariableIterator {
     model: Py<PyModel>,
     index: usize,
@@ -69,7 +69,7 @@ impl PyVariableIterator {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyVariableIterator {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf

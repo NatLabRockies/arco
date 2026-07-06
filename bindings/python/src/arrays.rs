@@ -3,7 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use arco_arrays::{AxisSpec, BroadcastPlan, LabeledShape};
-use arco_ops::expression::{ComparisonSense, Expr, VariableId};
+use arco_model::VariableId;
+use arco_model::expr::{ComparisonSense, Expr};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::types::PyTuple;
@@ -30,12 +31,12 @@ pub use expr_array::PyExprArray;
 pub use variable_array::PyVariableArray;
 
 // Re-export compact types for use in lib.rs
-pub(crate) use constraint_array::{CompactConstraintStorage, CompactRhs};
+pub use constraint_array::{CompactConstraintStorage, CompactRhs};
 
 type LabeledOperand = (Vec<Py<PyIndexSet>>, Vec<f64>);
 
 #[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct ExpressionTermCounts {
+pub struct ExpressionTermCounts {
     pub linear: usize,
     pub quadratic: usize,
     pub cubic: usize,
@@ -65,7 +66,7 @@ pub(crate) fn set_solver_matrix_memory_estimate(
     variable_instances: usize,
     coefficient_instances: usize,
 ) -> PyResult<()> {
-    let memory = arco_ops::modeling::SnapshotMemoryEstimate::for_sparse_matrix(
+    let memory = arco_model::SnapshotMemoryEstimate::for_sparse_matrix(
         variable_instances,
         coefficient_instances,
     );
@@ -122,9 +123,7 @@ fn axis_spec_from_bound(index_set: &Bound<'_, PyIndexSet>) -> AxisSpec {
     AxisSpec::new(borrowed.name.clone(), borrowed.members.len())
 }
 
-pub(crate) fn labeled_shape_from_index_sets(
-    index_sets: &[Py<PyIndexSet>],
-) -> PyResult<LabeledShape> {
+pub fn labeled_shape_from_index_sets(index_sets: &[Py<PyIndexSet>]) -> PyResult<LabeledShape> {
     Python::attach(|py| {
         let axes = index_sets
             .iter()
@@ -134,7 +133,7 @@ pub(crate) fn labeled_shape_from_index_sets(
     })
 }
 
-pub(crate) fn labeled_shape_from_axes_attr(
+pub fn labeled_shape_from_axes_attr(
     obj: &Bound<'_, PyAny>,
     label: &str,
 ) -> PyResult<Option<LabeledShape>> {
@@ -910,7 +909,7 @@ fn parse_named_axes(
 
 /// Shared storage for indexed linear expression arrays.
 /// Both VariableArray and ExprArray compose this internally.
-pub(crate) struct LinearArrayCore {
+pub struct LinearArrayCore {
     pub index_sets: Vec<Py<PyIndexSet>>,
     pub shape: Vec<usize>,
     pub values: Vec<PyExpr>,
@@ -1252,7 +1251,7 @@ impl LinearArrayCore {
 
 /// A template for one term per element. Element `i`'s variable ID = `start_var_id + i`.
 #[derive(Clone, Debug)]
-pub(crate) struct CompactTerm {
+pub struct CompactTerm {
     pub start_var_id: u32,
     pub coefficient: f64,
 }
@@ -1260,7 +1259,7 @@ pub(crate) struct CompactTerm {
 /// Compact expression storage: represents N elements with O(terms_per_element) memory.
 /// For element `i`: `expr_i = constant + sum(term.coeff * var(term.start_var_id + i))`
 #[derive(Clone, Debug)]
-pub(crate) struct CompactExprStorage {
+pub struct CompactExprStorage {
     pub terms: Vec<CompactTerm>,
     pub constant: f64,
     pub count: usize,
@@ -1507,7 +1506,7 @@ pub(crate) fn try_extract_compact(other: &Bound<'_, PyAny>) -> Option<CompactExp
 
 /// Try to create a CompactConstraintStorage from a compact expression and a Python RHS.
 /// Returns None if the RHS type cannot be handled compactly (e.g., another array).
-pub(crate) fn try_make_compact_constraint(
+pub fn try_make_compact_constraint(
     compact_expr: &CompactExprStorage,
     rhs: &Bound<'_, PyAny>,
     sense: ComparisonSense,
@@ -2479,7 +2478,7 @@ fn parse_einsum_subscripts(
 
 fn einsum_shape_from_operand(py: Python<'_>, operand: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
     if let Ok(va) = operand.extract::<PyRef<'_, PyVariableArray>>() {
-        return Ok(va.shape.clone());
+        return Ok(va.get_shape().to_vec());
     }
     if let Ok(ea) = operand.extract::<PyRef<'_, PyExprArray>>() {
         return Ok(ea.storage.shape().to_vec());

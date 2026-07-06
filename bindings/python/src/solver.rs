@@ -90,8 +90,8 @@ impl SolverSettings {
     }
 
     /// Convert these settings into a generic `SolverConfig`.
-    pub fn to_solver_config(&self) -> arco_ops::solve::SolverConfig {
-        let mut config = arco_ops::solve::SolverConfig::new();
+    pub fn to_solver_config(&self) -> arco_solver::SolverConfig {
+        let mut config = arco_solver::SolverConfig::new();
         if let Some(presolve) = self.presolve {
             config = config.with_presolve(presolve);
         }
@@ -120,7 +120,7 @@ impl SolverSettings {
     }
 }
 
-pub(crate) fn validate_backend_settings(backend: &str, settings: &SolverSettings) -> PyResult<()> {
+pub fn validate_backend_settings(backend: &str, settings: &SolverSettings) -> PyResult<()> {
     if backend == "xpress" && settings.verbosity.is_some() {
         return Err(SolverInvalidSettingError::new_err(
             "verbosity is not supported by the Xpress backend",
@@ -209,20 +209,20 @@ fn solver_repr(label: &str, settings: &SolverSettings) -> String {
     )
 }
 
-#[pyclass(from_py_object, subclass, name = "Solver")]
+#[pyo3_macros::pyclass(from_py_object, subclass, name = "Solver")]
 #[derive(Debug, Clone)]
 pub struct PySolver {
     pub settings: SolverSettings,
 }
 
-#[pyclass(from_py_object, name = "SolverSelection")]
+#[pyo3_macros::pyclass(from_py_object, name = "SolverSelection")]
 #[derive(Debug, Clone)]
 pub struct PySolverSelection {
     pub token: String,
     pub family_hint: Option<String>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySolverSelection {
     #[new]
     fn new(token: String) -> Self {
@@ -262,7 +262,7 @@ impl PySolverSelection {
     }
 }
 
-#[pyclass(from_py_object, name = "SolverProfile")]
+#[pyo3_macros::pyclass(from_py_object, name = "SolverProfile")]
 #[derive(Debug, Clone)]
 pub struct PySolverProfile {
     pub name: String,
@@ -270,7 +270,7 @@ pub struct PySolverProfile {
     pub transport: String,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySolverProfile {
     #[new]
     fn new(name: String, family: String, transport: Option<String>) -> Self {
@@ -304,7 +304,7 @@ impl PySolverProfile {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySolver {
     #[new]
     #[pyo3(
@@ -381,11 +381,11 @@ impl PySolver {
     }
 }
 
-#[pyclass(from_py_object, extends = PySolver, name = "HiGHS")]
+#[pyo3_macros::pyclass(from_py_object, extends = PySolver, name = "HiGHS")]
 #[derive(Debug, Clone)]
 pub struct PyHiGHS;
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyHiGHS {
     #[new]
     #[pyo3(
@@ -402,7 +402,7 @@ impl PyHiGHS {
         log_to_console: Option<bool>,
         parameters: Option<SolverParameters>,
         solver: Option<String>,
-    ) -> PyResult<(Self, PySolver)> {
+    ) -> PyResult<PyClassInitializer<Self>> {
         let settings = SolverSettings::new(
             presolve,
             threads,
@@ -413,7 +413,7 @@ impl PyHiGHS {
             log_to_console,
             merge_solver_parameter(parameters, solver),
         )?;
-        Ok((PyHiGHS, PySolver { settings }))
+        Ok(PyClassInitializer::from(PySolver { settings }).add_subclass(PyHiGHS))
     }
 
     #[pyo3(signature = (*, update=None))]
@@ -424,7 +424,8 @@ impl PyHiGHS {
     ) -> PyResult<Py<Self>> {
         let base = slf.into_super();
         let settings = apply_solver_updates(base.settings.clone(), update)?;
-        Py::new(py, (PyHiGHS, PySolver { settings }))
+        let initializer = PyClassInitializer::from(PySolver { settings }).add_subclass(PyHiGHS);
+        Py::new(py, initializer)
     }
 
     fn __repr__(slf: PyRef<'_, Self>) -> String {
@@ -433,11 +434,11 @@ impl PyHiGHS {
     }
 }
 
-#[pyclass(from_py_object, extends = PySolver, name = "Xpress")]
+#[pyo3_macros::pyclass(from_py_object, extends = PySolver, name = "Xpress")]
 #[derive(Debug, Clone)]
 pub struct PyXpress;
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyXpress {
     #[new]
     #[pyo3(
@@ -454,7 +455,7 @@ impl PyXpress {
         log_to_console: Option<bool>,
         parameters: Option<SolverParameters>,
         solver: Option<String>,
-    ) -> PyResult<(Self, PySolver)> {
+    ) -> PyResult<PyClassInitializer<Self>> {
         let settings = SolverSettings::new(
             presolve,
             threads,
@@ -466,7 +467,7 @@ impl PyXpress {
             merge_solver_parameter(parameters, solver),
         )?;
         validate_backend_settings("xpress", &settings)?;
-        Ok((PyXpress, PySolver { settings }))
+        Ok(PyClassInitializer::from(PySolver { settings }).add_subclass(PyXpress))
     }
 
     #[pyo3(signature = (*, update=None))]
@@ -478,7 +479,8 @@ impl PyXpress {
         let base = slf.into_super();
         let settings = apply_solver_updates(base.settings.clone(), update)?;
         validate_backend_settings("xpress", &settings)?;
-        Py::new(py, (PyXpress, PySolver { settings }))
+        let initializer = PyClassInitializer::from(PySolver { settings }).add_subclass(PyXpress);
+        Py::new(py, initializer)
     }
 
     fn __repr__(slf: PyRef<'_, Self>) -> String {
@@ -487,11 +489,11 @@ impl PyXpress {
     }
 }
 
-#[pyclass(from_py_object, extends = PySolver, name = "Scip")]
+#[pyo3_macros::pyclass(from_py_object, extends = PySolver, name = "Scip")]
 #[derive(Debug, Clone)]
 pub struct PyScip;
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyScip {
     #[new]
     #[pyo3(
@@ -508,7 +510,7 @@ impl PyScip {
         log_to_console: Option<bool>,
         parameters: Option<SolverParameters>,
         solver: Option<String>,
-    ) -> PyResult<(Self, PySolver)> {
+    ) -> PyResult<PyClassInitializer<Self>> {
         let settings = SolverSettings::new(
             presolve,
             threads,
@@ -519,7 +521,7 @@ impl PyScip {
             log_to_console,
             merge_solver_parameter(parameters, solver),
         )?;
-        Ok((PyScip, PySolver { settings }))
+        Ok(PyClassInitializer::from(PySolver { settings }).add_subclass(PyScip))
     }
 
     #[pyo3(signature = (*, update=None))]
@@ -530,7 +532,8 @@ impl PyScip {
     ) -> PyResult<Py<Self>> {
         let base = slf.into_super();
         let settings = apply_solver_updates(base.settings.clone(), update)?;
-        Py::new(py, (PyScip, PySolver { settings }))
+        let initializer = PyClassInitializer::from(PySolver { settings }).add_subclass(PyScip);
+        Py::new(py, initializer)
     }
 
     fn __repr__(slf: PyRef<'_, Self>) -> String {
@@ -540,17 +543,18 @@ impl PyScip {
 }
 
 #[cfg(feature = "ipopt")]
-#[pyclass(from_py_object, extends = PySolver, name = "Ipopt")]
+#[pyo3_macros::pyclass(from_py_object, extends = PySolver, name = "Ipopt")]
 #[derive(Debug, Clone)]
 pub struct PyIpopt;
 
 #[cfg(feature = "ipopt")]
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyIpopt {
     #[new]
     #[pyo3(
         signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
     )]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         presolve: Option<bool>,
         threads: Option<u32>,
@@ -561,7 +565,7 @@ impl PyIpopt {
         log_to_console: Option<bool>,
         parameters: Option<SolverParameters>,
         solver: Option<String>,
-    ) -> PyResult<(Self, PySolver)> {
+    ) -> PyResult<PyClassInitializer<Self>> {
         let settings = SolverSettings::new(
             presolve,
             threads,
@@ -572,7 +576,7 @@ impl PyIpopt {
             log_to_console,
             merge_solver_parameter(parameters, solver),
         )?;
-        Ok((PyIpopt, PySolver { settings }))
+        Ok(PyClassInitializer::from(PySolver { settings }).add_subclass(PyIpopt))
     }
 
     #[pyo3(signature = (*, update=None))]
@@ -583,7 +587,8 @@ impl PyIpopt {
     ) -> PyResult<Py<Self>> {
         let base = slf.into_super();
         let settings = apply_solver_updates(base.settings.clone(), update)?;
-        Py::new(py, (PyIpopt, PySolver { settings }))
+        let initializer = PyClassInitializer::from(PySolver { settings }).add_subclass(PyIpopt);
+        Py::new(py, initializer)
     }
 
     fn __repr__(slf: PyRef<'_, Self>) -> String {
@@ -638,7 +643,7 @@ fn detect_xpress_dir_for_python() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.exists())
 }
 
-pub(crate) fn xpress_backend_enabled() -> bool {
+pub fn xpress_backend_enabled() -> bool {
     cfg!(feature = "xpress")
 }
 
@@ -680,7 +685,7 @@ fn solver_runtime_info_for_family(py: Python<'_>, family: &str) -> PyResult<Py<P
     Ok(info.unbind())
 }
 
-#[pyfunction]
+#[pyo3_macros::pyfunction]
 #[pyo3(signature = (*, family=None))]
 fn solver_runtime_info(py: Python<'_>, family: Option<String>) -> PyResult<Py<PyAny>> {
     let Some(family) = family else {
@@ -712,10 +717,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 /// Create a Solution for a solve failure (infeasible, unbounded, etc.).
-pub(crate) fn solve_failure_solution(
-    status: arco_ops::solve::SolverStatus,
-) -> arco_ops::solve::Solution {
-    arco_ops::solve::Solution {
+pub fn solve_failure_solution(status: arco_solver::SolverStatus) -> arco_solver::Solution {
+    arco_solver::Solution {
         primal_values: Vec::new(),
         variable_duals: Vec::new(),
         constraint_duals: Vec::new(),
@@ -735,7 +738,7 @@ fn detect_default_backend_from_selection(selection: &PySolverSelection) -> Strin
 }
 
 /// Detect which backend name a solver object represents.
-pub(crate) fn detect_default_backend(solver: Option<&Bound<'_, PyAny>>) -> String {
+pub fn detect_default_backend(solver: Option<&Bound<'_, PyAny>>) -> String {
     let Some(solver) = solver else {
         return "highs".to_string();
     };
@@ -759,9 +762,7 @@ pub(crate) fn detect_default_backend(solver: Option<&Bound<'_, PyAny>>) -> Strin
 }
 
 /// Extract `SolverSettings` from an optional Python solver object (`HiGHS`, `Ipopt`, `Xpress`, or `Solver`).
-pub(crate) fn extract_solver_settings(
-    solver: Option<&Bound<'_, PyAny>>,
-) -> PyResult<SolverSettings> {
+pub fn extract_solver_settings(solver: Option<&Bound<'_, PyAny>>) -> PyResult<SolverSettings> {
     let Some(solver) = solver else {
         return Ok(SolverSettings::default());
     };

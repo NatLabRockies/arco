@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/*", "bindings/python"]
+members = [
+  "crates/*",
+  "bindings/python",
+  "bindings/python-core",
+  "bindings/python-types",
+]
 exclude = [
   "scripts",
   "third_party/russcip-0.9.1",
@@ -27,12 +32,13 @@ toml = "1.1"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 serde_json = "1.0"
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
-pyo3 = "0.28"
+pyo3 = { version = "0.29", default-features = false }
+pyo3-macros = "0.29"
 tracing-subscriber = { version = "0.3", default-features = false }
 smallvec = "1"
 arco-arrays = { path = "crates/arco-arrays" }
-arco-solver = { path = "crates/arco-solver" }
-arco-highs = { path = "crates/arco-highs" }
+arco-solver = { path = "crates/arco-solver", default-features = false }
+arco-highs = { path = "crates/arco-highs", default-features = false }
 arco-ipopt = { path = "crates/arco-ipopt" }
 arco-xpress = { path = "crates/arco-xpress" }
 arco-tools = { path = "crates/arco-tools" }
@@ -41,11 +47,13 @@ arco-builtin-solvers = { path = "crates/arco-builtin-solvers" }
 arco-diagnostics = { path = "crates/arco-diagnostics" }
 arco-kdl = { path = "crates/arco-kdl" }
 arco-cli = { path = "crates/arco-cli" }
-arco-model = { path = "crates/arco-model" }
-arco-format = { path = "crates/arco-format" }
-arco-ops = { path = "crates/arco-ops" }
+arco-model = { path = "crates/arco-model", default-features = false }
+arco-python-core = { path = "bindings/python-core", default-features = false }
+arco-python-types = { path = "bindings/python-types", default-features = false }
+arco-format = { path = "crates/arco-format", default-features = false }
+arco-ops = { path = "crates/arco-ops", default-features = false }
 arco-runtime = { path = "crates/arco-runtime" }
-arco-scip = { path = "crates/arco-scip" }
+arco-scip = { path = "crates/arco-scip", default-features = false }
 arco-validate = { path = "crates/arco-validate" }
 
 [workspace.package]

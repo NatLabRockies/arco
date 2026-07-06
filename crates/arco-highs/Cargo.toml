@@ -14,10 +14,14 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-solver = { workspace = true }
-arco-model = { workspace = true }
-highs-sys = { version = "=1.15.0", features = ["discover"] }
+arco-solver = { workspace = true, default-features = false }
+arco-model = { workspace = true, default-features = false }
+highs-sys = { version = "=1.15.0", features = ["discover"], optional = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["fmt"] }
+
+[features]
+default = ["bundled-highs"]
+bundled-highs = ["dep:highs-sys"]

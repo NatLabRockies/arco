@@ -1,43 +1,47 @@
 //! Python wrapper for solver solutions.
 
-use crate::py_modules::errors::{SolverIndexError, SolverTypeError};
-use arco_ops::solve::{Solution, SolverStatus};
+use crate::pym::errors::{SolverIndexError, SolverTypeError};
+use arco_solver::{Solution, SolverStatus};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pyo3::types::{PyAny, PyBool, PyInt};
 
 use crate::PyObject;
-use crate::py_modules::arrays::PyVariableArray;
-use crate::py_modules::constraint::PyConstraint;
-use crate::py_modules::variable::PyVariable;
+use crate::pym::arrays::PyVariableArray;
+use crate::pym::constraint::PyConstraint;
+use crate::pym::variable::PyVariable;
 
 /// Python enum for solution status.
-#[pyclass(from_py_object, name = "SolutionStatus", eq, eq_int)]
+#[pyo3_macros::pyclass(from_py_object, name = "SolutionStatus", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(non_camel_case_types)]
 pub enum PySolutionStatus {
-    OPTIMAL,
-    INFEASIBLE,
-    UNBOUNDED,
-    TIME_LIMIT,
-    ERROR,
+    #[pyo3(name = "OPTIMAL")]
+    Optimal,
+    #[pyo3(name = "INFEASIBLE")]
+    Infeasible,
+    #[pyo3(name = "UNBOUNDED")]
+    Unbounded,
+    #[pyo3(name = "TIME_LIMIT")]
+    TimeLimit,
+    #[pyo3(name = "ERROR")]
+    Error,
 }
 
 impl From<SolverStatus> for PySolutionStatus {
     fn from(status: SolverStatus) -> Self {
         match status {
-            SolverStatus::Optimal => PySolutionStatus::OPTIMAL,
-            SolverStatus::Infeasible => PySolutionStatus::INFEASIBLE,
-            SolverStatus::Unbounded => PySolutionStatus::UNBOUNDED,
-            SolverStatus::TimeLimit => PySolutionStatus::TIME_LIMIT,
-            SolverStatus::IterationLimit => PySolutionStatus::TIME_LIMIT,
-            SolverStatus::Unknown => PySolutionStatus::ERROR,
+            SolverStatus::Optimal => PySolutionStatus::Optimal,
+            SolverStatus::Infeasible => PySolutionStatus::Infeasible,
+            SolverStatus::Unbounded => PySolutionStatus::Unbounded,
+            SolverStatus::TimeLimit => PySolutionStatus::TimeLimit,
+            SolverStatus::IterationLimit => PySolutionStatus::TimeLimit,
+            SolverStatus::Unknown => PySolutionStatus::Error,
         }
     }
 }
 
 /// Python wrapper for a solver solution result.
-#[pyclass(name = "SolveResult")]
+#[pyo3_macros::pyclass(name = "SolveResult")]
 pub struct PySolveResult {
     inner: Solution,
     /// Per-block results for composed models; None for simple models.
@@ -193,7 +197,7 @@ impl PySolveResult {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySolveResult {
     /// The status of the solve.
     #[getter]
@@ -411,159 +415,9 @@ impl PySolveResult {
     }
 }
 
-fn format_solve_time(seconds: f64) -> String {
-    if seconds < 1.0 {
-        format!("{:.2}ms", seconds * 1000.0)
-    } else {
-        format!("{:.2}s", seconds)
-    }
-}
-
-fn format_sci(val: f64) -> String {
-    if val.is_nan() {
-        return "NaN".to_string();
-    }
-    if val.is_infinite() {
-        return if val > 0.0 {
-            "inf".to_string()
-        } else {
-            "-inf".to_string()
-        };
-    }
-    // Rust's {:.5e} omits the + sign on exponents. We want e.g. 2.60000e+03.
-    let s = format!("{:.5e}", val);
-    // Replace "e" with proper sign-padded exponent
-    if let Some(pos) = s.rfind('e') {
-        let mantissa = &s[..pos];
-        let exp_str = &s[pos + 1..];
-        let exp = match exp_str.parse::<i32>() {
-            Ok(exp) => exp,
-            Err(_) => return s,
-        };
-        format!("{}e{:+03}", mantissa, exp)
-    } else {
-        s
-    }
-}
-
-fn status_str(status: SolverStatus) -> &'static str {
-    match status {
-        SolverStatus::Optimal => "OPTIMAL",
-        SolverStatus::Infeasible => "INFEASIBLE",
-        SolverStatus::Unbounded => "UNBOUNDED",
-        SolverStatus::TimeLimit => "TIME_LIMIT",
-        SolverStatus::IterationLimit => "ITERATION_LIMIT",
-        SolverStatus::Unknown => "ERROR",
-    }
-}
-
-/// Pretty-print a tree-formatted solution summary.
-#[pyfunction]
-#[pyo3(signature = (result, *, verbose=false))]
-pub fn solution_summary(
-    py: Python<'_>,
-    result: PyRef<'_, PySolveResult>,
-    verbose: bool,
-) -> PyResult<()> {
-    let sol = result.inner();
-    let mut lines = Vec::new();
-
-    lines.push("Solution Summary".to_string());
-
-    // Solver line
-    lines.push("\u{251c} solver          : HiGHS".to_string());
-
-    // Termination section
-    let is_last_section = !verbose;
-    let term_prefix = if is_last_section {
-        "\u{2514}"
-    } else {
-        "\u{251c}"
-    };
-    let term_cont = if is_last_section { " " } else { "\u{2502}" };
-    lines.push(format!("{} Termination", term_prefix));
-    lines.push(format!(
-        "{} \u{251c} status        : {}",
-        term_cont,
-        status_str(sol.status)
-    ));
-    lines.push(format!(
-        "{} \u{2514} objective     : {}",
-        term_cont,
-        format_sci(sol.objective_value)
-    ));
-
-    if verbose {
-        // Solution section
-        lines.push("\u{251c} Solution".to_string());
-
-        // Variable values
-        let has_duals = !sol.constraint_duals.is_empty();
-        let values_prefix = if has_duals { "\u{251c}" } else { "\u{2514}" };
-        lines.push(format!("\u{2502} {} values", values_prefix));
-
-        let val_cont = if has_duals { "\u{2502}" } else { " " };
-        let num_vals = sol.primal_values.len();
-        for (i, val) in sol.primal_values.iter().enumerate() {
-            let is_last = i + 1 == num_vals;
-            let branch = if is_last { "\u{2514}" } else { "\u{251c}" };
-            lines.push(format!(
-                "\u{2502} {}  {} x{:<12}: {}",
-                val_cont,
-                branch,
-                i,
-                format_sci(*val)
-            ));
-        }
-
-        // Constraint duals
-        if has_duals {
-            lines.push("\u{2502} \u{2514} duals".to_string());
-            let num_duals = sol.constraint_duals.len();
-            for (i, val) in sol.constraint_duals.iter().enumerate() {
-                let is_last = i + 1 == num_duals;
-                let branch = if is_last { "\u{2514}" } else { "\u{251c}" };
-                lines.push(format!(
-                    "\u{2502}   {} c{:<12}: {}",
-                    branch,
-                    i,
-                    format_sci(*val)
-                ));
-            }
-        }
-
-        // Work section
-        let iterations = sol
-            .metadata
-            .get("simplex_iterations")
-            .copied()
-            .unwrap_or(0.0) as u64
-            + sol
-                .metadata
-                .get("barrier_iterations")
-                .copied()
-                .unwrap_or(0.0) as u64;
-        let nodes = sol.metadata.get("nodes").copied().unwrap_or(0.0) as u64;
-
-        lines.push("\u{2514} Work".to_string());
-        lines.push(format!(
-            "  \u{251c} solve_time    : {}",
-            format_solve_time(sol.solve_time_seconds)
-        ));
-        lines.push(format!("  \u{251c} iterations    : {}", iterations));
-        lines.push(format!("  \u{2514} nodes         : {}", nodes));
-    }
-
-    let output = lines.join("\n");
-    let builtins = py.import("builtins")?;
-    builtins.call_method1("print", (output,))?;
-    Ok(())
-}
-
 /// Register solution classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySolveResult>()?;
     m.add_class::<PySolutionStatus>()?;
-    m.add_function(pyo3::wrap_pyfunction!(solution_summary, m)?)?;
     Ok(())
 }

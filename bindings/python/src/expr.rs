@@ -1,6 +1,7 @@
 //! Python wrappers for expressions.
 
-use arco_ops::expression::{ComparisonSense, ConstraintExpr, Expr, VariableId};
+use arco_model::VariableId;
+use arco_model::expr::{ComparisonSense, ConstraintExpr, Expr};
 use pyo3::Borrowed;
 use pyo3::prelude::*;
 
@@ -37,7 +38,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for ExprLike {
 }
 
 /// Composable expression for objectives and constraints.
-#[pyclass(from_py_object, name = "Expr")]
+#[pyo3_macros::pyclass(from_py_object, name = "Expr")]
 #[derive(Debug, Clone, Default)]
 pub struct PyExpr {
     inner: Expr,
@@ -124,7 +125,7 @@ impl PyExpr {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyExpr {
     #[new]
     fn new() -> Self {
@@ -344,7 +345,7 @@ impl PyExpr {
 }
 
 /// A constraint expression (linear expression with comparison and RHS).
-#[pyclass(from_py_object, name = "ConstraintExpr")]
+#[pyo3_macros::pyclass(from_py_object, name = "ConstraintExpr")]
 #[derive(Clone)]
 pub struct PyConstraintExpr {
     inner: ConstraintExpr,
@@ -360,7 +361,7 @@ impl PyConstraintExpr {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyConstraintExpr {
     #[getter]
     fn expr(&self) -> PyExpr {
@@ -417,7 +418,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// Compare a linear `PyExpr` against `rhs`. If `rhs` is a `NonlinearExpr` (and
 /// the `ipopt` feature is enabled), returns a `PyNonlinearConstraintExpr`;
 /// otherwise returns a `PyConstraintExpr`.
-pub(crate) fn nl_or_linear_compare(
+pub fn nl_or_linear_compare(
     py: Python<'_>,
     lhs: &PyExpr,
     rhs: &Bound<'_, PyAny>,

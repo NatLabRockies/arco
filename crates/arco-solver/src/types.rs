@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SolverStatus {
     Optimal,
     Infeasible,
@@ -59,7 +60,8 @@ impl std::fmt::Display for SolverStatus {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SolverModelStats {
     pub variables: usize,
     pub constraints: usize,
@@ -72,7 +74,8 @@ impl SolverModelStats {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SolverDiagnostic {
     ModelSizeLimit {
         solver: String,
@@ -104,7 +107,8 @@ impl std::fmt::Display for SolverDiagnostic {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SolverError {
     EmptyModel,
     NoObjective,
@@ -166,7 +170,8 @@ impl std::fmt::Display for SolverError {
 
 impl std::error::Error for SolverError {}
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Solution {
     pub primal_values: Vec<f64>,
     pub variable_duals: Vec<f64>,

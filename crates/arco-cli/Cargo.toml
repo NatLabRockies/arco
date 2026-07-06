@@ -33,7 +33,7 @@ workspace = true
 
 [dependencies]
 arco-diagnostics = { workspace = true }
-arco-ops = { workspace = true }
+arco-ops = { workspace = true, features = ["compile", "scip"] }
 clap = { version = "4", features = ["derive"] }
 miette = { version = "7", default-features = false, features = [
   "fancy-no-backtrace",

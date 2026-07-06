@@ -6,9 +6,11 @@
 //! APIs.
 
 pub mod builder;
+#[cfg(feature = "serde")]
 pub mod document;
 pub mod expr;
 pub mod ids;
+#[cfg(feature = "serde")]
 pub mod indexed;
 pub mod model;
 pub mod slack;

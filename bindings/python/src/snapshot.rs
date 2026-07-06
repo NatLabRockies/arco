@@ -1,6 +1,6 @@
 //! Python wrappers for model snapshot types.
 
-use arco_ops::modeling::Sense;
+use arco_model::Sense;
 use pyo3::prelude::*;
 
 use crate::py_modules::views::{
@@ -8,7 +8,7 @@ use crate::py_modules::views::{
 };
 
 /// Conservative memory estimate for sparse matrix storage.
-#[pyclass(from_py_object, name = "SnapshotMemoryEstimate")]
+#[pyo3_macros::pyclass(from_py_object, name = "SnapshotMemoryEstimate")]
 #[derive(Clone)]
 pub struct PySnapshotMemoryEstimate {
     pub coefficient_value_bytes: usize,
@@ -17,7 +17,7 @@ pub struct PySnapshotMemoryEstimate {
     pub sparse_matrix_bytes: usize,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySnapshotMemoryEstimate {
     #[getter]
     fn coefficient_value_bytes(&self) -> usize {
@@ -41,7 +41,7 @@ impl PySnapshotMemoryEstimate {
 }
 
 /// Metadata about a model snapshot.
-#[pyclass(from_py_object, name = "SnapshotMetadata")]
+#[pyo3_macros::pyclass(from_py_object, name = "SnapshotMetadata")]
 #[derive(Clone)]
 pub struct PySnapshotMetadata {
     pub variables: usize,
@@ -50,7 +50,7 @@ pub struct PySnapshotMetadata {
     pub memory: PySnapshotMemoryEstimate,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySnapshotMetadata {
     #[getter]
     fn variables(&self) -> usize {
@@ -74,7 +74,7 @@ impl PySnapshotMetadata {
 }
 
 /// A snapshot of a model's state.
-#[pyclass(from_py_object, name = "ModelSnapshot")]
+#[pyo3_macros::pyclass(from_py_object, name = "ModelSnapshot")]
 #[derive(Clone)]
 pub struct PyModelSnapshot {
     pub variables: Vec<PyVariableView>,
@@ -85,7 +85,7 @@ pub struct PyModelSnapshot {
     pub metadata: PySnapshotMetadata,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyModelSnapshot {
     #[getter]
     fn variables(&self) -> Vec<PyVariableView> {
@@ -119,10 +119,7 @@ impl PyModelSnapshot {
 }
 
 impl PyModelSnapshot {
-    pub fn from_snapshot(
-        _py: Python<'_>,
-        snapshot: arco_ops::modeling::ModelSnapshot,
-    ) -> PyResult<Self> {
+    pub fn from_snapshot(_py: Python<'_>, snapshot: arco_model::ModelSnapshot) -> PyResult<Self> {
         let variables = snapshot
             .variables
             .into_iter()

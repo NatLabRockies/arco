@@ -21,7 +21,7 @@ wrappers = [
   "arco-blocks",
   "arco-builtin-solvers",
 ]
-surfaces = ["arco-cli", "arco-python"]
+surfaces = ["arco-cli", "arco-python", "arco-python-core", "arco-python-types"]
 
 # Explicit edge overrides for transitional or intentional exceptions.
 # Format: "from" = ["to1", "to2"]

@@ -13,13 +13,18 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+default = ["diagnostics"]
+diagnostics = ["arco-format/diagnostics", "dep:miette"]
+
 [dependencies]
-arco-solver = { workspace = true }
-arco-format = { workspace = true }
-arco-model = { workspace = true }
-miette = { version = "7", default-features = false, features = ["derive"] }
+arco-solver = { workspace = true, default-features = false }
+arco-format = { workspace = true, default-features = false }
+arco-model = { workspace = true, default-features = false }
+miette = { version = "7", default-features = false, features = [
+  "derive",
+], optional = true }
 russcip = { version = "0.9.1", default-features = false, features = [
   "bundled",
 ] }
-thiserror = "2.0"
 tracing = { workspace = true }

@@ -2,7 +2,7 @@
 
 use crate::PyObject;
 use crate::py_modules::errors::BoundsInvalidError;
-use arco_ops::modeling::types::Bounds;
+use arco_model::Bounds;
 use pyo3::Borrowed;
 use pyo3::prelude::*;
 
@@ -42,7 +42,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for BoundsSpec {
 }
 
 /// Python wrapper for bounds (scalar or per-element array bounds).
-#[pyclass(from_py_object, name = "Bounds")]
+#[pyo3_macros::pyclass(from_py_object, name = "Bounds")]
 pub struct PyBounds {
     pub inner: Bounds,
     /// Per-element lower bound source object (None for scalar bounds)
@@ -85,7 +85,7 @@ impl PyBounds {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyBounds {
     #[new]
     #[pyo3(signature = (lower=None, upper=None))]
@@ -158,7 +158,7 @@ impl PyBounds {
 /// x = model.add_variable(bounds=arco.NonNegativeFloat)
 /// b = model.add_variable(bounds=arco.Binary)
 /// ```
-#[pyclass(from_py_object, name = "BoundType", eq, eq_int)]
+#[pyo3_macros::pyclass(from_py_object, name = "BoundType", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum PyBoundType {

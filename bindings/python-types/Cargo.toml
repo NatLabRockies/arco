@@ -1,0 +1,34 @@
+[package]
+name = "arco-python-types"
+version = { workspace = true }
+description = "Shared PyO3 types for Arco's Python extension"
+edition = { workspace = true }
+rust-version = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license-file = { workspace = true }
+publish = false
+
+[lib]
+path = "../python/src/types_lib.rs"
+test = false
+
+[dependencies]
+pyo3 = { workspace = true }
+pyo3-macros = { workspace = true }
+arco-arrays = { workspace = true }
+arco-diagnostics = { workspace = true }
+arco-model = { workspace = true, default-features = false }
+arco-ops = { workspace = true, optional = true }
+arco-solver = { workspace = true, default-features = false }
+serde_json = { workspace = true }
+
+[features]
+default = ["scip", "xpress"]
+ipopt = ["dep:arco-ops", "arco-ops/ipopt"]
+scip = []
+xpress = []
+
+[lints]
+workspace = true

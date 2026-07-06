@@ -8,6 +8,8 @@ use std::fmt;
 use std::ptr::null;
 use tracing::{debug, trace, warn};
 
+use crate::sys as highs_sys;
+
 /// Objective sense for optimization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectiveSense {

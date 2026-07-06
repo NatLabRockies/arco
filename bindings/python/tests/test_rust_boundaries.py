@@ -4,6 +4,8 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[3]
 PYTHON_CRATE = ROOT / "bindings" / "python"
+PYTHON_CORE_CRATE = ROOT / "bindings" / "python-core"
+PYTHON_TYPES_CRATE = ROOT / "bindings" / "python-types"
 
 
 def _dependency_names(crate: str) -> set[str]:
@@ -12,23 +14,40 @@ def _dependency_names(crate: str) -> set[str]:
     return set(dependencies)
 
 
+def _manifest_dependency_names(path: Path) -> set[str]:
+    manifest = tomllib.loads((path / "Cargo.toml").read_text())
+    dependencies = manifest.get("dependencies", {})
+    return set(dependencies)
+
+
 def test_python_cargo_depends_on_shared_public_contracts_only_among_arco_crates() -> (
     None
 ):
-    cargo_toml = (PYTHON_CRATE / "Cargo.toml").read_text()
+    extension_deps = _manifest_dependency_names(PYTHON_CRATE)
+    core_deps = _manifest_dependency_names(PYTHON_CORE_CRATE)
+    types_deps = _manifest_dependency_names(PYTHON_TYPES_CRATE)
 
-    assert "arco-ops" in cargo_toml
-    assert "arco-blocks" in cargo_toml
-    assert "arco-arrays" in cargo_toml
-    for forbidden in (
+    assert {"arco-python-core", "arco-python-types", "arco-solver"} <= extension_deps
+    assert {
+        "arco-arrays",
+        "arco-blocks",
+        "arco-highs",
+        "arco-model",
+        "arco-solver",
+    } <= core_deps
+    assert {"arco-arrays", "arco-model", "arco-solver"} <= types_deps
+
+    for forbidden in {
+        "arco-arrays",
+        "arco-blocks",
         "arco-format",
         "arco-highs",
         "arco-kdl",
         "arco-model",
-        "arco-solver",
+        "arco-ops",
         "arco-validate",
-    ):
-        assert forbidden not in cargo_toml
+    }:
+        assert forbidden not in extension_deps
 
 
 def test_python_package_builds_with_xpress_support_by_default() -> None:
@@ -81,11 +100,11 @@ def test_python_sources_use_arco_ops_for_core_arco_apis() -> None:
 
 
 def test_model_solve_rejects_unsupported_primal_start_path() -> None:
-    lib = (PYTHON_CRATE / "src" / "lib.rs").read_text()
+    core = (PYTHON_CRATE / "src" / "core.rs").read_text()
     model_solve = (PYTHON_CRATE / "src" / "model_solve.rs").read_text()
 
-    assert "primal_start is not supported on this solve path" in lib
-    assert "let _ = primal_start" not in lib
+    assert "primal_start is not supported on this solve path" in core
+    assert "let _ = primal_start" not in core
     assert "primal_start is not supported on the model-view solve path" in model_solve
     assert "SolverError::InvalidSettings" in model_solve
     assert "_warm_start_hint_count" not in model_solve

@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 /// Configuration options for solver behavior.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SolverConfig {
     /// Time limit in seconds. `None` means no limit.
     pub time_limit: Option<f64>,
@@ -18,7 +19,7 @@ pub struct SolverConfig {
     /// Log solver output to console. `None` uses solver default.
     pub log_to_console: Option<bool>,
     /// Family-specific passthrough parameters.
-    #[serde(default)]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub parameters: BTreeMap<String, String>,
 }
 

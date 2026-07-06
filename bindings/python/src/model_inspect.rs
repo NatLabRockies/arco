@@ -1,6 +1,6 @@
 use crate::sparse_export_dict;
 use crate::{PyModel, PyObject};
-use arco_ops::modeling::model::SparseMatrixExport;
+use arco_model::model::SparseMatrixExport;
 use pyo3::prelude::*;
 
 pub(crate) fn export_csc(model: &PyModel, py: Python<'_>) -> PyResult<PyObject> {

@@ -1,13 +1,13 @@
 //! Python enum wrappers for Arco types.
 
-use arco_ops::expression::ComparisonSense;
-use arco_ops::modeling::{Sense, SimplifyLevel};
+use arco_model::expr::ComparisonSense;
+use arco_model::{Sense, SimplifyLevel};
 use pyo3::prelude::*;
 
 use crate::py_modules::errors::ConstraintSenseError;
 
 /// Python enum for optimization sense
-#[pyclass(from_py_object, name = "Sense", eq, eq_int)]
+#[pyo3_macros::pyclass(from_py_object, name = "Sense", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PySense {
     /// Minimize objective function
@@ -40,7 +40,7 @@ impl From<Sense> for PySense {
 ///
 /// Accepts enum variants (`ComparisonSense.GE`) or string aliases
 /// (`"ge"`, `">="`, `"le"`, `"<="`, `"eq"`, `"=="`).
-#[pyclass(name = "ComparisonSense", eq, eq_int, skip_from_py_object)]
+#[pyo3_macros::pyclass(name = "ComparisonSense", eq, eq_int, skip_from_py_object)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PyComparisonSense {
     /// Greater than or equal (`>=`)
@@ -109,7 +109,7 @@ impl From<ComparisonSense> for PyComparisonSense {
 }
 
 /// Python enum for expression simplification.
-#[pyclass(from_py_object, name = "SimplifyLevel", eq, eq_int)]
+#[pyo3_macros::pyclass(from_py_object, name = "SimplifyLevel", eq, eq_int)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PySimplifyLevel {
     #[pyo3(name = "NONE")]

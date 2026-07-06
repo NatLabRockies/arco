@@ -1,6 +1,5 @@
 //! Logging and diagnostics functions.
 
-use arco_ops::ArcoOps;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::env;
@@ -9,8 +8,9 @@ use std::io;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+use arco_python_types::errors::{LoggingConfigError, LoggingIoError};
+
 use crate::PyObject;
-use crate::py_modules::errors::{LoggingConfigError, LoggingIoError};
 
 fn open_log_file(path: &str) -> PyResult<File> {
     OpenOptions::new()
@@ -29,7 +29,7 @@ fn map_init_err<E: std::fmt::Display>(err: E) -> PyErr {
 /// When `level` is None, this reads `ARCO_TRACE` if set. If `ARCO_TRACE` is
 /// unset, the default level is `off`. Returns True when logging is initialized,
 /// False if a subscriber is already configured.
-#[pyfunction]
+#[pyo3_macros::pyfunction]
 #[pyo3(signature = (*, level=None))]
 pub fn enable_logging(level: Option<String>) -> PyResult<bool> {
     if tracing::dispatcher::has_been_set() {
@@ -95,11 +95,11 @@ pub fn enable_logging(level: Option<String>) -> PyResult<bool> {
 }
 
 /// Return solver metadata for debugging and diagnostics.
-#[pyfunction]
+#[pyo3_macros::pyfunction]
 pub fn solver_info(py: Python<'_>) -> PyResult<PyObject> {
     let dict = PyDict::new(py);
     dict.set_item("solver", "HiGHS")?;
-    match ArcoOps::builtin_solver_version("highs") {
+    match arco_python_core::highs_version() {
         Some(version) => dict.set_item("version", version)?,
         None => dict.set_item("version", py.None())?,
     }
@@ -108,7 +108,7 @@ pub fn solver_info(py: Python<'_>) -> PyResult<PyObject> {
 
 /// Register logging functions with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(pyo3::wrap_pyfunction!(enable_logging, m)?)?;
-    m.add_function(pyo3::wrap_pyfunction!(solver_info, m)?)?;
+    m.add_function(wrap_pyfunction!(enable_logging, m)?)?;
+    m.add_function(wrap_pyfunction!(solver_info, m)?)?;
     Ok(())
 }

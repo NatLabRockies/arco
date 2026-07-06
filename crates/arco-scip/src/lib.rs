@@ -1,7 +1,3 @@
-// thiserror's Display derive triggers unused_assignments in edition 2024
-// because derive-generated code no longer inherits item-level #[allow].
-#![allow(unused_assignments)]
-
 use arco_format::{
     PortableConstraintSense, PortableLinearObjective, PortableLinearReport, PortableObjectiveSense,
     PortableProblem, PortableVariableKind, portable_problem_from_model_view,
@@ -11,11 +7,10 @@ use arco_solver::{
     ModelViewBackend, ModelViewSolveResult, SolverCapabilityModel, SolverConfig, SolverError,
     SolverFamily, SolverRegistry, SolverStatus, validate_model_view_solve_result,
 };
-use miette::Diagnostic;
 use russcip::{Model, ProblemOrSolving, Solution, Status, VarType, WithSolutions};
 use std::collections::BTreeMap;
+use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use thiserror::Error;
 
 const SCIP_INFINITY: f64 = 1.0e20;
 
@@ -169,29 +164,53 @@ pub struct SolveOutput {
     pub variable_values: Vec<VariableValue>,
 }
 
-#[derive(Debug, Error, Diagnostic)]
+#[derive(Debug)]
+#[cfg_attr(feature = "diagnostics", derive(miette::Diagnostic))]
 pub enum Error {
-    #[error("SCIP model build failed: {message}")]
-    #[diagnostic(
-        code(arco::scip::build),
-        help("inspect the generated model for invalid bounds or coefficients")
+    #[cfg_attr(
+        feature = "diagnostics",
+        diagnostic(
+            code(arco::scip::build),
+            help("inspect the generated model for invalid bounds or coefficients")
+        )
     )]
     Build { message: String },
-    #[error("SCIP invocation failed: {message}")]
-    #[diagnostic(
-        code(arco::scip::solve),
-        help("verify SCIP can solve the generated LP/MIP model")
+    #[cfg_attr(
+        feature = "diagnostics",
+        diagnostic(
+            code(arco::scip::solve),
+            help("verify SCIP can solve the generated LP/MIP model")
+        )
     )]
     Process { message: String },
-    #[error("SCIP did not produce a feasible solution: {status}")]
-    #[diagnostic(
-        code(arco::scip::no_feasible_solution),
-        help(
-            "inspect the solution status or solver logs for why SCIP could not return a feasible solution"
+    #[cfg_attr(
+        feature = "diagnostics",
+        diagnostic(
+            code(arco::scip::no_feasible_solution),
+            help(
+                "inspect the solution status or solver logs for why SCIP could not return a feasible solution"
+            )
         )
     )]
     NoFeasibleSolution { status: String },
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Build { message } => write!(formatter, "SCIP model build failed: {message}"),
+            Self::Process { message } => write!(formatter, "SCIP invocation failed: {message}"),
+            Self::NoFeasibleSolution { status } => {
+                write!(
+                    formatter,
+                    "SCIP did not produce a feasible solution: {status}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct NativeSolveOptions {
