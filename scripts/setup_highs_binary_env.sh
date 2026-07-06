@@ -321,12 +321,54 @@ link_zlib_for_target() {
 	esac
 }
 
+sanitize_cache_component() {
+	local value="$1"
+
+	printf '%s' "$value" | tr -c 'A-Za-z0-9._-' '-'
+}
+
+msvc_toolset_cache_component() {
+	local program
+	local output
+	local version
+
+	if [[ -n "${VCToolsVersion:-}" ]]; then
+		sanitize_cache_component "$VCToolsVersion"
+		return
+	fi
+
+	for program in link.exe cl.exe; do
+		if ! command -v "$program" >/dev/null 2>&1; then
+			continue
+		fi
+
+		output="$("$program" 2>&1 || true)"
+		version="$(
+			printf '%s\n' "$output" |
+				awk '/Version/ {
+					for (i = 1; i <= NF; i++) {
+						if ($i ~ /^[0-9]+([.][0-9]+)+$/) {
+							print $i
+							exit
+						}
+					}
+				}'
+		)"
+		if [[ -n "$version" ]]; then
+			sanitize_cache_component "$version"
+			return
+		fi
+	done
+
+	printf 'unknown\n'
+}
+
 source_cache_dirname() {
 	local target="$1"
 
 	case "$target" in
 		*-pc-windows-msvc)
-			printf '%s-source-release\n' "$target"
+			printf '%s-source-release-msvc-%s\n' "$target" "$(msvc_toolset_cache_component)"
 			;;
 		*)
 			printf '%s-source\n' "$target"
