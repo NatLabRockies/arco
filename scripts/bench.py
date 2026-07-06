@@ -73,6 +73,15 @@ class BenchmarkResult:
     samples: int
 
 
+@dataclass(frozen=True)
+class TorcResultRecord:
+    """Typed subset of torc result fields used by the benchmark harness."""
+
+    job_id: int
+    exec_time_minutes: float | None
+    peak_memory_bytes: float | None
+
+
 def canonical_workflow(workflow: str) -> str:
     """Resolve backward-compatible workflow aliases to canonical names."""
     if workflow == "compile":
@@ -193,6 +202,91 @@ def parse_torc_results_items(payload: object) -> list[object] | None:
     return None
 
 
+def parse_torc_result_records(items: list[object]) -> list[TorcResultRecord] | None:
+    """Parse and sort torc result records by job id."""
+    records: list[TorcResultRecord] = []
+
+    for item in items:
+        if not isinstance(item, dict):
+            return None
+
+        job_id = item.get("job_id")
+        if not isinstance(job_id, int):
+            return None
+
+        exec_time = item.get("exec_time_minutes")
+        exec_time_minutes = (
+            float(exec_time) if isinstance(exec_time, (int, float)) else None
+        )
+
+        peak_memory = item.get("peak_memory_bytes")
+        peak_memory_bytes = (
+            max(float(peak_memory), 0.0)
+            if isinstance(peak_memory, (int, float))
+            else None
+        )
+
+        records.append(
+            TorcResultRecord(
+                job_id=job_id,
+                exec_time_minutes=exec_time_minutes,
+                peak_memory_bytes=peak_memory_bytes,
+            )
+        )
+
+    return sorted(records, key=lambda record: record.job_id)
+
+
+def benchmark_result_from_torc_items(
+    *, case: BenchmarkCase, items: list[object], repetitions: int
+) -> BenchmarkResult | None:
+    """Build benchmark metrics from torc results.
+
+    The first *repetitions* jobs are duration samples. The final job is an
+    extended memory-sampling probe for the same case/workflow.
+    """
+    records = parse_torc_result_records(items)
+    if records is None:
+        print("  torc results output has unsupported result records", file=sys.stderr)
+        return None
+
+    duration_records = records[:repetitions]
+    memory_records = records[repetitions:]
+
+    durations = [
+        record.exec_time_minutes * 60_000.0
+        for record in duration_records
+        if record.exec_time_minutes is not None
+    ]
+    if not durations:
+        print(f"  no duration data from {len(items)} results", file=sys.stderr)
+        return None
+
+    if len(durations) < repetitions:
+        print(
+            f"  warning: expected {repetitions} duration results, got {len(durations)}",
+            file=sys.stderr,
+        )
+
+    if not memory_records:
+        print("  no memory probe result from torc", file=sys.stderr)
+        return None
+
+    peak_rss = [
+        record.peak_memory_bytes / (1024.0 * 1024.0)
+        for record in memory_records
+        if record.peak_memory_bytes is not None
+    ]
+
+    return BenchmarkResult(
+        case=case.name,
+        workflow=case.workflow,
+        median_duration_ms=statistics.median(durations),
+        peak_rss_mb=max(peak_rss) if peak_rss else 0.0,
+        samples=len(durations),
+    )
+
+
 def calibrate_inner_iterations(
     arco_cmd: list[str], *, env: dict[str, str]
 ) -> int | None:
@@ -230,13 +324,13 @@ def run_benchmark(
 ) -> BenchmarkResult | None:
     """Run a single benchmark case with torc and return aggregated results.
 
-    Creates a torc workflow with *repetitions* identical jobs, runs them
-    sequentially, then extracts peak memory and duration from torc's result
-    records.
+    Creates a torc workflow with *repetitions* timing jobs plus one memory
+    probe, runs them sequentially, then extracts peak memory and duration from
+    torc's result records.
 
-    For commands faster than MIN_MONITORED_RUNTIME_S, each job wraps the
-    arco command in a shell loop so torc's sysinfo monitor has time to
-    capture at least one memory sample.
+    For commands faster than MIN_MONITORED_RUNTIME_S, the memory probe wraps
+    the arco command in a shell loop so torc's sysinfo monitor has time to
+    capture at least one memory sample. Timing jobs run the command once.
     """
     arco_args = build_arco_args(workflow=case.workflow, model_path=case.kdl_path)
     arco_cmd = [arco_binary, *arco_args]
@@ -262,17 +356,18 @@ def run_benchmark(
         if env_prefix:
             arco_cmd_quoted = f"{env_prefix} {arco_cmd_quoted}"
         if inner_iterations > 1:
-            job_cmd = (
+            memory_job_cmd = (
                 f"for _ in $(seq 1 {inner_iterations}); do {arco_cmd_quoted}; done"
             )
         else:
-            job_cmd = arco_cmd_quoted
+            memory_job_cmd = arco_cmd_quoted
 
         db_path = tmp / "torc.db"
         commands_path = tmp / "commands.txt"
 
-        # Write N identical commands (one per repetition).
-        commands_path.write_text("\n".join([job_cmd] * repetitions) + "\n")
+        commands = [arco_cmd_quoted] * repetitions
+        commands.append(memory_job_cmd)
+        commands_path.write_text("\n".join(commands) + "\n")
 
         exec_cmd: list[str] = [
             "torc",
@@ -366,40 +461,8 @@ def run_benchmark(
             print("  torc results output has unsupported JSON shape", file=sys.stderr)
             return None
 
-        durations: list[float] = []
-        peak_rss: list[float] = []
-
-        for item in items:
-            exec_min = item.get("exec_time_minutes")
-            peak_bytes = item.get("peak_memory_bytes")
-
-            if isinstance(exec_min, (int, float)):
-                total_ms = float(exec_min) * 60_000.0
-                durations.append(total_ms / inner_iterations)
-
-            # peak_memory_bytes can be None (torc didn't collect data) or 0
-            # (collected zero / no samples fired).  Treat both as 0.0 MiB.
-            if isinstance(peak_bytes, (int, float)):
-                peak_rss.append(max(float(peak_bytes), 0.0) / (1024.0 * 1024.0))
-            else:
-                peak_rss.append(0.0)
-
-        if not durations:
-            print(f"  no duration data from {len(items)} results", file=sys.stderr)
-            return None
-
-        if len(durations) < repetitions:
-            print(
-                f"  warning: expected {repetitions} results, got {len(durations)}",
-                file=sys.stderr,
-            )
-
-        return BenchmarkResult(
-            case=case.name,
-            workflow=case.workflow,
-            median_duration_ms=statistics.median(durations),
-            peak_rss_mb=max(peak_rss) if peak_rss else 0.0,
-            samples=len(durations),
+        return benchmark_result_from_torc_items(
+            case=case, items=items, repetitions=repetitions
         )
 
 

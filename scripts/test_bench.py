@@ -83,3 +83,41 @@ def test_parse_torc_results_items_accepts_current_and_legacy_shapes() -> None:
     assert bench.parse_torc_results_items({"results": items}) == items
     assert bench.parse_torc_results_items(items) == items
     assert bench.parse_torc_results_items({"data": items}) is None
+
+
+def test_benchmark_result_from_torc_items_splits_timing_and_memory_probe() -> None:
+    bench = load_bench_module()
+    case = bench.BenchmarkCase("demo", Path("input.kdl"), "run")
+    items = [
+        {
+            "job_id": 3,
+            "exec_time_minutes": 1.0,
+            "peak_memory_bytes": 512 * 1024 * 1024,
+        },
+        {"job_id": 1, "exec_time_minutes": 0.001, "peak_memory_bytes": 0},
+        {"job_id": 2, "exec_time_minutes": 0.002, "peak_memory_bytes": 0},
+    ]
+
+    result = bench.benchmark_result_from_torc_items(
+        case=case, items=items, repetitions=2
+    )
+
+    assert result is not None
+    assert result.case == "demo"
+    assert result.workflow == "run"
+    assert result.samples == 2
+    assert result.median_duration_ms == 90.0
+    assert result.peak_rss_mb == 512.0
+
+
+def test_benchmark_result_from_torc_items_requires_memory_probe() -> None:
+    bench = load_bench_module()
+    case = bench.BenchmarkCase("demo", Path("input.kdl"), "validate")
+
+    result = bench.benchmark_result_from_torc_items(
+        case=case,
+        items=[{"job_id": 1, "exec_time_minutes": 0.001, "peak_memory_bytes": 0}],
+        repetitions=1,
+    )
+
+    assert result is None

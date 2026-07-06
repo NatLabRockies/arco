@@ -82,8 +82,12 @@ just benchmarks
 The benchmark harness isolates Arco solver configuration by default so local
 `~/.config/arco/solver.toml` or project `.arco/solver.toml` files cannot change
 the measured backend. This keeps benchmark runs comparable across developer
-machines and CI. To intentionally measure the caller's configured solver, pass
-`--inherit-solver-config` to `scripts/bench.py`.
+machines and CI.
+
+Each case/workflow records median duration from the configured timing
+repetitions and peak RSS from one additional monitored probe. That keeps the
+same scenario coverage while avoiding long memory-sampling loops on every
+timing repetition.
 
 ## Architecture policy
 
