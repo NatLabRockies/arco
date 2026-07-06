@@ -245,11 +245,7 @@ lines = []
 for line in pc_file.read_text(encoding="utf-8").splitlines():
     key = line.split("=", 1)[0].split(":", 1)[0]
     if key in rewrites:
-        equals_index = line.find("=")
-        colon_index = line.find(":")
-        uses_colon = colon_index != -1 and (equals_index == -1 or colon_index < equals_index)
-        separator = ":" if uses_colon else "="
-        line = f"{key}{separator} {rewrites[key]}" if separator == ":" else f"{key}={rewrites[key]}"
+        line = f"{key}: {rewrites[key]}" if key == "Libs" else f"{key}={rewrites[key]}"
     lines.append(line)
 
 pc_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
