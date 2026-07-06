@@ -371,6 +371,8 @@ $ arco kdl fmt input.kdl
 `arco kdl fmt` prints Arco authoring syntax by default, including readable
 algebra blocks. Use `--kdl-compatible` when tooling needs normalized strict KDL
 with algebra stored as `expression=` properties or `formula "..."` children.
+Existing `arco kdl fmt --check` gates may need one committed formatting pass;
+see the [KDL formatting migration note](./docs/migration/kdl-formatting.md).
 
 Install the local VS Code helper extension with highlighting, diagnostics,
 formatting, and status-bar actions:

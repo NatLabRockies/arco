@@ -53,6 +53,7 @@ test("resolveArcoCommand skips unrunnable workspace binary", (t) => {
   const originalHome = process.env.HOME;
   const originalPath = process.env.PATH;
   const originalUserProfile = process.env.USERPROFILE;
+  extension._test.invalidateResolvedArcoCommandCache();
   t.after(() => {
     process.env.HOME = originalHome;
     process.env.PATH = originalPath;
@@ -61,6 +62,7 @@ test("resolveArcoCommand skips unrunnable workspace binary", (t) => {
     configuredCommand = "";
     legacyConfiguredCommand = "";
     workspaceRoot = undefined;
+    extension._test.invalidateResolvedArcoCommandCache();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -82,6 +84,72 @@ test("resolveArcoCommand skips unrunnable workspace binary", (t) => {
   const document = createDocument("", path.join(workspaceRoot, "input.kdl"));
 
   assert.equal(extension._test.resolveArcoCommand(document), userArco);
+});
+
+test("resolveArcoCommand caches auto-detected runnable command", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "arco-vscode-cache-"));
+  const originalHome = process.env.HOME;
+  const originalPath = process.env.PATH;
+  const originalUserProfile = process.env.USERPROFILE;
+  extension._test.invalidateResolvedArcoCommandCache();
+  t.after(() => {
+    process.env.HOME = originalHome;
+    process.env.PATH = originalPath;
+    if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalUserProfile;
+    configuredCommand = "";
+    legacyConfiguredCommand = "";
+    workspaceRoot = undefined;
+    extension._test.invalidateResolvedArcoCommandCache();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  configuredCommand = "";
+  legacyConfiguredCommand = "";
+  process.env.PATH = "";
+  delete process.env.USERPROFILE;
+
+  const home = path.join(root, "home");
+  const userBin = path.join(home, ".local", "bin");
+  fs.mkdirSync(userBin, { recursive: true });
+  process.env.HOME = home;
+  const probeLog = path.join(root, "version-probes.log");
+  const userArco = createCountingArcoCommand(userBin, probeLog);
+  const document = createDocument("", path.join(root, "workspace", "input.kdl"));
+
+  assert.equal(extension._test.displayArcoCommand(document), "auto-detect");
+  assert.equal(countVersionProbes(probeLog), 0);
+  assert.equal(extension._test.resolveArcoCommand(document), userArco);
+  assert.equal(extension._test.resolveArcoCommand(document), userArco);
+  assert.equal(countVersionProbes(probeLog), 1);
+  assert.equal(extension._test.displayArcoCommand(document), userArco);
+});
+
+test("windowsShellUnsafeArgument rejects metacharacters for command shims", () => {
+  assert.equal(
+    extension._test.windowsShellUnsafeArgument(
+      "C:\\bin\\arco.cmd",
+      ["kdl", "fmt", "--stdin-filename", "C:\\models\\a&b.kdl"],
+      "win32",
+    ),
+    "C:\\models\\a&b.kdl",
+  );
+  assert.equal(
+    extension._test.windowsShellUnsafeArgument(
+      "C:\\bin\\arco.cmd",
+      ["kdl", "fmt", "--stdin-filename", "C:\\models\\safe.kdl"],
+      "win32",
+    ),
+    "",
+  );
+  assert.equal(
+    extension._test.windowsShellUnsafeArgument(
+      "C:\\bin\\arco.exe",
+      ["kdl", "fmt", "--stdin-filename", "C:\\models\\a&b.kdl"],
+      "win32",
+    ),
+    "",
+  );
 });
 
 test("configuredArcoCommand prefers current setting over legacy setting", () => {
@@ -177,6 +245,45 @@ exec "${process.execPath}" "${fakeCli}" "$@"
     { mode: 0o755 },
   );
   return command;
+}
+
+function createCountingArcoCommand(root, probeLog) {
+  const fakeCli = path.join(root, "counting-arco.js");
+  fs.writeFileSync(
+    fakeCli,
+    `"use strict";
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  fs.appendFileSync(${JSON.stringify(probeLog)}, "1\\n");
+  console.log("arco 0.8.1");
+  process.exit(0);
+}
+process.exit(0);
+`,
+  );
+
+  if (process.platform === "win32") {
+    const command = path.join(root, "arco.cmd");
+    fs.writeFileSync(command, `@"${process.execPath}" "${fakeCli}" %*\r\n`);
+    return command;
+  }
+
+  const command = path.join(root, "arco");
+  fs.writeFileSync(
+    command,
+    `#!/bin/sh
+exec "${process.execPath}" "${fakeCli}" "$@"
+`,
+    { mode: 0o755 },
+  );
+  return command;
+}
+
+function countVersionProbes(probeLog) {
+  if (!fs.existsSync(probeLog)) return 0;
+  return fs.readFileSync(probeLog, "utf8").trim().split(/\r?\n/).filter(Boolean)
+    .length;
 }
 
 function createBrokenArcoCommand(root) {

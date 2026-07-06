@@ -1082,6 +1082,39 @@ fn kdl_fmt_formats_quoted_formula_as_surface_block() {
 }
 
 #[test]
+fn kdl_fmt_preserves_multiline_block_comment_prose() {
+    let fixture_path = cli_fixture_path("format/multiline-block-comment.kdl");
+    let input = fs::read_to_string(&fixture_path).expect("read block comment fixture");
+
+    let output = run_cli_with_stdin(&["kdl", "fmt", "--stdin"], &input);
+
+    assert!(
+        output.status.success(),
+        "stdin format should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("This middle line used to be dropped by the surface renderer."),
+        "surface formatter should preserve block comment prose:\n{stdout}"
+    );
+
+    let second_output = run_cli_with_stdin(&["kdl", "fmt", "--stdin"], &stdout);
+    assert!(
+        second_output.status.success(),
+        "second stdin format should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&second_output.stdout),
+        String::from_utf8_lossy(&second_output.stderr)
+    );
+    assert_eq!(
+        stdout,
+        String::from_utf8_lossy(&second_output.stdout),
+        "surface formatter should be idempotent after preserving block comments"
+    );
+}
+
+#[test]
 fn kdl_fmt_kdl_compatible_keeps_quoted_formula() {
     let fixture_path = cli_fixture_path("format/power-balance-quoted-formula.kdl");
     let input = fs::read_to_string(&fixture_path).expect("read quoted formula fixture");

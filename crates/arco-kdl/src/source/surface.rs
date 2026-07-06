@@ -144,25 +144,135 @@ fn render_leading_comments(node: &KdlNode, indent: usize, output: &mut String) {
         return;
     };
 
-    let mut saw_comment = false;
-    for line in format.leading.lines() {
-        let trimmed = line.trim();
-        if is_comment_line(trimmed) {
-            push_indent(indent, output);
-            output.push_str(trimmed);
-            output.push('\n');
-            saw_comment = true;
-        } else if saw_comment && trimmed.is_empty() {
-            output.push('\n');
+    let mut rendered_comment = false;
+    let mut pending_blank_line = false;
+    for comment in leading_comments(&format.leading) {
+        match comment {
+            LeadingComment::BlankLine if rendered_comment => {
+                pending_blank_line = true;
+            }
+            LeadingComment::BlankLine => {}
+            LeadingComment::Comment(span) => {
+                if pending_blank_line {
+                    output.push('\n');
+                    pending_blank_line = false;
+                }
+                render_comment_span(span, indent, output);
+                rendered_comment = true;
+            }
         }
     }
 }
 
-fn is_comment_line(line: &str) -> bool {
-    line.starts_with("//")
-        || line.starts_with("/*")
-        || line.starts_with('*')
-        || line.starts_with("*/")
+enum LeadingComment<'a> {
+    BlankLine,
+    Comment(&'a str),
+}
+
+fn leading_comments(text: &str) -> Vec<LeadingComment<'_>> {
+    let mut comments = Vec::new();
+    let mut index = 0usize;
+    let mut newlines_since_comment = 0usize;
+
+    while index < text.len() {
+        let Some(remaining) = text.get(index..) else {
+            break;
+        };
+
+        if remaining.starts_with("//") {
+            if newlines_since_comment > 1 {
+                comments.push(LeadingComment::BlankLine);
+            }
+            let end = line_comment_end(text, index);
+            if let Some(span) = text.get(index..end) {
+                comments.push(LeadingComment::Comment(span));
+            }
+            index = end;
+            newlines_since_comment = 0;
+            continue;
+        }
+
+        if remaining.starts_with("/*") {
+            if newlines_since_comment > 1 {
+                comments.push(LeadingComment::BlankLine);
+            }
+            let end = block_comment_end(text, index);
+            if let Some(span) = text.get(index..end) {
+                comments.push(LeadingComment::Comment(span));
+            }
+            index = end;
+            newlines_since_comment = 0;
+            continue;
+        }
+
+        let Some(character) = remaining.chars().next() else {
+            break;
+        };
+        if character == '\n' {
+            newlines_since_comment += 1;
+        } else if !character.is_whitespace() {
+            newlines_since_comment = 0;
+        }
+        index += character.len_utf8();
+    }
+
+    comments
+}
+
+fn line_comment_end(text: &str, start: usize) -> usize {
+    text.get(start..)
+        .and_then(|remaining| remaining.find('\n'))
+        .map_or(text.len(), |offset| start + offset)
+}
+
+fn block_comment_end(text: &str, start: usize) -> usize {
+    let search_start = start + "/*".len();
+    text.get(search_start..)
+        .and_then(|remaining| remaining.find("*/"))
+        .map_or(text.len(), |offset| search_start + offset + "*/".len())
+}
+
+fn render_comment_span(span: &str, indent: usize, output: &mut String) {
+    let lines = span.lines().collect::<Vec<_>>();
+    let common_indent = common_following_line_indent(&lines);
+    for (index, line) in lines.into_iter().enumerate() {
+        push_indent(indent, output);
+        let rendered = if index == 0 {
+            line
+        } else {
+            strip_leading_whitespace(line, common_indent)
+        };
+        output.push_str(rendered.trim_end());
+        output.push('\n');
+    }
+}
+
+fn common_following_line_indent(lines: &[&str]) -> usize {
+    lines
+        .iter()
+        .skip(1)
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| leading_whitespace_width(line))
+        .min()
+        .unwrap_or(0)
+}
+
+fn leading_whitespace_width(line: &str) -> usize {
+    line.chars()
+        .take_while(|character| character.is_whitespace() && *character != '\n')
+        .map(char::len_utf8)
+        .sum()
+}
+
+fn strip_leading_whitespace(line: &str, width: usize) -> &str {
+    let mut remaining = width;
+    for (index, character) in line.char_indices() {
+        if remaining == 0 || !character.is_whitespace() || character == '\n' {
+            return line.get(index..).unwrap_or("");
+        }
+        remaining = remaining.saturating_sub(character.len_utf8());
+    }
+    if remaining == 0 { line } else { "" }
 }
 
 fn render_entry(entry: &KdlEntry) -> String {

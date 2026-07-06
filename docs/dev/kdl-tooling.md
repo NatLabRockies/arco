@@ -94,6 +94,9 @@ arco kdl fmt path/to/input.kdl
 The default formatter emits Arco surface syntax for authoring, so algebra is
 rendered as readable blocks instead of quoted `formula` strings. Use
 `--kdl-compatible` when a tool needs normalized strict KDL output.
+Projects with existing `arco kdl fmt --check` gates may need one committed
+formatting pass after adopting the Arco surface formatter, or can keep strict
+KDL output with `--kdl-compatible`.
 
 Editor integrations should request stdin formatting instead of reading or
 writing files directly:

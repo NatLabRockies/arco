@@ -12,6 +12,7 @@ const CHECK_ARGS = ["kdl", "check"];
 const JSON_FORMAT_ARGS = ["--format", "json"];
 const FORMAT_STDIN_ARGS = ["kdl", "fmt", "--stdin"];
 const VERSION_ARGS = ["--version"];
+const CMD_METACHARACTER_PATTERN = /[&|<>^%]/;
 const COMMANDS = {
   formatCurrentFile: "arcoKdl.formatCurrentFile",
   validateCurrentFile: "arcoKdl.validateCurrentFile",
@@ -27,6 +28,7 @@ const activeValidations = new Map();
 const activeDiagnosticUris = new Map();
 const diagnosticReportsByUri = new Map();
 const validationStateByUri = new Map();
+let resolvedCommandCache;
 
 function activate(context) {
   extensionContext = context;
@@ -86,8 +88,10 @@ function activate(context) {
         validateOpenDocument(event.document);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration(CONFIGURATION_SECTION))
+      if (event.affectsConfiguration(CONFIGURATION_SECTION)) {
+        invalidateResolvedArcoCommandCache();
         validateOpenDocuments(diagnostics);
+      }
     }),
   );
 }
@@ -125,7 +129,7 @@ async function formatActiveDocument() {
 async function showActions(diagnostics) {
   const document = vscode.window.activeTextEditor?.document;
   const hasKdlDocument = document && isArcoKdlDocument(document);
-  const activeCommand = hasKdlDocument ? resolveArcoCommand(document) : "auto";
+  const activeCommand = hasKdlDocument ? displayArcoCommand(document) : "auto";
   const items = [
     ...(hasKdlDocument
       ? [
@@ -188,16 +192,24 @@ function validateDocument(document, diagnostics) {
   setValidationState(document, { status: "checking" });
 
   const command = resolveArcoCommand(document);
+  const args = [...CHECK_ARGS, document.fileName, ...JSON_FORMAT_ARGS];
+  const unsafeArgument = windowsShellUnsafeArgument(command, args);
+  if (unsafeArgument) {
+    setDocumentDiagnostics(document, diagnostics, [
+      {
+        uri: document.uri,
+        diagnostic: commandFailureDiagnostic(
+          document,
+          command,
+          unsafeWindowsShellArgumentMessage(unsafeArgument),
+        ),
+      },
+    ]);
+    setValidationState(document, { status: "setup" });
+    return;
+  }
   const version = document.version;
-  const child = spawn(
-    command,
-    [...CHECK_ARGS, document.fileName, ...JSON_FORMAT_ARGS],
-    {
-      cwd: workspaceDirectory(document),
-      shell:
-        process.platform === "win32" && isWindowsCommandShim(command),
-    },
-  );
+  const child = spawn(command, args, commandSpawnOptions(command, workspaceDirectory(document)));
   activeValidations.set(uri, { child, version });
 
   let stdout = "";
@@ -264,13 +276,19 @@ function formatDocument(document, token) {
   if (!document.isUntitled && document.fileName) {
     args.push("--stdin-filename", document.fileName);
   }
+  const unsafeArgument = windowsShellUnsafeArgument(command, args);
+  if (unsafeArgument) {
+    showFormatterError(command, unsafeWindowsShellArgumentMessage(unsafeArgument));
+    setValidationState(document, { status: "setup" });
+    return [];
+  }
 
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd: workspaceDirectory(document),
-      shell:
-        process.platform === "win32" && isWindowsCommandShim(command),
-    });
+    const child = spawn(
+      command,
+      args,
+      commandSpawnOptions(command, workspaceDirectory(document)),
+    );
 
     let stdout = "";
     let stderr = "";
@@ -342,14 +360,45 @@ function resolveArcoCommand(document) {
   const environmentCommand = process.env.ARCO_CLI?.trim();
   if (environmentCommand) return environmentCommand;
 
-  return (
+  const cacheKey = commandResolutionCacheKey(workspaceRoot);
+  if (resolvedCommandCache?.key === cacheKey) return resolvedCommandCache.command;
+
+  const command =
     firstRunnableCommand([
       findOnPath("arco"),
       ...defaultUserArcoCandidates(),
       ...workspaceArcoCandidates(workspaceRoot),
     ]) ||
-    "arco"
-  );
+    "arco";
+  resolvedCommandCache = { key: cacheKey, command };
+  return command;
+}
+
+function displayArcoCommand(document) {
+  const configuredCommand = configuredArcoCommand();
+  if (configuredCommand) return configuredCommand;
+
+  const environmentCommand = process.env.ARCO_CLI?.trim();
+  if (environmentCommand) return environmentCommand;
+
+  const cacheKey = commandResolutionCacheKey(workspaceDirectory(document));
+  if (resolvedCommandCache?.key === cacheKey) return resolvedCommandCache.command;
+  return "auto-detect";
+}
+
+function commandResolutionCacheKey(workspaceRoot) {
+  return [
+    process.platform,
+    process.env.PATH ?? "",
+    process.env.PATHEXT ?? "",
+    process.env.HOME ?? "",
+    process.env.USERPROFILE ?? "",
+    workspaceRoot ?? "",
+  ].join("\u0000");
+}
+
+function invalidateResolvedArcoCommandCache() {
+  resolvedCommandCache = undefined;
 }
 
 function configuredArcoCommand() {
@@ -393,12 +442,12 @@ function firstRunnableCommand(candidates) {
 
 function isRunnableArcoCommand(candidate) {
   if (!isExecutableFile(candidate)) return false;
+  if (windowsShellUnsafeArgument(candidate, VERSION_ARGS)) return false;
 
   const result = spawnSync(candidate, VERSION_ARGS, {
     encoding: "utf8",
     timeout: 2_000,
-    shell:
-      process.platform === "win32" && isWindowsCommandShim(candidate),
+    ...commandSpawnOptions(candidate),
   });
   return result.status === 0 && /^arco\s+\d/.test(result.stdout.trim());
 }
@@ -430,8 +479,28 @@ function candidateExecutableNames(command, extensions) {
   ];
 }
 
-function isWindowsCommandShim(command) {
-  if (process.platform !== "win32") return false;
+function commandSpawnOptions(command, cwd) {
+  return {
+    cwd,
+    shell: process.platform === "win32" && isWindowsCommandShim(command),
+  };
+}
+
+function windowsShellUnsafeArgument(command, args, platform = process.platform) {
+  if (platform !== "win32" || !isWindowsCommandShim(command, platform)) return "";
+  return [command, ...args].find(hasCmdMetacharacter) ?? "";
+}
+
+function hasCmdMetacharacter(value) {
+  return CMD_METACHARACTER_PATTERN.test(value);
+}
+
+function unsafeWindowsShellArgumentMessage(argument) {
+  return `refusing to run Windows command shim with cmd.exe metacharacters in argument: ${argument}`;
+}
+
+function isWindowsCommandShim(command, platform = process.platform) {
+  if (platform !== "win32") return false;
   const extension = path.extname(command).toLowerCase();
   return extension === ".cmd" || extension === ".bat";
 }
@@ -732,6 +801,7 @@ async function selectCheckCommand() {
     selected,
     vscode.ConfigurationTarget.Global,
   );
+  invalidateResolvedArcoCommandCache();
   vscode.window.showInformationMessage(`arco CLI set to ${selected}`);
 }
 
@@ -752,11 +822,14 @@ module.exports = {
   _test: {
     FORMAT_STDIN_ARGS,
     configuredArcoCommand,
+    displayArcoCommand,
     formatDocument,
     fullDocumentRange,
+    invalidateResolvedArcoCommandCache,
     resolveArcoCommand,
     statusBarText,
     statusBarTooltip,
     validationStateForDiagnostics,
+    windowsShellUnsafeArgument,
   },
 };
