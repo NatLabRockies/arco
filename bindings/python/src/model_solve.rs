@@ -4,7 +4,10 @@ use crate::py_modules::solver::{
     validate_backend_settings,
 };
 use crate::{PyModel, PySolveResult};
-use arco_ops::solve::{ModelViewSolveResult, Solution, SolverError};
+use arco_model::ModelView;
+use arco_solver::{
+    ModelViewBackendRegistry, ModelViewSolveResult, Solution, SolverConfig, SolverError,
+};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
@@ -54,19 +57,16 @@ pub(crate) fn solve_model(
         .get("arco.consume_model")
         .is_some_and(|value| value == "true");
 
-    let result = match arco_ops::ArcoOps::solve_model_view_with_builtin_backend(
-        &selected_backend,
-        &model.inner,
-        &config,
-    ) {
-        Ok(solution) => Ok(PySolveResult::new(solution_from_model_view_result(
-            solution,
-        ))),
-        Err(SolverError::SolveFailure { status }) => {
-            Ok(PySolveResult::new(solve_failure_solution(status)))
-        }
-        Err(error) => Err(errors::generic_solver_error_to_py(error)),
-    }?;
+    let result =
+        match solve_model_view_with_builtin_backend(&selected_backend, &model.inner, &config) {
+            Ok(solution) => Ok(PySolveResult::new(solution_from_model_view_result(
+                solution,
+            ))),
+            Err(SolverError::SolveFailure { status }) => {
+                Ok(PySolveResult::new(solve_failure_solution(status)))
+            }
+            Err(error) => Err(errors::generic_solver_error_to_py(error)),
+        }?;
 
     if consume_model {
         model.inner = Default::default();
@@ -91,6 +91,54 @@ fn reject_unsupported_primal_start(primal_start: Option<&[(u32, f64)]>) -> Resul
         ));
     }
     Ok(())
+}
+
+fn solve_model_view_with_builtin_backend(
+    family: &str,
+    model: &dyn ModelView,
+    config: &SolverConfig,
+) -> Result<ModelViewSolveResult, SolverError> {
+    let family = normalize_model_view_backend_family(family);
+    if family == "ipopt" {
+        return Err(SolverError::SolverNotAvailable(
+            "IPOPT model-view backend is not implemented yet; use a supported backend such as 'highs'"
+                .to_string(),
+        ));
+    }
+    #[cfg(not(feature = "scip"))]
+    if family == "scip" {
+        return Err(SolverError::SolverNotAvailable(
+            "SCIP model-view backend is not enabled; rebuild with --features scip".to_string(),
+        ));
+    }
+    #[cfg(not(feature = "xpress"))]
+    if family == "xpress" {
+        return Err(SolverError::SolverNotAvailable(
+            "Xpress model-view backend is not enabled; rebuild with --features xpress".to_string(),
+        ));
+    }
+
+    let highs = arco_highs::HighsModelViewBackend;
+    let mut registry = ModelViewBackendRegistry::new();
+    registry.try_register(&highs)?;
+    #[cfg(feature = "scip")]
+    let scip = arco_scip::ScipModelViewBackend;
+    #[cfg(feature = "scip")]
+    registry.try_register(&scip)?;
+    #[cfg(feature = "xpress")]
+    let xpress = arco_xpress::XpressModelViewBackend;
+    #[cfg(feature = "xpress")]
+    registry.try_register(&xpress)?;
+    registry.solve(family, model, config)
+}
+
+fn normalize_model_view_backend_family(family: &str) -> &str {
+    match family {
+        "arco-rust-highs" => "highs",
+        "arco-rust-xpress" => "xpress",
+        "arco-rust-scip" => "scip",
+        other => other,
+    }
 }
 
 fn solution_from_model_view_result(result: ModelViewSolveResult) -> Solution {

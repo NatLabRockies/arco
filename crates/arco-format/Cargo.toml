@@ -13,7 +13,10 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+default = ["diagnostics"]
+diagnostics = ["dep:miette"]
+
 [dependencies]
-arco-model = { workspace = true }
-miette = { version = "7", default-features = false, features = ["derive"] }
-thiserror = "2.0"
+arco-model = { workspace = true, default-features = false }
+miette = { version = "7", default-features = false, optional = true }

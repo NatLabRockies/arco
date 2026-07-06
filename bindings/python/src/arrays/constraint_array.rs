@@ -1,12 +1,12 @@
-use arco_ops::expression::ComparisonSense;
-use arco_ops::modeling::types::Bounds;
+use arco_model::Bounds;
+use arco_model::expr::ComparisonSense;
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
 
-use crate::PyExpr;
 use crate::PyObject;
 use crate::py_modules::constraint::PyConstraint;
 use crate::py_modules::errors::{ArrayIndexError, ArrayTypeError};
+use crate::py_modules::expr::PyExpr;
 use crate::py_modules::index_set::PyIndexSet;
 
 use super::CompactTerm;
@@ -16,7 +16,7 @@ pub(crate) type SparseConstraintRows<'a> = (&'a [PyExpr], &'a [f64], &'a [usize]
 
 /// Right-hand side for compact constraints.
 #[derive(Clone, Debug)]
-pub(crate) enum CompactRhs {
+pub enum CompactRhs {
     /// All elements share the same rhs value.
     Scalar(f64),
     /// Per-element rhs values.
@@ -26,7 +26,7 @@ pub(crate) enum CompactRhs {
 /// Compact representation for constraints from compact expressions.
 /// Terms and rhs are already adjusted (constant subtracted from rhs).
 #[derive(Clone, Debug)]
-pub(crate) struct CompactConstraintStorage {
+pub struct CompactConstraintStorage {
     pub terms: Vec<CompactTerm>,
     pub sense: ComparisonSense,
     pub rhs: CompactRhs,
@@ -77,7 +77,7 @@ pub(crate) enum ConstraintArrayStorage {
 }
 
 /// A multi-dimensional array of constraint expressions.
-#[pyclass(name = "ConstraintArray")]
+#[pyo3_macros::pyclass(name = "ConstraintArray")]
 pub struct PyConstraintArray {
     storage: ConstraintArrayStorage,
     shape: Vec<usize>,
@@ -203,11 +203,11 @@ impl PyConstraintArray {
         }
     }
 
-    pub(crate) fn shape_ref(&self) -> &[usize] {
+    pub fn shape_ref(&self) -> &[usize] {
         &self.shape
     }
 
-    pub(crate) fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
+    pub fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
         Python::attach(|py| {
             self.index_sets
                 .iter()
@@ -217,7 +217,7 @@ impl PyConstraintArray {
     }
 
     /// Get compact storage if available.
-    pub(crate) fn as_compact(&self) -> Option<&CompactConstraintStorage> {
+    pub fn as_compact(&self) -> Option<&CompactConstraintStorage> {
         match &self.storage {
             ConstraintArrayStorage::Compact(c) => Some(c),
             ConstraintArrayStorage::Full { .. } | ConstraintArrayStorage::SparseRows { .. } => None,
@@ -225,9 +225,7 @@ impl PyConstraintArray {
         }
     }
 
-    pub(crate) fn as_lazy_compare(
-        &self,
-    ) -> Option<(&LinearArrayCore, &LinearArrayCore, ComparisonSense)> {
+    pub fn as_lazy_compare(&self) -> Option<(&LinearArrayCore, &LinearArrayCore, ComparisonSense)> {
         match &self.storage {
             ConstraintArrayStorage::LazyCompare { left, right, sense } => {
                 Some((left, right, *sense))
@@ -238,7 +236,7 @@ impl PyConstraintArray {
         }
     }
 
-    pub(crate) fn as_sparse_rows(&self) -> Option<SparseConstraintRows<'_>> {
+    pub fn as_sparse_rows(&self) -> Option<SparseConstraintRows<'_>> {
         match &self.storage {
             ConstraintArrayStorage::SparseRows {
                 exprs,
@@ -274,7 +272,7 @@ impl PyConstraintArray {
         }
     }
 
-    pub(crate) fn from_batch_shaped(
+    pub fn from_batch_shaped(
         first_constraint_id: u32,
         shape: Vec<usize>,
         index_sets: Vec<Py<PyIndexSet>>,
@@ -345,7 +343,7 @@ impl PyConstraintArray {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyConstraintArray {
     #[getter]
     fn sense(&self) -> String {

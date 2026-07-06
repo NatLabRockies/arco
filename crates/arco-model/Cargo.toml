@@ -13,8 +13,12 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+default = ["serde"]
+serde = ["dep:serde"]
+
 [dependencies]
 smallvec = { workspace = true }
 tracing = { workspace = true }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { workspace = true }

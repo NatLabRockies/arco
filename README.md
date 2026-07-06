@@ -597,6 +597,8 @@ graph LR
 | :--------------------- | :------------------------------------------------------------ |
 | `arco-cli`             | CLI surface for validate/inspect/run/export workflows         |
 | `arco-python`          | Python extension module crate (`bindings/python`)             |
+| `arco-python-core`     | Shared PyO3 model, solve, block, and inspection implementation |
+| `arco-python-types`    | Shared PyO3 classes and conversion helpers                    |
 | `arco-ops`             | Stable operations facade for interaction surfaces             |
 | `arco-blocks`          | Language-neutral block composition core                       |
 | `arco-kdl`             | KDL parser and authoring surface for primitive builds         |

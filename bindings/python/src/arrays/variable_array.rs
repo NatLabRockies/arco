@@ -8,7 +8,8 @@ use crate::py_modules::expr::PyExpr;
 use crate::py_modules::index_set::PyIndexSet;
 use crate::py_modules::variable::PyVariable;
 
-use arco_ops::expression::{Expr, VariableId};
+use arco_model::VariableId;
+use arco_model::expr::Expr;
 
 use super::LinearArrayCore;
 use super::indexing::{
@@ -98,7 +99,7 @@ enum VariableStorage {
 
 /// A multi-dimensional array of decision variables.
 /// Created by `Model.add_variables(axes=(T, G), bounds=...)`. Any operation produces ExprArray.
-#[pyclass(name = "VariableArray")]
+#[pyo3_macros::pyclass(name = "VariableArray")]
 pub struct PyVariableArray {
     storage: VariableStorage,
     pub(crate) index_sets: Vec<Py<PyIndexSet>>,
@@ -225,7 +226,7 @@ impl PyVariableArray {
     }
 
     /// Materialize the full LinearArrayCore on demand.
-    pub(crate) fn to_core(&self) -> LinearArrayCore {
+    pub fn to_core(&self) -> LinearArrayCore {
         match &self.storage {
             VariableStorage::Full(full) => full.core.clone_with_gil(),
             VariableStorage::Sparse(sparse) => {
@@ -468,7 +469,7 @@ impl PyVariableArray {
     }
 
     /// Return compact expression storage if this array uses compact storage.
-    pub(crate) fn as_compact_expr(&self) -> Option<CompactExprStorage> {
+    pub fn as_compact_expr(&self) -> Option<CompactExprStorage> {
         match &self.storage {
             VariableStorage::Compact(c) => Some(CompactExprStorage::from_variable_array(
                 c.start_var_id,
@@ -792,8 +793,8 @@ impl PyVariableArray {
     }
 }
 
-// Explicit #[pymethods] with compact fast paths.
-#[pymethods]
+// Explicit #[pyo3_macros::pymethods] with compact fast paths.
+#[pyo3_macros::pymethods]
 impl PyVariableArray {
     fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
         if let Some(self_compact) = self.as_compact_expr() {

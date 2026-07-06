@@ -2,9 +2,9 @@ use crate::py_modules::errors::{BlockArtifactError, BlockContractError, BlockRes
 use crate::py_modules::serde_bridge;
 use crate::{BlockPort, PyModel, PyObject, PySolveResult};
 use arco_blocks::{DropPolicy, build_execution_levels, retention_for_policy};
-use arco_ops::modeling::{InspectOptions, ModelSnapshot};
-use arco_ops::solve::Solution;
-use arco_ops::solve::SolverStatus;
+use arco_model::{InspectOptions, ModelSnapshot};
+use arco_solver::Solution;
+use arco_solver::SolverStatus;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyType};
 use serde_json::{Value, json};
@@ -18,14 +18,14 @@ const ARCO_BLOCK_INPUT_SCHEMA_ATTR: &str = "__arco_block_input_schema__";
 const ARCO_BLOCK_INPUT_FIELDS_ATTR: &str = "__arco_block_input_fields__";
 const ARCO_BLOCK_EXPECTS_CTX_ATTR: &str = "__arco_block_expects_ctx__";
 
-#[pyclass(name = "BlockPorts")]
+#[pyo3_macros::pyclass(name = "BlockPorts")]
 pub struct PyBlockPorts {
     block_name: String,
     kind: String,
     keys: HashSet<String>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyBlockPorts {
     fn __getattr__(&self, key: &str) -> PyResult<BlockPort> {
         if !self.keys.contains(key) {
@@ -58,14 +58,14 @@ impl PyBlockPorts {
 }
 
 /// A handle returned by model.add_block() with typed `.in_` and `.out` accessors.
-#[pyclass(name = "BlockHandle")]
+#[pyo3_macros::pyclass(name = "BlockHandle")]
 pub struct PyBlockHandle {
     name: String,
     input_keys: HashSet<String>,
     output_keys: HashSet<String>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyBlockHandle {
     /// Get an input port reference for linking.
     fn input(&self, key: String) -> PyResult<BlockPort> {
@@ -124,7 +124,7 @@ impl PyBlockHandle {
 }
 
 /// Dict-like accessor for per-block results: `result.blocks["name"]`
-#[pyclass(name = "BlockResults")]
+#[pyo3_macros::pyclass(name = "BlockResults")]
 pub struct PyBlockResults {
     /// Ordered mapping: block_name -> SolveResult
     results: Vec<(String, Py<PySolveResult>)>,
@@ -275,7 +275,7 @@ impl PyBlockResults {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyBlockResults {
     fn __getitem__(&self, py: Python<'_>, key: &str) -> PyResult<Py<PySolveResult>> {
         self.results
@@ -569,8 +569,8 @@ fn model_snapshot_artifact(snapshot: ModelSnapshot) -> Value {
         "objective": snapshot.objective.map(|objective| {
             json!({
                 "sense": objective.sense.map(|sense| match sense {
-                    arco_ops::modeling::Sense::Minimize => "MINIMIZE",
-                    arco_ops::modeling::Sense::Maximize => "MAXIMIZE",
+                    arco_model::Sense::Minimize => "MINIMIZE",
+                    arco_model::Sense::Maximize => "MAXIMIZE",
                 }),
                 "name": objective.name,
                 "term_count": objective.terms.len(),
@@ -617,14 +617,14 @@ struct TypedExtractMeta {
     expects_ctx: bool,
 }
 
-#[pyclass]
+#[pyo3_macros::pyclass]
 struct TypedBlockBuilder {
     user_fn: PyObject,
     input_schema: PyObject,
     expects_ctx: bool,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl TypedBlockBuilder {
     fn __call__(&self, py: Python<'_>, ctx: PyObject) -> PyResult<PyObject> {
         let inputs_obj = context_inputs(ctx.bind(py))?;
@@ -651,7 +651,7 @@ impl TypedBlockBuilder {
     }
 }
 
-#[pyclass]
+#[pyo3_macros::pyclass]
 struct TypedBlockExtractor {
     extract_fn: PyObject,
     input_schema: PyObject,
@@ -659,7 +659,7 @@ struct TypedBlockExtractor {
     expects_ctx: bool,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl TypedBlockExtractor {
     fn __call__(&self, py: Python<'_>, solution: PyObject, ctx: PyObject) -> PyResult<PyObject> {
         let inputs = context_inputs(ctx.bind(py))?;
@@ -695,12 +695,12 @@ fn context_inputs(ctx: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     ))
 }
 
-#[pyclass]
+#[pyo3_macros::pyclass]
 struct TypedBlockDecorator {
     name: Option<String>,
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl TypedBlockDecorator {
     fn __call__(&self, py: Python<'_>, func: PyObject) -> PyResult<PyObject> {
         decorate_block_function(py, func.bind(py), self.name.as_deref())
@@ -913,7 +913,7 @@ fn aggregate_block_status(statuses: &[SolverStatus]) -> SolverStatus {
 #[cfg(test)]
 mod tests {
     use super::aggregate_block_status;
-    use arco_ops::solve::SolverStatus;
+    use arco_solver::SolverStatus;
 
     #[test]
     fn aggregate_returns_optimal_when_all_blocks_optimal() {
@@ -1085,7 +1085,7 @@ impl PyModel {
     }
 }
 
-#[pyfunction]
+#[pyo3_macros::pyfunction]
 #[pyo3(signature = (func=None, *, name=None))]
 pub(crate) fn typed_block(
     py: Python<'_>,

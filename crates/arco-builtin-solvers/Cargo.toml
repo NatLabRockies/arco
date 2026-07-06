@@ -14,7 +14,7 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-highs = { workspace = true }
-arco-ops = { workspace = true }
+arco-highs = { workspace = true, features = ["bundled-highs"] }
+arco-ops = { workspace = true, features = ["compile", "scip"] }
 arco-scip = { workspace = true }
 arco-solver = { workspace = true }

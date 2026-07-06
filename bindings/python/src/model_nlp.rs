@@ -1,8 +1,8 @@
 //! Nonlinear (IPOPT) integration on `PyModel`. Only compiled with the `ipopt`
 //! feature.
 
+use arco_model::{Model, Sense};
 use arco_ops::expression::{ConstraintId, Expr, VariableId};
-use arco_ops::modeling::{Model, Sense};
 use arco_ops::nlp::{
     BinaryOp, ConstraintSense, NlpOptions, NlpVariableSpec, NonlinearConstraint, NonlinearExpr,
     NonlinearObjective, NonlinearProblem, ObjectiveSense, solve_nonlinear_problem,
@@ -16,7 +16,8 @@ use crate::py_modules::errors::{
 };
 use crate::py_modules::expr::PyConstraintExpr;
 use crate::py_modules::nonlinear::{
-    NlSense, PyNonlinearConstraintExpr, linear_constraint_to_nl, linear_expr_to_nl, nl_var_name,
+    NlSense, PyNonlinearConstraintExpr, is_unit_coefficient, linear_constraint_to_nl,
+    linear_expr_to_nl, nl_var_name,
 };
 use crate::py_modules::nonlinear_state::{NonlinearConstraintEntry, NonlinearObjectiveEntry};
 use crate::py_modules::solution::PySolveResult;
@@ -53,18 +54,18 @@ pub(crate) fn try_set_nonlinear_objective(
     expr: &Bound<'_, PyAny>,
     sense: Sense,
     name: Option<String>,
-) -> PyResult<bool> {
+) -> bool {
     use crate::py_modules::nonlinear::PyNonlinearExpr;
 
     let Ok(nl) = expr.extract::<PyNonlinearExpr>() else {
-        return Ok(false);
+        return false;
     };
     model.nonlinear_state.objective = Some(NonlinearObjectiveEntry {
         expr: nl.into_inner(),
         minimize: matches!(sense, Sense::Minimize),
         name,
     });
-    Ok(true)
+    true
 }
 
 // ───── IPOPT solve dispatch ─────────────────────────────────────────────────
@@ -115,18 +116,16 @@ pub(crate) fn solve_with_ipopt(
     let row_exprs = collect_row_expressions(inner);
     let mut nl_constraints: Vec<NonlinearConstraint> = Vec::new();
     let n_constraints = inner.num_constraints();
-    for ci in 0..n_constraints {
+    for (ci, row_expr) in row_exprs.iter().enumerate().take(n_constraints) {
         let con_id = ConstraintId::new(ci as u32);
         let constraint = inner
             .get_constraint(con_id)
             .map_err(|e| SolverInternalError::new_err(format!("constraint {ci}: {e}")))?;
-        let row_expr = &row_exprs[ci];
         let lower = constraint.bounds.lower;
         let upper = constraint.bounds.upper;
         let name = inner
             .get_constraint_name(con_id)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("__c{ci}"));
+            .map_or_else(|| format!("__c{ci}"), |s| s.to_string());
 
         let nl_expr = linear_expr_to_nl(row_expr);
 
@@ -193,7 +192,7 @@ pub(crate) fn solve_with_ipopt(
         let mut nl_expr = NonlinearExpr::Constant(0.0);
         for &(var_id, coeff) in &linear_obj.terms {
             let var_node = NonlinearExpr::Variable(nl_var_name(var_id.inner()));
-            let term = if coeff == 1.0 {
+            let term = if is_unit_coefficient(coeff) {
                 var_node
             } else {
                 NonlinearExpr::Binary {
@@ -211,8 +210,7 @@ pub(crate) fn solve_with_ipopt(
         NonlinearObjective {
             name: inner
                 .get_objective_name()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "__obj".to_string()),
+                .map_or_else(|| "__obj".to_string(), |s| s.to_string()),
             sense,
             expression: nl_expr,
         }
@@ -236,20 +234,20 @@ pub(crate) fn solve_with_ipopt(
         .map_err(|e| SolverInternalError::new_err(format!("IPOPT solve failed: {e}")))?;
 
     let mut primal_values: Vec<f64> = vec![0.0; n_vars];
-    for i in 0..n_vars {
+    for (i, value) in primal_values.iter_mut().enumerate().take(n_vars) {
         if let Some(&v) = solution.primal_values.get(&nl_var_name(i as u32)) {
-            primal_values[i] = v;
+            *value = v;
         }
     }
 
     let status = match solution.status {
-        arco_ops::execution::SolveStatus::Optimal => arco_ops::solve::SolverStatus::Optimal,
-        arco_ops::execution::SolveStatus::Infeasible => arco_ops::solve::SolverStatus::Infeasible,
-        arco_ops::execution::SolveStatus::TimeLimit => arco_ops::solve::SolverStatus::TimeLimit,
-        arco_ops::execution::SolveStatus::Failed => arco_ops::solve::SolverStatus::Unknown,
+        arco_ops::execution::SolveStatus::Optimal => arco_solver::SolverStatus::Optimal,
+        arco_ops::execution::SolveStatus::Infeasible => arco_solver::SolverStatus::Infeasible,
+        arco_ops::execution::SolveStatus::TimeLimit => arco_solver::SolverStatus::TimeLimit,
+        arco_ops::execution::SolveStatus::Failed => arco_solver::SolverStatus::Unknown,
     };
 
-    let inner_solution = arco_ops::solve::Solution {
+    let inner_solution = arco_solver::Solution {
         primal_values,
         variable_duals: Vec::new(),
         constraint_duals: Vec::new(),
@@ -260,5 +258,5 @@ pub(crate) fn solve_with_ipopt(
         metadata: std::collections::BTreeMap::new(),
     };
 
-    Py::new(py, PySolveResult::new(inner_solution)).map_err(Into::into)
+    Py::new(py, PySolveResult::new(inner_solution))
 }

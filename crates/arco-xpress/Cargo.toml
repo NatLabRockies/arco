@@ -14,8 +14,8 @@ publish = false
 workspace = true
 
 [dependencies]
-arco-model = { workspace = true }
-arco-solver = { workspace = true }
+arco-model = { workspace = true, default-features = false }
+arco-solver = { workspace = true, default-features = false }
 tracing = { workspace = true }
 
 [dev-dependencies]

@@ -4,7 +4,7 @@
 //! functions (`cos`, `sin`, `sqrt`, `atan`, `exp`, `ln`, `abs`, `pow`) that
 //! produce nonlinear expressions consumable by the IPOPT solve path.
 
-use arco_ops::expression::Expr as LinearExpr;
+use arco_model::expr::Expr as LinearExpr;
 use arco_ops::nlp::{BinaryOp, NonlinearExpr as NlExpr, UnaryOp};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
@@ -16,19 +16,27 @@ use crate::py_modules::variable::PyVariable;
 /// Synthetic name used inside `NonlinearExpr` trees to reference a model
 /// variable by its internal `VariableId`.
 #[inline]
-pub(crate) fn nl_var_name(var_id: u32) -> String {
+pub fn nl_var_name(var_id: u32) -> String {
     format!("__v{var_id}")
+}
+
+pub fn is_unit_coefficient(coefficient: f64) -> bool {
+    coefficient.to_bits() == 1.0_f64.to_bits()
+}
+
+fn is_zero_constant(value: f64) -> bool {
+    matches!(value.classify(), std::num::FpCategory::Zero)
 }
 
 /// Translate a linear polynomial `Expr` (linear/quadratic/cubic + constant)
 /// into the equivalent `NonlinearExpr` tree.
-pub(crate) fn linear_expr_to_nl(expr: &LinearExpr) -> NlExpr {
+pub fn linear_expr_to_nl(expr: &LinearExpr) -> NlExpr {
     let mut acc = NlExpr::Constant(expr.constant());
 
     let push_add = |acc: &mut NlExpr, term: NlExpr| {
         let prev = std::mem::replace(acc, NlExpr::Constant(0.0));
         *acc = match prev {
-            NlExpr::Constant(c) if c == 0.0 => term,
+            NlExpr::Constant(c) if is_zero_constant(c) => term,
             _ => NlExpr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(prev),
@@ -39,7 +47,7 @@ pub(crate) fn linear_expr_to_nl(expr: &LinearExpr) -> NlExpr {
 
     for &(var_id, coeff) in expr.linear_terms() {
         let var = NlExpr::Variable(nl_var_name(var_id.inner()));
-        let term = if coeff == 1.0 {
+        let term = if is_unit_coefficient(coeff) {
             var
         } else {
             NlExpr::Binary {
@@ -56,7 +64,7 @@ pub(crate) fn linear_expr_to_nl(expr: &LinearExpr) -> NlExpr {
             left: Box::new(NlExpr::Variable(nl_var_name(a.inner()))),
             right: Box::new(NlExpr::Variable(nl_var_name(b.inner()))),
         };
-        let term = if coeff == 1.0 {
+        let term = if is_unit_coefficient(coeff) {
             prod
         } else {
             NlExpr::Binary {
@@ -77,7 +85,7 @@ pub(crate) fn linear_expr_to_nl(expr: &LinearExpr) -> NlExpr {
                 right: Box::new(NlExpr::Variable(nl_var_name(c.inner()))),
             }),
         };
-        let term = if coeff == 1.0 {
+        let term = if is_unit_coefficient(coeff) {
             prod
         } else {
             NlExpr::Binary {
@@ -92,7 +100,7 @@ pub(crate) fn linear_expr_to_nl(expr: &LinearExpr) -> NlExpr {
 }
 
 /// Coerce a Python object into a `NonlinearExpr` AST.
-pub(crate) fn coerce_to_nl(ob: &Bound<'_, PyAny>) -> PyResult<NlExpr> {
+pub fn coerce_to_nl(ob: &Bound<'_, PyAny>) -> PyResult<NlExpr> {
     if let Ok(nl) = ob.extract::<PyRef<'_, PyNonlinearExpr>>() {
         return Ok((*nl.inner).clone());
     }
@@ -133,10 +141,10 @@ impl NlSense {
 /// Created via operator arithmetic over `Variable`/`Expr`/`NonlinearExpr`
 /// operands, or via the module-level `cos`, `sin`, `sqrt`, `atan`, `exp`,
 /// `ln`, `abs`, `pow` functions.
-#[pyclass(name = "NonlinearExpr", from_py_object)]
+#[pyo3_macros::pyclass(name = "NonlinearExpr", from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyNonlinearExpr {
-    pub(crate) inner: Box<NlExpr>,
+    pub inner: Box<NlExpr>,
 }
 
 impl PyNonlinearExpr {
@@ -170,7 +178,7 @@ fn nl_func(name: &str, args: Vec<NlExpr>) -> PyNonlinearExpr {
     })
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyNonlinearExpr {
     fn __repr__(&self) -> String {
         format!("NonlinearExpr({:?})", self.inner)
@@ -271,11 +279,11 @@ impl PyNonlinearExpr {
 
 /// Constraint expression in nonlinear form. The stored `expr` represents
 /// `lhs - rhs`; the constraint reads `expr <sense> 0`.
-#[pyclass(name = "NonlinearConstraintExpr", from_py_object)]
+#[pyo3_macros::pyclass(name = "NonlinearConstraintExpr", from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyNonlinearConstraintExpr {
-    pub(crate) expr: PyNonlinearExpr,
-    pub(crate) sense: NlSense,
+    pub expr: PyNonlinearExpr,
+    pub sense: NlSense,
 }
 
 impl PyNonlinearConstraintExpr {
@@ -295,7 +303,7 @@ impl PyNonlinearConstraintExpr {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyNonlinearConstraintExpr {
     #[getter]
     fn sense(&self) -> &'static str {
@@ -313,46 +321,43 @@ impl PyNonlinearConstraintExpr {
 
 // ───── Module-level math functions ─────────────────────────────────────────
 
-#[pyfunction]
-pub(crate) fn cos(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
+#[pyo3_macros::pyfunction]
+pub fn cos(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
     Ok(nl_func("cos", vec![coerce_to_nl(arg)?]))
 }
 
-#[pyfunction]
-pub(crate) fn sin(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
+#[pyo3_macros::pyfunction]
+pub fn sin(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
     Ok(nl_func("sin", vec![coerce_to_nl(arg)?]))
 }
 
-#[pyfunction]
-pub(crate) fn atan(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
+#[pyo3_macros::pyfunction]
+pub fn atan(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
     Ok(nl_func("atan", vec![coerce_to_nl(arg)?]))
 }
 
-#[pyfunction]
-pub(crate) fn sqrt(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
+#[pyo3_macros::pyfunction]
+pub fn sqrt(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
     Ok(nl_func("sqrt", vec![coerce_to_nl(arg)?]))
 }
 
-#[pyfunction]
-pub(crate) fn exp(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
+#[pyo3_macros::pyfunction]
+pub fn exp(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
     Ok(nl_func("exp", vec![coerce_to_nl(arg)?]))
 }
 
-#[pyfunction]
-pub(crate) fn ln(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
+#[pyo3_macros::pyfunction]
+pub fn ln(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
     Ok(nl_func("ln", vec![coerce_to_nl(arg)?]))
 }
 
-#[pyfunction(name = "abs_")]
-pub(crate) fn abs_nl(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
+#[pyo3_macros::pyfunction(name = "abs_")]
+pub fn abs_nl(arg: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
     Ok(nl_func("abs", vec![coerce_to_nl(arg)?]))
 }
 
-#[pyfunction]
-pub(crate) fn pow(
-    base: &Bound<'_, PyAny>,
-    exponent: &Bound<'_, PyAny>,
-) -> PyResult<PyNonlinearExpr> {
+#[pyo3_macros::pyfunction]
+pub fn pow(base: &Bound<'_, PyAny>, exponent: &Bound<'_, PyAny>) -> PyResult<PyNonlinearExpr> {
     Ok(nl_func(
         "pow",
         vec![coerce_to_nl(base)?, coerce_to_nl(exponent)?],
@@ -362,14 +367,14 @@ pub(crate) fn pow(
 /// Promote a `PyConstraintExpr` (linear `lhs sense rhs`) to a nonlinear
 /// constraint expression. Used when callers mix linear and nonlinear pieces.
 #[allow(dead_code)]
-pub(crate) fn linear_constraint_to_nl(expr: &PyConstraintExpr) -> PyNonlinearConstraintExpr {
+pub fn linear_constraint_to_nl(expr: &PyConstraintExpr) -> PyNonlinearConstraintExpr {
     let inner = expr.inner();
     let lhs_nl = linear_expr_to_nl(inner.expr());
     let rhs_nl = NlExpr::Constant(inner.rhs());
     let sense = match inner.sense() {
-        arco_ops::expression::ComparisonSense::GreaterEqual => NlSense::Ge,
-        arco_ops::expression::ComparisonSense::LessEqual => NlSense::Le,
-        arco_ops::expression::ComparisonSense::Equal => NlSense::Eq,
+        arco_model::expr::ComparisonSense::GreaterEqual => NlSense::Ge,
+        arco_model::expr::ComparisonSense::LessEqual => NlSense::Le,
+        arco_model::expr::ComparisonSense::Equal => NlSense::Eq,
     };
     PyNonlinearConstraintExpr::new(
         NlExpr::Binary {
@@ -385,9 +390,7 @@ pub(crate) fn linear_constraint_to_nl(expr: &PyConstraintExpr) -> PyNonlinearCon
 ///  - `NonlinearConstraintExpr` directly,
 ///  - linear `ConstraintExpr` (promoted).
 #[allow(dead_code)]
-pub(crate) fn coerce_to_nl_constraint(
-    ob: &Bound<'_, PyAny>,
-) -> PyResult<PyNonlinearConstraintExpr> {
+pub fn coerce_to_nl_constraint(ob: &Bound<'_, PyAny>) -> PyResult<PyNonlinearConstraintExpr> {
     if let Ok(c) = ob.extract::<PyRef<'_, PyNonlinearConstraintExpr>>() {
         return Ok((*c).clone());
     }

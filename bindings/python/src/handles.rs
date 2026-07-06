@@ -1,13 +1,13 @@
 //! Python wrappers for slack and elastic handles.
 
-use arco_ops::modeling::{ElasticHandle, SlackHandle};
+use arco_model::{ElasticHandle, SlackHandle};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::PyObject;
 
 /// Python wrapper for a slack handle.
-#[pyclass(name = "SlackHandle")]
+#[pyo3_macros::pyclass(name = "SlackHandle")]
 pub struct PySlackHandle {
     inner: SlackHandle,
 }
@@ -18,7 +18,7 @@ impl PySlackHandle {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PySlackHandle {
     #[getter]
     fn constraint_id(&self) -> u32 {
@@ -50,7 +50,7 @@ impl PySlackHandle {
 }
 
 /// Python wrapper for an elastic handle.
-#[pyclass(name = "ElasticHandle")]
+#[pyo3_macros::pyclass(name = "ElasticHandle")]
 pub struct PyElasticHandle {
     lower: Option<SlackHandle>,
     upper: Option<SlackHandle>,
@@ -65,7 +65,7 @@ impl PyElasticHandle {
     }
 }
 
-#[pymethods]
+#[pyo3_macros::pymethods]
 impl PyElasticHandle {
     #[getter]
     fn lower(&self) -> Option<PySlackHandle> {

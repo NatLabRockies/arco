@@ -2,16 +2,32 @@
 
 use arco_model::{ConstraintId, ModelView, Sense, VariableId};
 use std::collections::BTreeMap;
+use std::fmt;
 use std::io::Write;
 
-#[derive(Debug, thiserror::Error, miette::Diagnostic)]
+#[derive(Debug)]
 pub enum ExportError {
-    #[error("failed to write exported model: {source}")]
-    Io {
-        #[source]
-        source: std::io::Error,
-    },
+    Io { source: std::io::Error },
 }
+
+impl fmt::Display for ExportError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io { source } => write!(formatter, "failed to write exported model: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for ExportError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io { source } => Some(source),
+        }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+impl miette::Diagnostic for ExportError {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PortableProblem {

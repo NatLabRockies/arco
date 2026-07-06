@@ -1,4 +1,17 @@
 fn main() {
+    #[cfg(feature = "scip")]
+    {
+        println!("cargo:rerun-if-env-changed=ARCO_SCIP_LIBRARY_PATH");
+        println!("cargo:rerun-if-env-changed=ARCO_SCIP_FORTRAN_RUNTIME_PATH");
+        println!("cargo:rerun-if-env-changed=ARCO_SCIP_GCC_RUNTIME_PATH");
+
+        if target_family().as_deref() == Some("unix") {
+            for lib_dir in scip_runtime_paths() {
+                println!("cargo:rustc-link-arg-cdylib=-Wl,-rpath,{lib_dir}");
+            }
+        }
+    }
+
     #[cfg(feature = "xpress")]
     {
         println!("cargo:rerun-if-env-changed=XPRESSDIR");
@@ -13,6 +26,22 @@ fn main() {
             println!("cargo:rustc-link-arg-cdylib=-Wl,-rpath,{lib_dir}");
         }
     }
+}
+
+#[cfg(feature = "scip")]
+fn scip_runtime_paths() -> impl Iterator<Item = String> {
+    [
+        "ARCO_SCIP_LIBRARY_PATH",
+        "ARCO_SCIP_FORTRAN_RUNTIME_PATH",
+        "ARCO_SCIP_GCC_RUNTIME_PATH",
+    ]
+    .into_iter()
+    .filter_map(|name| std::env::var(name).ok())
+    .flat_map(|paths| {
+        std::env::split_paths(&paths)
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+    })
 }
 
 #[cfg(feature = "xpress")]
@@ -64,7 +93,7 @@ fn detect_xpress_dir() -> Option<String> {
         .map(|path| path.display().to_string())
 }
 
-#[cfg(feature = "xpress")]
+#[cfg(any(feature = "scip", feature = "xpress"))]
 fn target_family() -> Option<String> {
     std::env::var("CARGO_CFG_TARGET_FAMILY").ok()
 }

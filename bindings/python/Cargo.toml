@@ -17,10 +17,10 @@ test = false
 
 [dependencies]
 pyo3 = { workspace = true, features = ["extension-module"] }
-arco-arrays = { workspace = true }
-arco-blocks = { workspace = true }
-arco-ops = { workspace = true }
-serde_json = { workspace = true }
+pyo3-macros = { workspace = true }
+arco-python-core = { workspace = true }
+arco-python-types = { workspace = true }
+arco-solver = { workspace = true, default-features = false }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, default-features = false, features = [
   "ansi",
@@ -30,9 +30,10 @@ tracing-subscriber = { workspace = true, default-features = false, features = [
 ] }
 
 [features]
-default = ["xpress"]
-ipopt = ["arco-ops/ipopt"]
-xpress = ["arco-ops/xpress"]
+default = ["scip", "xpress"]
+ipopt = ["arco-python-core/ipopt"]
+scip = ["arco-python-core/scip"]
+xpress = ["arco-python-core/xpress"]
 
 [lints]
 workspace = true

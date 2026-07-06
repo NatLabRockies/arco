@@ -31,6 +31,10 @@ inputs:
     description: Whether to save Rust cache updates.
     required: false
     default: "true"
+  save-solver-cache:
+    description: Whether to save native solver cache updates.
+    required: false
+    default: "true"
   rust-cache-shared-key:
     description: Shared key for Swatinem/rust-cache to avoid cache thrashing between jobs.
     required: false
@@ -70,9 +74,25 @@ runs:
         rustup component add rustfmt clippy --toolchain "$RUST_TOOLCHAIN_VERSION"
         rustup default "$RUST_TOOLCHAIN_VERSION"
 
+    - name: Restore HiGHS native cache
+      id: highs-cache-restore
+      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      with:
+        path: ~/.cache/arco-highs
+        key: ${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-highs-
+
     - name: Configure HiGHS static binary discovery
       shell: bash
       run: bash ./scripts/setup_highs_binary_env.sh "$GITHUB_ENV"
+
+    - name: Save HiGHS native cache
+      if: ${{ inputs.save-solver-cache == 'true' && steps.highs-cache-restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      with:
+        path: ~/.cache/arco-highs
+        key: ${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}
 
     - name: Configure SCIP bundled binary discovery
       shell: bash

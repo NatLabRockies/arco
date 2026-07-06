@@ -1,10 +1,14 @@
 //! Operations facade seam for Arco interaction surfaces.
 
+#[cfg(feature = "compile")]
 pub mod benchmark;
+#[cfg(feature = "compile")]
 pub mod compile;
 pub mod dto;
+#[cfg(feature = "compile")]
 pub mod execution;
 mod execution_backends;
+#[cfg(feature = "compile")]
 pub mod inspect;
 
 /// Stable diagnostic vocabulary exposed through the ops seam.
@@ -12,21 +16,31 @@ pub mod diagnostics {
     pub use arco_diagnostics::codes;
 }
 
+#[cfg(feature = "compile")]
 use crate::compile::compile::{LinearTerm as TargetLinearTerm, SolveTarget};
+#[cfg(feature = "compile")]
 use crate::compile::pipeline::{
     CompiledProgram, PipelineError, ValidatedProgram, compile_file, validate_file,
 };
+#[cfg(feature = "compile")]
 use crate::compile::targets::{
     AlgebraicProblem, ConstraintSense, ObjectiveSense as TargetObjectiveSense, VariableKind,
 };
+#[cfg(feature = "compile")]
 pub use arco_format::ExportError;
+#[cfg(any(feature = "compile", feature = "scip"))]
 use arco_format::{
     PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective,
     PortableLinearReport, PortableLinearTerm, PortableObjectiveSense, PortableProblem,
-    PortableVariableInstance, PortableVariableKind, write_lp, write_mps,
+    PortableVariableInstance, PortableVariableKind,
 };
+#[cfg(feature = "compile")]
+use arco_format::{write_lp, write_mps};
+#[cfg(feature = "compile")]
 use arco_kdl as kdl;
+#[cfg(feature = "compile")]
 use arco_kdl::PrimitiveBuildError;
+#[cfg(feature = "compile")]
 use arco_kdl::source::{ParsedSource, SourceError, format_program_text, parse_program_file};
 /// Stable model-facing vocabulary exposed through the ops seam.
 pub mod modeling {
@@ -96,24 +110,32 @@ use arco_solver::{
     SelectionError, Solution, SolutionView, Solve, SolveRequest, SolverConfig, SolverError,
     SolverProfile, SolverRegistry, SolverRequirements, SolverSelection,
 };
+#[cfg(feature = "compile")]
 use arco_validate::{ValidationIssue, ValidationReport, ValidationSeverity, validate_solve_target};
 use std::collections::BTreeMap;
+#[cfg(feature = "compile")]
 use std::path::Path;
+#[cfg(feature = "compile")]
 use thiserror::Error;
 
 /// Validation severity for the operations facade.
+#[cfg(feature = "compile")]
 pub type OpsValidationSeverity = ValidationSeverity;
 
 /// KDL source error type for the operations facade.
+#[cfg(feature = "compile")]
 pub type OpsSourceError = SourceError;
 
 /// Validation issue for the operations facade.
+#[cfg(feature = "compile")]
 pub type OpsValidationIssue = ValidationIssue;
 
 /// Validation report for the operations facade.
+#[cfg(feature = "compile")]
 pub type OpsValidationReport = ValidationReport;
 
 /// Compile/check error exposed by the operations facade.
+#[cfg(feature = "compile")]
 pub type OpsCompileError = PipelineError;
 
 pub use crate::dto::{
@@ -122,6 +144,7 @@ pub use crate::dto::{
 };
 
 /// Errors emitted when exporting a model file.
+#[cfg(feature = "compile")]
 #[derive(Debug, Error, miette::Diagnostic)]
 pub enum OpsExportFileError {
     #[error(transparent)]
@@ -133,6 +156,7 @@ pub enum OpsExportFileError {
 }
 
 /// Export format supported by the operations facade.
+#[cfg(feature = "compile")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpsExportFormat {
     /// LP text format.
@@ -152,26 +176,31 @@ impl ArcoOps {
     }
 
     /// Load and parse a KDL model file.
+    #[cfg(feature = "compile")]
     pub fn load_file(path: &Path) -> Result<ParsedSource, OpsSourceError> {
         parse_program_file(path)
     }
 
     /// Format KDL source text through the canonical formatter.
+    #[cfg(feature = "compile")]
     pub fn format_kdl_text(text: &str) -> Result<String, String> {
         format_program_text(text).map_err(|error| error.to_string())
     }
 
     /// Check a KDL model file through semantic validation.
+    #[cfg(feature = "compile")]
     pub fn check_file(path: &Path) -> Result<ValidatedProgram, OpsCompileError> {
         validate_file(path)
     }
 
     /// Compile a KDL model file to Arco's algebraic problem representation.
+    #[cfg(feature = "compile")]
     pub fn compile_file(path: &Path) -> Result<CompiledProgram, OpsCompileError> {
         compile_file(path)
     }
 
     /// Export an algebraic problem to a text interchange format.
+    #[cfg(feature = "compile")]
     pub fn export_problem(
         problem: &OpsAlgebraicProblem,
         format: OpsExportFormat,
@@ -189,6 +218,7 @@ impl ArcoOps {
     }
 
     /// Export a KDL model file through the legacy algebraic export path.
+    #[cfg(feature = "compile")]
     pub fn export_model_file(
         path: &Path,
         format: OpsExportFormat,
@@ -253,6 +283,7 @@ impl ArcoOps {
     }
 
     /// Construct a builtin execution adapter for a resolved solver selection.
+    #[cfg(feature = "compile")]
     pub fn builtin_adapter_for_selection(
         selection: &ResolvedSelection,
         log_to_console: bool,
@@ -283,11 +314,13 @@ impl ArcoOps {
     }
 
     /// Run canonical validation on a lowered solve target.
+    #[cfg(feature = "compile")]
     pub fn validate_target(target: &SolveTarget) -> OpsValidationReport {
         validate_solve_target(target.has_variables())
     }
 
     /// Execute a compiled problem using a caller-supplied adapter.
+    #[cfg(feature = "compile")]
     pub fn execute_compiled_problem_with_adapter(
         problem: &compile::compile::CompiledProblem,
         adapter: &dyn execution::OptimizationAdapter,
@@ -298,6 +331,7 @@ impl ArcoOps {
 }
 
 /// Extract a source span from KDL source errors that carry declaration locations.
+#[cfg(feature = "compile")]
 pub fn source_error_span(error: &OpsSourceError) -> Option<miette::SourceSpan> {
     match error {
         SourceError::MissingNode { span, .. }
@@ -312,6 +346,7 @@ pub fn source_error_span(error: &OpsSourceError) -> Option<miette::SourceSpan> {
 }
 
 /// Copy a compile-internal algebraic problem into the stable ops DTO.
+#[cfg(feature = "compile")]
 pub fn ops_problem_from_algebraic(problem: &AlgebraicProblem) -> OpsAlgebraicProblem {
     OpsAlgebraicProblem {
         variable_instances: problem
@@ -364,6 +399,7 @@ pub fn ops_problem_from_algebraic(problem: &AlgebraicProblem) -> OpsAlgebraicPro
     }
 }
 
+#[cfg(any(feature = "compile", feature = "scip"))]
 pub fn portable_problem_from_ops(problem: &OpsAlgebraicProblem) -> PortableProblem {
     PortableProblem {
         variable_instances: problem
@@ -416,6 +452,7 @@ pub fn portable_problem_from_ops(problem: &OpsAlgebraicProblem) -> PortableProbl
     }
 }
 
+#[cfg(feature = "compile")]
 fn ops_terms(terms: &[TargetLinearTerm]) -> Vec<OpsLinearTerm> {
     terms
         .iter()
@@ -426,6 +463,7 @@ fn ops_terms(terms: &[TargetLinearTerm]) -> Vec<OpsLinearTerm> {
         .collect()
 }
 
+#[cfg(any(feature = "compile", feature = "scip"))]
 fn portable_terms(terms: &[OpsLinearTerm]) -> Vec<PortableLinearTerm> {
     terms
         .iter()
@@ -436,6 +474,7 @@ fn portable_terms(terms: &[OpsLinearTerm]) -> Vec<PortableLinearTerm> {
         .collect()
 }
 
+#[cfg(feature = "compile")]
 #[cfg(test)]
 mod tests {
     use super::{ArcoOps, OpsExportFormat, source_error_span};

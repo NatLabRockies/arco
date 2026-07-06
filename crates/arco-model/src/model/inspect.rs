@@ -65,7 +65,8 @@ pub struct SnapshotMetadata {
 }
 
 /// Conservative memory estimate for sparse matrix storage.
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SnapshotMemoryEstimate {
     pub coefficient_value_bytes: usize,
     pub coefficient_index_bytes: usize,

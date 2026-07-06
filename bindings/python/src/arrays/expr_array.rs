@@ -20,7 +20,7 @@ use crate::py_modules::arrays::{
 };
 
 /// A multi-dimensional array of linear expressions.
-#[pyclass(name = "ExprArray")]
+#[pyo3_macros::pyclass(name = "ExprArray")]
 pub struct PyExprArray {
     pub(crate) storage: ExprArrayStorage,
 }
@@ -33,7 +33,7 @@ impl PyExprArray {
     }
 
     /// Create from compact expression storage.
-    pub(crate) fn from_compact(
+    pub fn from_compact(
         compact: CompactExprStorage,
         index_sets: Vec<Py<PyIndexSet>>,
         shape: Vec<usize>,
@@ -47,7 +47,7 @@ impl PyExprArray {
         }
     }
 
-    pub(crate) fn from_sparse(
+    pub fn from_sparse(
         index_sets: Vec<Py<PyIndexSet>>,
         shape: Vec<usize>,
         active_indices: Vec<usize>,
@@ -80,12 +80,12 @@ impl PyExprArray {
     }
 
     /// Materialize the LinearArrayCore on demand.
-    pub(crate) fn to_core(&self) -> LinearArrayCore {
+    pub fn to_core(&self) -> LinearArrayCore {
         self.storage.to_core()
     }
 
     /// Get compact storage if available.
-    pub(crate) fn as_compact(&self) -> Option<&CompactExprStorage> {
+    pub fn as_compact(&self) -> Option<&CompactExprStorage> {
         self.storage.as_compact()
     }
 
@@ -218,7 +218,7 @@ impl PyExprArray {
     }
 
     /// Get values, materializing if needed.
-    pub(crate) fn get_values(&self) -> Vec<PyExpr> {
+    pub fn get_values(&self) -> Vec<PyExpr> {
         match &self.storage {
             ExprArrayStorage::Full(core) => core.values.clone(),
             ExprArrayStorage::Compact {
@@ -250,7 +250,7 @@ impl PyExprArray {
         }
     }
 
-    pub(crate) fn sparse_entries(&self) -> Option<(&[usize], &[PyExpr])> {
+    pub fn sparse_entries(&self) -> Option<(&[usize], &[PyExpr])> {
         self.storage
             .as_sparse()
             .map(|storage| (storage.active_indices.as_slice(), storage.values.as_slice()))
@@ -316,8 +316,8 @@ impl PyExprArray {
     }
 }
 
-// Explicit #[pymethods] with compact fast paths (replaces impl_array_ops! macro usage).
-#[pymethods]
+// Explicit #[pyo3_macros::pymethods] with compact fast paths (replaces impl_array_ops! macro usage).
+#[pyo3_macros::pymethods]
 impl PyExprArray {
     fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
         if let Some(self_compact) = self.as_compact() {
@@ -678,13 +678,11 @@ impl PyExprArray {
         estimate.set_item("estimated_term_bytes", term_counts.estimated_term_bytes())?;
         estimate.set_item(
             "estimated_dense_linear_term_bytes",
-            dense_slots
-                .saturating_mul(std::mem::size_of::<(arco_ops::expression::VariableId, f64)>()),
+            dense_slots.saturating_mul(std::mem::size_of::<(arco_model::VariableId, f64)>()),
         )?;
         estimate.set_item(
             "estimated_inactive_linear_term_bytes",
-            inactive_slots
-                .saturating_mul(std::mem::size_of::<(arco_ops::expression::VariableId, f64)>()),
+            inactive_slots.saturating_mul(std::mem::size_of::<(arco_model::VariableId, f64)>()),
         )?;
         set_solver_matrix_memory_estimate(&estimate, active_slots, term_counts.linear)?;
         Ok(estimate.into_any().unbind())
