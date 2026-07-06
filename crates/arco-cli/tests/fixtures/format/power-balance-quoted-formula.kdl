@@ -1,0 +1,15 @@
+// Formatter regression fixture for generated algebra blocks.
+model dcopf {
+  constraint "power_balance" {
+    index b { in bus }
+    expression {
+      formula "sum(pg[g] for g in generators if connected[b,g] > 0) - pd[b] / 100 = sum(incidence[l,b] * flow[l] for l in lines)"
+    }
+  }
+
+  expression GenerationCost {
+    formula "sum(pg[g] * b[g] * 100 for g in generators)"
+  }
+
+  minimize OF expression=GenerationCost
+}

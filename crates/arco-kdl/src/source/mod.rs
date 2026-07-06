@@ -7,4 +7,7 @@ mod surface;
 
 pub use ast::*;
 pub use error::*;
-pub use parser::{format_program_text, parse_program_file, parse_program_text};
+pub use parser::{
+    KdlFormatMode, format_program_text, format_program_text_with_mode, parse_program_file,
+    parse_program_text,
+};

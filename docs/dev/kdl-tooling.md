@@ -6,11 +6,11 @@ compiler.
 
 ## Ownership
 
-| Tool                         | Responsibility                                                       | Not responsible for                         |
-| ---------------------------- | -------------------------------------------------------------------- | ------------------------------------------- |
-| `crates/arco-kdl`            | Canonical parse, semantic validation, and compiler input model       | Editor highlighting                         |
-| `tools/tree-sitter-arco-kdl` | Fast editor parse for structure, highlighting, and injection ranges  | Semantic validation or full algebra parsing |
-| `tools/vscode-arco-kdl`      | VS Code language registration and diagnostics from the canonical CLI | Reimplementing KDL validation               |
+| Tool                         | Responsibility                                                                    | Not responsible for                         |
+| ---------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------- |
+| `crates/arco-kdl`            | Canonical parse, semantic validation, and compiler input model                    | Editor highlighting                         |
+| `tools/tree-sitter-arco-kdl` | Fast editor parse for structure, highlighting, and injection ranges               | Semantic validation or full algebra parsing |
+| `tools/vscode-arco-kdl`      | VS Code language registration, diagnostics, and formatting from the canonical CLI | Reimplementing KDL validation or formatting |
 
 ## Canonical validation
 
@@ -83,20 +83,50 @@ expression investment_by_area_tech {
 
 It must not duplicate semantic checks from `crates/arco-kdl`.
 
+## Canonical formatting
+
+Use the CLI for formatting:
+
+```sh
+arco kdl fmt path/to/input.kdl
+```
+
+The default formatter emits Arco surface syntax for authoring, so algebra is
+rendered as readable blocks instead of quoted `formula` strings. Use
+`--kdl-compatible` when a tool needs normalized strict KDL output.
+
+Editor integrations should request stdin formatting instead of reading or
+writing files directly:
+
+```sh
+arco kdl fmt --stdin --stdin-filename path/to/input.kdl
+```
+
 ## VS Code extension
 
-The VS Code helper validates files by running the canonical CLI and converting
-JSON diagnostics into editor diagnostics. The extension auto-detects the CLI
-from `arco.kdl.checkCommand`, `ARCO_CLI`, workspace `target/{debug,release}`
-binaries, then PATH. If no CLI is found, it reports a warning with setup actions
-instead of guessing silently.
+The VS Code helper validates and formats files by running the canonical CLI. It
+converts JSON check output into editor diagnostics and converts formatter stdout
+into VS Code document edits. Its primary in-editor UX is the `arco KDL` status
+bar item, which exposes validate, format, CLI selection, and setup help without
+requiring users to discover commands or settings first.
+
+The extension auto-detects the CLI from `arco.kdl.command`, `ARCO_CLI`, PATH,
+common user install paths such as `~/.local/bin/arco` and `~/.cargo/bin/arco`,
+then runnable workspace `target/{debug,release}` binaries. Auto-detected
+commands must run `arco --version` successfully so a workspace development
+binary with missing dynamic solver libraries does not shadow a working installed
+CLI. `arco.kdl.checkCommand` remains a legacy fallback. If no CLI is found, it
+reports a warning with setup actions instead of guessing silently.
 
 Local install for VS Code users should stay one command:
 
 ```sh
-cd tools/vscode-arco-kdl
-npm run install:local
+npm --prefix tools/vscode-arco-kdl run install:local
 ```
+
+The local installer should use `code` on PATH when available and auto-detect
+standard VS Code app bundle locations on macOS, including `~/User Apps`.
+`VSCODE_CLI` is only an escape hatch for non-standard installs.
 
 ## Checks
 
@@ -106,5 +136,5 @@ Use these checks for KDL tooling changes:
 cargo test -p arco-cli kdl_check_json --test example_cli_commands
 cd tools/tree-sitter-arco-kdl && npx tree-sitter test
 scripts/check-kdl-overlay.sh
-cd tools/vscode-arco-kdl && npm run check
+bash scripts/ci_vscode_extension_check.sh
 ```

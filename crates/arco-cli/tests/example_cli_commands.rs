@@ -1,5 +1,6 @@
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::{
     fs,
     time::{SystemTime, UNIX_EPOCH},
@@ -26,6 +27,38 @@ fn run_cli(args: &[&str]) -> std::process::Output {
 }
 
 fn run_cli_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::process::Output {
+    let (mut command, config_root) = configured_cli_command(args, envs);
+
+    let output = command.output().expect("failed to execute arco binary");
+    if let Some(root) = config_root {
+        let _ = fs::remove_dir_all(root);
+    }
+    output
+}
+
+fn run_cli_with_stdin(args: &[&str], stdin: &str) -> std::process::Output {
+    let (mut command, config_root) = configured_cli_command(args, &[]);
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = command.spawn().expect("failed to execute arco binary");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin should be piped")
+        .write_all(stdin.as_bytes())
+        .expect("write stdin");
+    let output = child.wait_with_output().expect("wait for arco binary");
+
+    if let Some(root) = config_root {
+        let _ = fs::remove_dir_all(root);
+    }
+    output
+}
+
+fn configured_cli_command(args: &[&str], envs: &[(&str, &str)]) -> (Command, Option<PathBuf>) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_arco"));
     command.args(args);
 
@@ -45,11 +78,7 @@ fn run_cli_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::process::Outpu
         command.env(key, value);
     }
 
-    let output = command.output().expect("failed to execute arco binary");
-    if let Some(root) = config_root {
-        let _ = fs::remove_dir_all(root);
-    }
-    output
+    (command, config_root)
 }
 
 fn unique_temp_dir(prefix: &str) -> PathBuf {
@@ -967,6 +996,109 @@ fn kdl_fmt_diff_prints_unified_diff() {
     assert!(stdout.contains("+++"));
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn kdl_fmt_formats_stdin_with_display_filename() {
+    let fixture_path = cli_fixture_path("format/unformatted.kdl");
+    let input = fs::read_to_string(&fixture_path).expect("read unformatted fixture");
+
+    let output = run_cli_with_stdin(
+        &[
+            "kdl",
+            "fmt",
+            "--stdin",
+            "--stdin-filename",
+            "format/unformatted.kdl",
+        ],
+        &input,
+    );
+
+    assert!(
+        output.status.success(),
+        "stdin format should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("node"));
+    assert!(stdout.contains("key=1"));
+    assert!(
+        !stdout.contains('\t'),
+        "formatted stdout should not contain tabs: {stdout}"
+    );
+}
+
+#[test]
+fn kdl_fmt_formats_quoted_formula_as_surface_block() {
+    let fixture_path = cli_fixture_path("format/power-balance-quoted-formula.kdl");
+    let input = fs::read_to_string(&fixture_path).expect("read quoted formula fixture");
+
+    let output = run_cli_with_stdin(&["kdl", "fmt", "--stdin"], &input);
+
+    assert!(
+        output.status.success(),
+        "stdin format should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("// Formatter regression fixture for generated algebra blocks."),
+        "surface formatter should preserve leading comments:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("model dcopf"),
+        "surface formatter should preserve model arguments:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("constraint power_balance"),
+        "surface formatter should preserve constraint arguments:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("index b"),
+        "surface formatter should preserve index arguments:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("in bus"),
+        "surface formatter should preserve domain arguments:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("formula \"sum(pg[g]"),
+        "surface formatter should not keep quoted formula wrapper:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("sum(pg[g] for g in generators if connected[b,g] > 0)\n"),
+        "surface formatter should keep the left-hand sum on its own line:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("- pd[b] / 100\n"),
+        "surface formatter should split top-level subtraction:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("= sum(incidence[l,b] * flow[l] for l in lines)\n"),
+        "surface formatter should split top-level equality:\n{stdout}"
+    );
+}
+
+#[test]
+fn kdl_fmt_kdl_compatible_keeps_quoted_formula() {
+    let fixture_path = cli_fixture_path("format/power-balance-quoted-formula.kdl");
+    let input = fs::read_to_string(&fixture_path).expect("read quoted formula fixture");
+
+    let output = run_cli_with_stdin(&["kdl", "fmt", "--stdin", "--kdl-compatible"], &input);
+
+    assert!(
+        output.status.success(),
+        "stdin format should succeed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("formula \"sum(pg[g] for g in generators if connected[b,g] > 0) - pd[b] / 100 = sum(incidence[l,b] * flow[l] for l in lines)\""),
+        "KDL-compatible formatter should retain strict formula child syntax:\n{stdout}"
+    );
 }
 
 #[test]

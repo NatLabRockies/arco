@@ -84,6 +84,10 @@ kdl-overlay-check:
     ./scripts/check-kdl-overlay.sh
 
 [group: 'hygiene']
+vscode-extension-check:
+    bash scripts/ci_vscode_extension_check.sh
+
+[group: 'hygiene']
 workflow-quality:
     uvx zizmor --pedantic .github/
 
@@ -216,6 +220,10 @@ build-cli-feature features:
 [group: 'product']
 build-cli-release:
     "{{ solver-build-env }}" cargo build --release -p arco-cli --bin arco --all-features
+
+[group: 'product']
+vscode-extension-install:
+    npm --prefix tools/vscode-arco-kdl run install:local
 
 [group: 'examples']
 kdl-examples args="":

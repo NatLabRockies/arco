@@ -41,7 +41,10 @@ use arco_kdl as kdl;
 #[cfg(feature = "compile")]
 use arco_kdl::PrimitiveBuildError;
 #[cfg(feature = "compile")]
-use arco_kdl::source::{ParsedSource, SourceError, format_program_text, parse_program_file};
+use arco_kdl::source::{
+    KdlFormatMode, ParsedSource, SourceError, format_program_text, format_program_text_with_mode,
+    parse_program_file,
+};
 /// Stable model-facing vocabulary exposed through the ops seam.
 pub mod modeling {
     pub use arco_model::{
@@ -165,6 +168,26 @@ pub enum OpsExportFormat {
     Mps,
 }
 
+/// KDL formatting output style supported by the operations facade.
+#[cfg(feature = "compile")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpsKdlFormatMode {
+    /// Prefer Arco authoring syntax, including bare algebra blocks.
+    ArcoSurface,
+    /// Emit strict KDL-compatible syntax after surface normalization.
+    KdlCompatible,
+}
+
+#[cfg(feature = "compile")]
+impl From<OpsKdlFormatMode> for KdlFormatMode {
+    fn from(value: OpsKdlFormatMode) -> Self {
+        match value {
+            OpsKdlFormatMode::ArcoSurface => Self::ArcoSurface,
+            OpsKdlFormatMode::KdlCompatible => Self::KdlCompatible,
+        }
+    }
+}
+
 /// Thin operations facade used by interaction surfaces.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ArcoOps;
@@ -185,6 +208,12 @@ impl ArcoOps {
     #[cfg(feature = "compile")]
     pub fn format_kdl_text(text: &str) -> Result<String, String> {
         format_program_text(text).map_err(|error| error.to_string())
+    }
+
+    /// Format KDL source text through the canonical formatter with an explicit mode.
+    #[cfg(feature = "compile")]
+    pub fn format_kdl_text_with_mode(text: &str, mode: OpsKdlFormatMode) -> Result<String, String> {
+        format_program_text_with_mode(text, mode.into()).map_err(|error| error.to_string())
     }
 
     /// Check a KDL model file through semantic validation.

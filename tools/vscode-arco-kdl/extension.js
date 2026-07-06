@@ -1,6 +1,6 @@
 "use strict";
 
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const vscode = require("vscode");
@@ -10,17 +10,23 @@ const DIAGNOSTIC_SOURCE = "arco-kdl";
 const CONFIGURATION_SECTION = "arco.kdl";
 const CHECK_ARGS = ["kdl", "check"];
 const JSON_FORMAT_ARGS = ["--format", "json"];
+const FORMAT_STDIN_ARGS = ["kdl", "fmt", "--stdin"];
+const VERSION_ARGS = ["--version"];
 const COMMANDS = {
+  formatCurrentFile: "arcoKdl.formatCurrentFile",
   validateCurrentFile: "arcoKdl.validateCurrentFile",
+  showActions: "arcoKdl.showActions",
   selectCheckCommand: "arcoKdl.selectCheckCommand",
   showSetup: "arcoKdl.showSetup",
 };
 
 let extensionContext;
+let statusBarItem;
 let missingCommandWarningShown = false;
 const activeValidations = new Map();
 const activeDiagnosticUris = new Map();
 const diagnosticReportsByUri = new Map();
+const validationStateByUri = new Map();
 
 function activate(context) {
   extensionContext = context;
@@ -28,18 +34,44 @@ function activate(context) {
     vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
   const validateOpenDocument = (document) =>
     validateIfKdl(document, diagnostics);
+  statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    100,
+  );
+  statusBarItem.command = COMMANDS.showActions;
+  statusBarItem.tooltip = "arco KDL actions";
 
   validateOpenDocuments(diagnostics);
+  updateStatusBarForActiveEditor();
   context.subscriptions.push(
     diagnostics,
+    statusBarItem,
     vscode.commands.registerCommand(COMMANDS.validateCurrentFile, () =>
       validateActiveDocument(diagnostics),
+    ),
+    vscode.commands.registerCommand(
+      COMMANDS.formatCurrentFile,
+      formatActiveDocument,
+    ),
+    vscode.commands.registerCommand(COMMANDS.showActions, () =>
+      showActions(diagnostics),
     ),
     vscode.commands.registerCommand(
       COMMANDS.selectCheckCommand,
       selectCheckCommand,
     ),
     vscode.commands.registerCommand(COMMANDS.showSetup, showSetupDocument),
+    vscode.window.onDidChangeActiveTextEditor(() =>
+      updateStatusBarForActiveEditor(),
+    ),
+    vscode.languages.registerDocumentFormattingEditProvider(
+      { language: LANGUAGE_ID },
+      {
+        provideDocumentFormattingEdits(document, _options, token) {
+          return formatDocument(document, token);
+        },
+      },
+    ),
     vscode.workspace.onDidOpenTextDocument(validateOpenDocument),
     vscode.workspace.onDidCloseTextDocument((document) => {
       if (isArcoKdlDocument(document))
@@ -81,6 +113,60 @@ function validateActiveDocument(diagnostics) {
   vscode.window.showInformationMessage("Open an arco KDL file to validate it.");
 }
 
+async function formatActiveDocument() {
+  const document = vscode.window.activeTextEditor?.document;
+  if (document && isArcoKdlDocument(document)) {
+    await vscode.commands.executeCommand("editor.action.formatDocument");
+    return;
+  }
+  vscode.window.showInformationMessage("Open an arco KDL file to format it.");
+}
+
+async function showActions(diagnostics) {
+  const document = vscode.window.activeTextEditor?.document;
+  const hasKdlDocument = document && isArcoKdlDocument(document);
+  const activeCommand = hasKdlDocument ? resolveArcoCommand(document) : "auto";
+  const items = [
+    ...(hasKdlDocument
+      ? [
+          {
+            label: "$(play) Validate Current File",
+            description: "Run arco kdl check",
+            action: "validate",
+          },
+          {
+            label: "$(wand) Format Current File",
+            description: "Run arco kdl fmt",
+            action: "format",
+          },
+        ]
+      : []),
+    {
+      label: "$(terminal) Select arco CLI",
+      description: activeCommand,
+      action: "select",
+    },
+    {
+      label: "$(book) Open Setup Help",
+      description: "Install and troubleshooting notes",
+      action: "setup",
+    },
+  ];
+
+  const selection = await vscode.window.showQuickPick(items, {
+    placeHolder: hasKdlDocument
+      ? "arco KDL actions"
+      : "Open a .kdl file to validate or format",
+  });
+  if (!selection) return;
+
+  if (selection.action === "validate") validateDocument(document, diagnostics);
+  else if (selection.action === "format")
+    await vscode.commands.executeCommand("editor.action.formatDocument");
+  else if (selection.action === "select") await selectCheckCommand();
+  else if (selection.action === "setup") await showSetupDocument();
+}
+
 function validateIfKdl(document, diagnostics) {
   if (isArcoKdlDocument(document)) validateDocument(document, diagnostics);
 }
@@ -99,8 +185,9 @@ function validateDocument(document, diagnostics) {
 
   const uri = document.uri.toString();
   activeValidations.get(uri)?.child.kill();
+  setValidationState(document, { status: "checking" });
 
-  const command = resolveCheckCommand(document);
+  const command = resolveArcoCommand(document);
   const version = document.version;
   const child = spawn(
     command,
@@ -133,6 +220,7 @@ function validateDocument(document, diagnostics) {
         diagnostic: commandFailureDiagnostic(document, command, error.message),
       },
     ]);
+    setValidationState(document, { status: "setup" });
     if (!missingCommandWarningShown && error.code === "ENOENT") {
       missingCommandWarningShown = true;
       showMissingCommandWarning(command);
@@ -151,9 +239,11 @@ function validateDocument(document, diagnostics) {
           diagnostic: invalidOutputDiagnostic(document, command, stderr),
         },
       ]);
+      setValidationState(document, { status: "setup" });
       return;
     }
 
+    setValidationState(document, validationStateForDiagnostics(report.diagnostics));
     setDocumentDiagnostics(
       document,
       diagnostics,
@@ -165,23 +255,152 @@ function validateDocument(document, diagnostics) {
   });
 }
 
-function resolveCheckCommand(document) {
+function formatDocument(document, token) {
+  if (!isArcoKdlDocument(document)) return [];
+
+  const input = document.getText();
+  const command = resolveArcoCommand(document);
+  const args = [...FORMAT_STDIN_ARGS];
+  if (!document.isUntitled && document.fileName) {
+    args.push("--stdin-filename", document.fileName);
+  }
+
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: workspaceDirectory(document),
+      shell:
+        process.platform === "win32" && isWindowsCommandShim(command),
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let cancellationListener;
+
+    const finish = (edits) => {
+      if (settled) return;
+      settled = true;
+      cancellationListener?.dispose();
+      resolve(edits);
+    };
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.stdin.on("error", () => {});
+    child.on("error", (error) => {
+      if (token?.isCancellationRequested) {
+        finish([]);
+        return;
+      }
+
+      showFormatterError(command, error.message);
+      if (!missingCommandWarningShown && error.code === "ENOENT") {
+        missingCommandWarningShown = true;
+        setValidationState(document, { status: "setup" });
+        showMissingCommandWarning(command);
+      }
+      finish([]);
+    });
+    child.on("close", (code) => {
+      if (token?.isCancellationRequested) {
+        finish([]);
+        return;
+      }
+
+      if (code !== 0) {
+        showFormatterError(command, formatterFailureDetail(code, stderr));
+        finish([]);
+        return;
+      }
+
+      if (stdout === input) {
+        finish([]);
+        return;
+      }
+
+      finish([vscode.TextEdit.replace(fullDocumentRange(document), stdout)]);
+    });
+
+    cancellationListener = token?.onCancellationRequested(() => {
+      child.kill();
+      finish([]);
+    });
+
+    child.stdin.end(input);
+  });
+}
+
+function resolveArcoCommand(document) {
   const workspaceRoot = workspaceDirectory(document);
+  const configuredCommand = configuredArcoCommand();
+  if (configuredCommand) return configuredCommand;
+
+  const environmentCommand = process.env.ARCO_CLI?.trim();
+  if (environmentCommand) return environmentCommand;
+
   return (
-    configuration().get("checkCommand", "").trim() ||
-    process.env.ARCO_CLI?.trim() ||
-    (workspaceRoot && findWorkspaceArco(workspaceRoot)) ||
-    findOnPath("arco") ||
+    firstRunnableCommand([
+      findOnPath("arco"),
+      ...defaultUserArcoCandidates(),
+      ...workspaceArcoCandidates(workspaceRoot),
+    ]) ||
     "arco"
   );
 }
 
-function findWorkspaceArco(workspaceRoot) {
+function configuredArcoCommand() {
+  return (
+    configuration().get("command", "").trim() ||
+    configuration().get("checkCommand", "").trim()
+  );
+}
+
+function workspaceArcoCandidates(workspaceRoot) {
+  if (!workspaceRoot) return [];
+
   const binaryName = process.platform === "win32" ? "arco.exe" : "arco";
   return [
     path.join(workspaceRoot, "target", "debug", binaryName),
     path.join(workspaceRoot, "target", "release", binaryName),
-  ].find(isExecutableFile);
+  ];
+}
+
+function defaultUserArcoCandidates() {
+  const binaryName = process.platform === "win32" ? "arco.exe" : "arco";
+  return [
+    process.env.HOME && path.join(process.env.HOME, ".local", "bin", binaryName),
+    process.env.HOME && path.join(process.env.HOME, ".cargo", "bin", binaryName),
+    process.env.USERPROFILE &&
+      path.join(process.env.USERPROFILE, ".local", "bin", binaryName),
+    process.env.USERPROFILE &&
+      path.join(process.env.USERPROFILE, ".cargo", "bin", binaryName),
+  ];
+}
+
+function firstRunnableCommand(candidates) {
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    if (isRunnableArcoCommand(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+function isRunnableArcoCommand(candidate) {
+  if (!isExecutableFile(candidate)) return false;
+
+  const result = spawnSync(candidate, VERSION_ARGS, {
+    encoding: "utf8",
+    timeout: 2_000,
+    shell:
+      process.platform === "win32" && isWindowsCommandShim(candidate),
+  });
+  return result.status === 0 && /^arco\s+\d/.test(result.stdout.trim());
 }
 
 function findOnPath(command) {
@@ -228,6 +447,68 @@ function isExecutableFile(candidate) {
 
 function workspaceDirectory(document) {
   return vscode.workspace.getWorkspaceFolder(document.uri)?.uri.fsPath;
+}
+
+function setValidationState(document, state) {
+  validationStateByUri.set(document.uri.toString(), state);
+  updateStatusBarForActiveEditor();
+}
+
+function validationStateForDiagnostics(diagnostics) {
+  if (!diagnostics.length) return { status: "ready" };
+
+  const errors = diagnostics.filter(
+    (diagnostic) => diagnostic.severity !== "warning",
+  ).length;
+  const warnings = diagnostics.length - errors;
+  return { status: "issues", errors, warnings };
+}
+
+function updateStatusBarForActiveEditor() {
+  if (!statusBarItem) return;
+
+  const document = vscode.window.activeTextEditor?.document;
+  if (!document || !isArcoKdlDocument(document)) {
+    statusBarItem.hide();
+    return;
+  }
+
+  const state =
+    validationStateByUri.get(document.uri.toString()) ?? { status: "idle" };
+  statusBarItem.text = statusBarText(state);
+  statusBarItem.tooltip = statusBarTooltip(state);
+  statusBarItem.show();
+}
+
+function statusBarText(state) {
+  if (state.status === "checking") return "$(sync~spin) arco KDL";
+  if (state.status === "setup") return "$(debug-disconnect) arco KDL";
+  if (state.status === "issues") {
+    const count = (state.errors ?? 0) + (state.warnings ?? 0);
+    return `$(warning) arco KDL ${count}`;
+  }
+  if (state.status === "ready") return "$(check) arco KDL";
+  return "$(circle-outline) arco KDL";
+}
+
+function statusBarTooltip(state) {
+  if (state.status === "checking") return "arco KDL: checking";
+  if (state.status === "setup")
+    return "arco KDL: setup needed. Click for actions.";
+  if (state.status === "issues") {
+    const errors = state.errors ?? 0;
+    const warnings = state.warnings ?? 0;
+    return `arco KDL: ${errors} error(s), ${warnings} warning(s). Click for actions.`;
+  }
+  if (state.status === "ready")
+    return "arco KDL: no issues found. Click for actions.";
+  return "arco KDL actions";
+}
+
+function fullDocumentRange(document) {
+  const start = new vscode.Position(0, 0);
+  const lastLine = document.lineAt(document.lineCount - 1);
+  return new vscode.Range(start, lastLine.rangeIncludingLineBreak.end);
 }
 
 function parseReport(stdout) {
@@ -350,6 +631,8 @@ function clearDocumentDiagnostics(document, diagnostics) {
     publishDiagnostics(diagnostics, uri);
   }
   activeDiagnosticUris.delete(sourceUri);
+  validationStateByUri.delete(sourceUri);
+  updateStatusBarForActiveEditor();
 }
 
 function publishDiagnostics(diagnostics, uri) {
@@ -399,6 +682,18 @@ function invalidOutputDiagnostic(document, command, stderr) {
   );
 }
 
+function formatterFailureDetail(code, stderr) {
+  const detail = stderr.trim().split(/\r?\n/).find(Boolean);
+  if (detail) return detail;
+  return `exited with status ${code}`;
+}
+
+function showFormatterError(command, message) {
+  vscode.window.showErrorMessage(
+    `arco KDL formatter '${command}' failed: ${message}`,
+  );
+}
+
 function fileDiagnostic(document, message) {
   const diagnostic = new vscode.Diagnostic(
     document.lineAt(0).range,
@@ -412,7 +707,7 @@ function fileDiagnostic(document, message) {
 function showMissingCommandWarning(command) {
   vscode.window
     .showWarningMessage(
-      `arco KDL validator '${command}' was not found. Install the arco CLI or select its path.`,
+      `arco CLI '${command}' was not found. Install the arco CLI or select its path.`,
       "Select CLI",
       "Setup Help",
     )
@@ -433,11 +728,11 @@ async function selectCheckCommand() {
   if (!selected) return;
 
   await configuration().update(
-    "checkCommand",
+    "command",
     selected,
     vscode.ConfigurationTarget.Global,
   );
-  vscode.window.showInformationMessage(`arco KDL validator set to ${selected}`);
+  vscode.window.showInformationMessage(`arco CLI set to ${selected}`);
 }
 
 async function showSetupDocument() {
@@ -451,4 +746,17 @@ async function showSetupDocument() {
   await vscode.window.showTextDocument(document);
 }
 
-module.exports = { activate, deactivate };
+module.exports = {
+  activate,
+  deactivate,
+  _test: {
+    FORMAT_STDIN_ARGS,
+    configuredArcoCommand,
+    formatDocument,
+    fullDocumentRange,
+    resolveArcoCommand,
+    statusBarText,
+    statusBarTooltip,
+    validationStateForDiagnostics,
+  },
+};

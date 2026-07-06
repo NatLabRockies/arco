@@ -290,6 +290,7 @@ arco <command> [options]
 | `arco run <file>`           | Compile and solve a `.kdl` formulation                    |
 | `arco validate <file>`      | Validate a `.kdl` file without solving                    |
 | `arco kdl check <file>`     | Validate KDL, with JSON and optional data materialization |
+| `arco kdl fmt [paths]`      | Format KDL files or stdin                                 |
 | `arco --version`            | Print the installed Arco CLI version                      |
 | `arco self update`          | Update a standalone installer build                       |
 | `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters)      |
@@ -322,11 +323,22 @@ $ arco kdl check input.kdl --format json --materialize-data
 {"valid":true,"diagnostics":[]}
 ```
 
-Install the local VS Code helper extension:
+Format KDL:
 
 ```bash
-cd tools/vscode-arco-kdl
-npm run install:local
+$ arco kdl fmt input.kdl
+1 file(s) reformatted
+```
+
+`arco kdl fmt` prints Arco authoring syntax by default, including readable
+algebra blocks. Use `--kdl-compatible` when tooling needs normalized strict KDL
+with algebra stored as `expression=` properties or `formula "..."` children.
+
+Install the local VS Code helper extension with highlighting, diagnostics,
+formatting, and status-bar actions:
+
+```bash
+npm --prefix tools/vscode-arco-kdl run install:local
 ```
 
 Print CLI version:
