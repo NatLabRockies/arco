@@ -10,7 +10,6 @@ main() {
 		--manifest-path bindings/python/Cargo.toml
 		-i "$interpreter"
 		--compatibility pypi
-		--auditwheel repair
 		--out dist
 	)
 

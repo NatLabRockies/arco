@@ -264,6 +264,9 @@ main() {
 			append_env "$env_file" "ARCO_SCIP_LIBRARY_PATH" "$library_path"
 		fi
 		runtime_paths="${runtime_paths:+$runtime_paths:}$library_path"
+		if [[ "$target" == *-pc-windows-* && -d "$install_dir/bin" ]]; then
+			runtime_paths="$runtime_paths:$install_dir/bin"
+		fi
 		if fortran_runtime_dir="$(fortran_runtime_dir_for_target "$target")"; then
 			append_env "$env_file" "ARCO_SCIP_FORTRAN_RUNTIME_PATH_${suffix}" "$fortran_runtime_dir"
 			if [[ "$configured" -eq 0 ]]; then
