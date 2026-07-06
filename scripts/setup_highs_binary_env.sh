@@ -130,25 +130,29 @@ host_can_link_zlib() {
 	return 1
 }
 
+host_matches_target() {
+	local target="$1"
+	local platform="$2"
+	local host
+	host="$(host_target 2>/dev/null || true)"
+	if [[ "$target" == "$host" ]]; then
+		return 0
+	fi
+
+	log "official HiGHS static archive discovery is only enabled for native $platform targets; host is '${host:-unknown}', target is $target, using source-build fallback"
+	return 1
+}
+
 host_can_link_archive() {
 	local target="$1"
-	local host
 	local glibc_version
 
 	case "$target" in
 		*-apple-darwin)
-			host="$(host_target 2>/dev/null || true)"
-			if [[ "$target" != "$host" ]]; then
-				log "official HiGHS static archive discovery is only enabled for native macOS targets; host is '${host:-unknown}', target is $target, using source-build fallback"
-				return 1
-			fi
+			host_matches_target "$target" "macOS" || return 1
 			;;
 		*-unknown-linux-gnu)
-			host="$(host_target 2>/dev/null || true)"
-			if [[ "$target" != "$host" ]]; then
-				log "official HiGHS static archive discovery is only enabled for native Linux targets; host is '${host:-unknown}', target is $target, using source-build fallback"
-				return 1
-			fi
+			host_matches_target "$target" "Linux" || return 1
 			glibc_version="$(host_glibc_version)"
 			if [[ -z "$glibc_version" ]]; then
 				log "could not detect host glibc version for $target; using source-build fallback"
@@ -163,11 +167,7 @@ host_can_link_archive() {
 			fi
 			;;
 		*-pc-windows-msvc)
-			host="$(host_target 2>/dev/null || true)"
-			if [[ "$target" != "$host" ]]; then
-				log "official HiGHS static archive discovery is only enabled for native Windows targets; host is '${host:-unknown}', target is $target, using source-build fallback"
-				return 1
-			fi
+			host_matches_target "$target" "Windows" || return 1
 			;;
 	esac
 }
@@ -231,30 +231,23 @@ target = sys.argv[3]
 link_zlib = sys.argv[4] == "1"
 link_extras = sys.argv[5] == "1"
 
+libs = ["-L${libdir}", "-lhighs"]
+if link_extras:
+    libs.append("-lhighs_extras")
 if "apple-darwin" in target:
-    libs = "-L${libdir} -lhighs"
-    if link_extras:
-        libs += " -lhighs_extras"
     if link_zlib:
-        libs += " -lz"
-    libs += " -lc++"
-elif "pc-windows-msvc" in target:
-    libs = "-L${libdir} -lhighs"
-    if link_extras:
-        libs += " -lhighs_extras"
-else:
-    libs = "-L${libdir} -lhighs"
-    if link_extras:
-        libs += " -lhighs_extras"
+        libs.append("-lz")
+    libs.append("-lc++")
+elif "pc-windows-msvc" not in target:
     if link_zlib:
-        libs += " -lz"
-    libs += " -lstdc++"
+        libs.append("-lz")
+    libs.append("-lstdc++")
 
 rewrites = {
     "prefix": root,
     "libdir": "${prefix}/lib",
     "includedir": "${prefix}/include/highs",
-    "Libs": libs,
+    "Libs": " ".join(libs),
 }
 
 lines = []
@@ -311,14 +304,11 @@ PY
 link_zlib_for_target() {
 	local target="$1"
 
-	case "$target" in
-		*-pc-windows-msvc)
-			printf '0\n'
-			;;
-		*)
-			printf '1\n'
-			;;
-	esac
+	if [[ "$target" == *-pc-windows-msvc ]]; then
+		printf '0\n'
+	else
+		printf '1\n'
+	fi
 }
 
 sanitize_cache_component() {
@@ -345,13 +335,9 @@ msvc_toolset_cache_component() {
 		output="$("$program" 2>&1 || true)"
 		version="$(
 			printf '%s\n' "$output" |
-				awk '/Version/ {
-					for (i = 1; i <= NF; i++) {
-						if ($i ~ /^[0-9]+([.][0-9]+)+$/) {
-							print $i
-							exit
-						}
-					}
+				awk 'match($0, /Version [0-9]+([.][0-9]+)+/) {
+					print substr($0, RSTART + 8, RLENGTH - 8)
+					exit
 				}'
 		)"
 		if [[ -n "$version" ]]; then
@@ -366,14 +352,11 @@ msvc_toolset_cache_component() {
 source_cache_dirname() {
 	local target="$1"
 
-	case "$target" in
-		*-pc-windows-msvc)
-			printf '%s-source-release-msvc-%s\n' "$target" "$(msvc_toolset_cache_component)"
-			;;
-		*)
-			printf '%s-source\n' "$target"
-			;;
-	esac
+	if [[ "$target" == *-pc-windows-msvc ]]; then
+		printf '%s-source-release-msvc-%s\n' "$target" "$(msvc_toolset_cache_component)"
+	else
+		printf '%s-source\n' "$target"
+	fi
 }
 
 download_and_extract() {

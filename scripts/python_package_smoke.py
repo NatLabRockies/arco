@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import textwrap
 from typing import Mapping, Sequence
 
 _WINDOWS_DLL_DIRS_ENV = "ARCO_PYTHON_SMOKE_DLL_DIRS"
@@ -43,10 +44,6 @@ def _normalize_windows_path(path: str) -> str:
     return path
 
 
-def _split_runtime_path_list(value: str) -> list[str]:
-    return [part for part in value.split(":") if part]
-
-
 def _runtime_path_candidates(*, env: Mapping[str, str]) -> list[str]:
     candidates: list[str] = []
 
@@ -68,7 +65,7 @@ def _runtime_path_candidates(*, env: Mapping[str, str]) -> list[str]:
 
     if not candidates:
         for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LIBRARY_PATH"):
-            candidates.extend(_split_runtime_path_list(env.get(name, "")))
+            candidates.extend(part for part in env.get(name, "").split(":") if part)
 
     return candidates
 
@@ -100,19 +97,21 @@ def _smoke_env(
 
 
 def _build_import_code(*, import_name: str) -> str:
-    return (
-        "import importlib\n"
-        "import os\n"
-        "import sys\n"
-        "dll_directory_handles = []\n"
-        "if sys.platform == 'win32':\n"
-        f"    dll_dirs = os.environ.get({_WINDOWS_DLL_DIRS_ENV!r}, '')\n"
-        "    add_dll_directory = getattr(os, 'add_dll_directory', None)\n"
-        "    if add_dll_directory is not None:\n"
-        "        for dll_dir in dll_dirs.split(os.pathsep):\n"
-        "            if dll_dir:\n"
-        "                dll_directory_handles.append(add_dll_directory(dll_dir))\n"
-        f"importlib.import_module({import_name!r})\n"
+    return textwrap.dedent(
+        f"""\
+        import importlib
+        import os
+        import sys
+
+        dll_directory_handles = []
+        if sys.platform == "win32":
+            add_dll_directory = getattr(os, "add_dll_directory", None)
+            if add_dll_directory is not None:
+                for dll_dir in os.environ.get({_WINDOWS_DLL_DIRS_ENV!r}, "").split(os.pathsep):
+                    if dll_dir:
+                        dll_directory_handles.append(add_dll_directory(dll_dir))
+        importlib.import_module({import_name!r})
+        """
     )
 
 

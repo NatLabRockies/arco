@@ -1,25 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-import importlib.util
 import os
 from pathlib import Path
+import runpy
 import sys
-from types import ModuleType
 
 
-def _load_smoke_module() -> ModuleType:
-    script = Path(__file__).with_name("python_package_smoke.py")
-    spec = importlib.util.spec_from_file_location("python_package_smoke", script)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"could not load {script}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-_smoke_module = _load_smoke_module()
-_smoke_env: Callable[..., dict[str, str]] = _smoke_module._smoke_env
+_smoke_module = runpy.run_path(str(Path(__file__).with_name("python_package_smoke.py")))
+_smoke_env = _smoke_module["_smoke_env"]
+_build_import_code = _smoke_module["_build_import_code"]
 
 
 def test_smoke_env_prepends_windows_solver_runtime_paths() -> None:
@@ -68,7 +57,7 @@ def test_import_code_adds_windows_dll_directories(monkeypatch) -> None:
     monkeypatch.setattr(os, "pathsep", ";")
     monkeypatch.setenv("ARCO_PYTHON_SMOKE_DLL_DIRS", "C:/solver/bin;C:/solver/lib")
 
-    exec(_smoke_module._build_import_code(import_name="json"), {})
+    exec(_build_import_code(import_name="json"), {})
 
     assert added_paths == ["C:/solver/bin", "C:/solver/lib"]
     assert len(handles) == 2
