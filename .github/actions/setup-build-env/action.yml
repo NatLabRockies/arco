@@ -95,17 +95,7 @@ runs:
       env:
         RUST_TOOLCHAIN_VERSION: ${{ inputs.rust-toolchain-version }}
         RUST_COMPONENTS: ${{ inputs.rust-components }}
-      run: |
-        rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
-        if [[ "$RUST_COMPONENTS" != "none" && -n "$RUST_COMPONENTS" ]]; then
-          IFS=',' read -r -a components <<< "$RUST_COMPONENTS"
-          for component in "${components[@]}"; do
-            component="${component//[[:space:]]/}"
-            [[ -n "$component" ]] || continue
-            rustup component add "$component" --toolchain "$RUST_TOOLCHAIN_VERSION"
-          done
-        fi
-        rustup default "$RUST_TOOLCHAIN_VERSION"
+      run: bash ./scripts/ci_setup_rust_toolchain.sh
 
     - name: Restore HiGHS native cache
       if: ${{ inputs.configure-solvers == 'true' }}

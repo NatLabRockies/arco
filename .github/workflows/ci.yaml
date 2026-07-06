@@ -29,88 +29,32 @@ jobs:
   version-consistency:
     name: Version consistency
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
 
+      - name: Set up Python
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-rust: "false"
+          cache-rust: "false"
+          install-uv: "true"
+          cache-uv: "false"
+          install-just: "false"
+          configure-solvers: "false"
+          sync-python-licenses: "false"
+          save-uv-cache: "false"
+          save-rust-cache: "false"
+          save-solver-cache: "false"
+
       - name: Validate release version metadata
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import sys
-          import tomllib
-          from pathlib import Path
-
-          def read_toml(path: str) -> dict:
-              with Path(path).open("rb") as file:
-                  return tomllib.load(file)
-
-          def fail(message: str) -> None:
-              print(f"::error::{message}", file=sys.stderr)
-              raise SystemExit(1)
-
-          cargo_version = (
-              read_toml("Cargo.toml")
-              .get("workspace", {})
-              .get("package", {})
-              .get("version")
-          )
-          pyproject_version = (
-              read_toml("bindings/python/pyproject.toml")
-              .get("project", {})
-              .get("version")
-          )
-          uv_lock = read_toml("bindings/python/uv.lock")
-          uv_versions = {
-              package.get("name"): package.get("version")
-              for package in uv_lock.get("package", [])
-          }
-          uv_arco_version = uv_versions.get("arco")
-          manifest_version = json.loads(
-              Path(".github/release-please-manifest.json").read_text(encoding="utf-8")
-          ).get(".")
-
-          versions = {
-              "Cargo.toml workspace.package.version": cargo_version,
-              "bindings/python/pyproject.toml project.version": pyproject_version,
-              "bindings/python/uv.lock package[arco].version": uv_arco_version,
-              ".github/release-please-manifest.json .": manifest_version,
-          }
-          missing = [name for name, version in versions.items() if not version]
-          if missing:
-              fail("Missing release version metadata: " + ", ".join(missing))
-
-          distinct_versions = sorted(set(versions.values()))
-          if len(distinct_versions) != 1:
-              details = ", ".join(f"{name}={version}" for name, version in versions.items())
-              fail(f"Release version metadata mismatch: {details}")
-
-          release_config = json.loads(
-              Path(".github/release-please-config.json").read_text(encoding="utf-8")
-          )
-          extra_file_paths = {
-              entry.get("path")
-              for entry in release_config.get("packages", {})
-              .get(".", {})
-              .get("extra-files", [])
-          }
-          expected_extra_files = {
-              "Cargo.toml",
-              "bindings/python/pyproject.toml",
-              "bindings/python/uv.lock",
-          }
-          missing_extra_files = sorted(expected_extra_files - extra_file_paths)
-          if missing_extra_files:
-              fail(
-                  "release-please is not configured to update: "
-                  + ", ".join(missing_extra_files)
-              )
-
-          print(f"Release version metadata is consistent: {distinct_versions[0]}")
-          PY
+        run: uv run --no-project --python "$PYTHON_LATEST" python scripts/check_release_version_metadata.py
 
   ci-plan:
     name: Plan CI jobs
@@ -141,6 +85,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'justfile'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/setup_highs_binary_env.sh'
               - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/with_solver_build_env.sh'
@@ -152,16 +97,20 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'justfile'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/setup_highs_binary_env.sh'
               - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/with_solver_build_env.sh'
               - '.github/actions/**'
             docs:
               - 'docs/**'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/test_docs_doctest.py'
               - 'justfile'
               - 'scripts/with_solver_build_env.sh'
             solver:
+              - 'scripts/ci_install_apt_deps.sh'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/setup_highs_binary_env.sh'
               - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/with_solver_build_env.sh'
@@ -175,8 +124,12 @@ jobs:
               - '**/*.kdl'
               - 'crates/arco-kdl/**'
               - 'crates/arco-cli/**'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/test_example_formulations.py'
             benchmarks:
+              - 'scripts/ci_add_cargo_bin_to_path.sh'
+              - 'scripts/ci_install_torc.sh'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/bench.py'
               - 'scripts/bench_guard.py'
               - 'benchmarks/**'
@@ -185,6 +138,16 @@ jobs:
               - 'bindings/python/pyproject.toml'
               - 'bindings/python/uv.lock'
               - 'CHANGELOG.md'
+              - 'scripts/check_release_version_metadata.py'
+              - 'scripts/ci_cargo_dist_preflight.sh'
+              - 'scripts/ci_dist_plan_output.sh'
+              - 'scripts/ci_ensure_dist_executable.sh'
+              - 'scripts/ci_install_dist_unix.sh'
+              - 'scripts/ci_install_dist_windows.ps1'
+              - 'scripts/ci_install_rust_if_missing.sh'
+              - 'scripts/ci_setup_rust_toolchain.sh'
+              - 'scripts/ci_validate_xpress_runtime_env.sh'
+              - 'scripts/ci_verify_generated_dist_workflow.sh'
               - '.github/release-please-config.json'
               - '.github/release-please-manifest.json'
               - 'dist-workspace.toml'
@@ -192,7 +155,11 @@ jobs:
               - '.github/workflows/**'
               - '.github/build-setup.yml'
               - '.github/dependabot.yml'
+              - 'scripts/check_release_version_metadata.py'
+              - 'scripts/ci_*.ps1'
+              - 'scripts/ci_*.sh'
             vscode_extension:
+              - 'scripts/ci_vscode_extension_check.sh'
               - 'tools/vscode-arco-kdl/**'
 
       - name: Print CI plan
@@ -225,11 +192,7 @@ jobs:
           package-manager-cache: false
 
       - name: Check and package VS Code extension
-        working-directory: tools/vscode-arco-kdl
-        run: |
-          set -euo pipefail
-          npm run check
-          npm run package
+        run: bash scripts/ci_vscode_extension_check.sh
 
   cargo-dist:
     name: cargo-dist workflow
@@ -256,7 +219,7 @@ jobs:
       - name: Install dist
         if: steps.dist-cache-restore.outputs.cache-hit != 'true'
         shell: bash
-        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" | sh
+        run: bash scripts/ci_install_dist_unix.sh
 
       - name: Save dist cache
         if: github.event_name != 'pull_request' && steps.dist-cache-restore.outputs.cache-hit != 'true'
@@ -269,20 +232,14 @@ jobs:
 
       - name: Ensure dist is executable
         if: runner.os != 'Windows'
-        run: chmod +x ~/.cargo/bin/dist
+        run: bash scripts/ci_ensure_dist_executable.sh
 
       - name: Verify generated workflow is current
-        run: |
-          set -euo pipefail
-          dist generate --mode=ci
-          git diff --exit-code -- .github/workflows/v-release.yml
+        run: bash scripts/ci_verify_generated_dist_workflow.sh
 
       - id: plan
         name: Check dist release plan
-        run: |
-          set -euo pipefail
-          dist plan --output-format=json > plan-dist-manifest.json
-          echo "artifacts_matrix=$(jq -c '.ci.github.artifacts_matrix' plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
+        run: bash scripts/ci_dist_plan_output.sh
 
   cargo-dist-artifact-preflight:
     name: cargo-dist preflight (${{ join(matrix.targets, ', ') }})
@@ -305,23 +262,8 @@ jobs:
 
       - name: Install Rust in container
         if: matrix.container
-        run: |
-          if ! command -v cargo >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          fi
-
-      - name: Verify pinned preflight container
-        if: matrix.container
         shell: bash
-        env:
-          DIST_CONTAINER_IMAGE: ${{ matrix.container.image }}
-        run: |
-          set -euo pipefail
-          if [[ "$DIST_CONTAINER_IMAGE" != "quay.io/pypa/manylinux_2_28_x86_64" ]]; then
-            echo "::error::Update the pinned cargo-dist preflight container for ${DIST_CONTAINER_IMAGE}."
-            exit 1
-          fi
+        run: bash scripts/ci_install_rust_if_missing.sh
 
       - name: Configure manylinux native dependency builds
         if: matrix.container && contains(join(matrix.targets, ','), 'x86_64-unknown-linux-gnu')
@@ -355,23 +297,9 @@ jobs:
           XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
         run: bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
 
-      - name: Validate XPRESSDIR for xpress-enabled dist builds (Unix)
-        if: runner.os != 'Windows'
+      - name: Validate XPRESSDIR for xpress-enabled dist builds
         shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${XPRESSDIR:-}" ]]; then
-            echo "XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS." >&2
-            exit 1
-          fi
-
-      - name: Validate XPRESSDIR for xpress-enabled dist builds (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (-not $env:XPRESSDIR) {
-            Write-Error 'XPRESSDIR is unset. Configure XPRESS_SDK_*_URL repository variables for this runner OS.'
-          }
+        run: bash scripts/ci_validate_xpress_runtime_env.sh
 
       - name: Restore dist cache
         id: dist-cache-restore
@@ -385,12 +313,12 @@ jobs:
       - name: Install dist (Unix)
         if: runner.os != 'Windows' && steps.dist-cache-restore.outputs.cache-hit != 'true'
         shell: bash
-        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" | sh
+        run: bash scripts/ci_install_dist_unix.sh
 
       - name: Install dist (Windows)
         if: runner.os == 'Windows' && steps.dist-cache-restore.outputs.cache-hit != 'true'
         shell: pwsh
-        run: irm "https://github.com/axodotdev/cargo-dist/releases/download/v${env:CARGO_DIST_VERSION}/cargo-dist-installer.ps1" | iex
+        run: ./scripts/ci_install_dist_windows.ps1
 
       - name: Save dist cache
         if: github.event_name != 'pull_request' && steps.dist-cache-restore.outputs.cache-hit != 'true'
@@ -403,39 +331,15 @@ jobs:
 
       - name: Ensure dist is executable
         if: runner.os != 'Windows'
-        run: chmod +x ~/.cargo/bin/dist
+        run: bash scripts/ci_ensure_dist_executable.sh
 
       - name: Build local cargo-dist artifacts
         shell: bash
         env:
+          DIST_CONTAINER_IMAGE: ${{ matrix.container && matrix.container.image || '' }}
           DIST_PLAN_ARGS: ${{ matrix.dist_args }}
           DIST_TARGETS: ${{ join(matrix.targets, ',') }}
-        run: |
-          set -euo pipefail
-
-          IFS=',' read -r -a targets <<< "$DIST_TARGETS"
-          dist_args=(--artifacts=local)
-          for target in "${targets[@]}"; do
-            case "$target" in
-              aarch64-apple-darwin | aarch64-unknown-linux-gnu | x86_64-apple-darwin | x86_64-unknown-linux-gnu | x86_64-pc-windows-msvc)
-                dist_args+=("--target=$target")
-                ;;
-              *)
-                echo "::error::Unexpected cargo-dist preflight target: $target"
-                exit 1
-                ;;
-            esac
-          done
-
-          expected_args="${dist_args[*]}"
-          if [[ "$DIST_PLAN_ARGS" != "$expected_args" ]]; then
-            echo "::error::Unexpected cargo-dist args: $DIST_PLAN_ARGS"
-            echo "Expected: $expected_args"
-            exit 1
-          fi
-
-          dist build --print=linkage --output-format=json "${dist_args[@]}" > dist-manifest.json
-          dist print-upload-files-from-manifest --manifest dist-manifest.json
+        run: bash scripts/ci_cargo_dist_preflight.sh
 
   rust-fmt:
     name: Rust format
@@ -622,10 +526,7 @@ jobs:
         if: matrix.apt-deps != ''
         env:
           APT_DEPS: ${{ matrix.apt-deps }}
-        run: |
-          read -r -a apt_deps <<< "$APT_DEPS"
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "${apt_deps[@]}"
+        run: bash scripts/ci_install_apt_deps.sh
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -657,9 +558,7 @@ jobs:
         if: matrix.setup-runtime != ''
         env:
           SETUP_RUNTIME: ${{ matrix.setup-runtime }}
-        run: |
-          set -euo pipefail
-          bash ./scripts/setup_solver_runtime_env.sh "$SETUP_RUNTIME" "$GITHUB_ENV"
+        run: bash ./scripts/setup_solver_runtime_env.sh "$SETUP_RUNTIME" "$GITHUB_ENV"
 
       - name: Run solver smoke
         env:
@@ -708,15 +607,7 @@ jobs:
           rust-cache-shared-key: product-build
 
       - name: Install torc
-        run: |
-          if [ ! -x "$HOME/.cargo/bin/torc" ] || [ ! -x "$HOME/.cargo/bin/torc-server" ]; then
-            mkdir -p "$HOME/.cargo/bin"
-            curl -fsSL "https://github.com/NatLabRockies/torc/releases/download/v$TORC_VERSION/torc-x86_64-unknown-linux-musl.tar.gz" \
-              | tar xz -C "$HOME/.cargo/bin" torc torc-server
-            chmod +x "$HOME/.cargo/bin/torc" "$HOME/.cargo/bin/torc-server"
-          fi
-          "$HOME/.cargo/bin/torc" --version
-          "$HOME/.cargo/bin/torc-server" run --help >/dev/null
+        run: bash scripts/ci_install_torc.sh
 
       - name: Save torc binaries
         if: github.ref == 'refs/heads/main' && steps.torc-cache.outputs.cache-hit != 'true'
@@ -728,7 +619,7 @@ jobs:
           key: ${{ runner.os }}-torc-${{ env.TORC_VERSION }}
 
       - name: Add cargo bin to PATH
-        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        run: bash scripts/ci_add_cargo_bin_to_path.sh
 
       - name: Download CLI artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5
