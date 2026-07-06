@@ -169,7 +169,7 @@ py-test: py-dev py-cli-build
 
 [group: 'python']
 py-build-wheel: py-licenses
-    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then "{{ solver-build-env }}" uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else "{{ solver-build-env }}" uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
 
 [group: 'python']
 py-build-sdist:

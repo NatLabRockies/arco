@@ -55,6 +55,9 @@ asset_for_target() {
 		aarch64-unknown-linux-gnu)
 			printf 'highs-%s-aarch64-linux-gnu-static-mit.tar.gz\n' "$HIGHS_VERSION"
 			;;
+		x86_64-pc-windows-msvc)
+			printf 'highs-%s-x86_64-windows-static-mit.zip\n' "$HIGHS_VERSION"
+			;;
 		*)
 			return 1
 			;;
@@ -155,6 +158,13 @@ host_can_link_archive() {
 				return 1
 			fi
 			;;
+		*-pc-windows-msvc)
+			host="$(host_target 2>/dev/null || true)"
+			if [[ "$target" != "$host" ]]; then
+				log "official HiGHS static archive discovery is only enabled for native Windows targets; host is '${host:-unknown}', target is $target, using source-build fallback"
+				return 1
+			fi
+			;;
 	esac
 }
 
@@ -192,10 +202,12 @@ rewrite_pkg_config() {
 	local link_zlib="${3:-1}"
 	local link_extras="${4:-0}"
 	local pc_file="$root/lib/pkgconfig/highs.pc"
+	local rewrite_root
 	local python_bin
+	rewrite_root="$(path_for_target "$root" "$target")"
 	python_bin="$(find_python)"
 
-	"$python_bin" - "$pc_file" "$root" "$target" "$link_zlib" "$link_extras" <<'PY'
+	"$python_bin" - "$pc_file" "$rewrite_root" "$target" "$link_zlib" "$link_extras" <<'PY'
 from pathlib import Path
 import sys
 
@@ -212,6 +224,8 @@ if "apple-darwin" in target:
     if link_zlib:
         libs += " -lz"
     libs += " -lc++"
+elif "pc-windows-msvc" in target:
+    libs = "-L${libdir} -lhighs"
 else:
     libs = "-L${libdir} -lhighs"
     if link_extras:
@@ -239,26 +253,85 @@ pc_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
 }
 
+path_for_target() {
+	local path="$1"
+	local target="$2"
+
+	if [[ "$target" == *-pc-windows-* ]] && command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$path"
+	else
+		printf '%s\n' "$path"
+	fi
+}
+
+extract_archive() {
+	local archive="$1"
+	local root="$2"
+	local python_bin
+
+	case "$archive" in
+		*.tar.gz)
+			tar -xzf "$archive" -C "$root"
+			;;
+		*.zip)
+			python_bin="$(find_python)"
+			"$python_bin" - "$archive" "$root" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+
+archive = Path(sys.argv[1])
+root = Path(sys.argv[2])
+with zipfile.ZipFile(archive) as zip_file:
+    zip_file.extractall(root)
+PY
+			;;
+		*)
+			log "unsupported HiGHS archive format: $archive"
+			return 1
+			;;
+	esac
+}
+
+link_zlib_for_target() {
+	local target="$1"
+
+	case "$target" in
+		*-pc-windows-msvc)
+			printf '0\n'
+			;;
+		*)
+			printf '1\n'
+			;;
+	esac
+}
+
 download_and_extract() {
 	local target="$1"
 	local asset="$2"
 	local root="$3"
 	local marker="$root/.arco-highs-complete"
 	local url="https://github.com/ERGO-Code/HiGHS/releases/download/v${HIGHS_VERSION}/${asset}"
-	local archive="${RUNNER_TEMP:-/tmp}/${asset}"
+	local archive_dir
+	local archive
+	local link_zlib
+	archive_dir="$(dirname -- "$root")"
+	archive="$archive_dir/$asset"
 
 	if [[ -f "$marker" ]]; then
 		log "using cached HiGHS $HIGHS_VERSION for $target at $root"
-		rewrite_pkg_config "$root" "$target" 1 0
+		link_zlib="$(link_zlib_for_target "$target")"
+		rewrite_pkg_config "$root" "$target" "$link_zlib" 0
 		return
 	fi
 
 	rm -rf "$root"
-	mkdir -p "$root"
+	mkdir -p "$root" "$archive_dir"
 	log "downloading HiGHS $HIGHS_VERSION for $target"
 	curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$archive"
-	tar -xzf "$archive" -C "$root"
-	rewrite_pkg_config "$root" "$target" 1 0
+	extract_archive "$archive" "$root"
+	link_zlib="$(link_zlib_for_target "$target")"
+	rewrite_pkg_config "$root" "$target" "$link_zlib" 0
 	touch "$marker"
 }
 
@@ -334,6 +407,7 @@ build_source_cache() {
 		-DFAST_BUILD=ON
 		-DBUILD_SHARED_LIBS=OFF
 		-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=FALSE
+		-DCMAKE_INSTALL_LIBDIR=lib
 		-DZLIB=OFF
 		-DCMAKE_INSTALL_DOCDIR=
 	)
@@ -365,8 +439,11 @@ append_pkg_config_env() {
 	local env_file="$1"
 	local target="$2"
 	local root="$3"
-	local pkg_config_dir="$root/lib/pkgconfig"
+	local env_root
+	local pkg_config_dir
 	local suffix="${target//-/_}"
+	env_root="$(path_for_target "$root" "$target")"
+	pkg_config_dir="$env_root/lib/pkgconfig"
 
 	append_env "$env_file" "PKG_CONFIG_PATH_${suffix}" "$pkg_config_dir"
 	if [[ "$configured" -eq 0 ]]; then
@@ -376,7 +453,7 @@ append_pkg_config_env() {
 		else
 			append_env "$env_file" "PKG_CONFIG_PATH" "$pkg_config_dir"
 		fi
-		append_env "$env_file" "ARCO_HIGHS_ROOT" "$root"
+		append_env "$env_file" "ARCO_HIGHS_ROOT" "$env_root"
 	fi
 	configured=1
 }

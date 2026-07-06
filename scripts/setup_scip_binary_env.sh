@@ -190,6 +190,8 @@ gcc_runtime_dir_for_target() {
 	local target="$1"
 	local brew_prefix=""
 	local candidate
+	local library
+	local runtime_complete
 
 	case "$target" in
 		*-apple-darwin) ;;
@@ -205,13 +207,20 @@ gcc_runtime_dir_for_target() {
 		/opt/homebrew/opt/gcc/lib/gcc/current \
 		/usr/local/opt/gcc/lib/gcc/current; do
 		[[ -n "$candidate" ]] || continue
-		if [[ -f "$candidate/libgcc_s.1.1.dylib" ]]; then
+		runtime_complete=1
+		for library in libgcc_s.1.1.dylib libgfortran.5.dylib libquadmath.0.dylib; do
+			if [[ ! -f "$candidate/$library" ]]; then
+				runtime_complete=0
+				break
+			fi
+		done
+		if [[ "$runtime_complete" -eq 1 ]]; then
 			printf '%s\n' "$candidate"
 			return 0
 		fi
 	done
 
-	log "could not find Homebrew GCC runtime for $target; SCIP wheel repair may require libgcc_s.1.1.dylib"
+	log "could not find Homebrew GCC runtime for $target; SCIP wheel repair requires libgcc_s.1.1.dylib, libgfortran.5.dylib, and libquadmath.0.dylib"
 	return 1
 }
 

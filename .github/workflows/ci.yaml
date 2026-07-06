@@ -273,6 +273,7 @@ jobs:
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
         env:
+          ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
           ARCO_HIGHS_TARGETS: ${{ join(matrix.targets, ',') }}
           ARCO_SCIP_TARGETS: ${{ join(matrix.targets, ',') }}
         with:
@@ -741,6 +742,8 @@ jobs:
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
+        env:
+          ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
         with:
           python-version: ${{ matrix.python.version }}
           uv-version: ${{ env.UV_VERSION }}

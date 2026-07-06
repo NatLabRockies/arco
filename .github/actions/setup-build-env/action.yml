@@ -129,6 +129,11 @@ runs:
         restore-keys: |
           ${{ runner.os }}-scip-
 
+    - name: Install macOS SCIP runtime dependencies
+      if: ${{ inputs.configure-solvers == 'true' && runner.os == 'macOS' }}
+      shell: bash
+      run: bash ./scripts/ci_install_macos_scip_runtime.sh
+
     - name: Configure SCIP bundled binary discovery
       if: ${{ inputs.configure-solvers == 'true' }}
       shell: bash
