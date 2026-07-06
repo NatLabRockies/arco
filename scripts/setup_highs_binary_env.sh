@@ -240,6 +240,8 @@ if "apple-darwin" in target:
     libs += " -lc++"
 elif "pc-windows-msvc" in target:
     libs = "-L${libdir} -lhighs"
+    if link_extras:
+        libs += " -lhighs_extras"
 else:
     libs = "-L${libdir} -lhighs"
     if link_extras:
@@ -315,6 +317,19 @@ link_zlib_for_target() {
 			;;
 		*)
 			printf '1\n'
+			;;
+	esac
+}
+
+source_cache_dirname() {
+	local target="$1"
+
+	case "$target" in
+		*-pc-windows-msvc)
+			printf '%s-source-release\n' "$target"
+			;;
+		*)
+			printf '%s-source\n' "$target"
 			;;
 	esac
 }
@@ -432,7 +447,7 @@ build_source_cache() {
 
 	log "building source HiGHS $HIGHS_VERSION for $target"
 	cmake "${cmake_args[@]}" >/dev/null
-	cmake --build "$build_dir" --target install --parallel "$jobs" >/dev/null
+	cmake --build "$build_dir" --config Release --target install --parallel "$jobs" >/dev/null
 
 	rm -rf "$root"
 	mv "$install_dir" "$root"
@@ -503,7 +518,10 @@ main() {
 		fi
 
 		if host_can_build_source_cache "$target"; then
-			local root="$cache_root/$HIGHS_VERSION/$target-source"
+			local source_cache_name
+			local root
+			source_cache_name="$(source_cache_dirname "$target")"
+			root="$cache_root/$HIGHS_VERSION/$source_cache_name"
 			build_source_cache "$target" "$root"
 			append_pkg_config_env "$env_file" "$target" "$root"
 			continue
