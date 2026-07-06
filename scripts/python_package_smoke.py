@@ -8,6 +8,8 @@ import subprocess
 import sys
 from typing import Mapping, Sequence
 
+_WINDOWS_DLL_DIRS_ENV = "ARCO_PYTHON_SMOKE_DLL_DIRS"
+
 
 def _parse_args(*, argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -93,7 +95,25 @@ def _smoke_env(
         smoke_env["PATH"] = pathsep.join(
             [*runtime_paths, *([existing_path] if existing_path else [])]
         )
+        smoke_env[_WINDOWS_DLL_DIRS_ENV] = pathsep.join(runtime_paths)
     return smoke_env
+
+
+def _build_import_code(*, import_name: str) -> str:
+    return (
+        "import importlib\n"
+        "import os\n"
+        "import sys\n"
+        "dll_directory_handles = []\n"
+        "if sys.platform == 'win32':\n"
+        f"    dll_dirs = os.environ.get({_WINDOWS_DLL_DIRS_ENV!r}, '')\n"
+        "    add_dll_directory = getattr(os, 'add_dll_directory', None)\n"
+        "    if add_dll_directory is not None:\n"
+        "        for dll_dir in dll_dirs.split(os.pathsep):\n"
+        "            if dll_dir:\n"
+        "                dll_directory_handles.append(add_dll_directory(dll_dir))\n"
+        f"importlib.import_module({import_name!r})\n"
+    )
 
 
 def _run_uv_smoke(
@@ -113,7 +133,7 @@ def _run_uv_smoke(
         [
             "python",
             "-c",
-            f"import importlib; importlib.import_module({import_name!r})",
+            _build_import_code(import_name=import_name),
         ]
     )
     subprocess.check_call(command, env=_smoke_env(env=os.environ))
