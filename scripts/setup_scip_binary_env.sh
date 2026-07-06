@@ -141,16 +141,32 @@ append_env() {
 	printf '%s=%s\n' "$name" "$value" >>"$env_file"
 }
 
+path_for_target() {
+	local path="$1"
+	local target="$2"
+
+	if [[ "$target" == *-pc-windows-* ]] && command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$path"
+	else
+		printf '%s\n' "$path"
+	fi
+}
+
 prepend_runtime_paths() {
 	local env_file="$1"
 	local paths="$2"
+	local github_paths="${3:-}"
 
 	[[ -n "$paths" ]] || return
 	append_env "$env_file" "LD_LIBRARY_PATH" "$paths${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 	append_env "$env_file" "DYLD_LIBRARY_PATH" "$paths${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 	append_env "$env_file" "LIBRARY_PATH" "$paths${LIBRARY_PATH:+:$LIBRARY_PATH}"
 	if [[ -n "${GITHUB_PATH:-}" ]]; then
-		printf '%s\n' "${paths//:/$'\n'}" >>"$GITHUB_PATH"
+		if [[ -n "$github_paths" ]]; then
+			printf '%s\n' "$github_paths" >>"$GITHUB_PATH"
+		else
+			printf '%s\n' "${paths//:/$'\n'}" >>"$GITHUB_PATH"
+		fi
 	fi
 }
 
@@ -240,6 +256,7 @@ main() {
 	cache_root="$(default_cache_root)"
 	local configured=0
 	local runtime_paths=""
+	local github_runtime_paths=""
 	IFS=',' read -r -a targets <<<"$raw_targets"
 
 	for target in "${targets[@]}"; do
@@ -256,16 +273,23 @@ main() {
 		download_and_extract "$target" "$asset" "$install_dir"
 
 		local suffix="${target//-/_}"
-		local library_path="$install_dir/lib"
-		append_env "$env_file" "SCIP_SYS_BUNDLED_DIR_${suffix}" "$install_dir"
+		local env_install_dir
+		env_install_dir="$(path_for_target "$install_dir" "$target")"
+		local library_path="$env_install_dir/lib"
+		local runtime_library_path="$install_dir/lib"
+		append_env "$env_file" "SCIP_SYS_BUNDLED_DIR_${suffix}" "$env_install_dir"
 		append_env "$env_file" "ARCO_SCIP_LIBRARY_PATH_${suffix}" "$library_path"
 		if [[ "$configured" -eq 0 ]]; then
-			append_env "$env_file" "SCIP_SYS_BUNDLED_DIR" "$install_dir"
+			append_env "$env_file" "SCIP_SYS_BUNDLED_DIR" "$env_install_dir"
 			append_env "$env_file" "ARCO_SCIP_LIBRARY_PATH" "$library_path"
 		fi
-		runtime_paths="${runtime_paths:+$runtime_paths:}$library_path"
+		runtime_paths="${runtime_paths:+$runtime_paths:}$runtime_library_path"
+		github_runtime_paths="${github_runtime_paths:+$github_runtime_paths$'\n'}$library_path"
 		if [[ "$target" == *-pc-windows-* && -d "$install_dir/bin" ]]; then
-			runtime_paths="$runtime_paths:$install_dir/bin"
+			local runtime_bin_path="$install_dir/bin"
+			local bin_path="$env_install_dir/bin"
+			runtime_paths="$runtime_paths:$runtime_bin_path"
+			github_runtime_paths="$github_runtime_paths"$'\n'"$bin_path"
 		fi
 		if fortran_runtime_dir="$(fortran_runtime_dir_for_target "$target")"; then
 			append_env "$env_file" "ARCO_SCIP_FORTRAN_RUNTIME_PATH_${suffix}" "$fortran_runtime_dir"
@@ -287,7 +311,7 @@ main() {
 	if [[ "$configured" -eq 0 ]]; then
 		log "no supported SCIP prebuilt target found in '$raw_targets'"
 	else
-		prepend_runtime_paths "$env_file" "$runtime_paths"
+		prepend_runtime_paths "$env_file" "$runtime_paths" "$github_runtime_paths"
 	fi
 }
 

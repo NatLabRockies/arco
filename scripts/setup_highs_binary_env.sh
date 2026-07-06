@@ -56,6 +56,10 @@ asset_for_target() {
 			printf 'highs-%s-aarch64-linux-gnu-static-mit.tar.gz\n' "$HIGHS_VERSION"
 			;;
 		x86_64-pc-windows-msvc)
+			if [[ "${ARCO_HIGHS_ENABLE_WINDOWS_STATIC:-0}" != "1" ]]; then
+				log "official HiGHS Windows static archive discovery is opt-in; set ARCO_HIGHS_ENABLE_WINDOWS_STATIC=1 only for a compatible MSVC toolchain"
+				return 1
+			fi
 			printf 'highs-%s-x86_64-windows-static-mit.zip\n' "$HIGHS_VERSION"
 			;;
 		*)
