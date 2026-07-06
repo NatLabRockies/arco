@@ -169,7 +169,7 @@ py-test: py-dev py-cli-build
 
 [group: 'python']
 py-build-wheel: py-licenses
-    if [[ -n "${PYTHON_WHEEL_FEATURES:-}" ]]; then "{{ solver-build-env }}" uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist --features "$PYTHON_WHEEL_FEATURES"; else "{{ solver-build-env }}" uv run --no-project --with maturin maturin build --release --manifest-path bindings/python/Cargo.toml -i ${PYTHON_WHEEL_INTERPRETER:-python3} --compatibility pypi --out dist; fi
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
 
 [group: 'python']
 py-build-sdist:
@@ -251,7 +251,7 @@ smoke-solver-ipopt-unavailable:
 [group: 'benchmarks']
 benchmarks arco_binary=arco-debug-bin:
     if [[ ! -x "{{ arco_binary }}" ]]; then just _build-cli-for-path "{{ arco_binary }}"; fi
-    LD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${DYLD_LIBRARY_PATH:-}" uv run python scripts/bench.py --arco-binary "{{ arco_binary }}" --workflows validate,run --repetitions 10 --output artifacts/benchmark-results.json
+    LD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${DYLD_LIBRARY_PATH:-}" uv run --no-project python scripts/bench.py --arco-binary "{{ arco_binary }}" --workflows validate,run --repetitions 10 --output artifacts/benchmark-results.json
 
 [group: 'benchmarks']
 benchmark-guard:
@@ -279,6 +279,10 @@ ci-rust-clippy:
 [group: 'ci']
 ci-rust-test:
     just rust-test
+
+[group: 'ci']
+ci-release-cli-check:
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check -p arco-cli --bin arco --all-features
 
 [group: 'ci']
 ci-cli-build:
@@ -313,7 +317,7 @@ ci-unpack-cli-artifact archive=cli-artifact:
 
 [group: 'ci']
 ci-solver-smoke solver check_unavailable="":
-    LD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${DYLD_LIBRARY_PATH:-}" uv run python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary "{{ arco-release-bin }}" {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
+    LD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${DYLD_LIBRARY_PATH:-}" uv run --no-project python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary "{{ arco-release-bin }}" {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
 
 [group: 'ci']
 ci-kdl-examples:
@@ -340,6 +344,11 @@ ci-python-wheel artifact_glob="dist/*.whl":
     just py-validate-wheel "{{ artifact_glob }}"
 
 [group: 'ci']
+ci-python-release-wheel artifact_glob="dist/*.whl":
+    just py-build-wheel
+    just py-smoke-wheel "{{ artifact_glob }}"
+
+[group: 'ci']
 ci-docs-test:
     just docs-test
 
@@ -354,7 +363,7 @@ ci-workflow-quality:
 [private]
 _kdl-examples arco_binary args="":
     if [[ ! -x "{{ arco_binary }}" ]]; then just _build-cli-for-path "{{ arco_binary }}"; fi
-    LD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${DYLD_LIBRARY_PATH:-}" uv run python -c "from scripts.test_example_formulations import run_example_formulations_smoke; raise SystemExit(run_example_formulations_smoke())" --arco-binary "{{ arco_binary }}" {{ args }}
+    LD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco_binary }}"):${DYLD_LIBRARY_PATH:-}" uv run --no-project python -c "from scripts.test_example_formulations import run_example_formulations_smoke; raise SystemExit(run_example_formulations_smoke())" --arco-binary "{{ arco_binary }}" {{ args }}
 
 [private]
 _build-cli-for-path arco_binary:

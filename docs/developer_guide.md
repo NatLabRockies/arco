@@ -178,9 +178,12 @@ confirming the archive's macOS deployment target is acceptable for that product.
 The source-built macOS cache defaults to `MACOSX_DEPLOYMENT_TARGET=11.0` unless
 `ARCO_HIGHS_MACOS_DEPLOYMENT_TARGET` or `MACOSX_DEPLOYMENT_TARGET` overrides it.
 Linux HiGHS static archives require glibc 2.38 or newer; older Linux images use
-the source-built cache when native build tools are present. SCIP-enabled Linux
-product builds also need the GNU Fortran runtime (`libgfortran.so.5`; on
-Debian/Ubuntu install `libgfortran5` or `gfortran`).
+the source-built cache when native build tools are present. Windows release
+builds also use the source-built cache by default because the official archive
+can require a newer MSVC STL than a release runner provides; set
+`ARCO_HIGHS_ENABLE_WINDOWS_STATIC=1` only after validating the target toolchain.
+SCIP-enabled Linux product builds also need the GNU Fortran runtime
+(`libgfortran.so.5`; on Debian/Ubuntu install `libgfortran5` or `gfortran`).
 
 > [!NOTE]
 > IPOPT is intentionally outside the normal `--all-features` workspace path.

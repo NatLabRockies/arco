@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import argparse
 import glob
+import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Sequence
+import textwrap
+from typing import Mapping, Sequence
+
+_WINDOWS_DLL_DIRS_ENV = "ARCO_PYTHON_SMOKE_DLL_DIRS"
 
 
 def _parse_args(*, argv: Sequence[str]) -> argparse.Namespace:
@@ -32,6 +36,85 @@ def _resolve_artifacts(*, pattern: str) -> list[Path]:
     return sorted(artifacts)
 
 
+def _normalize_windows_path(path: str) -> str:
+    if len(path) >= 3 and path[0] == "/" and path[2] == "/":
+        drive = path[1]
+        if drive.isalpha():
+            return f"{drive.upper()}:{path[2:]}"
+    return path
+
+
+def _runtime_path_candidates(*, env: Mapping[str, str]) -> list[str]:
+    candidates: list[str] = []
+
+    for name, value in env.items():
+        if name == "SCIP_SYS_BUNDLED_DIR" or name.startswith("SCIP_SYS_BUNDLED_DIR_"):
+            root = Path(value)
+            candidates.extend([str(root / "bin"), str(root / "lib")])
+        elif name == "ARCO_SCIP_LIBRARY_PATH" or name.startswith(
+            "ARCO_SCIP_LIBRARY_PATH_"
+        ):
+            library_path = Path(value)
+            candidates.append(str(library_path))
+            if library_path.name == "lib":
+                candidates.append(str(library_path.parent / "bin"))
+
+    if xpress_dir := env.get("XPRESSDIR"):
+        root = Path(xpress_dir)
+        candidates.extend([str(root / "bin"), str(root / "lib")])
+
+    if not candidates:
+        for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LIBRARY_PATH"):
+            candidates.extend(part for part in env.get(name, "").split(":") if part)
+
+    return candidates
+
+
+def _smoke_env(
+    *, env: Mapping[str, str], platform: str = sys.platform, pathsep: str = os.pathsep
+) -> dict[str, str]:
+    smoke_env = dict(env)
+    if platform != "win32":
+        return smoke_env
+
+    runtime_paths: list[str] = []
+    seen: set[str] = set()
+    for candidate in _runtime_path_candidates(env=env):
+        normalized = _normalize_windows_path(candidate)
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        runtime_paths.append(normalized)
+
+    if runtime_paths:
+        existing_path = smoke_env.get("PATH", "")
+        smoke_env["PATH"] = pathsep.join(
+            [*runtime_paths, *([existing_path] if existing_path else [])]
+        )
+        smoke_env[_WINDOWS_DLL_DIRS_ENV] = pathsep.join(runtime_paths)
+    return smoke_env
+
+
+def _build_import_code(*, import_name: str) -> str:
+    return textwrap.dedent(
+        f"""\
+        import importlib
+        import os
+        import sys
+
+        dll_directory_handles = []
+        if sys.platform == "win32":
+            add_dll_directory = getattr(os, "add_dll_directory", None)
+            if add_dll_directory is not None:
+                for dll_dir in os.environ.get({_WINDOWS_DLL_DIRS_ENV!r}, "").split(os.pathsep):
+                    if dll_dir:
+                        dll_directory_handles.append(add_dll_directory(dll_dir))
+        importlib.import_module({import_name!r})
+        """
+    )
+
+
 def _run_uv_smoke(
     *, python_executable: Path, artifacts: Sequence[Path], import_name: str
 ) -> None:
@@ -49,10 +132,10 @@ def _run_uv_smoke(
         [
             "python",
             "-c",
-            f"import importlib; importlib.import_module({import_name!r})",
+            _build_import_code(import_name=import_name),
         ]
     )
-    subprocess.check_call(command)
+    subprocess.check_call(command, env=_smoke_env(env=os.environ))
 
 
 def main(*, argv: Sequence[str]) -> int:

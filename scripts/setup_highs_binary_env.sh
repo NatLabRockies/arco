@@ -55,6 +55,13 @@ asset_for_target() {
 		aarch64-unknown-linux-gnu)
 			printf 'highs-%s-aarch64-linux-gnu-static-mit.tar.gz\n' "$HIGHS_VERSION"
 			;;
+		x86_64-pc-windows-msvc)
+			if [[ "${ARCO_HIGHS_ENABLE_WINDOWS_STATIC:-0}" != "1" ]]; then
+				log "official HiGHS Windows static archive discovery is opt-in; set ARCO_HIGHS_ENABLE_WINDOWS_STATIC=1 only for a compatible MSVC toolchain"
+				return 1
+			fi
+			printf 'highs-%s-x86_64-windows-static-mit.zip\n' "$HIGHS_VERSION"
+			;;
 		*)
 			return 1
 			;;
@@ -123,25 +130,29 @@ host_can_link_zlib() {
 	return 1
 }
 
+host_matches_target() {
+	local target="$1"
+	local platform="$2"
+	local host
+	host="$(host_target 2>/dev/null || true)"
+	if [[ "$target" == "$host" ]]; then
+		return 0
+	fi
+
+	log "official HiGHS static archive discovery is only enabled for native $platform targets; host is '${host:-unknown}', target is $target, using source-build fallback"
+	return 1
+}
+
 host_can_link_archive() {
 	local target="$1"
-	local host
 	local glibc_version
 
 	case "$target" in
 		*-apple-darwin)
-			host="$(host_target 2>/dev/null || true)"
-			if [[ "$target" != "$host" ]]; then
-				log "official HiGHS static archive discovery is only enabled for native macOS targets; host is '${host:-unknown}', target is $target, using source-build fallback"
-				return 1
-			fi
+			host_matches_target "$target" "macOS" || return 1
 			;;
 		*-unknown-linux-gnu)
-			host="$(host_target 2>/dev/null || true)"
-			if [[ "$target" != "$host" ]]; then
-				log "official HiGHS static archive discovery is only enabled for native Linux targets; host is '${host:-unknown}', target is $target, using source-build fallback"
-				return 1
-			fi
+			host_matches_target "$target" "Linux" || return 1
 			glibc_version="$(host_glibc_version)"
 			if [[ -z "$glibc_version" ]]; then
 				log "could not detect host glibc version for $target; using source-build fallback"
@@ -155,6 +166,9 @@ host_can_link_archive() {
 				return 1
 			fi
 			;;
+		*-pc-windows-msvc)
+			host_matches_target "$target" "Windows" || return 1
+			;;
 	esac
 }
 
@@ -167,23 +181,33 @@ host_can_build_source_cache() {
 		return 1
 	fi
 
-	case "$target" in
-		*-apple-darwin | *-unknown-linux-gnu) ;;
-		*) return 1 ;;
-	esac
-
 	host="$(host_target 2>/dev/null || true)"
 	if [[ "$target" != "$host" ]]; then
 		log "HiGHS source cache is only enabled for native targets; host is '${host:-unknown}', target is $target"
 		return 1
 	fi
 
-	for program in cmake cc c++; do
-		if ! command -v "$program" >/dev/null 2>&1; then
-			log "could not find $program for HiGHS source cache; using highs-sys source-build fallback"
+	if ! command -v cmake >/dev/null 2>&1; then
+		log "could not find cmake for HiGHS source cache; using highs-sys source-build fallback"
+		return 1
+	fi
+
+	case "$target" in
+		*-pc-windows-msvc)
+			return 0
+			;;
+		*-apple-darwin | *-unknown-linux-gnu)
+			for program in cc c++; do
+				if ! command -v "$program" >/dev/null 2>&1; then
+					log "could not find $program for HiGHS source cache; using highs-sys source-build fallback"
+					return 1
+				fi
+			done
+			;;
+		*)
 			return 1
-		fi
-	done
+			;;
+	esac
 }
 
 rewrite_pkg_config() {
@@ -192,10 +216,12 @@ rewrite_pkg_config() {
 	local link_zlib="${3:-1}"
 	local link_extras="${4:-0}"
 	local pc_file="$root/lib/pkgconfig/highs.pc"
+	local rewrite_root
 	local python_bin
+	rewrite_root="$(path_for_target "$root" "$target")"
 	python_bin="$(find_python)"
 
-	"$python_bin" - "$pc_file" "$root" "$target" "$link_zlib" "$link_extras" <<'PY'
+	"$python_bin" - "$pc_file" "$rewrite_root" "$target" "$link_zlib" "$link_extras" <<'PY'
 from pathlib import Path
 import sys
 
@@ -205,38 +231,160 @@ target = sys.argv[3]
 link_zlib = sys.argv[4] == "1"
 link_extras = sys.argv[5] == "1"
 
+libs = ["-L${libdir}", "-lhighs"]
+if link_extras:
+    libs.append("-lhighs_extras")
 if "apple-darwin" in target:
-    libs = "-L${libdir} -lhighs"
-    if link_extras:
-        libs += " -lhighs_extras"
     if link_zlib:
-        libs += " -lz"
-    libs += " -lc++"
-else:
-    libs = "-L${libdir} -lhighs"
-    if link_extras:
-        libs += " -lhighs_extras"
+        libs.append("-lz")
+    libs.append("-lc++")
+elif "pc-windows-msvc" not in target:
     if link_zlib:
-        libs += " -lz"
-    libs += " -lstdc++"
+        libs.append("-lz")
+    libs.append("-lstdc++")
 
 rewrites = {
     "prefix": root,
     "libdir": "${prefix}/lib",
     "includedir": "${prefix}/include/highs",
-    "Libs": libs,
+    "Libs": " ".join(libs),
 }
 
 lines = []
 for line in pc_file.read_text(encoding="utf-8").splitlines():
     key = line.split("=", 1)[0].split(":", 1)[0]
     if key in rewrites:
-        separator = ":" if ":" in line.split(" ", 1)[0] else "="
-        line = f"{key}{separator} {rewrites[key]}" if separator == ":" else f"{key}={rewrites[key]}"
+        line = f"{key}: {rewrites[key]}" if key == "Libs" else f"{key}={rewrites[key]}"
     lines.append(line)
 
 pc_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
 PY
+}
+
+path_for_target() {
+	local path="$1"
+	local target="$2"
+
+	if [[ "$target" == *-pc-windows-* ]] && command -v cygpath >/dev/null 2>&1; then
+		cygpath -m "$path"
+	else
+		printf '%s\n' "$path"
+	fi
+}
+
+extract_archive() {
+	local archive="$1"
+	local root="$2"
+	local python_bin
+
+	case "$archive" in
+		*.tar.gz)
+			tar -xzf "$archive" -C "$root"
+			;;
+		*.zip)
+			python_bin="$(find_python)"
+			"$python_bin" - "$archive" "$root" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+
+archive = Path(sys.argv[1])
+root = Path(sys.argv[2])
+with zipfile.ZipFile(archive) as zip_file:
+    zip_file.extractall(root)
+PY
+			;;
+		*)
+			log "unsupported HiGHS archive format: $archive"
+			return 1
+			;;
+	esac
+}
+
+link_zlib_for_target() {
+	local target="$1"
+
+	if [[ "$target" == *-pc-windows-msvc ]]; then
+		printf '0\n'
+	else
+		printf '1\n'
+	fi
+}
+
+sanitize_cache_component() {
+	local value="$1"
+
+	printf '%s' "$value" | tr -c 'A-Za-z0-9._-' '-'
+}
+
+msvc_toolset_version_from_value() {
+	local value="$1"
+
+	value="${value//\\//}"
+	if [[ "$value" == *MSVC/* ]]; then
+		value="${value#*MSVC/}"
+	fi
+	value="${value%%/*}"
+
+	if [[ "$value" =~ ^[0-9]+([.][0-9]+)+$ ]]; then
+		printf '%s\n' "$value"
+	fi
+}
+
+latest_installed_msvc_toolset_version() {
+	local dir
+
+	for dir in \
+		"/c/Program Files/Microsoft Visual Studio/2022/"*/VC/Tools/MSVC/* \
+		"/c/Program Files (x86)/Microsoft Visual Studio/2022/"*/VC/Tools/MSVC/*; do
+		[[ -d "$dir" ]] && basename -- "$dir"
+	done | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -n 1
+}
+
+msvc_toolset_cache_component() {
+	local program
+	local output
+	local version
+	local value
+
+	for value in "${VCToolsVersion:-}" "${VCToolsInstallDir:-}" "${VCINSTALLDIR:-}" "${PATH:-}" "$(latest_installed_msvc_toolset_version)"; do
+		version="$(msvc_toolset_version_from_value "$value")"
+		if [[ -n "$version" ]]; then
+			sanitize_cache_component "$version"
+			return
+		fi
+	done
+
+	for program in link.exe cl.exe; do
+		if ! command -v "$program" >/dev/null 2>&1; then
+			continue
+		fi
+
+		output="$("$program" 2>&1 || true)"
+		version="$(
+			printf '%s\n' "$output" |
+				awk 'match($0, /Version [0-9]+([.][0-9]+)+/) {
+					print substr($0, RSTART + 8, RLENGTH - 8)
+					exit
+				}'
+		)"
+		if [[ -n "$version" ]]; then
+			sanitize_cache_component "$version"
+			return
+		fi
+	done
+
+	printf 'unknown\n'
+}
+
+source_cache_dirname() {
+	local target="$1"
+
+	if [[ "$target" == *-pc-windows-msvc ]]; then
+		printf '%s-source-release-msvc-%s\n' "$target" "$(msvc_toolset_cache_component)"
+	else
+		printf '%s-source\n' "$target"
+	fi
 }
 
 download_and_extract() {
@@ -245,20 +393,26 @@ download_and_extract() {
 	local root="$3"
 	local marker="$root/.arco-highs-complete"
 	local url="https://github.com/ERGO-Code/HiGHS/releases/download/v${HIGHS_VERSION}/${asset}"
-	local archive="${RUNNER_TEMP:-/tmp}/${asset}"
+	local archive_dir
+	local archive
+	local link_zlib
+	archive_dir="$(dirname -- "$root")"
+	archive="$archive_dir/$asset"
 
 	if [[ -f "$marker" ]]; then
 		log "using cached HiGHS $HIGHS_VERSION for $target at $root"
-		rewrite_pkg_config "$root" "$target" 1 0
+		link_zlib="$(link_zlib_for_target "$target")"
+		rewrite_pkg_config "$root" "$target" "$link_zlib" 0
 		return
 	fi
 
 	rm -rf "$root"
-	mkdir -p "$root"
+	mkdir -p "$root" "$archive_dir"
 	log "downloading HiGHS $HIGHS_VERSION for $target"
 	curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$archive"
-	tar -xzf "$archive" -C "$root"
-	rewrite_pkg_config "$root" "$target" 1 0
+	extract_archive "$archive" "$root"
+	link_zlib="$(link_zlib_for_target "$target")"
+	rewrite_pkg_config "$root" "$target" "$link_zlib" 0
 	touch "$marker"
 }
 
@@ -306,7 +460,7 @@ build_source_cache() {
 	local jobs
 	local cmake_args
 
-	if [[ -f "$marker" && -f "$root/lib/pkgconfig/highs.pc" && -f "$root/lib/libhighs.a" ]]; then
+	if [[ -f "$marker" && -f "$root/lib/pkgconfig/highs.pc" && ( -f "$root/lib/libhighs.a" || -f "$root/lib/highs.lib" ) ]]; then
 		log "using cached source-built HiGHS $HIGHS_VERSION for $target at $root"
 		rewrite_pkg_config "$root" "$target" 0 1
 		return
@@ -334,6 +488,7 @@ build_source_cache() {
 		-DFAST_BUILD=ON
 		-DBUILD_SHARED_LIBS=OFF
 		-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=FALSE
+		-DCMAKE_INSTALL_LIBDIR=lib
 		-DZLIB=OFF
 		-DCMAKE_INSTALL_DOCDIR=
 	)
@@ -345,7 +500,7 @@ build_source_cache() {
 
 	log "building source HiGHS $HIGHS_VERSION for $target"
 	cmake "${cmake_args[@]}" >/dev/null
-	cmake --build "$build_dir" --target install --parallel "$jobs" >/dev/null
+	cmake --build "$build_dir" --config Release --target install --parallel "$jobs" >/dev/null
 
 	rm -rf "$root"
 	mv "$install_dir" "$root"
@@ -365,8 +520,11 @@ append_pkg_config_env() {
 	local env_file="$1"
 	local target="$2"
 	local root="$3"
-	local pkg_config_dir="$root/lib/pkgconfig"
+	local env_root
+	local pkg_config_dir
 	local suffix="${target//-/_}"
+	env_root="$(path_for_target "$root" "$target")"
+	pkg_config_dir="$env_root/lib/pkgconfig"
 
 	append_env "$env_file" "PKG_CONFIG_PATH_${suffix}" "$pkg_config_dir"
 	if [[ "$configured" -eq 0 ]]; then
@@ -376,7 +534,7 @@ append_pkg_config_env() {
 		else
 			append_env "$env_file" "PKG_CONFIG_PATH" "$pkg_config_dir"
 		fi
-		append_env "$env_file" "ARCO_HIGHS_ROOT" "$root"
+		append_env "$env_file" "ARCO_HIGHS_ROOT" "$env_root"
 	fi
 	configured=1
 }
@@ -413,7 +571,10 @@ main() {
 		fi
 
 		if host_can_build_source_cache "$target"; then
-			local root="$cache_root/$HIGHS_VERSION/$target-source"
+			local source_cache_name
+			local root
+			source_cache_name="$(source_cache_dirname "$target")"
+			root="$cache_root/$HIGHS_VERSION/$source_cache_name"
 			build_source_cache "$target" "$root"
 			append_pkg_config_env "$env_file" "$target" "$root"
 			continue

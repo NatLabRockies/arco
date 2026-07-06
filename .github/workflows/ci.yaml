@@ -23,37 +23,38 @@ env:
   PYTHON_LATEST: "3.12"
   RUST_TOOLCHAIN_VERSION: "1.85"
   TORC_VERSION: "0.37.2"
+  CARGO_DIST_VERSION: "0.31.0"
 
 jobs:
   version-consistency:
     name: Version consistency
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
 
-      - name: Validate Cargo.toml and pyproject.toml versions match
-        run: |
-          set -euo pipefail
+      - name: Set up Python
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-rust: "false"
+          cache-rust: "false"
+          install-uv: "true"
+          cache-uv: "false"
+          install-just: "false"
+          configure-solvers: "false"
+          sync-python-licenses: "false"
+          save-uv-cache: "false"
+          save-rust-cache: "false"
+          save-solver-cache: "false"
 
-          cargo_version="$(awk -F '"' '
-            /^\[workspace\.package\]$/ { in_ws = 1; next }
-            /^\[/ && in_ws { in_ws = 0 }
-            in_ws && /^version = / { print $2; exit }
-          ' Cargo.toml)"
-
-          pyproject_version="$(awk -F '"' '
-            /^\[project\]$/ { in_proj = 1; next }
-            /^\[/ && in_proj { in_proj = 0 }
-            in_proj && /^version = / { print $2; exit }
-          ' bindings/python/pyproject.toml)"
-
-          [[ -n "$cargo_version" ]] || { echo "::error::Could not read workspace version from Cargo.toml"; exit 1; }
-          [[ -n "$pyproject_version" ]] || { echo "::error::Could not read version from pyproject.toml"; exit 1; }
-          [[ "$cargo_version" == "$pyproject_version" ]] || { echo "::error::Version mismatch: Cargo.toml=$cargo_version pyproject.toml=$pyproject_version"; exit 1; }
-          echo "Versions match: $cargo_version"
+      - name: Validate release version metadata
+        run: uv run --no-project --python "$PYTHON_LATEST" python scripts/check_release_version_metadata.py
 
   ci-plan:
     name: Plan CI jobs
@@ -84,6 +85,7 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'justfile'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/setup_highs_binary_env.sh'
               - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/with_solver_build_env.sh'
@@ -95,16 +97,20 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'justfile'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/setup_highs_binary_env.sh'
               - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/with_solver_build_env.sh'
               - '.github/actions/**'
             docs:
               - 'docs/**'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/test_docs_doctest.py'
               - 'justfile'
               - 'scripts/with_solver_build_env.sh'
             solver:
+              - 'scripts/ci_install_apt_deps.sh'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/setup_highs_binary_env.sh'
               - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/with_solver_build_env.sh'
@@ -118,12 +124,30 @@ jobs:
               - '**/*.kdl'
               - 'crates/arco-kdl/**'
               - 'crates/arco-cli/**'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/test_example_formulations.py'
             benchmarks:
+              - 'scripts/ci_add_cargo_bin_to_path.sh'
+              - 'scripts/ci_install_torc.sh'
+              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/bench.py'
               - 'scripts/bench_guard.py'
               - 'benchmarks/**'
             release:
+              - 'Cargo.toml'
+              - 'bindings/python/pyproject.toml'
+              - 'bindings/python/uv.lock'
+              - 'CHANGELOG.md'
+              - 'scripts/check_release_version_metadata.py'
+              - 'scripts/ci_cargo_dist_preflight.sh'
+              - 'scripts/ci_dist_plan_output.sh'
+              - 'scripts/ci_ensure_dist_executable.sh'
+              - 'scripts/ci_install_dist_unix.sh'
+              - 'scripts/ci_install_dist_windows.ps1'
+              - 'scripts/ci_install_rust_if_missing.sh'
+              - 'scripts/ci_setup_rust_toolchain.sh'
+              - 'scripts/ci_validate_xpress_runtime_env.sh'
+              - 'scripts/ci_verify_generated_dist_workflow.sh'
               - '.github/release-please-config.json'
               - '.github/release-please-manifest.json'
               - 'dist-workspace.toml'
@@ -131,7 +155,11 @@ jobs:
               - '.github/workflows/**'
               - '.github/build-setup.yml'
               - '.github/dependabot.yml'
+              - 'scripts/check_release_version_metadata.py'
+              - 'scripts/ci_*.ps1'
+              - 'scripts/ci_*.sh'
             vscode_extension:
+              - 'scripts/ci_vscode_extension_check.sh'
               - 'tools/vscode-arco-kdl/**'
 
       - name: Print CI plan
@@ -164,35 +192,155 @@ jobs:
           package-manager-cache: false
 
       - name: Check and package VS Code extension
-        working-directory: tools/vscode-arco-kdl
-        run: |
-          set -euo pipefail
-          npm run check
-          npm run package
+        run: bash scripts/ci_vscode_extension_check.sh
 
   cargo-dist:
     name: cargo-dist workflow
-    needs: [ci-plan]
+    needs: [ci-plan, version-consistency]
     if: needs.ci-plan.outputs.release == 'true' || needs.ci-plan.outputs.github_actions == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      artifacts_matrix: ${{ steps.plan.outputs.artifacts_matrix }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
 
+      - name: Restore dist cache
+        id: dist-cache-restore
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: |
+            ~/.cargo/bin/dist
+            ~/.cargo/bin/dist.exe
+          key: ${{ runner.os }}-${{ runner.arch }}-dist-${{ env.CARGO_DIST_VERSION }}
+
       - name: Install dist
+        if: steps.dist-cache-restore.outputs.cache-hit != 'true'
         shell: bash
-        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.31.0/cargo-dist-installer.sh | sh
+        run: bash scripts/ci_install_dist_unix.sh
+
+      - name: Save dist cache
+        if: github.event_name != 'pull_request' && steps.dist-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: |
+            ~/.cargo/bin/dist
+            ~/.cargo/bin/dist.exe
+          key: ${{ runner.os }}-${{ runner.arch }}-dist-${{ env.CARGO_DIST_VERSION }}
+
+      - name: Ensure dist is executable
+        if: runner.os != 'Windows'
+        run: bash scripts/ci_ensure_dist_executable.sh
 
       - name: Verify generated workflow is current
-        run: |
-          set -euo pipefail
-          dist generate --mode=ci
-          git diff --exit-code -- .github/workflows/v-release.yml
+        run: bash scripts/ci_verify_generated_dist_workflow.sh
 
-      - name: Check dist release plan
-        run: dist plan --output-format=json > plan-dist-manifest.json
+      - id: plan
+        name: Check dist release plan
+        run: bash scripts/ci_dist_plan_output.sh
+
+  cargo-dist-artifact-preflight:
+    name: cargo-dist preflight (${{ join(matrix.targets, ', ') }})
+    needs: [ci-plan, version-consistency, cargo-dist]
+    if: needs.cargo-dist.result == 'success' && needs.cargo-dist.outputs.artifacts_matrix != '' && needs.cargo-dist.outputs.artifacts_matrix != 'null'
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container && 'quay.io/pypa/manylinux_2_28_x86_64@sha256:65140ef21cef92d0c13d001708afd7d304d7a154f7120d039df99dac708f3ffb' || null }} # zizmor: ignore[unpinned-images]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.cargo-dist.outputs.artifacts_matrix) }}
+    steps:
+      - name: Enable Windows long paths
+        run: git config --global core.longpaths true
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Rust in container
+        if: matrix.container
+        shell: bash
+        run: bash scripts/ci_install_rust_if_missing.sh
+
+      - name: Configure manylinux native dependency builds
+        if: matrix.container && contains(join(matrix.targets, ','), 'x86_64-unknown-linux-gnu')
+        shell: bash
+        run: bash ./scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        env:
+          ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
+          ARCO_HIGHS_TARGETS: ${{ join(matrix.targets, ',') }}
+          ARCO_SCIP_TARGETS: ${{ join(matrix.targets, ',') }}
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "none"
+          install-just: "false"
+          install-uv: "true"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: cargo-dist-${{ matrix.host }}
+          save-rust-cache: "false"
+          save-uv-cache: "false"
+          save-solver-cache: "false"
+
+      - name: Set up Xpress runtime
+        shell: bash
+        env:
+          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+          XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
+          XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+        run: bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
+
+      - name: Validate XPRESSDIR for xpress-enabled dist builds
+        shell: bash
+        run: bash scripts/ci_validate_xpress_runtime_env.sh
+
+      - name: Restore dist cache
+        id: dist-cache-restore
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: |
+            ~/.cargo/bin/dist
+            ~/.cargo/bin/dist.exe
+          key: ${{ runner.os }}-${{ runner.arch }}-dist-${{ env.CARGO_DIST_VERSION }}
+
+      - name: Install dist (Unix)
+        if: runner.os != 'Windows' && steps.dist-cache-restore.outputs.cache-hit != 'true'
+        shell: bash
+        run: bash scripts/ci_install_dist_unix.sh
+
+      - name: Install dist (Windows)
+        if: runner.os == 'Windows' && steps.dist-cache-restore.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./scripts/ci_install_dist_windows.ps1
+
+      - name: Save dist cache
+        if: github.event_name != 'pull_request' && steps.dist-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        with:
+          path: |
+            ~/.cargo/bin/dist
+            ~/.cargo/bin/dist.exe
+          key: ${{ runner.os }}-${{ runner.arch }}-dist-${{ env.CARGO_DIST_VERSION }}
+
+      - name: Ensure dist is executable
+        if: runner.os != 'Windows'
+        run: bash scripts/ci_ensure_dist_executable.sh
+
+      - name: Build local cargo-dist artifacts
+        shell: bash
+        env:
+          DIST_CONTAINER_IMAGE: ${{ matrix.container && matrix.container.image || '' }}
+          DIST_PLAN_ARGS: ${{ matrix.dist_args }}
+          DIST_TARGETS: ${{ join(matrix.targets, ',') }}
+        run: bash scripts/ci_cargo_dist_preflight.sh
 
   rust-fmt:
     name: Rust format
@@ -212,7 +360,10 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "rustfmt"
+          cache-rust: "false"
           install-uv: "false"
+          configure-solvers: "false"
           sync-python-licenses: "false"
           rust-cache-shared-key: rust-fmt
           save-rust-cache: "false"
@@ -239,6 +390,7 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "clippy"
           install-uv: "false"
           sync-python-licenses: "false"
           rust-cache-shared-key: rust-clippy
@@ -265,6 +417,7 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "none"
           install-uv: "false"
           sync-python-licenses: "false"
           rust-cache-shared-key: rust-clippy
@@ -272,6 +425,38 @@ jobs:
 
       - name: Run tests (workspace --all-features)
         run: just ci-rust-test
+
+  rust-cross-check:
+    name: Rust release compile (${{ matrix.os }})
+    needs: [ci-plan, version-consistency]
+    if: needs.ci-plan.outputs.rust == 'true' || needs.ci-plan.outputs.solver == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "none"
+          install-uv: "false"
+          sync-python-licenses: "false"
+          rust-cache-shared-key: rust-release-compile-${{ matrix.os }}
+          save-rust-cache: "false"
+          save-uv-cache: "false"
+
+      - name: Check release CLI compilation
+        run: just ci-release-cli-check
 
   arco-cli-build:
     name: Arco CLI build
@@ -291,6 +476,7 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "none"
           install-uv: "false"
           sync-python-licenses: "false"
           rust-cache-shared-key: product-build
@@ -341,10 +527,7 @@ jobs:
         if: matrix.apt-deps != ''
         env:
           APT_DEPS: ${{ matrix.apt-deps }}
-        run: |
-          read -r -a apt_deps <<< "$APT_DEPS"
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends "${apt_deps[@]}"
+        run: bash scripts/ci_install_apt_deps.sh
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -353,7 +536,12 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-rust: "false"
+          rust-components: "none"
+          cache-rust: "false"
           install-uv: "true"
+          cache-uv: "false"
+          configure-solvers: "false"
           sync-python-licenses: "false"
           rust-cache-shared-key: product-build
           save-rust-cache: "false"
@@ -371,9 +559,7 @@ jobs:
         if: matrix.setup-runtime != ''
         env:
           SETUP_RUNTIME: ${{ matrix.setup-runtime }}
-        run: |
-          set -euo pipefail
-          bash ./scripts/setup_solver_runtime_env.sh "$SETUP_RUNTIME" "$GITHUB_ENV"
+        run: bash ./scripts/setup_solver_runtime_env.sh "$SETUP_RUNTIME" "$GITHUB_ENV"
 
       - name: Run solver smoke
         env:
@@ -395,9 +581,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Cache torc binaries
-        if: github.event_name != 'pull_request'
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5 # zizmor: ignore[cache-poisoning]
+      - name: Restore torc binaries
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         id: torc-cache
         with:
           path: |
@@ -412,24 +597,30 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-rust: "false"
+          rust-components: "none"
+          cache-rust: "false"
           install-uv: "true"
+          cache-uv: "false"
+          configure-solvers: "false"
           sync-python-licenses: "false"
           save-rust-cache: "false"
           rust-cache-shared-key: product-build
 
       - name: Install torc
-        run: |
-          if [ ! -x "$HOME/.cargo/bin/torc" ] || [ ! -x "$HOME/.cargo/bin/torc-server" ]; then
-            mkdir -p "$HOME/.cargo/bin"
-            curl -fsSL "https://github.com/NatLabRockies/torc/releases/download/v$TORC_VERSION/torc-x86_64-unknown-linux-musl.tar.gz" \
-              | tar xz -C "$HOME/.cargo/bin" torc torc-server
-            chmod +x "$HOME/.cargo/bin/torc" "$HOME/.cargo/bin/torc-server"
-          fi
-          "$HOME/.cargo/bin/torc" --version
-          "$HOME/.cargo/bin/torc-server" run --help >/dev/null
+        run: bash scripts/ci_install_torc.sh
+
+      - name: Save torc binaries
+        if: github.ref == 'refs/heads/main' && steps.torc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: |
+            ~/.cargo/bin/torc
+            ~/.cargo/bin/torc-server
+          key: ${{ runner.os }}-torc-${{ env.TORC_VERSION }}
 
       - name: Add cargo bin to PATH
-        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        run: bash scripts/ci_add_cargo_bin_to_path.sh
 
       - name: Download CLI artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5
@@ -485,7 +676,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.10", "3.11", "3.12", "3.13", "3.14"]') }}
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && needs.ci-plan.outputs.release != 'true' && '["3.12"]' || '["3.10", "3.11", "3.12", "3.13", "3.14"]') }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -498,6 +689,7 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "none"
           rust-cache-shared-key: rust-clippy
           sync-python-licenses: "false"
           save-uv-cache: "false"
@@ -517,6 +709,62 @@ jobs:
         if: matrix.python-version == '3.12'
         run: just ci-docs-test
 
+  python-release-preflight:
+    name: Python release preflight (${{ matrix.platform.label }}, ${{ matrix.python.label }})
+    needs: [version-consistency, ci-plan]
+    if: needs.ci-plan.outputs.release == 'true' || needs.ci-plan.outputs.github_actions == 'true'
+    runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          - label: cp310
+            version: "3.10"
+            wheel_features: ""
+          - label: abi3
+            version: "3.11"
+            wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress"
+        platform:
+          - label: linux
+            os: ubuntu-latest
+            wheel_python: python3
+          - label: macos-arm64
+            os: macos-14
+            wheel_python: python3
+          - label: windows
+            os: windows-latest
+            wheel_python: python
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        env:
+          ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
+        with:
+          python-version: ${{ matrix.python.version }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "none"
+          rust-cache-shared-key: python-release-${{ matrix.platform.label }}-${{ matrix.python.label }}
+          sync-python-licenses: "false"
+          save-uv-cache: "false"
+          save-rust-cache: "false"
+
+      - name: Build wheel and validate import
+        env:
+          PYTHON_WHEEL_INTERPRETER: ${{ matrix.platform.wheel_python }}
+          PYTHON_WHEEL_FEATURES: ${{ matrix.python.wheel_features }}
+        run: just ci-python-release-wheel "dist/*.whl"
+
+      - name: Build sdist
+        if: matrix.platform.label == 'linux' && matrix.python.label == 'abi3'
+        run: just py-build-sdist
+
   kdl-examples:
     name: KDL examples
     needs: [ci-plan, arco-cli-build]
@@ -535,7 +783,12 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          install-rust: "false"
+          rust-components: "none"
+          cache-rust: "false"
           install-uv: "true"
+          cache-uv: "false"
+          configure-solvers: "false"
           sync-python-licenses: "false"
           rust-cache-shared-key: rust-clippy
           save-uv-cache: "false"
