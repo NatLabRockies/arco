@@ -225,6 +225,7 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "none"
           save-rust-cache: "false"
           save-uv-cache: "false"
 

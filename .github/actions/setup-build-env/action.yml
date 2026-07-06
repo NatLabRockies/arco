@@ -15,8 +15,32 @@ inputs:
     description: Rust toolchain version to install and use.
     required: false
     default: "1.85"
+  install-rust:
+    description: Whether to install the Rust toolchain.
+    required: false
+    default: "true"
+  rust-components:
+    description: Comma-separated Rust components to install, or "none".
+    required: false
+    default: "rustfmt,clippy"
+  cache-rust:
+    description: Whether to restore Rust build artifacts.
+    required: false
+    default: "true"
   install-uv:
     description: Whether to install uv and prime its cache.
+    required: false
+    default: "true"
+  cache-uv:
+    description: Whether to restore and save the uv cache.
+    required: false
+    default: "true"
+  install-just:
+    description: Whether to install just.
+    required: false
+    default: "true"
+  configure-solvers:
+    description: Whether to configure native solver discovery.
     required: false
     default: "true"
   sync-python-licenses:
@@ -44,7 +68,7 @@ runs:
   using: composite
   steps:
     - name: Restore uv cache
-      if: ${{ inputs.install-uv == 'true' }}
+      if: ${{ inputs.install-uv == 'true' && inputs.cache-uv == 'true' }}
       id: uv-cache-restore
       uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
@@ -66,15 +90,25 @@ runs:
         enable-cache: false
 
     - name: Set up Rust
+      if: ${{ inputs.install-rust == 'true' }}
       shell: bash
       env:
         RUST_TOOLCHAIN_VERSION: ${{ inputs.rust-toolchain-version }}
+        RUST_COMPONENTS: ${{ inputs.rust-components }}
       run: |
         rustup toolchain install "$RUST_TOOLCHAIN_VERSION" --profile minimal
-        rustup component add rustfmt clippy --toolchain "$RUST_TOOLCHAIN_VERSION"
+        if [[ "$RUST_COMPONENTS" != "none" && -n "$RUST_COMPONENTS" ]]; then
+          IFS=',' read -r -a components <<< "$RUST_COMPONENTS"
+          for component in "${components[@]}"; do
+            component="${component//[[:space:]]/}"
+            [[ -n "$component" ]] || continue
+            rustup component add "$component" --toolchain "$RUST_TOOLCHAIN_VERSION"
+          done
+        fi
         rustup default "$RUST_TOOLCHAIN_VERSION"
 
     - name: Restore HiGHS native cache
+      if: ${{ inputs.configure-solvers == 'true' }}
       id: highs-cache-restore
       uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
@@ -84,21 +118,41 @@ runs:
           ${{ runner.os }}-highs-
 
     - name: Configure HiGHS static binary discovery
+      if: ${{ inputs.configure-solvers == 'true' }}
       shell: bash
       run: bash ./scripts/setup_highs_binary_env.sh "$GITHUB_ENV"
 
     - name: Save HiGHS native cache
-      if: ${{ inputs.save-solver-cache == 'true' && steps.highs-cache-restore.outputs.cache-hit != 'true' }}
+      if: ${{ inputs.configure-solvers == 'true' && inputs.save-solver-cache == 'true' && steps.highs-cache-restore.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ~/.cache/arco-highs
         key: ${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}
 
+    - name: Restore SCIP native cache
+      if: ${{ inputs.configure-solvers == 'true' }}
+      id: scip-cache-restore
+      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      with:
+        path: ~/.cache/arco-scip
+        key: ${{ runner.os }}-scip-${{ hashFiles('scripts/setup_scip_binary_env.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-scip-
+
     - name: Configure SCIP bundled binary discovery
+      if: ${{ inputs.configure-solvers == 'true' }}
       shell: bash
       run: bash ./scripts/setup_scip_binary_env.sh "$GITHUB_ENV"
 
+    - name: Save SCIP native cache
+      if: ${{ inputs.configure-solvers == 'true' && inputs.save-solver-cache == 'true' && steps.scip-cache-restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      with:
+        path: ~/.cache/arco-scip
+        key: ${{ runner.os }}-scip-${{ hashFiles('scripts/setup_scip_binary_env.sh') }}
+
     - name: Cache Rust build artifacts
+      if: ${{ inputs.cache-rust == 'true' }}
       uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
       with:
         shared-key: ${{ inputs.rust-cache-shared-key }}
@@ -107,12 +161,14 @@ runs:
         save-if: ${{ inputs.save-rust-cache == 'true' }}
 
     - name: Cache just toolcache
+      if: ${{ inputs.install-just == 'true' }}
       uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ${{ runner.tool_cache }}/just
         key: ${{ runner.os }}-just-${{ inputs.just-version }}
 
     - name: Install just
+      if: ${{ inputs.install-just == 'true' }}
       uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
       with:
         just-version: ${{ inputs.just-version }}
@@ -128,7 +184,8 @@ runs:
 
     - name: Save uv cache
       if: ${{ inputs.install-uv == 'true' && inputs.save-uv-cache == 'true' &&
-        steps.uv-cache-restore.outputs.cache-hit != 'true' }}
+        inputs.cache-uv == 'true' && steps.uv-cache-restore.outputs.cache-hit !=
+        'true' }}
       uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: ${{ github.workspace }}/.uv-cache

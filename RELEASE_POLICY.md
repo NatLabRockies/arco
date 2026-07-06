@@ -24,8 +24,9 @@ Every release version is shared across:
 - `cargo-dist` owns cross-platform CLI binaries, installers, checksums, dist
   manifests, and publishing the GitHub Release.
 - `ci.yaml` owns pre-merge validation: version consistency checks, code
-  quality, tests, and a cargo-dist guard that verifies `v-release.yml` is
-  regenerated from `dist-workspace.toml` plus `.github/build-setup.yml`.
+  quality, tests, solver smoke checks, cross-OS release compilation, and
+  release-please preflight checks that build cargo-dist/Python artifacts without
+  publishing them.
 
 ## Workflow Topology
 
@@ -56,6 +57,19 @@ plan
 
 `v-release.yml` runs from workflow dispatch with an explicit release tag and
 publishes artifacts for that tag.
+
+### Pre-merge release preflight
+
+Release-please PRs update version metadata and `CHANGELOG.md`, which makes CI
+run the release preflight before the PR can merge. The preflight checks that
+release-please owns every versioned file, verifies all release version metadata
+matches, builds Python wheels across the release platform/Python matrix, and
+uses cargo-dist's planned target matrix to build local CLI artifacts without
+uploading or publishing them.
+
+CI caches native solver bundles and cargo-dist binaries by runner platform and
+tool version. These caches are runtime optimizations only; cache misses must
+still perform the same setup and validation work.
 
 ### Release atomicity
 

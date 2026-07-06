@@ -25,6 +25,18 @@ host_target() {
 	rustc -vV | awk '/^host:/ { print $2; found = 1 } END { exit found ? 0 : 1 }'
 }
 
+default_cache_root() {
+	if [[ -n "${ARCO_SCIP_CACHE_DIR:-}" ]]; then
+		printf '%s\n' "$ARCO_SCIP_CACHE_DIR"
+	elif [[ -n "${XDG_CACHE_HOME:-}" ]]; then
+		printf '%s\n' "$XDG_CACHE_HOME/arco-scip"
+	elif [[ -n "${HOME:-}" ]]; then
+		printf '%s\n' "$HOME/.cache/arco-scip"
+	else
+		printf '%s\n' "${RUNNER_TEMP:-/tmp}/arco-scip"
+	fi
+}
+
 asset_for_target() {
 	local target="$1"
 	case "$target" in
@@ -215,7 +227,8 @@ main() {
 		raw_targets="$(host_target)"
 	fi
 
-	local cache_root="${ARCO_SCIP_CACHE_DIR:-${RUNNER_TEMP:-/tmp}/arco-scip}"
+	local cache_root
+	cache_root="$(default_cache_root)"
 	local configured=0
 	local runtime_paths=""
 	IFS=',' read -r -a targets <<<"$raw_targets"
