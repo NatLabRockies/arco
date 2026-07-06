@@ -181,23 +181,33 @@ host_can_build_source_cache() {
 		return 1
 	fi
 
-	case "$target" in
-		*-apple-darwin | *-unknown-linux-gnu) ;;
-		*) return 1 ;;
-	esac
-
 	host="$(host_target 2>/dev/null || true)"
 	if [[ "$target" != "$host" ]]; then
 		log "HiGHS source cache is only enabled for native targets; host is '${host:-unknown}', target is $target"
 		return 1
 	fi
 
-	for program in cmake cc c++; do
-		if ! command -v "$program" >/dev/null 2>&1; then
-			log "could not find $program for HiGHS source cache; using highs-sys source-build fallback"
+	if ! command -v cmake >/dev/null 2>&1; then
+		log "could not find cmake for HiGHS source cache; using highs-sys source-build fallback"
+		return 1
+	fi
+
+	case "$target" in
+		*-pc-windows-msvc)
+			return 0
+			;;
+		*-apple-darwin | *-unknown-linux-gnu)
+			for program in cc c++; do
+				if ! command -v "$program" >/dev/null 2>&1; then
+					log "could not find $program for HiGHS source cache; using highs-sys source-build fallback"
+					return 1
+				fi
+			done
+			;;
+		*)
 			return 1
-		fi
-	done
+			;;
+	esac
 }
 
 rewrite_pkg_config() {
@@ -382,7 +392,7 @@ build_source_cache() {
 	local jobs
 	local cmake_args
 
-	if [[ -f "$marker" && -f "$root/lib/pkgconfig/highs.pc" && -f "$root/lib/libhighs.a" ]]; then
+	if [[ -f "$marker" && -f "$root/lib/pkgconfig/highs.pc" && ( -f "$root/lib/libhighs.a" || -f "$root/lib/highs.lib" ) ]]; then
 		log "using cached source-built HiGHS $HIGHS_VERSION for $target at $root"
 		rewrite_pkg_config "$root" "$target" 0 1
 		return
