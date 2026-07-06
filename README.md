@@ -145,6 +145,11 @@ binary directory (`$XDG_BIN_HOME`, `$XDG_DATA_HOME/../bin`, then `~/.local/bin`)
 Use `arco self update` to update an installed CLI.
 
 > [!NOTE]
+> `arco self update` requires the receipt written by the standalone installer.
+> If you downloaded and extracted a release archive manually, update by running
+> the installer command above instead.
+
+> [!NOTE]
 > Linux `*-unknown-linux-gnu` artifacts require a recent glibc. If your system
 > is older (for example, glibc 2.28), use a release that includes musl assets
 > (`*-unknown-linux-musl`) or build from source:

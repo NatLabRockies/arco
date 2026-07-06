@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use crate::cli_io::{should_colorize_stdout, write_stderr_line};
 
-const APP_NAME: &str = "arco";
+const CARGO_DIST_APP_NAME: &str = "arco-cli";
 const INSTALLER_BASENAME: &str = "arco-cli-installer";
 const RELEASE_DOWNLOAD_PREFIX: &str = "https://github.com/NatLabRockies/arco/releases";
 
@@ -93,21 +93,25 @@ fn write_standalone_requirement(color: bool) -> Result<()> {
 }
 
 fn load_receipt() -> Result<Option<InstallReceipt>> {
-    for config_path in config_paths()? {
-        let receipt_path = config_path.join(format!("{APP_NAME}-receipt.json"));
+    Ok(load_receipt_from_paths(&config_paths()?))
+}
+
+fn load_receipt_from_paths(config_paths: &[PathBuf]) -> Option<InstallReceipt> {
+    for config_path in config_paths {
+        let receipt_path = config_path.join(format!("{CARGO_DIST_APP_NAME}-receipt.json"));
         if !receipt_path.exists() {
             continue;
         }
         let Ok(receipt_bytes) = fs::read(&receipt_path) else {
-            return Ok(None);
+            return None;
         };
         let Ok(receipt) = serde_json::from_slice::<InstallReceipt>(&receipt_bytes) else {
-            return Ok(None);
+            return None;
         };
-        return Ok(Some(receipt));
+        return Some(receipt);
     }
 
-    Ok(None)
+    None
 }
 
 fn config_paths() -> Result<Vec<PathBuf>> {
@@ -120,7 +124,7 @@ fn config_paths() -> Result<Vec<PathBuf>> {
 
     let mut paths = Vec::new();
     if let Some(xdg_home) = env::var_os("XDG_CONFIG_HOME") {
-        let path = PathBuf::from(xdg_home).join(APP_NAME);
+        let path = PathBuf::from(xdg_home).join(CARGO_DIST_APP_NAME);
         if path.exists() {
             paths.push(path);
         }
@@ -128,12 +132,16 @@ fn config_paths() -> Result<Vec<PathBuf>> {
 
     #[cfg(windows)]
     if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
-        paths.push(PathBuf::from(local_app_data).join(APP_NAME));
+        paths.push(PathBuf::from(local_app_data).join(CARGO_DIST_APP_NAME));
     }
 
     #[cfg(not(windows))]
     if let Some(home) = env::var_os("HOME") {
-        paths.push(PathBuf::from(home).join(".config").join(APP_NAME));
+        paths.push(
+            PathBuf::from(home)
+                .join(".config")
+                .join(CARGO_DIST_APP_NAME),
+        );
     }
 
     Ok(paths)
@@ -322,9 +330,9 @@ fn run_installer_command(
     verbose: u8,
 ) -> Result<i32> {
     command.env("CARGO_DIST_FORCE_INSTALL_DIR", install_root);
-    command.env("ARCO_INSTALL_DIR", install_root);
+    command.env("ARCO_CLI_INSTALL_DIR", install_root);
     if !modify_path {
-        command.env("ARCO_NO_MODIFY_PATH", "1");
+        command.env("ARCO_CLI_NO_MODIFY_PATH", "1");
     }
     if verbose == 0 {
         command.stdout(Stdio::null()).stderr(Stdio::null());
@@ -348,7 +356,87 @@ fn labelled(label: &str, message: &str, color: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::self_update::installer_url;
+    use std::env;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crate::self_update::{
+        CARGO_DIST_APP_NAME, installer_url, load_receipt_from_paths, run_installer_command,
+    };
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let suffix = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after unix epoch")
+                .as_nanos();
+            let path = env::temp_dir().join(format!("{name}-{}-{suffix}", std::process::id()));
+            fs::create_dir_all(&path).expect("temporary test directory should be created");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn load_receipt_reads_cargo_dist_app_receipt_name() {
+        let config_dir = TempDir::new("arco-self-update-receipt");
+        let install_prefix = config_dir.path().join("bin");
+        let receipt = serde_json::json!({
+            "install_prefix": install_prefix,
+            "provider": {
+                "source": "cargo-dist",
+                "version": "0.31.0"
+            }
+        });
+        fs::write(
+            config_dir
+                .path()
+                .join(format!("{CARGO_DIST_APP_NAME}-receipt.json")),
+            receipt.to_string(),
+        )
+        .expect("receipt should be written");
+
+        let receipt = load_receipt_from_paths(&[config_dir.path().to_path_buf()])
+            .expect("receipt should be found");
+
+        assert_eq!(receipt.install_prefix, install_prefix);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn installer_command_sets_cargo_dist_app_environment() {
+        let install_root = Path::new("/tmp/arco-install-root");
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg(
+                "test \"$ARCO_CLI_INSTALL_DIR\" = \"$1\" && \
+                 test \"$ARCO_CLI_NO_MODIFY_PATH\" = \"1\" && \
+                 test \"$CARGO_DIST_FORCE_INSTALL_DIR\" = \"$1\"",
+            )
+            .arg("sh")
+            .arg(install_root);
+
+        let code = run_installer_command(command, install_root, false, 1)
+            .expect("installer command should run");
+
+        assert_eq!(code, 0);
+    }
 
     #[test]
     fn installer_url_uses_latest_download_for_default_update() {
