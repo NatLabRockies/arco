@@ -36,6 +36,7 @@ relentless about minimizing memory usage so more systems can run real workloads.
 <p align="center">
   <a href="#quickstart">Quickstart</a> ·
   <a href="#installation">Installation</a> ·
+  <a href="#vs-code-extension">VS Code</a> ·
   <a href="#kdl-language">KDL Language</a> ·
   <a href="#cli-reference">CLI Reference</a> ·
   <a href="#language-bindings">Language Bindings</a> ·
@@ -190,6 +191,43 @@ just py-dev
 # Run full local CI-equivalent checks
 just ci
 ```
+
+### VS Code Extension
+
+The local VS Code extension provides `.kdl` highlighting, diagnostics,
+formatting, format-on-save support, and an `arco KDL` status bar action. It
+uses the canonical `arco` CLI for validation and formatting, so the editor sees
+the same diagnostics as the command line.
+
+Install it from the repository root:
+
+```bash
+npm --prefix tools/vscode-arco-kdl run install:local
+```
+
+or, when using the repository `just` workflow:
+
+```bash
+just vscode-extension-install
+```
+
+For standard VS Code installs, no manual `VSCODE_CLI` setting is required. The
+installer uses `code` on PATH when available and also checks common app
+locations such as `/Applications`, `~/Applications`, and `~/User Apps` on
+macOS. Set `VSCODE_CLI` only when VS Code is installed somewhere custom.
+
+To configure the `arco` binary used by diagnostics and formatting, leave
+`arco.kdl.command` empty when `arco --version` works from your environment, or
+set it to an absolute path:
+
+```json
+{
+  "arco.kdl.command": "/Users/me/.local/bin/arco"
+}
+```
+
+For format-on-save and troubleshooting broken CLI paths, see the
+[VS Code extension guide](./tools/vscode-arco-kdl/README.md).
 
 ## KDL Language
 
@@ -526,7 +564,7 @@ Performance & Tooling
 - Memory diagnostics — built-in tracking of allocations
 - Block orchestration — DAG-based composition for multi-stage problems
 - Python bindings — programmatic access with NumPy integration
-- Editor support — tree-sitter grammar for syntax highlighting
+- Editor support — VS Code extension and tree-sitter grammar for KDL authoring
 
 ## Roadmap
 
