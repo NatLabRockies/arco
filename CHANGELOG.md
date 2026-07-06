@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.1](https://github.com/NatLabRockies/arco/compare/v0.8.0...v0.8.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ci:** use bash for Python release uploads ([#348](https://github.com/NatLabRockies/arco/issues/348)) ([7d80e39](https://github.com/NatLabRockies/arco/commit/7d80e3912aff2615accdc96cf38f67dd7712aa51))
+
+
+### Performance
+
+* **build:** reduce clean Rust check time ([#347](https://github.com/NatLabRockies/arco/issues/347)) ([e822fa6](https://github.com/NatLabRockies/arco/commit/e822fa6fbc5862a7713cc7c15decfe6d4e10b328))
+
+
+### Refactoring
+
+* improving python compilation time. ([#350](https://github.com/NatLabRockies/arco/issues/350)) ([b58fa2c](https://github.com/NatLabRockies/arco/commit/b58fa2c8002b01e92906abfa3db51d9835b8d701))
+
 ## [0.8.0](https://github.com/NatLabRockies/arco/compare/v0.7.0...v0.8.0) (2026-07-05)
 
 
