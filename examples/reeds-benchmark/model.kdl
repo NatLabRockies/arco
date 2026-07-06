@@ -2,55 +2,63 @@ model reeds_benchmark {
   control cap lower=0 {
     index active_irt
   }
-
   control inv lower=0 {
     index active_irt
   }
-
   control gen lower=0 {
     index active_irht
   }
-
   expression investment_cost {
     sum(cost_inv[i] * inv[i,r,t] for i in tech for r in region for t in year)
   }
-
   expression generation_cost {
     sum(cost_gen[i] * gen[i,r,h,t] for i in tech for r in region for h in hour for t in year)
   }
-
   constraint initial_capacity {
-    index i { in tech }
-    index r { in region }
+    index i {
+      in tech
+    }
+    index r {
+      in region
+    }
     expression {
-      cap[i,r,2030] = cap_init[i,r] + inv[i,r,2030]
+      cap[i,r,2030]
+        = cap_init[i,r]
+        + inv[i,r,2030]
     }
   }
-
   constraint capacity_rollforward {
     index cap_transition
     expression {
-      cap[i,r,t] = cap[i,r,tp] + inv[i,r,t]
+      cap[i,r,t]
+        = cap[i,r,tp]
+        + inv[i,r,t]
     }
   }
-
   constraint generation_limit {
     index active_irht
     expression {
-      gen[active_irht] <= cf[active_irht] * cap[i,r,t]
+      gen[active_irht]
+        <= cf[active_irht] * cap[i,r,t]
     }
   }
-
   constraint supply_demand_balance {
-    index r { in region }
-    index h { in hour }
-    index t { in year }
+    index r {
+      in region
+    }
+    index h {
+      in hour
+    }
+    index t {
+      in year
+    }
     expression {
-      sum(gen[i,r,h,t] for i in tech) >= load[r,h,t]
+      sum(gen[i,r,h,t] for i in tech)
+        >= load[r,h,t]
     }
   }
-
   minimize total_cost {
-    investment_cost + generation_cost
+    investment_cost
+      + generation_cost
   }
 }

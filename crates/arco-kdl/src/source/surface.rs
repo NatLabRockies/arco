@@ -26,97 +26,97 @@ pub(super) fn format_surface_document(document: &KdlDocument) -> String {
 }
 
 fn render_node(node: &KdlNode, indent: usize, output: &mut String) {
-    if promotes_expression_property(node.name().value()) {
-        if let Some(expression) = expression_property(node) {
-            render_expression_property_node(node, expression, indent, output);
-            return;
-        }
+    if let Some(expression) =
+        expression_property(node).filter(|_| promotes_expression_property(node.name().value()))
+    {
+        let algebra = if node.children().is_some() {
+            AlgebraBlock::Named("expression", expression)
+        } else {
+            AlgebraBlock::Bare(expression)
+        };
+        render_block_node(
+            node,
+            indent,
+            Some("expression"),
+            None,
+            Some(algebra),
+            output,
+        );
+        return;
     }
 
     if node.name().value() == "expression" {
         if let Some((formula_index, formula)) = formula_child(node) {
-            render_expression_formula_node(node, formula_index, formula, indent, output);
+            let algebra = if node
+                .children()
+                .is_some_and(|children| children.nodes().len() == 1)
+            {
+                AlgebraBlock::Bare(formula)
+            } else {
+                AlgebraBlock::Named("expression", formula)
+            };
+            render_block_node(
+                node,
+                indent,
+                None,
+                Some(formula_index),
+                Some(algebra),
+                output,
+            );
             return;
         }
     }
 
-    render_generic_node(node, indent, output);
+    render_block_node(node, indent, None, None, None, output);
 }
 
-fn render_expression_property_node(
+#[derive(Clone, Copy)]
+enum AlgebraBlock<'a> {
+    Bare(&'a str),
+    Named(&'static str, &'a str),
+}
+
+fn render_block_node(
     node: &KdlNode,
-    expression: &str,
     indent: usize,
+    excluded_property: Option<&str>,
+    skipped_child: Option<usize>,
+    algebra: Option<AlgebraBlock<'_>>,
     output: &mut String,
 ) {
-    render_header(node, indent, Some("expression"), output);
+    render_header(node, indent, excluded_property, output);
+    if node.children().is_none() && algebra.is_none() {
+        output.push('\n');
+        return;
+    }
     output.push_str(" {\n");
 
     if let Some(children) = node.children() {
-        for child in children.nodes() {
-            render_node(child, indent + 2, output);
-        }
-        render_named_algebra_block("expression", expression, indent + 2, output);
-    } else {
-        render_algebra(expression, indent + 2, output);
-    }
-
-    push_indent(indent, output);
-    output.push_str("}\n");
-}
-
-fn render_expression_formula_node(
-    node: &KdlNode,
-    formula_index: usize,
-    formula: &str,
-    indent: usize,
-    output: &mut String,
-) {
-    render_header(node, indent, None, output);
-    output.push_str(" {\n");
-
-    let Some(children) = node.children() else {
-        render_algebra(formula, indent + 2, output);
-        push_indent(indent, output);
-        output.push_str("}\n");
-        return;
-    };
-
-    if children.nodes().len() == 1 {
-        render_algebra(formula, indent + 2, output);
-    } else {
         for (index, child) in children.nodes().iter().enumerate() {
-            if index != formula_index {
+            if Some(index) != skipped_child {
                 render_node(child, indent + 2, output);
             }
         }
-        render_named_algebra_block("expression", formula, indent + 2, output);
+    }
+    if let Some(algebra) = algebra {
+        render_algebra_block(algebra, indent + 2, output);
     }
 
     push_indent(indent, output);
     output.push_str("}\n");
 }
 
-fn render_named_algebra_block(name: &str, expression: &str, indent: usize, output: &mut String) {
-    push_indent(indent, output);
-    output.push_str(name);
-    output.push_str(" {\n");
-    render_algebra(expression, indent + 2, output);
-    push_indent(indent, output);
-    output.push_str("}\n");
-}
-
-fn render_generic_node(node: &KdlNode, indent: usize, output: &mut String) {
-    render_header(node, indent, None, output);
-    if let Some(children) = node.children() {
-        output.push_str(" {\n");
-        for child in children.nodes() {
-            render_node(child, indent + 2, output);
+fn render_algebra_block(algebra: AlgebraBlock<'_>, indent: usize, output: &mut String) {
+    match algebra {
+        AlgebraBlock::Bare(expression) => render_algebra(expression, indent, output),
+        AlgebraBlock::Named(name, expression) => {
+            push_indent(indent, output);
+            output.push_str(name);
+            output.push_str(" {\n");
+            render_algebra(expression, indent + 2, output);
+            push_indent(indent, output);
+            output.push_str("}\n");
         }
-        push_indent(indent, output);
-        output.push_str("}\n");
-    } else {
-        output.push('\n');
     }
 }
 
@@ -257,17 +257,10 @@ fn split_top_level_operators(expression: &str) -> Vec<String> {
 
 fn top_level_operator_at(expression: &str, index: usize) -> Option<&'static str> {
     let remaining = expression.get(index..)?;
-    if remaining.starts_with("<=") {
-        return Some("<=");
-    }
-    if remaining.starts_with(">=") {
-        return Some(">=");
-    }
-    if remaining.starts_with("==") {
-        return Some("==");
-    }
-    if remaining.starts_with('=') {
-        return Some("=");
+    for operator in ["<=", ">=", "==", "="] {
+        if remaining.starts_with(operator) {
+            return Some(operator);
+        }
     }
 
     let operator = remaining.chars().next()?;
@@ -298,9 +291,7 @@ fn format_segment(operator: Option<&str>, segment: &str) -> String {
 
 #[derive(Default)]
 struct OperatorScanState {
-    paren_depth: usize,
-    bracket_depth: usize,
-    brace_depth: usize,
+    nesting_depth: usize,
     in_string: bool,
     escaped: bool,
 }
@@ -323,28 +314,12 @@ impl OperatorScanState {
                 self.in_string = true;
                 true
             }
-            '(' => {
-                self.paren_depth += 1;
+            '(' | '[' | '{' => {
+                self.nesting_depth += 1;
                 true
             }
-            ')' => {
-                self.paren_depth = self.paren_depth.saturating_sub(1);
-                true
-            }
-            '[' => {
-                self.bracket_depth += 1;
-                true
-            }
-            ']' => {
-                self.bracket_depth = self.bracket_depth.saturating_sub(1);
-                true
-            }
-            '{' => {
-                self.brace_depth += 1;
-                true
-            }
-            '}' => {
-                self.brace_depth = self.brace_depth.saturating_sub(1);
+            ')' | ']' | '}' => {
+                self.nesting_depth = self.nesting_depth.saturating_sub(1);
                 true
             }
             _ => false,
@@ -352,7 +327,7 @@ impl OperatorScanState {
     }
 
     fn is_nested(&self) -> bool {
-        self.paren_depth > 0 || self.bracket_depth > 0 || self.brace_depth > 0
+        self.nesting_depth > 0
     }
 }
 

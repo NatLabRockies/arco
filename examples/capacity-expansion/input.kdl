@@ -1,10 +1,11 @@
 data assets_data source="data/all_assets.csv" {
-  map asset_id from="asset_name"
-
-  set asset_id alias="a"
+  map asset_id from=asset_name
+  set asset_id alias=a
   set candidate_assets {
     in asset_id
-    filter { is_candidate > 0 }
+    filter {
+      is_candidate > 0
+    }
   }
   param existing_capacity_mw {
     index asset_id
@@ -22,76 +23,77 @@ data assets_data source="data/all_assets.csv" {
     index asset_id
   }
 }
-
 data demand_data source="data/demand.csv" {
   set t
   param demand {
     index t
   }
 }
-
 data voll_data source="data/voll.csv" {
   set t
   param voll {
     index t
   }
 }
-
 model capacity_expansion {
-  set time alias="t"
-
+  set time alias=t
   control dispatch {
     index asset_id
     index time
   }
-
   control expansion {
     index asset_id
   }
-
   control unserved_energy {
     index time
   }
-
   expression investment_cost {
     sum(build_cost[asset] * expansion[asset] for asset in candidate_assets)
   }
-
   expression operating_cost {
     sum(variable_cost[asset] * dispatch[asset,t] for asset in asset_id for t in time)
   }
-
   expression penalty_cost {
     sum(voll[t] * unserved_energy[t] for t in time)
   }
-
   constraint dispatch_limit {
-    index asset { in asset_id }
-    index t { in time }
+    index asset {
+      in asset_id
+    }
+    index t {
+      in time
+    }
     expression {
-      dispatch[asset,t] <= existing_capacity_mw[asset] + expansion[asset]
+      dispatch[asset,t]
+        <= existing_capacity_mw[asset]
+        + expansion[asset]
     }
   }
-
   constraint candidate_build_limit {
-    index asset { in asset_id }
+    index asset {
+      in asset_id
+    }
     expression {
-      expansion[asset] <= max_build_mw[asset] * is_candidate[asset]
+      expansion[asset]
+        <= max_build_mw[asset] * is_candidate[asset]
     }
   }
-
   constraint balance {
-    index t { in time }
+    index t {
+      in time
+    }
     expression {
-      sum(dispatch[asset,t] for asset in asset_id) + unserved_energy[t] = demand[t]
+      sum(dispatch[asset,t] for asset in asset_id)
+        + unserved_energy[t]
+        = demand[t]
     }
   }
-
   minimize expansion_cost {
-    investment_cost + operating_cost + penalty_cost
+    investment_cost
+      + operating_cost
+      + penalty_cost
   }
 }
-
 scenario expansion_case {
   use capacity_expansion
 }

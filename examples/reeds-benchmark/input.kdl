@@ -1,6 +1,5 @@
-include "data.kdl"
-include "model.kdl"
-
+include data.kdl
+include model.kdl
 scenario reeds_benchmark_small {
   use reeds_benchmark
   report total_cost
