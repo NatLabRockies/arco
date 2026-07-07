@@ -226,6 +226,7 @@ jobs:
           # Actually do builds and make zips and whatnot
           dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "dist ran successfully"
+          uv run python scripts/ci_bundle_scip_runtime.py local dist-manifest.json
       - id: cargo-dist
         name: Post-build
         # We force bash here just because github makes it really hard to get values up
@@ -280,6 +281,7 @@ jobs:
           dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
           echo "dist ran successfully"
 
+          python3 scripts/ci_bundle_scip_runtime.py global dist-manifest.json target/distrib
           # Parse out what we just built and upload it to scratch storage
           echo "paths<<EOF" >> "$GITHUB_OUTPUT"
           jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"

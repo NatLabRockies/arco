@@ -23,6 +23,9 @@ Every release version is shared across:
   `Cargo.toml`, `pyproject.toml`, and `uv.lock`), and tag creation.
 - `cargo-dist` owns cross-platform CLI binaries, installers, checksums, dist
   manifests, and publishing the GitHub Release.
+- Arco post-processes cargo-dist's local CLI archives to bundle SCIP runtime
+  libraries beside the `arco` binary, then patches the generated installers so
+  those libraries are installed with the binary.
 - `ci.yaml` owns pre-merge validation: version consistency checks, code
   quality, tests, solver smoke checks, cross-OS release compilation, and
   release-please preflight checks that build cargo-dist/Python artifacts without
@@ -66,6 +69,10 @@ release-please owns every versioned file, verifies all release version metadata
 matches, builds Python wheels across the release platform/Python matrix, and
 uses cargo-dist's planned target matrix to build local CLI artifacts without
 uploading or publishing them.
+
+The cargo-dist preflight also applies Arco's SCIP runtime bundling step to the
+local archives before it asks cargo-dist which files would be uploaded. This
+keeps the `curl | sh` and PowerShell installer paths covered before release.
 
 CI caches native solver bundles and cargo-dist binaries by runner platform and
 tool version. These caches are runtime optimizations only; cache misses must
@@ -138,15 +145,23 @@ GitHub Release state if cargo-dist reached the final publish step.
 ## Maintenance Notes
 
 - Do not hand-edit cargo-dist build steps in `v-release.yml`. Put Arco-specific
-  runner setup in `.github/build-setup.yml`, then run:
+  runner setup in `.github/build-setup.yml`; put deterministic generated
+  workflow patches in `scripts/ci_bundle_scip_runtime.py`; then run:
 
   ```bash
   dist generate --mode=ci
-  mv .github/workflows/release.yml .github/workflows/v-release.yml
+  python3 scripts/ci_bundle_scip_runtime.py workflow .github/workflows/v-release.yml
   ```
 
-  CI runs the same generation and diffs the generated `release.yml` against
-  `v-release.yml` to catch drift.
+  CI runs the same generation and patch step, then diffs
+  `.github/workflows/v-release.yml` to catch drift.
+
+- `scripts/ci_bundle_scip_runtime.py` owns the release archive and installer
+  post-processing for SCIP. Local artifact jobs copy the SCIP runtime files from
+  the solver setup environment into each cargo-dist archive and update the
+  archive checksum. The global artifact job reads the local dist manifests and
+  patches the generated shell and PowerShell installers so the bundled libraries
+  are moved into the install directory with `arco`.
 
 - `main` is the source of truth for CI, release workflows, and tooling.
   If we create a maintenance branch after `1.0`, sync workflow/tooling changes
