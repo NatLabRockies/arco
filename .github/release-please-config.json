@@ -3,6 +3,7 @@
   "pull-request-title-pattern": "chore: release v${version}",
   "force-tag-creation": true,
   "separate-pull-requests": true,
+  "skip-labeling": true,
   "packages": {
     ".": {
       "release-type": "simple",
