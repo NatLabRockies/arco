@@ -55,29 +55,28 @@ def test_patch_powershell_installer_sets_libs_for_matching_archive() -> None:
     assert '"libs" = @("libscip.dll", "ipopt-3.dll")' in patched
 
 
-def test_patch_workflow_is_idempotent() -> None:
+def test_patch_workflow_adds_allow_dirty_and_is_idempotent(tmp_path: Path) -> None:
     bundle = load_bundle_module()
-    workflow = bundle.LOCAL_WORKFLOW_ANCHOR + bundle.GLOBAL_WORKFLOW_ANCHOR
-
-    patched = bundle.insert_after(
-        workflow,
-        bundle.LOCAL_WORKFLOW_ANCHOR,
-        bundle.LOCAL_WORKFLOW_COMMAND,
-    )
-    patched = bundle.insert_after(
-        patched,
-        bundle.GLOBAL_WORKFLOW_ANCHOR,
-        bundle.GLOBAL_WORKFLOW_COMMAND,
+    workflow_path = tmp_path / "v-release.yml"
+    workflow_path.write_text(
+        bundle.PLAN_WORKFLOW_COMMAND
+        + bundle.LOCAL_WORKFLOW_BUILD
+        + '          echo "dist ran successfully"\n'
+        + bundle.GLOBAL_WORKFLOW_BUILD
+        + '          echo "dist ran successfully"\n\n'
+        + bundle.HOST_WORKFLOW_COMMAND,
+        encoding="utf-8",
     )
 
-    assert (
-        bundle.insert_after(
-            patched,
-            bundle.LOCAL_WORKFLOW_ANCHOR,
-            bundle.LOCAL_WORKFLOW_COMMAND,
-        )
-        == patched
-    )
+    bundle.patch_workflow(workflow_path)
+    patched = workflow_path.read_text(encoding="utf-8")
+    bundle.patch_workflow(workflow_path)
+
+    assert workflow_path.read_text(encoding="utf-8") == patched
+    assert bundle.PLAN_WORKFLOW_COMMAND_ALLOW_DIRTY in patched
+    assert bundle.LOCAL_WORKFLOW_BUILD_ALLOW_DIRTY in patched
+    assert bundle.GLOBAL_WORKFLOW_BUILD_ALLOW_DIRTY in patched
+    assert bundle.HOST_WORKFLOW_COMMAND_ALLOW_DIRTY in patched
     assert bundle.LOCAL_WORKFLOW_COMMAND in patched
     assert bundle.GLOBAL_WORKFLOW_COMMAND in patched
 

@@ -154,7 +154,11 @@ GitHub Release state if cargo-dist reached the final publish step.
   ```
 
   CI runs the same generation and patch step, then diffs
-  `.github/workflows/v-release.yml` to catch drift.
+  `.github/workflows/v-release.yml` to catch drift. The patched workflow and CI
+  preflight use cargo-dist's CLI `--allow-dirty` flag on plan/build/host
+  commands so those commands accept Arco's deterministic post-generation hooks.
+  Do not set `[dist] allow-dirty = ["ci"]`; that prevents the verification
+  script from running `dist generate --mode=ci`.
 
 - `scripts/ci_bundle_scip_runtime.py` owns the release archive and installer
   post-processing for SCIP. Local artifact jobs copy the SCIP runtime files from

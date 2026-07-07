@@ -15,23 +15,54 @@ from pathlib import Path
 from typing import Any
 
 
-LOCAL_WORKFLOW_ANCHOR = (
+PLAN_WORKFLOW_COMMAND = (
+    "          dist ${{ (inputs.tag && inputs.tag != 'dry-run' && "
+    "format('host --steps=create --tag={0}', inputs.tag)) || 'plan' }} "
+    "--output-format=json > plan-dist-manifest.json\n"
+)
+PLAN_WORKFLOW_COMMAND_ALLOW_DIRTY = (
+    "          dist ${{ (inputs.tag && inputs.tag != 'dry-run' && "
+    "format('host --steps=create --tag={0}', inputs.tag)) || 'plan' }} "
+    "--allow-dirty --output-format=json > plan-dist-manifest.json\n"
+)
+LOCAL_WORKFLOW_BUILD = (
     "          dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage "
     "--output-format=json ${{ matrix.dist_args }} > dist-manifest.json\n"
-    '          echo "dist ran successfully"\n'
+)
+LOCAL_WORKFLOW_BUILD_ALLOW_DIRTY = (
+    "          dist build ${{ needs.plan.outputs.tag-flag }} --allow-dirty "
+    "--print=linkage --output-format=json ${{ matrix.dist_args }} "
+    "> dist-manifest.json\n"
+)
+LOCAL_WORKFLOW_ANCHOR = (
+    LOCAL_WORKFLOW_BUILD_ALLOW_DIRTY + '          echo "dist ran successfully"\n'
 )
 LOCAL_WORKFLOW_COMMAND = (
     "          uv run python scripts/ci_bundle_scip_runtime.py local "
     "dist-manifest.json\n"
 )
-GLOBAL_WORKFLOW_ANCHOR = (
+GLOBAL_WORKFLOW_BUILD = (
     "          dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "
     '"--artifacts=global" > dist-manifest.json\n'
-    '          echo "dist ran successfully"\n\n'
+)
+GLOBAL_WORKFLOW_BUILD_ALLOW_DIRTY = (
+    "          dist build ${{ needs.plan.outputs.tag-flag }} --allow-dirty "
+    '--output-format=json "--artifacts=global" > dist-manifest.json\n'
+)
+GLOBAL_WORKFLOW_ANCHOR = (
+    GLOBAL_WORKFLOW_BUILD_ALLOW_DIRTY + '          echo "dist ran successfully"\n\n'
 )
 GLOBAL_WORKFLOW_COMMAND = (
     "          python3 scripts/ci_bundle_scip_runtime.py global "
     "dist-manifest.json target/distrib\n"
+)
+HOST_WORKFLOW_COMMAND = (
+    "          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload "
+    "--steps=release --output-format=json > dist-manifest.json\n"
+)
+HOST_WORKFLOW_COMMAND_ALLOW_DIRTY = (
+    "          dist host ${{ needs.plan.outputs.tag-flag }} --allow-dirty "
+    "--steps=upload --steps=release --output-format=json > dist-manifest.json\n"
 )
 
 MACOS_GCC_LIBS = (
@@ -330,6 +361,15 @@ def bundle_global(manifest_path: Path, distrib_dir: Path) -> None:
     write_json(manifest_path, manifest)
 
 
+def replace_workflow_command(text: str, command: str, replacement: str) -> str:
+    if replacement in text:
+        return text
+    count = text.count(command)
+    if count != 1:
+        raise SystemExit(f"expected one workflow command: {command.strip()}")
+    return text.replace(command, replacement, 1)
+
+
 def insert_after(text: str, anchor: str, insertion: str) -> str:
     if insertion in text:
         return text
@@ -341,6 +381,18 @@ def insert_after(text: str, anchor: str, insertion: str) -> str:
 
 def patch_workflow(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
+    text = replace_workflow_command(
+        text, PLAN_WORKFLOW_COMMAND, PLAN_WORKFLOW_COMMAND_ALLOW_DIRTY
+    )
+    text = replace_workflow_command(
+        text, LOCAL_WORKFLOW_BUILD, LOCAL_WORKFLOW_BUILD_ALLOW_DIRTY
+    )
+    text = replace_workflow_command(
+        text, GLOBAL_WORKFLOW_BUILD, GLOBAL_WORKFLOW_BUILD_ALLOW_DIRTY
+    )
+    text = replace_workflow_command(
+        text, HOST_WORKFLOW_COMMAND, HOST_WORKFLOW_COMMAND_ALLOW_DIRTY
+    )
     text = insert_after(text, LOCAL_WORKFLOW_ANCHOR, LOCAL_WORKFLOW_COMMAND)
     text = insert_after(text, GLOBAL_WORKFLOW_ANCHOR, GLOBAL_WORKFLOW_COMMAND)
     path.write_text(text, encoding="utf-8")

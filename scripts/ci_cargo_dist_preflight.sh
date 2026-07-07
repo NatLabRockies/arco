@@ -47,6 +47,6 @@ if [[ "${dist_plan_args}" != "${expected_args}" ]]; then
 	exit 1
 fi
 
-dist build --print=linkage --output-format=json "${dist_args[@]}" >dist-manifest.json
+dist build --allow-dirty --print=linkage --output-format=json "${dist_args[@]}" >dist-manifest.json
 uv run python scripts/ci_bundle_scip_runtime.py local dist-manifest.json
 dist print-upload-files-from-manifest --manifest dist-manifest.json
