@@ -89,17 +89,17 @@ workflow-quality:
 
 [group: 'rust']
 rust-check:
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check {{ rust-packages }} --all-features --tests --benches --examples --exclude arco-scip
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check {{ rust-packages }} --tests --benches --examples
     ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check -p arco-scip --no-default-features --features scip-bundled
 
 [group: 'rust']
 rust-clippy:
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy {{ clippy-packages }} --all-features --benches --tests --examples --exclude arco-scip -- -D warnings
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy {{ clippy-packages }} --benches --tests --examples -- -D warnings
     ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy -p arco-scip --no-default-features --features scip-bundled -- -D warnings
 
 [group: 'rust']
 rust-test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --all-features --exclude arco-scip
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }}
     PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test -p arco-scip --no-default-features --features scip-bundled
 
 [group: 'rust']
