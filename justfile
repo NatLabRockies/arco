@@ -182,6 +182,10 @@ py-build-wheel: py-licenses
     ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
 
 [group: 'python']
+py-build-release-wheel: py-licenses
+    PYTHON_WHEEL_NO_DEFAULT_FEATURES=1 PYTHON_WHEEL_FEATURES="pyo3/extension-module,xpress,scip-from-source" ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
+
+[group: 'python']
 py-build-sdist:
     uv run --project bindings/python --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
 
@@ -192,7 +196,7 @@ py-build:
 
 [group: 'python']
 py-smoke-wheel artifact_glob="dist/*.whl":
-    uv run --project bindings/python python scripts/python_package_smoke.py --artifact-glob "{{ artifact_glob }}"
+    uv run --no-project python scripts/python_package_smoke.py --artifact-glob "{{ artifact_glob }}"
 
 [group: 'python']
 py-validate-wheel artifact_glob="dist/*.whl":
@@ -341,7 +345,7 @@ ci-python-wheel artifact_glob="dist/*.whl":
 
 [group: 'ci']
 ci-python-release-wheel artifact_glob="dist/*.whl":
-    just py-build-wheel
+    just py-build-release-wheel
     just py-smoke-wheel "{{ artifact_glob }}"
 
 [group: 'ci']

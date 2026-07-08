@@ -93,9 +93,9 @@ jobs:
           if [[ "${RUNNER_OS}" == "Windows" ]]; then
             # TODO: After the next release, remove this tag-rebuild compatibility override.
             # New release refs should rely on the justfile's windows-shell setting instead.
-            just --shell "C:/Program Files/Git/bin/bash.exe" --shell-arg "-eu" --shell-arg "-o" --shell-arg "pipefail" --shell-arg "-c" py-build-wheel
+            just --shell "C:/Program Files/Git/bin/bash.exe" --shell-arg "-eu" --shell-arg "-o" --shell-arg "pipefail" --shell-arg "-c" py-build-release-wheel
           else
-            just py-build-wheel
+            just py-build-release-wheel
           fi
 
       - name: Build sdist
