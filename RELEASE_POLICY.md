@@ -148,6 +148,12 @@ GitHub Release state if cargo-dist reached the final publish step.
   CI runs the same generation and diffs the generated `release.yml` against
   `v-release.yml` to catch drift.
 
+- Official CLI releases statically link SCIP (`scip-from-source`) so fresh
+  installs are self-contained. Development builds keep the bundled SCIP path by
+  default (`scip-bundled`).
+- Release jobs that build SCIP from source need the native source-build toolchain
+  required by `scip-sys` (for example `cmake` and `libclang`).
+
 - `main` is the source of truth for CI, release workflows, and tooling.
   If we create a maintenance branch after `1.0`, sync workflow/tooling changes
   from `main` unless a branch-specific exception is documented.

@@ -379,19 +379,26 @@ solution = model.solve(solver=selection, log_to_console=False)
 ## SCIP (embedded native LP / MIP solver)
 
 SCIP support is provided by `arco-scip` through
-[`russcip`](https://github.com/scipopt/russcip). Arco embeds SCIP in the default
-Rust build, sends the LP/MIP model through the native Rust SCIP API, and does
-not require a separate `scip` executable at runtime.
+[`russcip`](https://github.com/scipopt/russcip). Arco keeps SCIP embedded in the
+default Rust build for development, sends the LP/MIP model through the native
+Rust SCIP API, and does not require a separate `scip` executable at runtime.
+Official release binaries statically link SCIP so fresh installs remain
+self-contained.
 
 > [!IMPORTANT]
 > SCIP is distributed under the Apache-2.0 license, but some optional third-party
 > SCIP build components may have different licenses. Check SCIP and `russcip`
 > redistribution terms before publishing bundled Arco artifacts.
+>
+> Release builds that use `scip-from-source` require the source build toolchain
+> used by `scip-sys` (for example, `cmake` and `libclang`).
 
 ### Setup at a glance
 
 1. Build or install Arco normally; SCIP is embedded in the default Rust build.
-2. Run `arco solver set scip` and verify with `arco solver show`.
+2. Official release binaries ship SCIP statically, so no extra runtime library
+   setup is needed on fresh installs.
+3. Run `arco solver set scip` and verify with `arco solver show`.
 
 ```bash
 arco solver set scip

@@ -28,7 +28,11 @@ use crate::compile::targets::{
 };
 #[cfg(feature = "compile")]
 pub use arco_format::ExportError;
-#[cfg(any(feature = "compile", feature = "scip"))]
+#[cfg(any(
+    feature = "compile",
+    feature = "scip-bundled",
+    feature = "scip-from-source"
+))]
 use arco_format::{
     PortableConstraintSense, PortableLinearConstraint, PortableLinearObjective,
     PortableLinearReport, PortableLinearTerm, PortableObjectiveSense, PortableProblem,
@@ -399,7 +403,11 @@ pub fn ops_problem_from_algebraic(problem: &AlgebraicProblem) -> OpsAlgebraicPro
     }
 }
 
-#[cfg(any(feature = "compile", feature = "scip"))]
+#[cfg(any(
+    feature = "compile",
+    feature = "scip-bundled",
+    feature = "scip-from-source"
+))]
 pub fn portable_problem_from_ops(problem: &OpsAlgebraicProblem) -> PortableProblem {
     PortableProblem {
         variable_instances: problem
@@ -463,7 +471,11 @@ fn ops_terms(terms: &[TargetLinearTerm]) -> Vec<OpsLinearTerm> {
         .collect()
 }
 
-#[cfg(any(feature = "compile", feature = "scip"))]
+#[cfg(any(
+    feature = "compile",
+    feature = "scip-bundled",
+    feature = "scip-from-source"
+))]
 fn portable_terms(terms: &[OpsLinearTerm]) -> Vec<PortableLinearTerm> {
     terms
         .iter()

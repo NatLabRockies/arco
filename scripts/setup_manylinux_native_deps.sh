@@ -17,7 +17,7 @@ else
 	exit 1
 fi
 
-install_cmd=("$package_manager" install -y clang-devel)
+install_cmd=("$package_manager" install -y clang-devel cmake)
 if [[ "$(id -u)" -ne 0 ]]; then
 	install_cmd=(sudo "${install_cmd[@]}")
 fi

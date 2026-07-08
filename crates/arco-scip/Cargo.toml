@@ -14,8 +14,10 @@ publish = false
 workspace = true
 
 [features]
-default = ["diagnostics"]
+default = ["diagnostics", "scip-bundled"]
 diagnostics = ["arco-format/diagnostics", "dep:miette"]
+scip-bundled = ["russcip/bundled"]
+scip-from-source = ["russcip/from-source"]
 
 [dependencies]
 arco-solver = { workspace = true, default-features = false }
@@ -24,7 +26,5 @@ arco-model = { workspace = true, default-features = false }
 miette = { version = "7", default-features = false, features = [
   "derive",
 ], optional = true }
-russcip = { version = "0.9.1", default-features = false, features = [
-  "bundled",
-] }
+russcip = { version = "0.9.1", default-features = false }
 tracing = { workspace = true }

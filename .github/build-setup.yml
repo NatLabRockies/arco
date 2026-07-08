@@ -49,12 +49,6 @@
     path: ~/.cache/arco-highs
     key: ${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}
 
-- name: Configure SCIP bundled binary discovery
-  shell: bash
-  env:
-    ARCO_SCIP_TARGETS: ${{ join(matrix.targets, ',') }}
-  run: bash ./scripts/setup_scip_binary_env.sh "$GITHUB_ENV"
-
 - name: Install uv for solver runtime setup
   uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
   with:

@@ -1,3 +1,6 @@
+#[cfg(all(feature = "scip-bundled", feature = "scip-from-source"))]
+compile_error!("features `scip-bundled` and `scip-from-source` are mutually exclusive");
+
 use arco_format::{
     PortableConstraintSense, PortableLinearObjective, PortableLinearReport, PortableObjectiveSense,
     PortableProblem, PortableVariableKind, portable_problem_from_model_view,

@@ -89,15 +89,25 @@ workflow-quality:
 
 [group: 'rust']
 rust-check:
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check {{ rust-packages }} --all-features --tests --benches --examples
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check {{ rust-packages }} --all-features --tests --benches --examples --exclude arco-scip
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check -p arco-scip --no-default-features --features scip-bundled
 
 [group: 'rust']
 rust-clippy:
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy {{ clippy-packages }} --benches --tests --examples --all-features -- -D warnings
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy {{ clippy-packages }} --all-features --benches --tests --examples --exclude arco-scip -- -D warnings
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy -p arco-scip --no-default-features --features scip-bundled -- -D warnings
 
 [group: 'rust']
 rust-test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --all-features
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --all-features --exclude arco-scip
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test -p arco-scip --no-default-features --features scip-bundled
+
+[group: 'rust']
+scip-feature-guard:
+    if cargo check -p arco-scip --no-default-features --features scip-bundled,scip-from-source; then \
+        printf 'expected arco-scip to reject scip-bundled + scip-from-source\n' >&2; \
+        exit 1; \
+    fi
 
 [group: 'rust']
 check-pkg package:
@@ -282,7 +292,7 @@ ci-rust-test:
 
 [group: 'ci']
 ci-release-cli-check:
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check -p arco-cli --bin arco --all-features
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check -p arco-cli --bin arco --no-default-features --features "xpress,scip-from-source"
 
 [group: 'ci']
 ci-cli-build:
@@ -292,22 +302,8 @@ ci-cli-build:
 ci-package-cli-artifact archive=cli-artifact:
     mkdir -p "$(dirname "{{ archive }}")"
     staging_dir="$(mktemp -d)"; \
-    scip_lib_dir="${ARCO_SCIP_LIBRARY_PATH:-}"; \
-    if [[ -z "$scip_lib_dir" && -n "${SCIP_SYS_BUNDLED_DIR:-}" ]]; then scip_lib_dir="$SCIP_SYS_BUNDLED_DIR/lib"; fi; \
-    if [[ -z "$scip_lib_dir" || ! -d "$scip_lib_dir" ]]; then \
-        printf 'error: SCIP shared library directory is unavailable; run scripts/setup_scip_binary_env.sh first\n' >&2; \
-        exit 1; \
-    fi; \
     trap 'rm -rf "$staging_dir"' EXIT; \
     cp "{{ arco-release-bin }}" "$staging_dir/"; \
-    find "$scip_lib_dir" -maxdepth 1 \
-        \( -name "*.so*" -o -name "*.dylib" \) \
-        \( -type f -o -type l \) \
-        -exec cp -a {} "$staging_dir/" \; ; \
-    if ! compgen -G "$staging_dir/libscip.so*" >/dev/null && ! compgen -G "$staging_dir/libscip*.dylib" >/dev/null; then \
-        printf 'error: SCIP shared libraries missing from %s\n' "$scip_lib_dir" >&2; \
-        exit 1; \
-    fi; \
     tar -C "$staging_dir" -czf "{{ archive }}" .
 
 [group: 'ci']
@@ -317,7 +313,7 @@ ci-unpack-cli-artifact archive=cli-artifact:
 
 [group: 'ci']
 ci-solver-smoke solver check_unavailable="":
-    LD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${DYLD_LIBRARY_PATH:-}" uv run --no-project python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary "{{ arco-release-bin }}" {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
+    uv run --no-project python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary "{{ arco-release-bin }}" {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
 
 [group: 'ci']
 ci-kdl-examples:

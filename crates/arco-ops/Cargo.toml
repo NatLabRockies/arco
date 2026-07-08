@@ -36,7 +36,7 @@ thiserror = { version = "2.0", optional = true }
 tracing = { workspace = true }
 
 [features]
-default = ["compile", "scip"]
+default = ["compile", "scip-bundled"]
 bundled-highs = ["arco-highs/bundled-highs"]
 compile = [
   "dep:arco-format",
@@ -51,7 +51,13 @@ compile = [
   "dep:toml_edit",
 ]
 ipopt = ["compile", "dep:arco-ipopt"]
-scip = ["dep:arco-format", "dep:arco-scip"]
+scip = ["scip-bundled"]
+scip-bundled = ["dep:arco-format", "dep:arco-scip", "arco-scip/scip-bundled"]
+scip-from-source = [
+  "dep:arco-format",
+  "dep:arco-scip",
+  "arco-scip/scip-from-source",
+]
 xpress = ["dep:arco-xpress"]
 
 [dev-dependencies]
