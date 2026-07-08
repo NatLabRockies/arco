@@ -119,6 +119,33 @@ runs:
         path: ~/.cache/arco-highs
         key: ${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}
 
+    - name: Restore SCIP native cache
+      if: ${{ inputs.configure-solvers == 'true' }}
+      id: scip-cache-restore
+      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      with:
+        path: ~/.cache/arco-scip
+        key: ${{ runner.os }}-scip-${{ hashFiles('scripts/setup_scip_binary_env.sh') }}
+        restore-keys: |
+          ${{ runner.os }}-scip-
+
+    - name: Install macOS SCIP runtime dependencies
+      if: ${{ inputs.configure-solvers == 'true' && runner.os == 'macOS' }}
+      shell: bash
+      run: bash ./scripts/ci_install_macos_scip_runtime.sh
+
+    - name: Configure SCIP bundled binary discovery
+      if: ${{ inputs.configure-solvers == 'true' }}
+      shell: bash
+      run: bash ./scripts/setup_scip_binary_env.sh "$GITHUB_ENV"
+
+    - name: Save SCIP native cache
+      if: ${{ inputs.configure-solvers == 'true' && inputs.save-solver-cache == 'true' && steps.scip-cache-restore.outputs.cache-hit != 'true' }}
+      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      with:
+        path: ~/.cache/arco-scip
+        key: ${{ runner.os }}-scip-${{ hashFiles('scripts/setup_scip_binary_env.sh') }}
+
     - name: Cache Rust build artifacts
       if: ${{ inputs.cache-rust == 'true' }}
       uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
