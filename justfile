@@ -225,7 +225,7 @@ build-cli-feature features:
 
 [group: 'product']
 build-cli-release:
-    "{{ solver-build-env }}" cargo build --release -p arco-cli --bin arco --all-features
+    "{{ solver-build-env }}" cargo build --release -p arco-cli --bin arco --no-default-features --features "xpress,scip-from-source"
 
 [group: 'examples']
 kdl-examples args="":

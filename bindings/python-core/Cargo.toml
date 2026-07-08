@@ -32,7 +32,7 @@ serde_json = { workspace = true }
 [features]
 default = ["scip", "xpress"]
 ipopt = ["dep:arco-ops", "arco-ops/ipopt", "arco-python-types/ipopt"]
-scip = ["dep:arco-scip"]
+scip = ["dep:arco-scip", "arco-scip/scip-bundled"]
 xpress = ["dep:arco-xpress"]
 
 [lints]
