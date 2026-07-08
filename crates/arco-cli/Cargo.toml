@@ -15,8 +15,9 @@ default-run = "arco"
 [package.metadata.dist]
 # This is the main distributable artifact
 dist = true
-# Release binaries should include Xpress support; the runtime library is loaded dynamically.
-features = ["xpress"]
+default-features = false
+# Release binaries should include Xpress support and the static SCIP backend.
+features = ["xpress", "scip-from-source"]
 
 [package.metadata.wix]
 upgrade-guid = "7924A5C1-504F-4FA6-B082-45D003C9FE07"
@@ -33,7 +34,9 @@ workspace = true
 
 [dependencies]
 arco-diagnostics = { workspace = true }
-arco-ops = { workspace = true, features = ["compile", "scip"] }
+arco-ops = { workspace = true, default-features = false, features = [
+  "compile",
+] }
 clap = { version = "4", features = ["derive"] }
 miette = { version = "7", default-features = false, features = [
   "fancy-no-backtrace",
@@ -60,6 +63,8 @@ csv = "1.4"
 toml = { workspace = true }
 
 [features]
-default = []
+default = ["scip-bundled"]
 ipopt = ["arco-ops/ipopt"]
+scip-bundled = ["arco-ops/scip-bundled"]
+scip-from-source = ["arco-ops/scip-from-source"]
 xpress = ["arco-ops/xpress"]

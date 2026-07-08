@@ -5,14 +5,21 @@ use crate::execution::XpressArcoAdapter;
 #[cfg(feature = "compile")]
 use crate::execution::{
     AdapterSolveOutput, ExecutionError, OptimizationAdapter, RustArcoAdapter, ScalarArtifactValue,
-    ScipArcoAdapter, SolveStatus, VariableArtifactValue, VariableInstanceArtifactValue,
-    build_model, evaluate_linear_report, extract_dual_report_values, lookup_primal_value,
-    map_solver_status,
+    VariableArtifactValue, VariableInstanceArtifactValue, build_model, evaluate_linear_report,
+    extract_dual_report_values, lookup_primal_value, map_solver_status,
 };
-#[cfg(feature = "compile")]
+#[cfg(all(
+    feature = "compile",
+    any(feature = "scip-bundled", feature = "scip-from-source")
+))]
+use crate::execution::{ScipArcoAdapter, SolveStatus};
+#[cfg(all(
+    feature = "compile",
+    any(feature = "scip-bundled", feature = "scip-from-source")
+))]
 use crate::{ops_problem_from_algebraic, portable_problem_from_ops};
 use arco_highs::{HighsModelViewBackend, highs_version};
-#[cfg(feature = "scip")]
+#[cfg(any(feature = "scip-bundled", feature = "scip-from-source"))]
 use arco_scip as scip;
 use arco_solver::{
     ModelViewBackendRegistry, ModelViewSolveResult, SolverConfig, SolverError, SolverRegistry,
@@ -27,13 +34,13 @@ use std::time::Instant;
 use tracing::info;
 
 pub(crate) fn solver_registry_with_builtin_families() -> SolverRegistry {
-    #[cfg(feature = "scip")]
+    #[cfg(any(feature = "scip-bundled", feature = "scip-from-source"))]
     {
         let mut registry = SolverRegistry::with_builtin_families();
         scip::register_solver_family(&mut registry);
         registry
     }
-    #[cfg(not(feature = "scip"))]
+    #[cfg(not(any(feature = "scip-bundled", feature = "scip-from-source")))]
     {
         SolverRegistry::with_builtin_families()
     }
@@ -51,10 +58,10 @@ pub(crate) fn solve_model_view_with_builtin_backend(
                 .to_string(),
         ));
     }
-    #[cfg(not(feature = "scip"))]
+    #[cfg(not(any(feature = "scip-bundled", feature = "scip-from-source")))]
     if family == "scip" {
         return Err(SolverError::SolverNotAvailable(
-            "SCIP model-view backend is not enabled; rebuild with --features scip".to_string(),
+            "SCIP model-view backend is not enabled; rebuild with --features scip-bundled or scip-from-source".to_string(),
         ));
     }
     #[cfg(not(feature = "xpress"))]
@@ -67,9 +74,9 @@ pub(crate) fn solve_model_view_with_builtin_backend(
     let highs = HighsModelViewBackend;
     let mut registry = ModelViewBackendRegistry::new();
     registry.register(&highs);
-    #[cfg(feature = "scip")]
+    #[cfg(any(feature = "scip-bundled", feature = "scip-from-source"))]
     let scip = scip::ScipModelViewBackend;
-    #[cfg(feature = "scip")]
+    #[cfg(any(feature = "scip-bundled", feature = "scip-from-source"))]
     registry.register(&scip);
     #[cfg(feature = "xpress")]
     let xpress = XpressModelViewBackend;
@@ -104,7 +111,7 @@ fn normalize_model_view_backend_family(family: &str) -> &str {
 pub(crate) fn adapter_for_selection(
     selection: &ResolvedSelection,
     log_to_console: bool,
-    profile: Option<&SolverProfile>,
+    _profile: Option<&SolverProfile>,
 ) -> Result<Box<dyn OptimizationAdapter>, String> {
     match selection.transport {
         SolverTransport::Embedded => match selection.family.as_str() {
@@ -118,14 +125,14 @@ pub(crate) fn adapter_for_selection(
                 "embedded solver family 'xpress' is not available (rebuild with --features xpress)"
                     .to_string(),
             ),
-            #[cfg(feature = "scip")]
+            #[cfg(any(feature = "scip-bundled", feature = "scip-from-source"))]
             "scip" => Ok(Box::new(ScipArcoAdapter::with_native_profile(
                 log_to_console,
-                profile.map_or_else(SolverConfig::default, |value| value.options.clone()),
+                _profile.map_or_else(SolverConfig::default, |value| value.options.clone()),
             ))),
-            #[cfg(not(feature = "scip"))]
+            #[cfg(not(any(feature = "scip-bundled", feature = "scip-from-source")))]
             "scip" => Err(
-                "embedded solver family 'scip' is not available (rebuild with --features scip)"
+                "embedded solver family 'scip' is not available (rebuild with --features scip-bundled or scip-from-source)"
                     .to_string(),
             ),
             #[cfg(feature = "ipopt")]
@@ -280,7 +287,10 @@ impl OptimizationAdapter for RustArcoAdapter {
     }
 }
 
-#[cfg(all(feature = "compile", feature = "scip"))]
+#[cfg(all(
+    feature = "compile",
+    any(feature = "scip-bundled", feature = "scip-from-source")
+))]
 impl OptimizationAdapter for ScipArcoAdapter {
     fn backend_name(&self) -> &'static str {
         scip::BACKEND_NAME
@@ -542,7 +552,7 @@ mod tests {
         assert!(error.to_string().contains("IPOPT model-view backend"));
     }
 
-    #[cfg(feature = "scip")]
+    #[cfg(any(feature = "scip-bundled", feature = "scip-from-source"))]
     #[test]
     fn builtin_model_view_backend_reports_scip_empty_model() {
         let model = Model::new();

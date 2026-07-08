@@ -89,15 +89,25 @@ workflow-quality:
 
 [group: 'rust']
 rust-check:
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check {{ rust-packages }} --all-features --tests --benches --examples
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check {{ rust-packages }} --tests --benches --examples
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check -p arco-scip --no-default-features --features scip-bundled
 
 [group: 'rust']
 rust-clippy:
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy {{ clippy-packages }} --benches --tests --examples --all-features -- -D warnings
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy {{ clippy-packages }} --benches --tests --examples -- -D warnings
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo clippy -p arco-scip --no-default-features --features scip-bundled -- -D warnings
 
 [group: 'rust']
 rust-test:
-    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }} --all-features
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }}
+    PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test -p arco-scip --no-default-features --features scip-bundled
+
+[group: 'rust']
+scip-feature-guard:
+    if cargo check -p arco-scip --no-default-features --features scip-bundled,scip-from-source; then \
+        printf 'expected arco-scip to reject scip-bundled + scip-from-source\n' >&2; \
+        exit 1; \
+    fi
 
 [group: 'rust']
 check-pkg package:
@@ -172,6 +182,10 @@ py-build-wheel: py-licenses
     ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
 
 [group: 'python']
+py-build-release-wheel: py-licenses
+    PYTHON_WHEEL_NO_DEFAULT_FEATURES=1 PYTHON_WHEEL_FEATURES="pyo3/extension-module,xpress,scip-from-source" ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
+
+[group: 'python']
 py-build-sdist:
     uv run --project bindings/python --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
 
@@ -182,7 +196,7 @@ py-build:
 
 [group: 'python']
 py-smoke-wheel artifact_glob="dist/*.whl":
-    uv run --project bindings/python python scripts/python_package_smoke.py --artifact-glob "{{ artifact_glob }}"
+    uv run --no-project python scripts/python_package_smoke.py --artifact-glob "{{ artifact_glob }}"
 
 [group: 'python']
 py-validate-wheel artifact_glob="dist/*.whl":
@@ -215,7 +229,7 @@ build-cli-feature features:
 
 [group: 'product']
 build-cli-release:
-    "{{ solver-build-env }}" cargo build --release -p arco-cli --bin arco --all-features
+    "{{ solver-build-env }}" cargo build --release -p arco-cli --bin arco --no-default-features --features "xpress,scip-from-source"
 
 [group: 'examples']
 kdl-examples args="":
@@ -282,7 +296,7 @@ ci-rust-test:
 
 [group: 'ci']
 ci-release-cli-check:
-    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check -p arco-cli --bin arco --all-features
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check -p arco-cli --bin arco --no-default-features --features "xpress,scip-from-source"
 
 [group: 'ci']
 ci-cli-build:
@@ -292,22 +306,8 @@ ci-cli-build:
 ci-package-cli-artifact archive=cli-artifact:
     mkdir -p "$(dirname "{{ archive }}")"
     staging_dir="$(mktemp -d)"; \
-    scip_lib_dir="${ARCO_SCIP_LIBRARY_PATH:-}"; \
-    if [[ -z "$scip_lib_dir" && -n "${SCIP_SYS_BUNDLED_DIR:-}" ]]; then scip_lib_dir="$SCIP_SYS_BUNDLED_DIR/lib"; fi; \
-    if [[ -z "$scip_lib_dir" || ! -d "$scip_lib_dir" ]]; then \
-        printf 'error: SCIP shared library directory is unavailable; run scripts/setup_scip_binary_env.sh first\n' >&2; \
-        exit 1; \
-    fi; \
     trap 'rm -rf "$staging_dir"' EXIT; \
     cp "{{ arco-release-bin }}" "$staging_dir/"; \
-    find "$scip_lib_dir" -maxdepth 1 \
-        \( -name "*.so*" -o -name "*.dylib" \) \
-        \( -type f -o -type l \) \
-        -exec cp -a {} "$staging_dir/" \; ; \
-    if ! compgen -G "$staging_dir/libscip.so*" >/dev/null && ! compgen -G "$staging_dir/libscip*.dylib" >/dev/null; then \
-        printf 'error: SCIP shared libraries missing from %s\n' "$scip_lib_dir" >&2; \
-        exit 1; \
-    fi; \
     tar -C "$staging_dir" -czf "{{ archive }}" .
 
 [group: 'ci']
@@ -317,7 +317,7 @@ ci-unpack-cli-artifact archive=cli-artifact:
 
 [group: 'ci']
 ci-solver-smoke solver check_unavailable="":
-    LD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${LD_LIBRARY_PATH:-}" DYLD_LIBRARY_PATH="$(dirname "{{ arco-release-bin }}"):${DYLD_LIBRARY_PATH:-}" uv run --no-project python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary "{{ arco-release-bin }}" {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
+    uv run --no-project python scripts/smoke_solver.py --solver "{{ solver }}" --arco-binary "{{ arco-release-bin }}" {{ if check_unavailable != "" { "--check-unavailable-ipopt" } else { "" } }}
 
 [group: 'ci']
 ci-kdl-examples:
@@ -345,7 +345,7 @@ ci-python-wheel artifact_glob="dist/*.whl":
 
 [group: 'ci']
 ci-python-release-wheel artifact_glob="dist/*.whl":
-    just py-build-wheel
+    just py-build-release-wheel
     just py-smoke-wheel "{{ artifact_glob }}"
 
 [group: 'ci']

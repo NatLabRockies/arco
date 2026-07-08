@@ -33,6 +33,7 @@ tracing-subscriber = { workspace = true, default-features = false, features = [
 default = ["scip", "xpress"]
 ipopt = ["arco-python-core/ipopt"]
 scip = ["arco-python-core/scip"]
+scip-from-source = ["arco-python-core/scip-from-source"]
 xpress = ["arco-python-core/xpress"]
 
 [lints]
