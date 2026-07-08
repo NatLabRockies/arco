@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.2](https://github.com/NatLabRockies/arco/compare/v0.8.1...v0.8.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* **ci:** add skip-labeling to prevent release-please abort on merged PRs ([b7532cd](https://github.com/NatLabRockies/arco/commit/b7532cddaea7b6538e7f34a40c956cff56e72eab)), closes [#354](https://github.com/NatLabRockies/arco/issues/354)
+* **cli:** repair standalone self-update receipts ([#353](https://github.com/NatLabRockies/arco/issues/353)) ([437e2f4](https://github.com/NatLabRockies/arco/commit/437e2f419c89b32e12f981f862cacb26a3c04ae4))
+* **release:** ship SCIP statically in official CLI releases so fresh installs don't fail at loader time ([#359](https://github.com/NatLabRockies/arco/issues/359)) ([ea554e7](https://github.com/NatLabRockies/arco/commit/ea554e7ef8c646e9e311ed85f26f68768ff10353))
+
 ## [0.8.1](https://github.com/NatLabRockies/arco/compare/v0.8.0...v0.8.1) (2026-07-06)
 
 
