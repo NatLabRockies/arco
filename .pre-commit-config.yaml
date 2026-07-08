@@ -174,7 +174,7 @@ repos:
 
       - id: ci-cargo-clippy
         name: ci cargo clippy
-        entry: cargo clippy --workspace --exclude arco-python --all-targets --all-features -- -D warnings
+        entry: just rust-clippy
         language: system
         pass_filenames: false
         stages: [pre-push]
