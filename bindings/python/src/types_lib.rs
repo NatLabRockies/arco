@@ -1,4 +1,4 @@
-//! Shared Python classes for Arco's Python extension.
+// Shared Python classes for Arco's Python extension.
 
 use pyo3::prelude::*;
 

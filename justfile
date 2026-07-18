@@ -187,7 +187,9 @@ py-build-release-wheel: py-licenses
 
 [group: 'python']
 py-build-sdist:
-    uv run --project bindings/python --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
+    rm -f dist/*.tar.gz
+    uv run --no-project --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
+    uv run --no-project python scripts/validate_python_sdist.py --artifact dist/*.tar.gz
 
 [group: 'python']
 py-build:

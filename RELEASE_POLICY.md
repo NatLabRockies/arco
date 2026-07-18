@@ -63,8 +63,9 @@ publishes artifacts for that tag.
 Release-please PRs update version metadata and `CHANGELOG.md`, which makes CI
 run the release preflight before the PR can merge. The preflight checks that
 release-please owns every versioned file, verifies all release version metadata
-matches, builds Python wheels across the release platform/Python matrix, and
-uses cargo-dist's planned target matrix to build local CLI artifacts without
+matches, builds Python wheels across the release platform/Python matrix,
+validates the Python source distribution's Cargo workspace, and uses
+cargo-dist's planned target matrix to build local CLI artifacts without
 uploading or publishing them.
 
 CI caches native solver bundles and cargo-dist binaries by runner platform and

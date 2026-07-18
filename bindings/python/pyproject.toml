@@ -44,6 +44,7 @@ include = [
   "arco/arco.pyi",
   "arco/blocks.pyi",
   "BSD-3-Clause.txt",
+  { path = "third_party/**/*", format = "sdist" },
 ]
 python-source = "."
 

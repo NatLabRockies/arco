@@ -10,10 +10,6 @@ authors = { workspace = true }
 license-file = { workspace = true }
 publish = false
 
-[lib]
-path = "../python/src/core.rs"
-test = false
-
 [dependencies]
 pyo3 = { workspace = true }
 pyo3-macros = { workspace = true }
