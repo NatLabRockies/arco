@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.9.0](https://github.com/NatLabRockies/arco/compare/v0.8.2...v0.9.0) (2026-07-18)
+
+
+### Features
+
+* **kdl:** improve formatter and VS Code tooling ([#352](https://github.com/NatLabRockies/arco/issues/352)) ([654c3c7](https://github.com/NatLabRockies/arco/commit/654c3c7b8227b272c4002962258a9615fb2e42ab))
+
+
+### Bug Fixes
+
+* **python:** ship complete source distributions ([#362](https://github.com/NatLabRockies/arco/issues/362)) ([71503a5](https://github.com/NatLabRockies/arco/commit/71503a5290577e16a278eb974a6f2c1b18c231b6))
+
+
+### Build
+
+* **deps:** bump actions/cache/save from 5.0.4 to 6.1.0 ([#339](https://github.com/NatLabRockies/arco/issues/339)) ([11e9af8](https://github.com/NatLabRockies/arco/commit/11e9af887b1e1dd6cc38d34fd83e20bdc7ac6ee5))
+* **deps:** bump actions/checkout from 6.0.3 to 7.0.0 ([#336](https://github.com/NatLabRockies/arco/issues/336)) ([e6a4d9e](https://github.com/NatLabRockies/arco/commit/e6a4d9e6c0402a83850c7eb4384c2f16671f4ec3))
+* **deps:** bump astral-sh/setup-uv from 8.2.0 to 8.3.2 ([#360](https://github.com/NatLabRockies/arco/issues/360)) ([3e6cbe3](https://github.com/NatLabRockies/arco/commit/3e6cbe337cdbd74762fd102e86fa628bd9958dc1))
+* **deps:** bump j178/prek-action ([#361](https://github.com/NatLabRockies/arco/issues/361)) ([f76e8f9](https://github.com/NatLabRockies/arco/commit/f76e8f95c17f7a80b446d02c0c98bc1df9917a8e))
+
 ## [0.8.2](https://github.com/NatLabRockies/arco/compare/v0.8.1...v0.8.2) (2026-07-08)
 
 
