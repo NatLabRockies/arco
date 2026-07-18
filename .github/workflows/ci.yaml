@@ -223,7 +223,7 @@ jobs:
 
       - name: Save dist cache
         if: github.event_name != 'pull_request' && steps.dist-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: |
             ~/.cargo/bin/dist
@@ -323,7 +323,7 @@ jobs:
 
       - name: Save dist cache
         if: github.event_name != 'pull_request' && steps.dist-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: |
             ~/.cargo/bin/dist
@@ -612,7 +612,7 @@ jobs:
 
       - name: Save torc binaries
         if: github.ref == 'refs/heads/main' && steps.torc-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: |
             ~/.cargo/bin/torc
@@ -662,7 +662,7 @@ jobs:
 
       - name: Save benchmark data
         if: github.ref == 'refs/heads/main' && steps.benchmark-data-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: ./cache
           key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}
