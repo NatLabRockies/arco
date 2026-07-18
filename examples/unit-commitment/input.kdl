@@ -86,55 +86,99 @@
 // $$
 data generators_data source="data/generators.csv" {
   map generators from=generator
-
   // Unit domain from generators.csv (column mapped as `generators`).
   // Alias `g` is used in set-reference positions and algebra iteration.
+
   set generators alias=g
-
-  param a { index g }
-  param b { index g }
-  param c { index g }
-  param costsd { index g }
-  param costst { index g }
-  param ru { index g }
-  param rd { index g }
-  param ut { index g }
-  param dt { index g }
-  param sd { index g }
-  param su { index g }
-  param pmin { index g }
-  param pmax { index g }
-  param u0 { index g }
-  param uini { index g }
-  param initial_commitment from=uini { index g }
-  param s0 { index g }
-  param lj { index g }
-  param fj { index g }
-  param mincost { index g }
+  param a {
+    index g
+  }
+  param b {
+    index g
+  }
+  param c {
+    index g
+  }
+  param costsd {
+    index g
+  }
+  param costst {
+    index g
+  }
+  param ru {
+    index g
+  }
+  param rd {
+    index g
+  }
+  param ut {
+    index g
+  }
+  param dt {
+    index g
+  }
+  param sd {
+    index g
+  }
+  param su {
+    index g
+  }
+  param pmin {
+    index g
+  }
+  param pmax {
+    index g
+  }
+  param u0 {
+    index g
+  }
+  param uini {
+    index g
+  }
+  param initial_commitment from=uini {
+    index g
+  }
+  param s0 {
+    index g
+  }
+  param lj {
+    index g
+  }
+  param fj {
+    index g
+  }
+  param mincost {
+    index g
+  }
 }
-
 data temporal_sets source="data/temporal_sets.csv" {
   // Temporal domains are user-provided at the data layer.
   // t: primary time/day index used by the model.
   // taf/tbl: user-provided helper subsets for t-1 / t+1 constraints.
+
   set t
-  set taf { in t }
-  set tbl { in t }
+  set taf {
+    in t
+  }
+  set tbl {
+    in t
+  }
 }
-
 data demand_data source="data/load.csv" {
-  param lambda { index t }
-  param load { index t }
+  param lambda {
+    index t
+  }
+  param load {
+    index t
+  }
 }
-
 data segment_set source="data/segments.csv" {
   // Piecewise cost segment domain from segments.csv column `k`.
+
   set k
 }
-
 data segment_data source="data/segment_data.csv" {
   map generators from=generator
-
   param dp {
     index g
     index k
@@ -144,10 +188,8 @@ data segment_data source="data/segment_data.csv" {
     index k
   }
 }
-
 data time_masks_data source="data/time_masks.csv" {
   map generators from=generator
-
   param uptime1_mask {
     index g
     index t
@@ -173,13 +215,11 @@ data time_masks_data source="data/time_masks.csv" {
     index t
   }
 }
-
 data time_windows_data source="data/time_windows.csv" {
   map generators from=generator
-
   // `t` is the anchor index (day/time bucket), `h` is the hour index.
-  set h
 
+  set h
   param uptime_window {
     index g
     index t
@@ -191,7 +231,6 @@ data time_windows_data source="data/time_windows.csv" {
     index h
   }
 }
-
 model uc_gams_parity {
   // `g`, `k`, `t`, `taf`, `tbl`, and `h` are global sets from data blocks.
 
@@ -199,218 +238,258 @@ model uc_gams_parity {
     index g
     index t
   }
-
   control p lower=0 {
     index g
     index t
   }
-
   control stc lower=0 {
     index g
     index t
   }
-
   control sdc lower=0 {
     index g
     index t
   }
-
   control pk lower=0 {
     index g
     index t
     index k
   }
-
   control u kind=binary {
     index g
     index t
   }
-
   control y kind=binary {
     index g
     index t
   }
-
   control z kind=binary {
     index g
     index t
   }
-
   constraint uptime1 {
     index g
     expression {
-      sum((1 - u[g,tt]) * uptime1_mask[g,tt] for tt in t) = 0
+      sum((1 - u[g,tt]) * uptime1_mask[g,tt] for tt in t)
+        = 0
     }
   }
-
   constraint uptime2 {
     index g
     expression {
-      sum((u[g,tt] - y[g,tt]) * uptime2_mask[g,tt] for tt in t) >= 0
+      sum((u[g,tt] - y[g,tt]) * uptime2_mask[g,tt] for tt in t)
+        >= 0
     }
   }
-
   constraint uptime3 {
     index g
-    index tt { in t }
-    if { uptime3_active[g,tt] > 0 }
+    index tt {
+      in t
+    }
+    if {
+      uptime3_active[g,tt] > 0
+    }
     expression {
-      sum(u[g,hh] * uptime_window[g,tt,hh] for hh in h) >= ut[g] * y[g,tt]
+      sum(u[g,hh] * uptime_window[g,tt,hh] for hh in h)
+        >= ut[g] * y[g,tt]
     }
   }
-
   constraint dntime1 {
     index g
     expression {
-      sum(u[g,tt] * dntime1_mask[g,tt] for tt in t) = 0
+      sum(u[g,tt] * dntime1_mask[g,tt] for tt in t)
+        = 0
     }
   }
-
   constraint dntime2 {
     index g
     expression {
-      sum((1 - u[g,tt] - z[g,tt]) * dntime2_mask[g,tt] for tt in t) >= 0
+      sum((1 - u[g,tt] - z[g,tt]) * dntime2_mask[g,tt] for tt in t)
+        >= 0
     }
   }
-
   constraint dntime3 {
     index g
-    index tt { in t }
-    if { dntime3_active[g,tt] > 0 }
+    index tt {
+      in t
+    }
+    if {
+      dntime3_active[g,tt] > 0
+    }
     expression {
-      sum((1 - u[g,hh]) * dntime_window[g,tt,hh] for hh in h) >= dt[g] * z[g,tt]
+      sum((1 - u[g,hh]) * dntime_window[g,tt,hh] for hh in h)
+        >= dt[g] * z[g,tt]
     }
   }
-
   constraint startc {
     index g
-    index tt { in t }
+    index tt {
+      in t
+    }
     expression {
-      stc[g,tt] >= costst[g] * y[g,tt]
+      stc[g,tt]
+        >= costst[g] * y[g,tt]
     }
   }
-
   constraint shtdnc {
     index g
-    index tt { in t }
+    index tt {
+      in t
+    }
     expression {
-      sdc[g,tt] >= costsd[g] * z[g,tt]
+      sdc[g,tt]
+        >= costsd[g] * z[g,tt]
     }
   }
-
   constraint genconst1 {
     index g
-    index tt { in t }
+    index tt {
+      in t
+    }
     expression {
-      p[g,tt] = u[g,tt] * pmin[g] + sum(pk[g,tt,kk] for kk in k)
+      p[g,tt]
+        = u[g,tt] * pmin[g]
+        + sum(pk[g,tt,kk] for kk in k)
     }
   }
-
   constraint genconst2_initial {
     index g
     expression {
-      u[g,1] = initial_commitment[g] + y[g,1] - z[g,1]
+      u[g,1]
+        = initial_commitment[g]
+        + y[g,1]
+        - z[g,1]
     }
   }
-
   constraint genconst2 {
     index g
-    index tt { in taf }
+    index tt {
+      in taf
+    }
     expression {
-      u[g,tt] = u[g,tt-1] + y[g,tt] - z[g,tt]
+      u[g,tt]
+        = u[g,tt-1]
+        + y[g,tt]
+        - z[g,tt]
     }
   }
-
   constraint genconst3 {
     index g
-    index tt { in t }
-    index kk { in k }
+    index tt {
+      in t
+    }
+    index kk {
+      in k
+    }
     expression {
-      pk[g,tt,kk] <= u[g,tt] * dp[g,kk]
+      pk[g,tt,kk]
+        <= u[g,tt] * dp[g,kk]
     }
   }
-
   constraint pk_physical_limit {
     index g
-    index tt { in t }
-    index kk { in k }
+    index tt {
+      in t
+    }
+    index kk {
+      in k
+    }
     expression {
-      pk[g,tt,kk] <= dp[g,kk]
+      pk[g,tt,kk]
+        <= dp[g,kk]
     }
   }
-
   constraint p_upper_bound {
     index g
-    index tt { in t }
+    index tt {
+      in t
+    }
     expression {
-      p[g,tt] <= pmax[g]
+      p[g,tt]
+        <= pmax[g]
     }
   }
-
   constraint pu_upper_bound {
     index g
-    index tt { in t }
+    index tt {
+      in t
+    }
     expression {
-      pu[g,tt] <= pmax[g]
+      pu[g,tt]
+        <= pmax[g]
     }
   }
-
   constraint ramp1_initial {
     index g
     expression {
-      -p[g,1] <= u[g,1] * rd[g] + z[g,1] * sd[g]
+      -p[g,1]
+        <= u[g,1] * rd[g]
+        + z[g,1] * sd[g]
     }
   }
-
   constraint ramp1 {
     index g
-    index tt { in taf }
+    index tt {
+      in taf
+    }
     expression {
-      p[g,tt-1] - p[g,tt] <= u[g,tt] * rd[g] + z[g,tt] * sd[g]
+      p[g,tt-1]
+        - p[g,tt]
+        <= u[g,tt] * rd[g]
+        + z[g,tt] * sd[g]
     }
   }
-
   constraint ramp2 {
     index g
-    index tt { in t }
+    index tt {
+      in t
+    }
     expression {
-      p[g,tt] <= pu[g,tt]
+      p[g,tt]
+        <= pu[g,tt]
     }
   }
-
   constraint ramp3 {
     index g
-    index tt { in tbl }
+    index tt {
+      in tbl
+    }
     expression {
-      pu[g,tt] <= (u[g,tt] - z[g,tt+1]) * pmax[g] + z[g,tt+1] * sd[g]
+      pu[g,tt]
+        <= (u[g,tt] - z[g,tt+1]) * pmax[g]
+        + z[g,tt+1] * sd[g]
     }
   }
-
   constraint ramp4 {
     index g
-    index tt { in taf }
+    index tt {
+      in taf
+    }
     expression {
-      pu[g,tt] <= p[g,tt-1] + u[g,tt-1] * ru[g] + y[g,tt] * su[g]
+      pu[g,tt]
+        <= p[g,tt-1]
+        + u[g,tt-1] * ru[g]
+        + y[g,tt] * su[g]
     }
   }
-
   constraint balance {
-    index tt { in t }
+    index tt {
+      in t
+    }
     expression {
-      sum(p[g,tt] for g in g) <= load[tt]
+      sum(p[g,tt] for g in g)
+        <= load[tt]
     }
   }
-
   expression cost_thermal {
     sum(stc[g,tt] + sdc[g,tt] for g in g for tt in t)
-    + sum(u[g,tt] * mincost[g] + sum(slope[g,kk] * pk[g,tt,kk] for kk in k) for g in g for tt in t)
+      + sum(u[g,tt] * mincost[g] + sum(slope[g,kk] * pk[g,tt,kk] for kk in k) for g in g for tt in t)
   }
-
   maximize of {
-    sum(lambda[tt] * sum(p[g,tt] for g in g) for tt in t) - cost_thermal
+    sum(lambda[tt] * sum(p[g,tt] for g in g) for tt in t)
+      - cost_thermal
   }
 }
-
 scenario uc_gams_parityCase {
   use uc_gams_parity
   report cost_thermal

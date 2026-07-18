@@ -13,7 +13,7 @@ use crate::source::parser_helpers::{
     parse_constraint_index_binding, parse_optimize, parse_optional_filter_expression, parse_reduce,
     positional_value, property_string, unsupported_declaration_error,
 };
-use crate::source::surface::normalize_surface_syntax;
+use crate::source::surface::{format_surface_document, normalize_surface_syntax};
 use kdl::{KdlDocument, KdlError, KdlNode, KdlValue};
 use miette::NamedSource;
 use std::fs;
@@ -94,11 +94,24 @@ pub fn parse_program_file(path: &Path) -> Result<ParsedSource, SourceError> {
     parse_program_file_with_base(path, base_dir, true)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KdlFormatMode {
+    ArcoSurface,
+    KdlCompatible,
+}
+
 pub fn format_program_text(text: &str) -> Result<String, KdlError> {
+    format_program_text_with_mode(text, KdlFormatMode::ArcoSurface)
+}
+
+pub fn format_program_text_with_mode(text: &str, mode: KdlFormatMode) -> Result<String, KdlError> {
     let normalized = normalize_surface_syntax(text);
     let mut document: KdlDocument = normalized.parse()?;
     document.autoformat();
-    Ok(document.to_string())
+    match mode {
+        KdlFormatMode::ArcoSurface => Ok(format_surface_document(&document)),
+        KdlFormatMode::KdlCompatible => Ok(document.to_string()),
+    }
 }
 
 pub fn parse_program_text(text: &str, path: &Path) -> Result<ParsedSource, SourceError> {

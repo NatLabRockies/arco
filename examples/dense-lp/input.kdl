@@ -1,50 +1,53 @@
 data dense_lp_rows source="data/indices.csv" {
-  map rows from="index"
-
-  set rows alias="row"
-  param row_value from="value" {
+  map rows from=index
+  set rows alias=row
+  param row_value from=value {
     index rows
   }
 }
-
 data dense_lp_cols source="data/indices.csv" {
-  map cols from="index"
-
-  set cols alias="col"
+  map cols from=index
+  set cols alias=col
 }
-
 model dense_lp {
   control x lower=-1e20 upper=1e20 {
     index rows
     index cols
   }
-
   control y lower=-1e20 upper=1e20 {
     index rows
     index cols
   }
-
   constraint difference_floor {
-    index row { in rows }
-    index col { in cols }
+    index row {
+      in rows
+    }
+    index col {
+      in cols
+    }
     expression {
-      x[row,col] - y[row,col] >= row_value[row]
+      x[row,col]
+        - y[row,col]
+        >= row_value[row]
     }
   }
-
   constraint balance_floor {
-    index row { in rows }
-    index col { in cols }
+    index row {
+      in rows
+    }
+    index col {
+      in cols
+    }
     expression {
-      x[row,col] + y[row,col] >= 0
+      x[row,col]
+        + y[row,col]
+        >= 0
     }
   }
-
   minimize total_cost {
     sum((2 * x[row,col]) + y[row,col] for row in rows for col in cols)
   }
 }
-
 scenario dense_lp_case {
   use dense_lp
 }

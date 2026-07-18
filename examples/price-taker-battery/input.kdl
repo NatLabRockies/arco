@@ -1,8 +1,6 @@
 data battery source="data/battery.csv" {
-  map asset_id from="asset"
-
-  set asset_id alias="a"
-
+  map asset_id from=asset
+  set asset_id alias=a
   param power_mw {
     index asset_id
   }
@@ -22,17 +20,14 @@ data battery source="data/battery.csv" {
     index asset_id
   }
 }
-
 data price_curve source="data/prices.csv" {
   set t
   param prices {
     index t
   }
 }
-
 model price_taker_battery {
-  set time alias="t"
-
+  set time alias=t
   control charge {
     index asset_id
     index time
@@ -45,65 +40,94 @@ model price_taker_battery {
     index asset_id
     index time
   }
-
   expression arbitrage_revenue {
     sum(prices[t] * (discharge[asset,t] - charge[asset,t]) for asset in asset_id for t in time)
   }
-
   constraint soc_initial {
-    index asset { in asset_id }
+    index asset {
+      in asset_id
+    }
     expression {
-      soc[asset,1] = initial_soc_mwh[asset] + charge_efficiency[asset] * charge[asset,1] - discharge[asset,1] / discharge_efficiency[asset]
+      soc[asset,1]
+        = initial_soc_mwh[asset]
+        + charge_efficiency[asset] * charge[asset,1]
+        - discharge[asset,1] / discharge_efficiency[asset]
     }
   }
-
   constraint soc_balance {
-    index asset { in asset_id }
-    index t { in time }
-    if { t > 1 }
+    index asset {
+      in asset_id
+    }
+    index t {
+      in time
+    }
+    if {
+      t > 1
+    }
     expression {
-      soc[asset,t] = soc[asset,t-1] + charge_efficiency[asset] * charge[asset,t] - discharge[asset,t] / discharge_efficiency[asset]
+      soc[asset,t]
+        = soc[asset,t-1]
+        + charge_efficiency[asset] * charge[asset,t]
+        - discharge[asset,t] / discharge_efficiency[asset]
     }
   }
-
   constraint charge_limit {
-    index asset { in asset_id }
-    index t { in time }
+    index asset {
+      in asset_id
+    }
+    index t {
+      in time
+    }
     expression {
-      charge[asset,t] <= power_mw[asset]
+      charge[asset,t]
+        <= power_mw[asset]
     }
   }
-
   constraint discharge_limit {
-    index asset { in asset_id }
-    index t { in time }
+    index asset {
+      in asset_id
+    }
+    index t {
+      in time
+    }
     expression {
-      discharge[asset,t] <= power_mw[asset]
+      discharge[asset,t]
+        <= power_mw[asset]
     }
   }
-
   constraint soc_bounds {
-    index asset { in asset_id }
-    index t { in time }
+    index asset {
+      in asset_id
+    }
+    index t {
+      in time
+    }
     expression {
-      0 <= soc[asset,t] <= energy_mwh[asset]
+      0
+        <= soc[asset,t]
+        <= energy_mwh[asset]
     }
   }
-
   constraint terminal_soc {
-    index asset { in asset_id }
-    index t { in time }
-    if { t == 24 }
+    index asset {
+      in asset_id
+    }
+    index t {
+      in time
+    }
+    if {
+      t
+        == 24
+    }
     expression {
-      soc[asset,t] = terminal_soc_mwh[asset]
+      soc[asset,t]
+        = terminal_soc_mwh[asset]
     }
   }
-
   maximize arbitrage_profit {
     arbitrage_revenue
   }
 }
-
 scenario battery_arbitrage_day {
   use price_taker_battery
   report arbitrage_revenue

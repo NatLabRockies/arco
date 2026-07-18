@@ -1,0 +1,7 @@
+/* Formatter must preserve prose inside block comments.
+   This middle line used to be dropped by the surface renderer.
+*/
+model comment_fixture {
+  control x lower=0
+  minimize total_cost { x }
+}

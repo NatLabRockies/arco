@@ -1,96 +1,109 @@
 data links source="data/links.csv" {
-  map generators from="gen"
-  map buses from="bus"
-
-  set area alias="a"
-  set tech alias="i"
-  set generators alias="g"
-  set buses alias="b"
-
+  map generators from=gen
+  map buses from=bus
+  set area alias=a
+  set tech alias=i
+  set generators alias=g
+  set buses alias=b
   set feasible_links {
-    index a { in area }
-    index i { in tech }
-    index g { in generators }
-    index b { in buses }
-    filter { feasible > 0 }
+    index a {
+      in area
+    }
+    index i {
+      in tech
+    }
+    index g {
+      in generators
+    }
+    index b {
+      in buses
+    }
+    filter {
+      feasible > 0
+    }
   }
-
   param capacity_mw {
     index a
     index i
     index g
     index b
   }
-
   param priority_floor_mw {
     index a
     index i
     index g
     index b
   }
-
   param mw_target {
     index a
     index i
-    reduce "max"
+    reduce max
   }
 }
-
 set priority_links {
   in feasible_links
-  index a { in area }
-  index i { in tech }
-  index g { in generators }
-  index b { in buses }
-  filter { area == "south" }
+  index a {
+    in area
+  }
+  index i {
+    in tech
+  }
+  index g {
+    in generators
+  }
+  index b {
+    in buses
+  }
+  filter {
+    area
+      == "south"
+  }
 }
-
 set feasible_ai {
   in feasible_links
-  index a { in area }
-  index i { in tech }
+  index a {
+    in area
+  }
+  index i {
+    in tech
+  }
 }
-
-projection "ai" {
-  from "feasible_links"
-  to "a" "i"
+projection ai {
+  from feasible_links
+  to a i
 }
-
 model NodalAllocation {
   control capacity_nodal_site lower=0 {
     index feasible_links
   }
-
   expression allocated_capacity {
-    reduce "ai" {
-      sum "capacity_nodal_site"
-    }
+    reduce "ai" { sum "capacity_nodal_site" }
   }
-
   constraint investment_capacity {
     index feasible_links
     expression {
-      capacity_nodal_site[feasible_links] <= capacity_mw[feasible_links]
+      capacity_nodal_site[feasible_links]
+        <= capacity_mw[feasible_links]
     }
   }
-
   constraint priority_floor {
     index priority_links
     expression {
-      capacity_nodal_site[priority_links] >= priority_floor_mw[priority_links]
+      capacity_nodal_site[priority_links]
+        >= priority_floor_mw[priority_links]
     }
   }
-
   constraint enforce_mw_target {
     index feasible_ai
     expression {
-      allocated_capacity[feasible_ai] >= mw_target[feasible_ai]
+      allocated_capacity[feasible_ai]
+        >= mw_target[feasible_ai]
     }
   }
-
-  minimize tuple_membership_tracer { 0 }
+  minimize tuple_membership_tracer {
+    0
+  }
 }
-
 scenario NodalAllocationDay {
   use NodalAllocation
   report capacity_nodal_site

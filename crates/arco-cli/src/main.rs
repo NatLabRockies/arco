@@ -9,7 +9,7 @@ use arco_cli::driver::{
     render_plain_driver_error, run_file_json_with_options_and_config, validate_file_only,
 };
 use arco_cli::self_update;
-use arco_ops::{ArcoOps, OpsExportFormat};
+use arco_ops::{ArcoOps, OpsExportFormat, OpsKdlFormatMode};
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use miette::IntoDiagnostic;
 use similar::TextDiff;
@@ -132,6 +132,9 @@ struct KdlFmtArgs {
     /// Optional display name for stdin source (used in diff headers)
     #[arg(long)]
     stdin_filename: Option<String>,
+    /// Emit normalized strict KDL instead of Arco surface syntax
+    #[arg(long)]
+    kdl_compatible: bool,
 }
 
 #[derive(Subcommand)]
@@ -319,8 +322,12 @@ fn handle_solver_action(action: SolverAction) -> miette::Result<()> {
     Ok(())
 }
 
-fn format_kdl_text(input: &str, path: Option<&Path>) -> miette::Result<String> {
-    ArcoOps::format_kdl_text(input).map_err(|error| {
+fn format_kdl_text(
+    input: &str,
+    path: Option<&Path>,
+    mode: OpsKdlFormatMode,
+) -> miette::Result<String> {
+    ArcoOps::format_kdl_text_with_mode(input, mode).map_err(|error| {
         if let Some(path) = path {
             miette::miette!(
                 "Failed to parse KDL document: {} ({})",
@@ -373,12 +380,14 @@ fn print_unified_diff(label: &str, before: &str, after: &str) -> miette::Result<
 }
 
 fn run_kdl_fmt(args: KdlFmtArgs) -> miette::Result<()> {
+    let mode = kdl_format_mode(&args);
+
     if args.stdin || args.paths.iter().any(|path| path == Path::new("-")) {
         let mut input = String::new();
         std::io::stdin()
             .read_to_string(&mut input)
             .into_diagnostic()?;
-        let formatted = format_kdl_text(&input, None)?;
+        let formatted = format_kdl_text(&input, None, mode)?;
 
         if args.check || args.diff {
             if input != formatted {
@@ -410,7 +419,7 @@ fn run_kdl_fmt(args: KdlFmtArgs) -> miette::Result<()> {
 
     for file in files {
         let input = fs::read_to_string(&file).into_diagnostic()?;
-        let formatted = format_kdl_text(&input, Some(&file))?;
+        let formatted = format_kdl_text(&input, Some(&file), mode)?;
         if input == formatted {
             continue;
         }
@@ -439,6 +448,14 @@ fn run_kdl_fmt(args: KdlFmtArgs) -> miette::Result<()> {
     }
 
     Ok(())
+}
+
+fn kdl_format_mode(args: &KdlFmtArgs) -> OpsKdlFormatMode {
+    if args.kdl_compatible {
+        OpsKdlFormatMode::KdlCompatible
+    } else {
+        OpsKdlFormatMode::ArcoSurface
+    }
 }
 
 fn init_tracing(verbose: u8, force_warnings: bool) {

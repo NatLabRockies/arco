@@ -1,52 +1,69 @@
 data regions source="data/regions.csv" {
-  set region alias="r"
+  set region alias=r
 }
-
 data techs source="data/techs.csv" {
-  set tech alias="i"
+  set tech alias=i
 }
-
 data hours source="data/hours.csv" {
-  set hour alias="h"
+  set hour alias=h
 }
-
 data years source="data/years.csv" {
-  set year alias="t"
+  set year alias=t
 }
-
 data tech_params source="data/tech_params.csv" {
-  param cost_inv { index tech }
-  param cost_gen { index tech }
+  param cost_inv {
+    index tech
+  }
+  param cost_gen {
+    index tech
+  }
 }
-
 data active_capacity source="data/active_capacity.csv" {
   set active_irt {
-    index i { in tech }
-    index r { in region }
-    index t { in year }
+    index i {
+      in tech
+    }
+    index r {
+      in region
+    }
+    index t {
+      in year
+    }
   }
 }
-
 data capacity_transitions source="data/cap_transition.csv" {
-  map prev_years from="prev_year"
-  set prev_years alias="tp"
-
+  map prev_years from=prev_year
+  set prev_years alias=tp
   set cap_transition {
-    index i { in tech }
-    index r { in region }
-    index tp { in prev_years }
-    index t { in year }
+    index i {
+      in tech
+    }
+    index r {
+      in region
+    }
+    index tp {
+      in prev_years
+    }
+    index t {
+      in year
+    }
   }
 }
-
 data dispatch source="data/dispatch.csv" {
   set active_irht {
-    index i { in tech }
-    index r { in region }
-    index h { in hour }
-    index t { in year }
+    index i {
+      in tech
+    }
+    index r {
+      in region
+    }
+    index h {
+      in hour
+    }
+    index t {
+      in year
+    }
   }
-
   param cf {
     index tech
     index region
@@ -54,14 +71,12 @@ data dispatch source="data/dispatch.csv" {
     index year
   }
 }
-
 data cap_init source="data/cap_init.csv" {
   param cap_init {
     index tech
     index region
   }
 }
-
 data load source="data/load.csv" {
   param load {
     index region

@@ -36,6 +36,7 @@ relentless about minimizing memory usage so more systems can run real workloads.
 <p align="center">
   <a href="#quickstart">Quickstart</a> ·
   <a href="#installation">Installation</a> ·
+  <a href="#vs-code-extension">VS Code</a> ·
   <a href="#kdl-language">KDL Language</a> ·
   <a href="#cli-reference">CLI Reference</a> ·
   <a href="#language-bindings">Language Bindings</a> ·
@@ -196,6 +197,43 @@ just py-dev
 just ci
 ```
 
+### VS Code Extension
+
+The local VS Code extension provides `.kdl` highlighting, diagnostics,
+formatting, format-on-save support, and an `arco KDL` status bar action. It
+uses the canonical `arco` CLI for validation and formatting, so the editor sees
+the same diagnostics as the command line.
+
+Install it from the repository root:
+
+```bash
+npm --prefix tools/vscode-arco-kdl run install:local
+```
+
+or, when using the repository `just` workflow:
+
+```bash
+just vscode-extension-install
+```
+
+For standard VS Code installs, no manual `VSCODE_CLI` setting is required. The
+installer uses `code` on PATH when available and also checks common app
+locations such as `/Applications`, `~/Applications`, and `~/User Apps` on
+macOS. Set `VSCODE_CLI` only when VS Code is installed somewhere custom.
+
+To configure the `arco` binary used by diagnostics and formatting, leave
+`arco.kdl.command` empty when `arco --version` works from your environment, or
+set it to an absolute path:
+
+```json
+{
+  "arco.kdl.command": "/Users/me/.local/bin/arco"
+}
+```
+
+For format-on-save and troubleshooting broken CLI paths, see the
+[VS Code extension guide](./tools/vscode-arco-kdl/README.md).
+
 ## KDL Language
 
 Arco models are written in [KDL](https://kdl.dev) files.
@@ -295,6 +333,7 @@ arco <command> [options]
 | `arco run <file>`           | Compile and solve a `.kdl` formulation                    |
 | `arco validate <file>`      | Validate a `.kdl` file without solving                    |
 | `arco kdl check <file>`     | Validate KDL, with JSON and optional data materialization |
+| `arco kdl fmt [paths]`      | Format KDL files or stdin                                 |
 | `arco --version`            | Print the installed Arco CLI version                      |
 | `arco self update`          | Update a standalone installer build                       |
 | `arco inspect <file>`       | Inspect semantic model (sets, variables, parameters)      |
@@ -327,11 +366,24 @@ $ arco kdl check input.kdl --format json --materialize-data
 {"valid":true,"diagnostics":[]}
 ```
 
-Install the local VS Code helper extension:
+Format KDL:
 
 ```bash
-cd tools/vscode-arco-kdl
-npm run install:local
+$ arco kdl fmt input.kdl
+1 file(s) reformatted
+```
+
+`arco kdl fmt` prints Arco authoring syntax by default, including readable
+algebra blocks. Use `--kdl-compatible` when tooling needs normalized strict KDL
+with algebra stored as `expression=` properties or `formula "..."` children.
+Existing `arco kdl fmt --check` gates may need one committed formatting pass;
+see the [KDL formatting migration note](./docs/migration/kdl-formatting.md).
+
+Install the local VS Code helper extension with highlighting, diagnostics,
+formatting, and status-bar actions:
+
+```bash
+npm --prefix tools/vscode-arco-kdl run install:local
 ```
 
 Print CLI version:
@@ -519,7 +571,7 @@ Performance & Tooling
 - Memory diagnostics — built-in tracking of allocations
 - Block orchestration — DAG-based composition for multi-stage problems
 - Python bindings — programmatic access with NumPy integration
-- Editor support — tree-sitter grammar for syntax highlighting
+- Editor support — VS Code extension and tree-sitter grammar for KDL authoring
 
 ## Roadmap
 

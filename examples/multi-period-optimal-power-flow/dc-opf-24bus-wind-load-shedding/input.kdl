@@ -1,318 +1,432 @@
 // Multi-period DC-OPF (LP) for IEEE 24-bus with wind, curtailment, and load shedding.
 // Translated from Soroudi Gcode6.6 structure into Arco KDL.
-
 data bus_data source="data/buses.csv" {
-  map bus from="bus"
-
-  set bus alias="i"
-
-  param pd_mw index="bus"
-  param is_slack index="bus"
-  param wcap_mw index="bus"
+  map bus from=bus
+  set bus alias=i
+  param pd_mw index=bus
+  param is_slack index=bus
+  param wcap_mw index=bus
 }
-
 data generator_data source="data/generators.csv" {
-  map generators from="generator"
-
-  set generators alias="g"
-
-  param pmax index="generators"
-  param pmin index="generators"
-  param b index="generators"
-  param ru index="generators"
-  param rd index="generators"
+  map generators from=generator
+  set generators alias=g
+  param pmax index=generators
+  param pmin index=generators
+  param b index=generators
+  param ru index=generators
+  param rd index=generators
 }
-
 data gen_bus_data source="data/gen_bus.csv" {
-  map generators from="generator"
-
+  map generators from=generator
   set bus
   set generators
-
   param connected {
     index bus
     index generators
   }
 }
-
 data line_data source="data/lines.csv" {
-  map lines from="line"
-
-  set lines alias="l"
-
-  param x index="lines"
-  param bij index="lines"
-  param limit_mw index="lines"
+  map lines from=line
+  set lines alias=l
+  param x index=lines
+  param bij index=lines
+  param limit_mw index=lines
 }
-
 data line_endpoint_data source="data/line_endpoints.csv" {
-  map lines from="line"
-  map bus from="bus"
-
+  map lines from=line
+  map bus from=bus
   set lines
   set bus
-
   param from_w {
     index lines
     index bus
   }
-
   param to_w {
     index lines
     index bus
   }
 }
-
 data temporal_sets source="data/temporal_sets.csv" {
   set t
-  set taf { in t }
-  param t_next from="taf" index="t"
+  set taf {
+    in t
+  }
+  param t_next from=taf index=t
 }
-
 data profile_data source="data/profiles.csv" {
-  param wind_cf from="w" index="t"
-  param demand_scale from="d" index="t"
+  param wind_cf from=w index=t
+  param demand_scale from=d index=t
 }
-
 model MultiPeriod24BusDCOPF {
   param sbase 100
   param voll 10000
   param volw 50
-
   control pg {
     index g
     index t
     bounds {
-      lower { pmin[g] / sbase }
-      upper { pmax[g] / sbase }
+      lower {
+        pmin[g] / sbase
+      }
+      upper {
+        pmax[g] / sbase
+      }
     }
   }
-
   // Voltage angle. Slack bus enforced via explicit constraint below.
+
   control delta {
     index i
     index t
     bounds {
-      lower { -1.5707963268 }
-      upper {  1.5707963268 }
+      lower {
+        -1.5707963268
+      }
+      upper {
+        1.5707963268
+      }
     }
   }
-
   control pw {
     index i
     index t
     bounds {
-      lower { 0 }
-      upper { wind_cf[t] * wcap_mw[i] / sbase }
+      lower {
+        0
+      }
+      upper {
+        wind_cf[t] * wcap_mw[i] / sbase
+      }
     }
   }
-
   control pc {
     index i
     index t
     bounds {
-      lower { 0 }
-      upper { wind_cf[t] * wcap_mw[i] / sbase }
+      lower {
+        0
+      }
+      upper {
+        wind_cf[t] * wcap_mw[i] / sbase
+      }
     }
   }
-
   control lsh {
     index i
     index t
     bounds {
-      lower { 0 }
-      upper { demand_scale[t] * pd_mw[i] / sbase }
+      lower {
+        0
+      }
+      upper {
+        demand_scale[t] * pd_mw[i] / sbase
+      }
     }
   }
-
   // Per-line directed flow, bounded by thermal limits.
+
   control flow {
     index l
     index t
     bounds {
-      lower { -limit_mw[l] / sbase }
-      upper {  limit_mw[l] / sbase }
+      lower {
+        -limit_mw[l] / sbase
+      }
+      upper {
+        limit_mw[l] / sbase
+      }
     }
   }
-
   // const1 (DC): flow[l,t] = bij[l] * (delta[from,t] - delta[to,t]),  bij = 1/x.
   // The signed bus incidence is encoded via (from_w - to_w).
+
   constraint flow_definition {
-    index l { in lines }
-    index tt { in t }
+    index l {
+      in lines
+    }
+    index tt {
+      in t
+    }
     expression {
-      flow[l,tt] = bij[l] * sum((from_w[l,i] - to_w[l,i]) * delta[i,tt] for i in bus)
+      flow[l,tt]
+        = bij[l] * sum((from_w[l,i] - to_w[l,i]) * delta[i,tt] for i in bus)
     }
   }
-
   // const2: nodal active power balance.
   // Net injection at bus i = sum of flows leaving (from_w=1) minus arriving (to_w=1).
+
   constraint power_balance {
-    index i { in bus }
-    index tt { in t }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
     expression {
       lsh[i,tt]
-      + pw[i,tt]
-      + sum(connected[i,g] * pg[g,tt] for g in generators)
-      - demand_scale[tt] * pd_mw[i] / sbase
-      = sum((from_w[l,i] - to_w[l,i]) * flow[l,tt] for l in lines)
+        + pw[i,tt]
+        + sum(connected[i,g] * pg[g,tt] for g in generators)
+        - demand_scale[tt] * pd_mw[i] / sbase
+        = sum((from_w[l,i] - to_w[l,i]) * flow[l,tt] for l in lines)
     }
   }
-
   // const4: ramp up between consecutive time steps via successor map taf.
+
   constraint ramp_up {
-    index g { in generators }
-    index tp { in t }
-    index tt { in t }
-    if { t_next[tp] == tt }
+    index g {
+      in generators
+    }
+    index tp {
+      in t
+    }
+    index tt {
+      in t
+    }
+    if {
+      t_next[tp]
+        == tt
+    }
     expression {
-      pg[g,tt] - pg[g,tp] <= ru[g] / sbase
+      pg[g,tt]
+        - pg[g,tp]
+        <= ru[g] / sbase
     }
   }
-
   // const5: ramp down.
+
   constraint ramp_down {
-    index g { in generators }
-    index tp { in t }
-    index tt { in t }
-    if { t_next[tp] == tt }
+    index g {
+      in generators
+    }
+    index tp {
+      in t
+    }
+    index tt {
+      in t
+    }
+    if {
+      t_next[tp]
+        == tt
+    }
     expression {
-      pg[g,tp] - pg[g,tt] <= rd[g] / sbase
+      pg[g,tp]
+        - pg[g,tt]
+        <= rd[g] / sbase
     }
   }
-
   // const6: curtailment definition. For buses without wind capacity the
   // bounds on pc and pw fix both to 0 and the equation is trivially satisfied.
+
   constraint curtailment_definition {
-    index i { in bus }
-    index tt { in t }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
     expression {
-      pc[i,tt] = wind_cf[tt] * wcap_mw[i] / sbase - pw[i,tt]
+      pc[i,tt]
+        = wind_cf[tt] * wcap_mw[i] / sbase
+        - pw[i,tt]
     }
   }
-
   // Slack bus angle reference.
+
   constraint slack_angle {
-    index i { in bus }
-    index tt { in t }
-    if { is_slack[i] > 0 }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    if {
+      is_slack[i] > 0
+    }
     expression {
-      delta[i,tt] = 0
+      delta[i,tt]
+        = 0
     }
   }
-
-  // Expression-based control bounds enforced explicitly (the bounds { lower {}
-  // upper {} } blocks above only act as hints when their RHS depends on data
+  // Expression-based control bounds enforced explicitly (the bounds { lower expression=""
+  // upper expression="" } blocks above only act as hints when their RHS depends on data
   // params; mirror the AC OPF example and emit them as constraints).
+
   constraint pg_lower_bound {
-    index g { in generators }
-    index tt { in t }
-    expression { pg[g,tt] >= pmin[g] / sbase }
+    index g {
+      in generators
+    }
+    index tt {
+      in t
+    }
+    expression {
+      pg[g,tt]
+        >= pmin[g] / sbase
+    }
   }
-
   constraint pg_upper_bound {
-    index g { in generators }
-    index tt { in t }
-    expression { pg[g,tt] <= pmax[g] / sbase }
+    index g {
+      in generators
+    }
+    index tt {
+      in t
+    }
+    expression {
+      pg[g,tt]
+        <= pmax[g] / sbase
+    }
   }
-
   constraint delta_lower_bound {
-    index i { in bus }
-    index tt { in t }
-    expression { delta[i,tt] >= -1.5707963268 }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    expression {
+      delta[i,tt]
+        >= -1.5707963268
+    }
   }
-
   constraint delta_upper_bound {
-    index i { in bus }
-    index tt { in t }
-    expression { delta[i,tt] <= 1.5707963268 }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    expression {
+      delta[i,tt]
+        <= 1.5707963268
+    }
   }
-
   constraint pw_lower_bound {
-    index i { in bus }
-    index tt { in t }
-    expression { pw[i,tt] >= 0 }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    expression {
+      pw[i,tt]
+        >= 0
+    }
   }
-
   constraint pw_upper_bound {
-    index i { in bus }
-    index tt { in t }
-    expression { pw[i,tt] <= wind_cf[tt] * wcap_mw[i] / sbase }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    expression {
+      pw[i,tt]
+        <= wind_cf[tt] * wcap_mw[i] / sbase
+    }
   }
-
   constraint pc_lower_bound {
-    index i { in bus }
-    index tt { in t }
-    expression { pc[i,tt] >= 0 }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    expression {
+      pc[i,tt]
+        >= 0
+    }
   }
-
   constraint pc_upper_bound {
-    index i { in bus }
-    index tt { in t }
-    expression { pc[i,tt] <= wind_cf[tt] * wcap_mw[i] / sbase }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    expression {
+      pc[i,tt]
+        <= wind_cf[tt] * wcap_mw[i] / sbase
+    }
   }
-
   constraint lsh_lower_bound {
-    index i { in bus }
-    index tt { in t }
-    expression { lsh[i,tt] >= 0 }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    expression {
+      lsh[i,tt]
+        >= 0
+    }
   }
-
   constraint lsh_upper_bound {
-    index i { in bus }
-    index tt { in t }
-    expression { lsh[i,tt] <= demand_scale[tt] * pd_mw[i] / sbase }
+    index i {
+      in bus
+    }
+    index tt {
+      in t
+    }
+    expression {
+      lsh[i,tt]
+        <= demand_scale[tt] * pd_mw[i] / sbase
+    }
   }
-
   constraint flow_lower_bound {
-    index l { in lines }
-    index tt { in t }
-    expression { flow[l,tt] >= -limit_mw[l] / sbase }
+    index l {
+      in lines
+    }
+    index tt {
+      in t
+    }
+    expression {
+      flow[l,tt]
+        >= -limit_mw[l] / sbase
+    }
   }
-
   constraint flow_upper_bound {
-    index l { in lines }
-    index tt { in t }
-    expression { flow[l,tt] <= limit_mw[l] / sbase }
+    index l {
+      in lines
+    }
+    index tt {
+      in t
+    }
+    expression {
+      flow[l,tt]
+        <= limit_mw[l] / sbase
+    }
   }
-
   // const3: objective.
+
   expression GenerationCost {
     sum(pg[g,tt] * b[g] * sbase for g in generators for tt in t)
   }
-
   expression SheddingPenalty {
     sum(voll * lsh[i,tt] * sbase for i in bus for tt in t)
   }
-
   expression CurtailmentPenalty {
     sum(volw * pc[i,tt] * sbase for i in bus for tt in t)
   }
-
   expression TotalCost {
-    GenerationCost + SheddingPenalty + CurtailmentPenalty
+    GenerationCost
+      + SheddingPenalty
+      + CurtailmentPenalty
   }
-
   minimize OF {
     TotalCost
   }
 }
-
 scenario MultiPeriod24BusDCOPFCase {
   use MultiPeriod24BusDCOPF
-
   report OF
   report TotalCost
   report GenerationCost
   report SheddingPenalty
   report CurtailmentPenalty
-
   report delta
   report pg
   report pw
   report pc
   report lsh
   report flow
-
   report dual power_balance
 }

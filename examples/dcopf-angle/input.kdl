@@ -2,120 +2,112 @@
 // Soroudi, Alireza. Power System Optimization Modeling in GAMS. Springer, 2017.
 // DOI: doi.org/10.1007/978-3-319-62350-4
 // Source: https://www.gams.com/latest/psoptlib_ml/libhtml/psoptlib_OPF3bus.html
-
 data bus_data source="data/buses.csv" {
-  map bus from="bus"
-
-  set bus alias="b"
-
-  param pd index="bus"
-  param is_slack index="bus"
+  map bus from=bus
+  set bus alias=b
+  param pd index=bus
+  param is_slack index=bus
 }
-
 data generator_data source="data/generators.csv" {
-  map generators from="generator"
-
-  set generators alias="g"
-
-  param b index="generators"
-  param pmin index="generators"
-  param pmax index="generators"
+  map generators from=generator
+  set generators alias=g
+  param b index=generators
+  param pmin index=generators
+  param pmax index=generators
 }
-
 data gen_bus_data source="data/gen_bus.csv" {
-  map generators from="generator"
-
+  map generators from=generator
   set bus
   set generators
-
   param connected {
     index bus
     index generators
   }
 }
-
 data line_data source="data/lines.csv" {
-  map lines from="line"
-
-  set lines alias="l"
-
-  param bij index="lines"
-  param limit_mw index="lines"
+  map lines from=line
+  set lines alias=l
+  param bij index=lines
+  param limit_mw index=lines
 }
-
 data incidence_data source="data/incidence.csv" {
-  map lines from="line"
-  map bus from="bus"
-
+  map lines from=line
+  map bus from=bus
   set lines
   set bus
-
   param incidence {
     index lines
     index bus
   }
 }
-
 model DCOPFAngle {
   control pg lower=0 {
     index generators
   }
-
   control delta lower=-3.1415926536 upper=3.1415926536 {
     index bus
   }
-
   control flow {
     index lines
   }
-
   constraint flow_definition {
-    index l { in lines }
+    index l {
+      in lines
+    }
     expression {
-      flow[l] = bij[l] * sum(incidence[l,b] * delta[b] for b in bus)
+      flow[l]
+        = bij[l] * sum(incidence[l,b] * delta[b] for b in bus)
     }
   }
-
   constraint nodal_balance {
-    index b { in bus }
+    index b {
+      in bus
+    }
     expression {
       sum(pg[g] for g in generators if connected[b,g] > 0)
-      - pd[b] / 100
-      = sum(incidence[l,b] * flow[l] for l in lines)
+        - pd[b] / 100
+        = sum(incidence[l,b] * flow[l] for l in lines)
     }
   }
-
   constraint generator_bounds {
-    index g { in generators }
+    index g {
+      in generators
+    }
     expression {
-      pmin[g] / 100 <= pg[g] <= pmax[g] / 100
+      pmin[g] / 100
+        <= pg[g]
+        <= pmax[g] / 100
     }
   }
-
   constraint line_bounds {
-    index l { in lines }
+    index l {
+      in lines
+    }
     expression {
-      -limit_mw[l] / 100 <= flow[l] <= limit_mw[l] / 100
+      -limit_mw[l] / 100
+        <= flow[l]
+        <= limit_mw[l] / 100
     }
   }
-
   constraint slack_angle {
-    index b { in bus }
-    if { is_slack[b] > 0 }
+    index b {
+      in bus
+    }
+    if {
+      is_slack[b] > 0
+    }
     expression {
-      delta[b] = 0
+      delta[b]
+        = 0
     }
   }
-
   expression GenerationCost {
     sum(pg[g] * b[g] * 100 for g in generators)
   }
-
   minimize OF {
     GenerationCost
   }
 }
-
 scenario DCOPFAngleCase {
   use DCOPFAngle
   report GenerationCost

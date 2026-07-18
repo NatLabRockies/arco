@@ -20,96 +20,81 @@
 //   - Storage capacity bounds (min/max duration, max power, max annual cycles)
 //   - Hydro run-of-river (generation fixed to availability)
 //   - Thermal capacity limits
-
 // ============================================================================
 // DATA BLOCKS
 // ============================================================================
-
 data demand_data source="data/demand.csv" {
   set t
   param demand {
     index t
   }
 }
-
 data nuclear_data source="data/nuclear.csv" {
   param nuclear_mw {
     index t
   }
 }
-
 data hydro_data source="data/hydro.csv" {
   param hydro_mw {
     index t
   }
 }
-
 data other_renewables_data source="data/other_renewables.csv" {
   param other_renewables_mw {
     index t
   }
 }
-
 data wind_plants_data source="data/wind_plants.csv" {
-  map wind_plant from="plant_id"
-
-  set wind_plant alias="wp"
-  param wind_max_capacity from="max_capacity" {
+  map wind_plant from=plant_id
+  set wind_plant alias=wp
+  param wind_max_capacity from=max_capacity {
     index wind_plant
   }
-  param wind_capex_m from="capex_m" {
+  param wind_capex_m from=capex_m {
     index wind_plant
   }
-  param wind_fom_m from="fom_m" {
+  param wind_fom_m from=fom_m {
     index wind_plant
   }
-  param wind_trans_cost from="trans_cap_cost" {
+  param wind_trans_cost from=trans_cap_cost {
     index wind_plant
   }
 }
-
 data solar_plants_data source="data/solar_plants.csv" {
-  map solar_plant from="plant_id"
-
-  set solar_plant alias="sp"
-  param solar_max_capacity from="max_capacity" {
+  map solar_plant from=plant_id
+  set solar_plant alias=sp
+  param solar_max_capacity from=max_capacity {
     index solar_plant
   }
-  param solar_capex_m from="capex_m" {
+  param solar_capex_m from=capex_m {
     index solar_plant
   }
-  param solar_fom_m from="fom_m" {
+  param solar_fom_m from=fom_m {
     index solar_plant
   }
-  param solar_trans_cost from="trans_cap_cost" {
+  param solar_trans_cost from=trans_cap_cost {
     index solar_plant
   }
 }
-
 data wind_cf_data source="data/wind_cf.csv" {
-  map wind_plant from="plant_id"
-
+  map wind_plant from=plant_id
   set wind_plant
   param wind_cf {
     index t
     index wind_plant
   }
 }
-
 data solar_cf_data source="data/solar_cf.csv" {
-  map solar_plant from="plant_id"
-
+  map solar_plant from=plant_id
   set solar_plant
   param solar_cf {
     index t
     index solar_plant
   }
 }
-
 data storage_data source="data/storage.csv" {
-  map storage_tech from="tech_id"
-
-  set storage_tech alias="j"
+  map storage_tech from=tech_id
+  set storage_tech alias=j
   param p_capex {
     index storage_tech
   }
@@ -134,34 +119,32 @@ data storage_data source="data/storage.csv" {
   param coupled {
     index storage_tech
   }
-  param storage_fom from="fom" {
+  param storage_fom from=fom {
     index storage_tech
   }
-  param storage_vom from="vom" {
+  param storage_vom from=vom {
     index storage_tech
   }
-  param storage_lifetime from="lifetime" {
+  param storage_lifetime from=lifetime {
     index storage_tech
   }
   param cost_ratio {
     index storage_tech
   }
-  param storage_crf from="crf" {
+  param storage_crf from=crf {
     index storage_tech
   }
 }
-
 data thermal_data source="data/thermal.csv" {
-  map thermal_unit from="plant_id"
-
-  set thermal_unit alias="bu"
+  map thermal_unit from=plant_id
+  set thermal_unit alias=bu
   param min_capacity {
     index thermal_unit
   }
   param max_capacity {
     index thermal_unit
   }
-  param thermal_capex from="capex" {
+  param thermal_capex from=capex {
     index thermal_unit
   }
   param heat_rate {
@@ -170,31 +153,27 @@ data thermal_data source="data/thermal.csv" {
   param fuel_cost {
     index thermal_unit
   }
-  param thermal_vom from="vom" {
+  param thermal_vom from=vom {
     index thermal_unit
   }
-  param thermal_fom from="fom" {
+  param thermal_fom from=fom {
     index thermal_unit
   }
-  param thermal_crf from="crf" {
+  param thermal_crf from=crf {
     index thermal_unit
   }
 }
-
 // ============================================================================
 // MODEL
 // ============================================================================
-
 model sdom {
-  set time alias="t"
-
+  set time alias=t
   // FCR_VRE = r*(1+r)^lifetime / ((1+r)^lifetime - 1) with r=0.06, lifetime=30
+
   param fcr_vre 0.072649
   param mw_to_kw 1000
   param num_steps 24
-
   // Data-level sets and params are globally visible (no model redeclaration).
-
   // ========================================================================
   // DECISION VARIABLES (controls)
   // ========================================================================
@@ -205,7 +184,6 @@ model sdom {
   control solar_cap_frac lower=0 upper=1 {
     index solar_plant
   }
-
   control wind_gen lower=0 {
     index time
   }
@@ -218,7 +196,6 @@ model sdom {
   control solar_curtail lower=0 {
     index time
   }
-
   control pc lower=0 {
     index time
     index storage_tech
@@ -231,7 +208,6 @@ model sdom {
     index time
     index storage_tech
   }
-
   control pcha lower=0 {
     index storage_tech
   }
@@ -241,12 +217,10 @@ model sdom {
   control ecap lower=0 {
     index storage_tech
   }
-
   control storage_binary kind=binary {
     index storage_tech
     index time
   }
-
   control thermal_cap lower=0 {
     index thermal_unit
   }
@@ -254,236 +228,285 @@ model sdom {
     index time
     index thermal_unit
   }
-
   control hydro_gen lower=0 {
     index time
   }
-
   expression wind_capex {
     fcr_vre * sum((wind_capex_m[wp] * mw_to_kw + wind_trans_cost[wp]) * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
   }
-
   expression solar_capex {
     fcr_vre * sum((solar_capex_m[sp] * mw_to_kw + solar_trans_cost[sp]) * solar_max_capacity[sp] * solar_cap_frac[sp] for sp in solar_plant)
   }
-
   expression wind_fom {
     sum(wind_fom_m[wp] * mw_to_kw * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
   }
-
   expression solar_fom {
     sum(solar_fom_m[sp] * mw_to_kw * solar_max_capacity[sp] * solar_cap_frac[sp] for sp in solar_plant)
   }
-
   expression storage_power_capex {
     sum(storage_crf[j] * (mw_to_kw * cost_ratio[j] * p_capex[j] * pcha[j] + mw_to_kw * (1 - cost_ratio[j]) * p_capex[j] * pdis[j]) for j in storage_tech)
   }
-
   expression storage_energy_capex {
     sum(storage_crf[j] * mw_to_kw * e_capex[j] * ecap[j] for j in storage_tech)
   }
-
   expression storage_fixed_om {
     sum(mw_to_kw * cost_ratio[j] * storage_fom[j] * pcha[j] + mw_to_kw * (1 - cost_ratio[j]) * storage_fom[j] * pdis[j] for j in storage_tech)
   }
-
   expression storage_var_om {
     sum(storage_vom[j] * sum(pd[t,j] for t in time) for j in storage_tech)
   }
-
   expression thermal_total_capex {
     sum(thermal_crf[bu] * thermal_capex[bu] * mw_to_kw * thermal_cap[bu] for bu in thermal_unit)
   }
-
   expression thermal_total_fom {
     sum(thermal_fom[bu] * mw_to_kw * thermal_cap[bu] for bu in thermal_unit)
   }
-
   expression thermal_fuel_cost {
     sum(fuel_cost[bu] * heat_rate[bu] * sum(thermal_gen[t,bu] for t in time) for bu in thermal_unit)
   }
-
   expression thermal_var_om {
     sum(thermal_vom[bu] * sum(thermal_gen[t,bu] for t in time) for bu in thermal_unit)
   }
-
   expression total_vre_cost {
-    wind_capex + solar_capex + wind_fom + solar_fom
+    wind_capex
+      + solar_capex
+      + wind_fom
+      + solar_fom
   }
-
   expression total_storage_cost {
-    storage_power_capex + storage_energy_capex + storage_fixed_om + storage_var_om
+    storage_power_capex
+      + storage_energy_capex
+      + storage_fixed_om
+      + storage_var_om
   }
-
   expression total_thermal_cost {
-    thermal_total_capex + thermal_total_fom + thermal_fuel_cost + thermal_var_om
+    thermal_total_capex
+      + thermal_total_fom
+      + thermal_fuel_cost
+      + thermal_var_om
   }
-
-
   constraint supply_balance {
-    index t { in time }
+    index t {
+      in time
+    }
     expression {
       demand[t]
-      + sum(pc[t,j] for j in storage_tech)
-      - sum(pd[t,j] for j in storage_tech)
-      - nuclear_mw[t]
-      - hydro_gen[t]
-      - other_renewables_mw[t]
-      - solar_gen[t]
-      - wind_gen[t]
-      - sum(thermal_gen[t,bu] for bu in thermal_unit) = 0
+        + sum(pc[t,j] for j in storage_tech)
+        - sum(pd[t,j] for j in storage_tech)
+        - nuclear_mw[t]
+        - hydro_gen[t]
+        - other_renewables_mw[t]
+        - solar_gen[t]
+        - wind_gen[t]
+        - sum(thermal_gen[t,bu] for bu in thermal_unit)
+        = 0
     }
   }
-
   // --- Generation mix target: thermal + imports <= (1 - target) * adjusted demand ---
   // With GenMix_Target=1 (100% clean), this forces thermal generation to zero
+
   constraint gen_mix_share {
     expression {
-      sum(thermal_gen[t,bu] for t in time for bu in thermal_unit) <= 0
+      sum(thermal_gen[t,bu] for t in time for bu in thermal_unit)
+        <= 0
     }
   }
-
   constraint wind_balance {
-    index t { in time }
+    index t {
+      in time
+    }
     expression {
-      wind_gen[t] + wind_curtail[t]
-      = sum(wind_cf[t,wp] * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
+      wind_gen[t]
+        + wind_curtail[t]
+        = sum(wind_cf[t,wp] * wind_max_capacity[wp] * wind_cap_frac[wp] for wp in wind_plant)
     }
   }
-
   constraint solar_balance {
-    index t { in time }
+    index t {
+      in time
+    }
     expression {
-      solar_gen[t] + solar_curtail[t]
-      = sum(solar_cf[t,sp] * solar_max_capacity[sp] * solar_cap_frac[sp] for sp in solar_plant)
+      solar_gen[t]
+        + solar_curtail[t]
+        = sum(solar_cf[t,sp] * solar_max_capacity[sp] * solar_cap_frac[sp] for sp in solar_plant)
     }
   }
-
   // Cyclical SOC: t=1 wraps to the last time step
+
   constraint soc_balance_initial {
-    index j { in storage_tech }
+    index j {
+      in storage_tech
+    }
     expression {
-      soc[1,j] = soc[num_steps,j]
+      soc[1,j]
+        = soc[num_steps,j]
         + sqrt(efficiency[j]) * pc[1,j]
         - pd[1,j] / sqrt(efficiency[j])
     }
   }
-
   constraint soc_balance {
-    index j { in storage_tech }
-    index t { in time }
-    if { t > 1 }
+    index j {
+      in storage_tech
+    }
+    index t {
+      in time
+    }
+    if {
+      t > 1
+    }
     expression {
-      soc[t,j] = soc[t-1,j]
+      soc[t,j]
+        = soc[t-1,j]
         + sqrt(efficiency[j]) * pc[t,j]
         - pd[t,j] / sqrt(efficiency[j])
     }
   }
-
   constraint charge_binary_limit {
-    index t { in time }
-    index j { in storage_tech }
+    index t {
+      in time
+    }
+    index j {
+      in storage_tech
+    }
     expression {
-      pc[t,j] <= max_p[j] * storage_binary[j,t]
+      pc[t,j]
+        <= max_p[j] * storage_binary[j,t]
     }
   }
-
   constraint discharge_binary_limit {
-    index t { in time }
-    index j { in storage_tech }
+    index t {
+      in time
+    }
+    index j {
+      in storage_tech
+    }
     expression {
-      pd[t,j] <= max_p[j] * (1 - storage_binary[j,t])
+      pd[t,j]
+        <= max_p[j] * (1 - storage_binary[j,t])
     }
   }
-
   constraint max_hourly_charging {
-    index t { in time }
-    index j { in storage_tech }
+    index t {
+      in time
+    }
+    index j {
+      in storage_tech
+    }
     expression {
-      pc[t,j] <= pcha[j]
+      pc[t,j]
+        <= pcha[j]
     }
   }
-
   constraint max_hourly_discharging {
-    index t { in time }
-    index j { in storage_tech }
+    index t {
+      in time
+    }
+    index j {
+      in storage_tech
+    }
     expression {
-      pd[t,j] <= pdis[j]
+      pd[t,j]
+        <= pdis[j]
     }
   }
-
   constraint max_soc {
-    index t { in time }
-    index j { in storage_tech }
+    index t {
+      in time
+    }
+    index j {
+      in storage_tech
+    }
     expression {
-      soc[t,j] <= ecap[j]
+      soc[t,j]
+        <= ecap[j]
     }
   }
-
   constraint max_charge_capacity {
-    index j { in storage_tech }
+    index j {
+      in storage_tech
+    }
     expression {
-      pcha[j] <= max_p[j]
+      pcha[j]
+        <= max_p[j]
     }
   }
-
   constraint max_discharge_capacity {
-    index j { in storage_tech }
+    index j {
+      in storage_tech
+    }
     expression {
-      pdis[j] <= max_p[j]
+      pdis[j]
+        <= max_p[j]
     }
   }
-
   // Coupled technologies (Li-Ion, PHS) must have equal charge/discharge capacity
+
   constraint charge_equals_discharge {
-    index j { in storage_tech }
-    if { coupled[j] > 0 }
+    index j {
+      in storage_tech
+    }
+    if {
+      coupled[j] > 0
+    }
     expression {
-      pcha[j] = pdis[j]
+      pcha[j]
+        = pdis[j]
     }
   }
-
   constraint min_energy_capacity {
-    index j { in storage_tech }
+    index j {
+      in storage_tech
+    }
     expression {
-      ecap[j] >= min_duration[j] * pdis[j] / sqrt(efficiency[j])
+      ecap[j]
+        >= min_duration[j] * pdis[j] / sqrt(efficiency[j])
     }
   }
-
   constraint max_energy_capacity {
-    index j { in storage_tech }
+    index j {
+      in storage_tech
+    }
     expression {
-      ecap[j] <= max_duration[j] * pdis[j] / sqrt(efficiency[j])
+      ecap[j]
+        <= max_duration[j] * pdis[j] / sqrt(efficiency[j])
     }
   }
-
   constraint max_cycle_year {
-    index j { in storage_tech }
+    index j {
+      in storage_tech
+    }
     expression {
-      sum(pd[t,j] for t in time) <= (max_cycles[j] / storage_lifetime[j]) * ecap[j]
+      sum(pd[t,j] for t in time)
+        <= (max_cycles[j] / storage_lifetime[j]) * ecap[j]
     }
   }
-
   constraint thermal_capacity_limit {
-    index t { in time }
-    index bu { in thermal_unit }
+    index t {
+      in time
+    }
+    index bu {
+      in thermal_unit
+    }
     expression {
-      thermal_cap[bu] >= thermal_gen[t,bu]
+      thermal_cap[bu]
+        >= thermal_gen[t,bu]
     }
   }
-
   constraint hydro_run_of_river {
-    index t { in time }
+    index t {
+      in time
+    }
     expression {
-      hydro_gen[t] = hydro_mw[t]
+      hydro_gen[t]
+        = hydro_mw[t]
     }
   }
-
   minimize total_cost {
-    total_vre_cost + total_storage_cost + total_thermal_cost
+    total_vre_cost
+      + total_storage_cost
+      + total_thermal_cost
   }
 }
-
 scenario sdom_no_resiliency_24h {
   use sdom
   report total_cost
@@ -493,6 +516,9 @@ scenario sdom_no_resiliency_24h {
   report wind_cap_frac
   report pcha
   report soc {
-    filter { storage_tech == "Li-Ion"}
+    filter {
+      storage_tech
+        == "Li-Ion"
+    }
   }
 }

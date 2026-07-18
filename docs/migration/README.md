@@ -7,6 +7,7 @@ working across pre-1.0 snapshots.
 | Note                                           | Scope                                  |
 | ---------------------------------------------- | -------------------------------------- |
 | [API UX Contract Changes](api-ux-contracts.md) | Python modeling and result-access APIs |
+| [KDL Formatting Defaults](kdl-formatting.md)   | CLI formatter and VS Code settings     |
 
 ---
 
