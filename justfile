@@ -183,7 +183,7 @@ py-build-wheel: py-licenses
 
 [group: 'python']
 py-build-release-wheel: py-licenses
-    PYTHON_WHEEL_NO_DEFAULT_FEATURES=1 PYTHON_WHEEL_FEATURES="pyo3/extension-module,xpress,scip-from-source" ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
+    PYTHON_WHEEL_NO_DEFAULT_FEATURES="${PYTHON_WHEEL_NO_DEFAULT_FEATURES:-1}" PYTHON_WHEEL_FEATURES="${PYTHON_WHEEL_FEATURES:-pyo3/extension-module,xpress,scip-from-source}" ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
 
 [group: 'python']
 py-build-sdist:
