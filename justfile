@@ -187,11 +187,13 @@ py-build-wheel: py-licenses
 
 [group: 'python']
 py-build-release-wheel: py-licenses
-    PYTHON_WHEEL_NO_DEFAULT_FEATURES=1 PYTHON_WHEEL_FEATURES="pyo3/extension-module,xpress,scip-from-source" ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
+    PYTHON_WHEEL_NO_DEFAULT_FEATURES="${PYTHON_WHEEL_NO_DEFAULT_FEATURES:-1}" PYTHON_WHEEL_FEATURES="${PYTHON_WHEEL_FEATURES:-pyo3/extension-module,xpress,scip-from-source}" ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" bash scripts/build_python_wheel.sh
 
 [group: 'python']
 py-build-sdist:
-    uv run --project bindings/python --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
+    rm -f dist/*.tar.gz
+    uv run --no-project --with maturin maturin sdist --manifest-path bindings/python/Cargo.toml --out dist
+    uv run --no-project python scripts/validate_python_sdist.py --artifact dist/*.tar.gz
 
 [group: 'python']
 py-build:

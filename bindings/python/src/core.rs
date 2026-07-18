@@ -1,7 +1,7 @@
-//! Python bindings for Arco optimization using PyO3
-//!
-//! This module exposes Arco's model builder and solver to Python with zero-copy access
-//! to solution data through memoryview.
+// Python bindings for Arco optimization using PyO3.
+//
+// This module exposes Arco's model builder and solver to Python with zero-copy access
+// to solution data through memoryview.
 
 mod py_modules;
 

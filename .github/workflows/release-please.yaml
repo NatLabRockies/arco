@@ -195,10 +195,10 @@ jobs:
         python:
           - label: cp310
             version: "3.10"
-            wheel_features: ""
+            wheel_features: "pyo3/extension-module,xpress,scip-from-source"
           - label: abi3
             version: "3.11"
-            wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress"
+            wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source"
         platform:
           - label: linux
             os: ubuntu-latest

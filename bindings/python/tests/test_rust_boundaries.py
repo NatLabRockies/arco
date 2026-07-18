@@ -58,6 +58,23 @@ def test_python_package_builds_with_xpress_support_by_default() -> None:
     assert "xpress" in pyproject["tool"]["maturin"]["features"]
 
 
+def test_release_wheel_recipe_allows_the_abi3_matrix_features() -> None:
+    justfile = (ROOT / "justfile").read_text()
+
+    assert (
+        'PYTHON_WHEEL_FEATURES="${PYTHON_WHEEL_FEATURES:-pyo3/extension-module,xpress,scip-from-source}"'
+        in justfile
+    )
+
+    abi3_features = 'wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source"'
+    for workflow in (
+        ".github/workflows/ci.yaml",
+        ".github/workflows/pypi-manual-release.yaml",
+        ".github/workflows/release-please.yaml",
+    ):
+        assert abi3_features in (ROOT / workflow).read_text()
+
+
 def test_cli_cargo_depends_on_arco_ops_only_among_arco_modeling_crates() -> None:
     cargo_toml = (ROOT / "crates" / "arco-cli" / "Cargo.toml").read_text()
 

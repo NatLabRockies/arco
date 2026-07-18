@@ -10,7 +10,7 @@ Use this when a release is ready but a Python wheel build or PyPI upload fails.
 4. Let PyPI publish after all Python artifacts build.
 5. Verify the release files on PyPI.
 
-The wheel matrix is intentionally small: `cp310` and `abi3` across Linux, macOS arm64, and Windows. VS Code extension upload is separate and does not block PyPI publishing.
+The wheel matrix is intentionally small: `cp310` and `abi3` across Linux, macOS arm64, and Windows. The `abi3` wheels target CPython 3.11 and support Python 3.12, 3.13, and 3.14. VS Code extension upload is separate and does not block PyPI publishing.
 
 ## If a wheel job fails
 
