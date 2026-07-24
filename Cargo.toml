@@ -69,6 +69,8 @@ repository = "https://github.com/NatLabRockies/arco"
 [workspace.lints.rust]
 unsafe_code = "deny"
 warnings = "deny"
+# Hawk checks workspace visibility; do not retain `pub` solely to silence this lint.
+dead_code = "allow"
 
 [workspace.lints.clippy]
 # Enable pedantic lints for stricter code quality

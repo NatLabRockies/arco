@@ -16,7 +16,7 @@ pub struct PyConstraintIterator {
 }
 
 impl PyConstraintIterator {
-    pub fn new(model: Py<PyModel>, total: usize) -> Self {
+    pub(crate) fn new(model: Py<PyModel>, total: usize) -> Self {
         Self {
             model,
             index: 0,
@@ -60,7 +60,7 @@ pub struct PyVariableIterator {
 }
 
 impl PyVariableIterator {
-    pub fn new(model: Py<PyModel>, total: usize) -> Self {
+    pub(crate) fn new(model: Py<PyModel>, total: usize) -> Self {
         Self {
             model,
             index: 0,
@@ -95,7 +95,7 @@ impl PyVariableIterator {
     }
 }
 
-pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConstraintIterator>()?;
     m.add_class::<PyVariableIterator>()?;
     Ok(())

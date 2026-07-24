@@ -26,7 +26,7 @@ pub struct ValidationIssue {
 
 impl ValidationIssue {
     /// Construct an error issue.
-    pub fn error(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn error(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -35,7 +35,7 @@ impl ValidationIssue {
     }
 
     /// Construct a warning issue.
-    pub fn warning(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn warning(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
@@ -53,12 +53,12 @@ pub struct ValidationReport {
 
 impl ValidationReport {
     /// Create an empty validation report.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Add one issue to the report.
-    pub fn push(&mut self, issue: ValidationIssue) {
+    pub(crate) fn push(&mut self, issue: ValidationIssue) {
         self.issues.push(issue);
     }
 
@@ -71,7 +71,7 @@ impl ValidationReport {
 }
 
 /// Run canonical validation on a primitive model view.
-pub fn validate_model_view(model: &impl ModelView) -> ValidationReport {
+pub(crate) fn validate_model_view(model: &impl ModelView) -> ValidationReport {
     let mut report = ValidationReport::new();
     if model.num_variables() == 0 {
         report.push(ValidationIssue::error(
@@ -94,7 +94,7 @@ pub fn validate_model_view(model: &impl ModelView) -> ValidationReport {
 }
 
 /// Diagnostic form of canonical model-view validation.
-pub fn diagnose_model_view(model: &impl ModelView) -> DiagnosticReport {
+pub(crate) fn diagnose_model_view(model: &impl ModelView) -> DiagnosticReport {
     let mut diagnostics = DiagnosticReport::new();
     for issue in validate_model_view(model).issues {
         let severity = match issue.severity {
@@ -124,17 +124,17 @@ pub fn validate_solve_target(has_variables: bool) -> ValidationReport {
 }
 
 /// Returns true when a lower/upper pair can be used as canonical model bounds.
-pub fn bounds_are_valid(lower: f64, upper: f64) -> bool {
+pub(crate) fn bounds_are_valid(lower: f64, upper: f64) -> bool {
     !lower.is_nan() && !upper.is_nan() && lower <= upper
 }
 
 /// Returns true when a linear matrix or objective coefficient is finite.
-pub fn coefficient_is_valid(coefficient: f64) -> bool {
+pub(crate) fn coefficient_is_valid(coefficient: f64) -> bool {
     coefficient.is_finite()
 }
 
 /// Returns true when a slack penalty is finite and non-negative.
-pub fn slack_penalty_is_valid(penalty: f64) -> bool {
+pub(crate) fn slack_penalty_is_valid(penalty: f64) -> bool {
     penalty.is_finite() && penalty >= 0.0
 }
 

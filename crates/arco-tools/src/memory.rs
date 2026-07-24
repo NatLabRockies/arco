@@ -11,11 +11,11 @@ use sysinfo::System;
 #[derive(Debug, Clone)]
 pub struct MemorySnapshot {
     /// Resident set size in bytes
-    pub rss_bytes: u64,
+    pub(crate) rss_bytes: u64,
     /// Timestamp when this snapshot was captured
-    pub timestamp: Instant,
+    pub(crate) timestamp: Instant,
     /// Name of the stage (e.g., "declare", "optimize")
-    pub stage: String,
+    pub(crate) stage: String,
 }
 
 /// Errors produced by memory instrumentation.
@@ -98,7 +98,7 @@ impl MemorySnapshot {
     /// # Errors
     ///
     /// Returns an error if the current process cannot be located.
-    pub fn capture(stage: &str) -> Result<Self, MemoryError> {
+    pub(crate) fn capture(stage: &str) -> Result<Self, MemoryError> {
         let rss_bytes = read_process_rss_bytes()?;
 
         Ok(MemorySnapshot {
@@ -111,7 +111,7 @@ impl MemorySnapshot {
     /// Calculate the difference between this snapshot and another.
     ///
     /// Returns the difference in RSS bytes (positive means growth).
-    pub fn diff(&self, other: &Self) -> i64 {
+    pub(crate) fn diff(&self, other: &Self) -> i64 {
         self.rss_bytes as i64 - other.rss_bytes as i64
     }
 }
@@ -144,15 +144,15 @@ pub struct StageStart {
 #[derive(Debug, Clone)]
 pub struct StageMeasurement {
     /// Stage name.
-    pub stage: String,
+    pub(crate) stage: String,
     /// Stage duration.
-    pub duration: Duration,
+    pub(crate) duration: Duration,
     /// RSS before the stage.
-    pub rss_before_bytes: Option<u64>,
+    pub(crate) rss_before_bytes: Option<u64>,
     /// RSS after the stage.
-    pub rss_after_bytes: Option<u64>,
+    pub(crate) rss_after_bytes: Option<u64>,
     /// RSS delta between after and before.
-    pub rss_delta_bytes: Option<i64>,
+    pub(crate) rss_delta_bytes: Option<i64>,
 }
 
 /// Recorder for stage-level timing and memory metrics.
@@ -163,12 +163,12 @@ pub struct MeasurementRecorder {
 
 impl MeasurementRecorder {
     /// Create a new recorder.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { stages: Vec::new() }
     }
 
     /// Captures stage start timing and baseline RSS.
-    pub fn begin_stage(&self, stage: &str) -> StageStart {
+    pub(crate) fn begin_stage(stage: &str) -> StageStart {
         StageStart {
             stage: stage.to_string(),
             started_at: Instant::now(),
@@ -177,7 +177,7 @@ impl MeasurementRecorder {
     }
 
     /// Captures stage end metrics and appends a completed measurement.
-    pub fn end_stage(&mut self, start: StageStart) {
+    pub(crate) fn end_stage(&mut self, start: StageStart) {
         let rss_after_bytes = capture_rss_bytes(&start.stage);
         let measurement = StageMeasurement {
             stage: start.stage,
@@ -190,7 +190,7 @@ impl MeasurementRecorder {
     }
 
     /// Return all captured stage measurements in order.
-    pub fn stages(&self) -> &[StageMeasurement] {
+    pub(crate) fn stages(&self) -> &[StageMeasurement] {
         &self.stages
     }
 }
@@ -203,7 +203,7 @@ pub struct MemoryProbe {
 
 impl MemoryProbe {
     /// Create a new memory probe.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         MemoryProbe {
             snapshots: Vec::new(),
         }
@@ -214,21 +214,21 @@ impl MemoryProbe {
     /// # Errors
     ///
     /// Returns an error if the snapshot could not be captured.
-    pub fn record(&mut self, stage: &str) -> Result<(), MemoryError> {
+    pub(crate) fn record(&mut self, stage: &str) -> Result<(), MemoryError> {
         let snapshot = MemorySnapshot::capture(stage)?;
         self.snapshots.push(snapshot);
         Ok(())
     }
 
     /// Get all recorded snapshots.
-    pub fn snapshots(&self) -> &[MemorySnapshot] {
+    pub(crate) fn snapshots(&self) -> &[MemorySnapshot] {
         &self.snapshots
     }
 
     /// Returns RSS delta between the two most recently recorded snapshots.
     ///
     /// Returns `None` when fewer than two snapshots are available.
-    pub fn last_diff(&self) -> Option<i64> {
+    pub(crate) fn last_diff(&self) -> Option<i64> {
         if self.snapshots.len() < 2 {
             return None;
         }
@@ -313,7 +313,7 @@ mod tests {
     #[test]
     fn test_measurement_recorder() {
         let mut recorder = MeasurementRecorder::new();
-        let start = recorder.begin_stage("stage_a");
+        let start = MeasurementRecorder::begin_stage("stage_a");
         recorder.end_stage(start);
 
         assert_eq!(recorder.stages().len(), 1);

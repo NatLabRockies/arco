@@ -13,48 +13,48 @@ use arco_solver::SolverStatus;
 #[derive(Debug, Clone)]
 pub struct Solution {
     /// Primal values of variables indexed by their internal position
-    pub(crate) primal_values: Vec<f64>,
+    primal_values: Vec<f64>,
     /// Dual values of variables (reduced costs) indexed by their internal position
-    pub(crate) variable_duals: Vec<f64>,
+    variable_duals: Vec<f64>,
     /// Dual values of constraints (shadow prices) indexed by their internal position
-    pub(crate) constraint_duals: Vec<f64>,
+    constraint_duals: Vec<f64>,
     /// Row activity values (constraint LHS evaluated at the solution)
-    pub(crate) row_values: Vec<f64>,
+    row_values: Vec<f64>,
     /// Objective value of the solution
-    pub(crate) objective_value: f64,
+    objective_value: f64,
     /// Status of the solution
-    pub(crate) status: HighsStatus,
+    status: HighsStatus,
     /// Solve time in seconds
-    pub(crate) solve_time_seconds: f64,
+    solve_time_seconds: f64,
     /// Number of simplex iterations (0 for pure feasibility problems)
-    pub(crate) simplex_iterations: u64,
+    simplex_iterations: u64,
     /// Number of barrier iterations (0 if simplex was used)
-    pub(crate) barrier_iterations: u64,
+    barrier_iterations: u64,
     /// Relative MIP gap (0.0 for LP problems)
-    pub(crate) mip_gap: f64,
+    mip_gap: f64,
     /// Primal feasibility tolerance achieved
-    pub(crate) primal_feasibility_tolerance: f64,
+    primal_feasibility_tolerance: f64,
     /// Dual feasibility tolerance achieved
-    pub(crate) dual_feasibility_tolerance: f64,
+    dual_feasibility_tolerance: f64,
     /// Number of rows after presolve (0 if presolve not used)
-    pub(crate) presolved_rows: u64,
+    presolved_rows: u64,
     /// Number of cols after presolve (0 if presolve not used)
-    pub(crate) presolved_cols: u64,
+    presolved_cols: u64,
 }
 
 impl Solution {
     /// Get the primal value of a variable at the given index
-    pub fn get_primal(&self, index: usize) -> Option<f64> {
+    pub(crate) fn get_primal(&self, index: usize) -> Option<f64> {
         self.primal_values.get(index).copied()
     }
 
     /// Get the dual value (reduced cost) of a variable at the given index
-    pub fn get_variable_dual(&self, index: usize) -> Option<f64> {
+    pub(crate) fn get_variable_dual(&self, index: usize) -> Option<f64> {
         self.variable_duals.get(index).copied()
     }
 
     /// Get the dual value (shadow price) of a constraint at the given index
-    pub fn get_constraint_dual(&self, index: usize) -> Option<f64> {
+    pub(crate) fn get_constraint_dual(&self, index: usize) -> Option<f64> {
         self.constraint_duals.get(index).copied()
     }
 
@@ -89,17 +89,17 @@ impl Solution {
     }
 
     /// Get number of simplex iterations
-    pub fn simplex_iterations(&self) -> u64 {
+    pub(crate) fn simplex_iterations(&self) -> u64 {
         self.simplex_iterations
     }
 
     /// Get number of barrier iterations
-    pub fn barrier_iterations(&self) -> u64 {
+    pub(crate) fn barrier_iterations(&self) -> u64 {
         self.barrier_iterations
     }
 
     /// Get total iterations (simplex + barrier)
-    pub fn total_iterations(&self) -> u64 {
+    pub(crate) fn total_iterations(&self) -> u64 {
         self.simplex_iterations + self.barrier_iterations
     }
 
@@ -119,37 +119,37 @@ impl Solution {
     }
 
     /// Get number of rows after presolve (0 if presolve not used or problem fully reduced)
-    pub fn presolved_rows(&self) -> u64 {
+    pub(crate) fn presolved_rows(&self) -> u64 {
         self.presolved_rows
     }
 
     /// Get number of cols after presolve (0 if presolve not used or problem fully reduced)
-    pub fn presolved_cols(&self) -> u64 {
+    pub(crate) fn presolved_cols(&self) -> u64 {
         self.presolved_cols
     }
 
     /// Check if solution is optimal
-    pub fn is_optimal(&self) -> bool {
+    pub(crate) fn is_optimal(&self) -> bool {
         matches!(self.status, HighsStatus::Optimal)
     }
 
     /// Check if solution is feasible (includes optimal)
-    pub fn is_feasible(&self) -> bool {
+    pub(crate) fn is_feasible(&self) -> bool {
         highs_has_solution(self.status)
     }
 
     /// Check if solution is infeasible
-    pub fn is_infeasible(&self) -> bool {
+    pub(crate) fn is_infeasible(&self) -> bool {
         matches!(self.status, HighsStatus::Infeasible)
     }
 
     /// Check if solution is unbounded
-    pub fn is_unbounded(&self) -> bool {
+    pub(crate) fn is_unbounded(&self) -> bool {
         matches!(self.status, HighsStatus::Unbounded)
     }
 
     /// Get solution status as a human-readable string
-    pub fn status_string(&self) -> &'static str {
+    pub(crate) fn status_string(&self) -> &'static str {
         highs_status_string(self.status)
     }
 

@@ -26,14 +26,14 @@ pub struct PyExprArray {
 }
 
 impl PyExprArray {
-    pub fn new(index_sets: Vec<Py<PyIndexSet>>, shape: Vec<usize>, values: Vec<PyExpr>) -> Self {
+    pub(crate) fn new(index_sets: Vec<Py<PyIndexSet>>, shape: Vec<usize>, values: Vec<PyExpr>) -> Self {
         Self {
             storage: ExprArrayStorage::Full(LinearArrayCore::new(index_sets, shape, values)),
         }
     }
 
     /// Create from compact expression storage.
-    pub fn from_compact(
+    pub(crate) fn from_compact(
         compact: CompactExprStorage,
         index_sets: Vec<Py<PyIndexSet>>,
         shape: Vec<usize>,
@@ -47,7 +47,7 @@ impl PyExprArray {
         }
     }
 
-    pub fn from_sparse(
+    pub(crate) fn from_sparse(
         index_sets: Vec<Py<PyIndexSet>>,
         shape: Vec<usize>,
         active_indices: Vec<usize>,
@@ -250,7 +250,7 @@ impl PyExprArray {
         }
     }
 
-    pub fn sparse_entries(&self) -> Option<(&[usize], &[PyExpr])> {
+    pub(crate) fn sparse_entries(&self) -> Option<(&[usize], &[PyExpr])> {
         self.storage
             .as_sparse()
             .map(|storage| (storage.active_indices.as_slice(), storage.values.as_slice()))

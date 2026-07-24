@@ -177,7 +177,7 @@ impl SolutionSnapshot {
     }
 
     /// Consume the snapshot and return `(col_values, col_duals, row_values, row_duals)`.
-    pub fn into_vecs(self) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    pub(crate) fn into_vecs(self) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
         (
             self.col_values,
             self.col_duals,
@@ -187,7 +187,7 @@ impl SolutionSnapshot {
     }
 
     #[cfg(test)]
-    pub(crate) fn new(
+    fn new(
         col_values: Vec<f64>,
         col_duals: Vec<f64>,
         row_values: Vec<f64>,

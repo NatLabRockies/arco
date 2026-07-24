@@ -9,10 +9,10 @@ use std::hash::{Hash, Hasher};
 /// Cheap facts about a finite optimization model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StructuralFacts {
-    pub variables: usize,
-    pub constraints: usize,
-    pub coefficients: usize,
-    pub integer_variables: usize,
+    pub(crate) variables: usize,
+    pub(crate) constraints: usize,
+    pub(crate) coefficients: usize,
+    pub(crate) integer_variables: usize,
 }
 
 /// Stable fingerprint for structure and numeric values visible through a model view.
@@ -164,11 +164,11 @@ pub struct ModelPatch {
 }
 
 impl ModelPatch {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn set_variable_bounds(&mut self, id: VariableId, bounds: Bounds) {
+    pub(crate) fn set_variable_bounds(&mut self, id: VariableId, bounds: Bounds) {
         self.variable_bounds.insert(id, bounds);
     }
 
@@ -176,7 +176,7 @@ impl ModelPatch {
         self.constraint_bounds.insert(id, bounds);
     }
 
-    pub fn set_coefficient(
+    pub(crate) fn set_coefficient(
         &mut self,
         variable_id: VariableId,
         constraint_id: ConstraintId,
@@ -186,23 +186,23 @@ impl ModelPatch {
             .insert((variable_id, constraint_id), value);
     }
 
-    pub fn set_objective_term(&mut self, variable_id: VariableId, value: f64) {
+    pub(crate) fn set_objective_term(&mut self, variable_id: VariableId, value: f64) {
         self.objective_terms.insert(variable_id, value);
     }
 
-    pub fn set_variable_name(&mut self, id: VariableId, name: impl Into<String>) {
+    pub(crate) fn set_variable_name(&mut self, id: VariableId, name: impl Into<String>) {
         self.variable_names.insert(id, name.into());
     }
 
-    pub fn set_constraint_name(&mut self, id: ConstraintId, name: impl Into<String>) {
+    pub(crate) fn set_constraint_name(&mut self, id: ConstraintId, name: impl Into<String>) {
         self.constraint_names.insert(id, name.into());
     }
 
-    pub fn set_objective_name(&mut self, name: Option<String>) {
+    pub(crate) fn set_objective_name(&mut self, name: Option<String>) {
         self.objective_name = ObjectiveNamePatch::Set(name);
     }
 
-    pub fn set_variable_metadata(&mut self, id: VariableId, metadata: serde_json::Value) {
+    pub(crate) fn set_variable_metadata(&mut self, id: VariableId, metadata: serde_json::Value) {
         self.variable_metadata.insert(id, metadata);
     }
 
@@ -227,7 +227,7 @@ pub struct PatchedModelView<'a, V: ModelView + ?Sized> {
 }
 
 impl<'a, V: ModelView + ?Sized> PatchedModelView<'a, V> {
-    pub fn new(base: &'a V, patch: &'a ModelPatch) -> Self {
+    pub(crate) fn new(base: &'a V, patch: &'a ModelPatch) -> Self {
         let objective = patched_objective(base.objective(), &patch.objective_terms);
         let columns = patched_columns(base, &patch.coefficients);
         Self {

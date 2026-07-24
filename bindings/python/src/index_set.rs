@@ -55,7 +55,7 @@ impl IndexMember {
         Ok(obj.unbind())
     }
 
-    pub fn as_f64(&self) -> Option<f64> {
+    pub(crate) fn as_f64(&self) -> Option<f64> {
         match self {
             IndexMember::Int(v) => Some(*v as f64),
             IndexMember::Float(v) => Some(*v),

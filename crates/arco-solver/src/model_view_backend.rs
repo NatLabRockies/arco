@@ -46,7 +46,7 @@ impl<'a> ModelViewBackendRegistry<'a> {
     }
 
     /// Registered backend families in deterministic order.
-    pub fn families(&self) -> Vec<&'static str> {
+    pub(crate) fn families(&self) -> Vec<&'static str> {
         self.backends.keys().copied().collect()
     }
 

@@ -20,7 +20,7 @@ pub enum SimplifyLevel {
 }
 
 impl SimplifyLevel {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             SimplifyLevel::None => "none",
             SimplifyLevel::Light => "light",
@@ -93,7 +93,7 @@ pub struct Objective {
 
 impl Objective {
     /// Create a new empty objective
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             sense: None,
             terms: Vec::new(),

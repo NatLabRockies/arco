@@ -17,14 +17,14 @@ use thiserror::Error;
 
 #[derive(Debug, Clone)]
 pub struct SolverConfigState {
-    pub registry: SolverRegistry,
-    pub project: SolverConfigDocument,
-    pub user: SolverConfigDocument,
-    pub merged_profiles: BTreeMap<String, SolverProfile>,
-    pub selection: String,
-    pub resolved: ResolvedSelection,
-    pub user_path: PathBuf,
-    pub project_path: PathBuf,
+    pub(crate) registry: SolverRegistry,
+    pub(crate) project: SolverConfigDocument,
+    pub(crate) user: SolverConfigDocument,
+    pub(crate) merged_profiles: BTreeMap<String, SolverProfile>,
+    pub(crate) selection: String,
+    pub(crate) resolved: ResolvedSelection,
+    pub(crate) user_path: PathBuf,
+    pub(crate) project_path: PathBuf,
 }
 
 impl SolverConfigState {
@@ -198,11 +198,11 @@ pub fn save_solver_selection(selection: &str) -> Result<PathBuf, ConfigError> {
     Ok(path)
 }
 
-pub fn solver_config_path() -> Result<PathBuf, ConfigError> {
+pub(crate) fn solver_config_path() -> Result<PathBuf, ConfigError> {
     Ok(config_dir()?.join("solver.toml"))
 }
 
-pub fn project_solver_config_path() -> Result<PathBuf, ConfigError> {
+pub(crate) fn project_solver_config_path() -> Result<PathBuf, ConfigError> {
     if let Some(path) = env::var_os("ARCO_PROJECT_CONFIG_DIR") {
         return Ok(PathBuf::from(path).join("solver.toml"));
     }

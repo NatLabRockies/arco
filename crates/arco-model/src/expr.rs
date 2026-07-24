@@ -17,7 +17,7 @@ pub enum LinearExprError {
 
 impl LinearExprError {
     /// Returns a semantic error code for programmatic handling.
-    pub fn code(&self) -> &'static str {
+    pub(crate) fn code(&self) -> &'static str {
         match self {
             LinearExprError::MixedInputs => "EXPR_MIXED_INPUTS",
             LinearExprError::MissingInputs => "EXPR_MISSING_INPUTS",
@@ -230,7 +230,7 @@ impl Expr {
     }
 
     /// Max degree of any term (0 = constant only).
-    pub fn degree(&self) -> usize {
+    pub(crate) fn degree(&self) -> usize {
         if !self.cubic_slice().is_empty() {
             3
         } else if !self.quad_slice().is_empty() {
@@ -613,7 +613,7 @@ pub struct ConstraintExpr {
 
 impl ConstraintExpr {
     /// Creates a constraint from a normalized expression, comparison sense, and RHS.
-    pub fn new(expr: Expr, sense: ComparisonSense, rhs: f64) -> Self {
+    pub(crate) fn new(expr: Expr, sense: ComparisonSense, rhs: f64) -> Self {
         Self { expr, sense, rhs }
     }
 
@@ -633,14 +633,14 @@ impl ConstraintExpr {
     }
 
     /// Decomposes the constraint into `(expr, sense, rhs)`.
-    pub fn into_parts(self) -> (Expr, ComparisonSense, f64) {
+    pub(crate) fn into_parts(self) -> (Expr, ComparisonSense, f64) {
         (self.expr, self.sense, self.rhs)
     }
 }
 
 impl Expr {
     /// Builds `self (sense) rhs`, moving this expression's constant to the RHS.
-    pub fn compare_scalar(&self, rhs: f64, sense: ComparisonSense) -> ConstraintExpr {
+    pub(crate) fn compare_scalar(&self, rhs: f64, sense: ComparisonSense) -> ConstraintExpr {
         ConstraintExpr::new(self.without_constant(), sense, rhs - self.constant())
     }
 
@@ -651,7 +651,7 @@ impl Expr {
     }
 
     /// Convenience wrapper for `self <= rhs`.
-    pub fn le_scalar(&self, rhs: f64) -> ConstraintExpr {
+    pub(crate) fn le_scalar(&self, rhs: f64) -> ConstraintExpr {
         self.compare_scalar(rhs, ComparisonSense::LessEqual)
     }
 
@@ -661,7 +661,7 @@ impl Expr {
     }
 
     /// Convenience wrapper for `self == rhs`.
-    pub fn eq_scalar(&self, rhs: f64) -> ConstraintExpr {
+    pub(crate) fn eq_scalar(&self, rhs: f64) -> ConstraintExpr {
         self.compare_scalar(rhs, ComparisonSense::Equal)
     }
 
@@ -671,7 +671,7 @@ impl Expr {
     }
 
     /// Convenience wrapper for `self >= rhs_expr`.
-    pub fn ge_expr(&self, rhs: &Expr) -> ConstraintExpr {
+    pub(crate) fn ge_expr(&self, rhs: &Expr) -> ConstraintExpr {
         self.compare_expr(rhs, ComparisonSense::GreaterEqual)
     }
 
@@ -690,7 +690,7 @@ impl Expr {
 /// - `variables` + `coefficients`: separate vecs zipped together
 ///
 /// Returns an error if both styles are mixed or if lengths mismatch.
-pub fn linear_terms(
+pub(crate) fn linear_terms(
     terms: Option<Vec<(VariableId, f64)>>,
     variables: Option<Vec<VariableId>>,
     coefficients: Option<Vec<f64>>,
@@ -721,7 +721,7 @@ pub fn linear_terms(
 ///
 /// Duplicate variable terms are NOT merged -- use `normalized_terms()` on the result
 /// if term consolidation is needed.
-pub fn linear_sum(exprs: Vec<Expr>) -> Expr {
+pub(crate) fn linear_sum(exprs: Vec<Expr>) -> Expr {
     let total_linear: usize = exprs.iter().map(|e| e.linear_terms().len()).sum();
     let total_quadratic: usize = exprs.iter().map(|e| e.quadratic_terms().len()).sum();
     let total_cubic: usize = exprs.iter().map(|e| e.cubic_terms().len()).sum();

@@ -160,12 +160,12 @@ impl SourceId {
 /// Byte-oriented source span. Line/column rendering belongs to authoring layers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceSpan {
-    pub start: u32,
-    pub end: u32,
+    pub(crate) start: u32,
+    pub(crate) end: u32,
 }
 
 impl SourceSpan {
-    pub fn new(start: u32, end: u32) -> Option<Self> {
+    pub(crate) fn new(start: u32, end: u32) -> Option<Self> {
         (start <= end).then_some(Self { start, end })
     }
 }
@@ -188,10 +188,10 @@ pub enum Provenance {
 /// Format-neutral diagnostic item.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
-    pub code: DiagnosticCode,
-    pub severity: Severity,
-    pub message: String,
-    pub provenance: Option<Provenance>,
+    pub(crate) code: DiagnosticCode,
+    pub(crate) severity: Severity,
+    pub(crate) message: String,
+    pub(crate) provenance: Option<Provenance>,
 }
 
 impl Diagnostic {

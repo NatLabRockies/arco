@@ -102,8 +102,8 @@ enum VariableStorage {
 #[pyo3_macros::pyclass(name = "VariableArray")]
 pub struct PyVariableArray {
     storage: VariableStorage,
-    pub(crate) index_sets: Vec<Py<PyIndexSet>>,
-    pub(crate) shape: Vec<usize>,
+    index_sets: Vec<Py<PyIndexSet>>,
+    shape: Vec<usize>,
 }
 
 impl PyVariableArray {
@@ -128,7 +128,7 @@ impl PyVariableArray {
         })
     }
 
-    pub fn new_sparse(
+    pub(crate) fn new_sparse(
         index_sets: Vec<Py<PyIndexSet>>,
         shape: Vec<usize>,
         values: Vec<PyExpr>,
@@ -384,7 +384,7 @@ impl PyVariableArray {
         }
     }
 
-    pub fn get_values(&self) -> Vec<PyExpr> {
+    pub(crate) fn get_values(&self) -> Vec<PyExpr> {
         match &self.storage {
             VariableStorage::Full(full) => full.core.values.clone(),
             VariableStorage::Sparse(_) => self.to_core().values,
@@ -394,7 +394,7 @@ impl PyVariableArray {
         }
     }
 
-    pub fn get_variable_refs(&self) -> Vec<PyVariable> {
+    pub(crate) fn get_variable_refs(&self) -> Vec<PyVariable> {
         match &self.storage {
             VariableStorage::Full(full) => full.variables.iter().flatten().cloned().collect(),
             VariableStorage::Sparse(sparse) => sparse

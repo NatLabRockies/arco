@@ -18,12 +18,12 @@ impl AxisSpec {
     }
 
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.len
     }
 
@@ -53,7 +53,7 @@ impl LabeledShape {
     }
 
     #[must_use]
-    pub fn axes(&self) -> &[AxisSpec] {
+    pub(crate) fn axes(&self) -> &[AxisSpec] {
         &self.axes
     }
 
@@ -69,7 +69,7 @@ impl LabeledShape {
 
     /// Find an axis by exact label match.
     #[must_use]
-    pub fn axis_index(&self, axis: &AxisSpec) -> Option<usize> {
+    pub(crate) fn axis_index(&self, axis: &AxisSpec) -> Option<usize> {
         self.axes.iter().position(|candidate| candidate == axis)
     }
 
@@ -203,7 +203,7 @@ impl BroadcastPlan {
     }
 
     #[must_use]
-    pub fn target_total_len(&self) -> usize {
+    pub(crate) fn target_total_len(&self) -> usize {
         self.target.total_len()
     }
 

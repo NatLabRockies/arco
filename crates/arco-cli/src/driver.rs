@@ -1,9 +1,9 @@
 use crate::cli_io::{ColorMode, format_timed_status, style_bold_in_dim, style_error_label};
 use crate::config::{ConfigError, SolverConfigState, load_solver_config};
 pub use crate::driver_kdl::{KdlCheckMode, KdlCheckOutcome, kdl_check_file_json};
-pub use crate::driver_summary::{
+pub(crate) use crate::driver_summary::{
     DualReportSummary, DualReportValueSummary, ObjectiveSummary, ProblemCounts, ReportSummary,
-    RunSummary, TimingSummary, VariableSummary, VariableValueSummary,
+    RunSummary, TimingSummary,
 };
 use crate::driver_summary::{summarize_variables, trim_family_prefix};
 use arco_diagnostics::codes;

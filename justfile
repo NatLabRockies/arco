@@ -31,6 +31,7 @@ help:
     printf '  just test                  Run Rust and Python tests\n'
     printf '  just kdl-examples          Run curated KDL CLI acceptance examples\n'
     printf '  just smoke-solver highs    Run one solver smoke check\n'
+    printf '  just hawk                  Check unnecessary public Rust visibility\n'
     printf '  just ci                    Run the local CI aggregate\n'
 
 [group: 'onboarding']
@@ -105,6 +106,11 @@ rust-clippy:
 rust-test:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test {{ rust-packages }}
     PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test -p arco-scip --no-default-features --features scip-bundled
+
+[group: 'rust']
+hawk:
+    cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} generate-lockfile
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${HAWK_TOOLCHAIN_VERSION:-1.97.1} hawk check --target-dir target/hawk -D warnings
 
 [group: 'rust']
 scip-feature-guard:

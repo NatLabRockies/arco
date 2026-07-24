@@ -17,11 +17,11 @@ impl SlackBound {
         }
     }
 
-    pub fn has_lower(self) -> bool {
+    pub(crate) fn has_lower(self) -> bool {
         matches!(self, SlackBound::Lower | SlackBound::Both)
     }
 
-    pub fn has_upper(self) -> bool {
+    pub(crate) fn has_upper(self) -> bool {
         matches!(self, SlackBound::Upper | SlackBound::Both)
     }
 }
@@ -34,7 +34,7 @@ pub struct SlackVariables {
 }
 
 impl SlackVariables {
-    pub fn new(lower: Option<VariableId>, upper: Option<VariableId>) -> Self {
+    pub(crate) fn new(lower: Option<VariableId>, upper: Option<VariableId>) -> Self {
         Self { lower, upper }
     }
 }

@@ -40,8 +40,8 @@ pub struct CompiledProblem {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledParameter {
-    pub name: String,
-    pub binding_kind: String,
+    pub(crate) name: String,
+    pub(crate) binding_kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,11 +51,11 @@ pub struct CompiledVariable {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledConstraint {
-    pub name: String,
-    pub source_kind: String,
-    pub source_name: String,
-    pub diagnostic_id: String,
-    pub expression: String,
+    pub(crate) name: String,
+    pub(crate) source_kind: String,
+    pub(crate) source_name: String,
+    pub(crate) diagnostic_id: String,
+    pub(crate) expression: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,28 +67,28 @@ pub struct CompiledObjective {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledReport {
-    pub name: String,
-    pub formula: String,
+    pub(crate) name: String,
+    pub(crate) formula: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompiledVariableReport {
-    pub control_name: String,
-    pub indices: Vec<String>,
-    pub compiled_family: String,
-    pub filter: Option<arco_kdl::algebra::Expr>,
+    pub(crate) control_name: String,
+    pub(crate) indices: Vec<String>,
+    pub(crate) compiled_family: String,
+    pub(crate) filter: Option<arco_kdl::algebra::Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledDualReport {
-    pub constraint_name: String,
+    pub(crate) constraint_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraceabilityRecord {
-    pub dsl_name: String,
-    pub artifact_kind: String,
-    pub compiled_name: String,
+    pub(crate) dsl_name: String,
+    pub(crate) artifact_kind: String,
+    pub(crate) compiled_name: String,
 }
 
 pub use crate::compile::targets::{
@@ -98,30 +98,30 @@ pub use crate::compile::targets::{
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NonlinearProblem {
-    pub objective: NonlinearObjective,
-    pub constraints: Vec<NonlinearConstraint>,
-    pub reports: Vec<NonlinearReport>,
+    pub(crate) objective: NonlinearObjective,
+    pub(crate) constraints: Vec<NonlinearConstraint>,
+    pub(crate) reports: Vec<NonlinearReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NonlinearObjective {
-    pub name: String,
-    pub sense: arco_kdl::ObjectiveSense,
-    pub expression: NonlinearExpr,
+    pub(crate) name: String,
+    pub(crate) sense: arco_kdl::ObjectiveSense,
+    pub(crate) expression: NonlinearExpr,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NonlinearConstraint {
-    pub name: String,
-    pub sense: ConstraintSense,
-    pub rhs: f64,
-    pub expression: NonlinearExpr,
+    pub(crate) name: String,
+    pub(crate) sense: ConstraintSense,
+    pub(crate) rhs: f64,
+    pub(crate) expression: NonlinearExpr,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NonlinearReport {
-    pub name: String,
-    pub expression: NonlinearExpr,
+    pub(crate) name: String,
+    pub(crate) expression: NonlinearExpr,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -185,7 +185,7 @@ type ExpressionGenerationIndex = HashMap<String, usize>;
 
 include!("error.rs");
 
-pub fn compile_program(
+pub(crate) fn compile_program(
     program: &SemanticProgram,
     source_program: &SourceProgram,
     entrypoint: &Path,

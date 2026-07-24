@@ -11,13 +11,13 @@ use std::collections::BTreeMap;
 /// Solution from the IPOPT solver.
 #[derive(Debug, Clone)]
 pub struct Solution {
-    pub(crate) primal_values: Vec<f64>,
-    pub(crate) variable_duals: Vec<f64>,
-    pub(crate) constraint_duals: Vec<f64>,
-    pub(crate) row_values: Vec<f64>,
-    pub(crate) objective_value: f64,
-    pub(crate) status: IpoptSolveStatus,
-    pub(crate) solve_time_seconds: f64,
+    primal_values: Vec<f64>,
+    variable_duals: Vec<f64>,
+    constraint_duals: Vec<f64>,
+    row_values: Vec<f64>,
+    objective_value: f64,
+    status: IpoptSolveStatus,
+    solve_time_seconds: f64,
 }
 
 impl Solution {
@@ -67,7 +67,7 @@ impl Solution {
     }
 
     /// Check if solution is optimal.
-    pub fn is_optimal(&self) -> bool {
+    pub(crate) fn is_optimal(&self) -> bool {
         matches!(
             self.status,
             IpoptSolveStatus::SolveSucceeded | IpoptSolveStatus::SolvedToAcceptableLevel
@@ -75,12 +75,12 @@ impl Solution {
     }
 
     /// Check if solution is feasible (includes optimal and limit-reached).
-    pub fn is_feasible(&self) -> bool {
+    pub(crate) fn is_feasible(&self) -> bool {
         ipopt_has_solution(self.status)
     }
 
     /// Check if solution is infeasible.
-    pub fn is_infeasible(&self) -> bool {
+    pub(crate) fn is_infeasible(&self) -> bool {
         matches!(
             self.status,
             IpoptSolveStatus::InfeasibleProblemDetected | IpoptSolveStatus::RestorationFailed
@@ -88,22 +88,22 @@ impl Solution {
     }
 
     /// Check if solution is unbounded.
-    pub fn is_unbounded(&self) -> bool {
+    pub(crate) fn is_unbounded(&self) -> bool {
         matches!(self.status, IpoptSolveStatus::DivergingIterates)
     }
 
     /// Get solution status as a human-readable string.
-    pub fn status_string(&self) -> &'static str {
+    pub(crate) fn status_string(&self) -> &'static str {
         ipopt_status_string(self.status)
     }
 
     /// Convert the IPOPT status to an `arco_solver::SolverStatus`.
-    pub fn core_status(&self) -> CoreSolverStatus {
+    pub(crate) fn core_status(&self) -> CoreSolverStatus {
         ipopt_to_core_status(self.status)
     }
 
     /// Convert this IPOPT-specific solution into a solver-agnostic `arco_solver::Solution`.
-    pub fn into_core_solution(self) -> CoreSolution {
+    pub(crate) fn into_core_solution(self) -> CoreSolution {
         CoreSolution {
             primal_values: self.primal_values,
             variable_duals: self.variable_duals,

@@ -12,35 +12,35 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// Opaque Xpress problem handle.
-pub type XPRSprob = *mut c_void;
+pub(crate) type XPRSprob = *mut c_void;
 
-pub const XPRS_PLUSINFINITY: f64 = 1.0e20;
-pub const XPRS_MINUSINFINITY: f64 = -1.0e20;
+pub(crate) const XPRS_PLUSINFINITY: f64 = 1.0e20;
+pub(crate) const XPRS_MINUSINFINITY: f64 = -1.0e20;
 
 // Objective sense
-pub const XPRS_OBJ_MINIMIZE: c_int = 1;
-pub const XPRS_OBJ_MAXIMIZE: c_int = -1;
+pub(crate) const XPRS_OBJ_MINIMIZE: c_int = 1;
+pub(crate) const XPRS_OBJ_MAXIMIZE: c_int = -1;
 
 // Integer control indices
-pub const XPRS_THREADS: c_int = 8278;
-pub const XPRS_PRESOLVE: c_int = 8011;
-pub const XPRS_LPLOG: c_int = 8009;
-pub const XPRS_MIPLOG: c_int = 8028;
-pub const XPRS_OUTPUTLOG: c_int = 8035;
+pub(crate) const XPRS_THREADS: c_int = 8278;
+pub(crate) const XPRS_PRESOLVE: c_int = 8011;
+pub(crate) const XPRS_LPLOG: c_int = 8009;
+pub(crate) const XPRS_MIPLOG: c_int = 8028;
+pub(crate) const XPRS_OUTPUTLOG: c_int = 8035;
 
 // Double control indices
-pub const XPRS_MAXTIME: c_int = 8020;
-pub const XPRS_MIPRELSTOP: c_int = 7020;
-pub const XPRS_FEASTOL: c_int = 7003;
-pub const XPRS_OPTIMALITYTOL: c_int = 7006;
+pub(crate) const XPRS_MAXTIME: c_int = 8020;
+pub(crate) const XPRS_MIPRELSTOP: c_int = 7020;
+pub(crate) const XPRS_FEASTOL: c_int = 7003;
+pub(crate) const XPRS_OPTIMALITYTOL: c_int = 7006;
 
 // Integer attribute indices
-pub const XPRS_LPSTATUS: c_int = 1010;
-pub const XPRS_MIPSTATUS: c_int = 1011;
+pub(crate) const XPRS_LPSTATUS: c_int = 1010;
+pub(crate) const XPRS_MIPSTATUS: c_int = 1011;
 
 // Double attribute indices
-pub const XPRS_LPOBJVAL: c_int = 2001;
-pub const XPRS_MIPOBJVAL: c_int = 2003;
+pub(crate) const XPRS_LPOBJVAL: c_int = 2001;
+pub(crate) const XPRS_MIPOBJVAL: c_int = 2003;
 
 type XPRSinitFn = unsafe extern "C" fn(*const c_char) -> c_int;
 type XPRSfreeFn = unsafe extern "C" fn() -> c_int;
@@ -242,32 +242,32 @@ impl Display for RuntimeLoadError {
 
 impl std::error::Error for RuntimeLoadError {}
 
-pub struct Api {
-    pub xprs_init: XPRSinitFn,
-    pub xprs_free: XPRSfreeFn,
-    pub xprs_createprob: XPRScreateprobFn,
-    pub xprs_destroyprob: XPRSdestroyprobFn,
-    pub xprs_loadlp: XPRSloadlpFn,
-    pub xprs_loadmip: XPRSloadmipFn,
-    pub xprs_addqmatrix64: XPRSaddqmatrix64Fn,
-    pub xprs_chgobjsense: XPRSchgobjsenseFn,
-    pub xprs_lpoptimize: XPRSlpoptimizeFn,
-    pub xprs_mipoptimize: XPRSmipoptimizeFn,
-    pub xprs_getlpsol: XPRSgetlpsolFn,
-    pub xprs_getmipsol: XPRSgetmipsolFn,
-    pub xprs_addmipsol: XPRSaddmipsolFn,
-    pub xprs_setintcontrol: XPRSsetintcontrolFn,
-    pub xprs_getintcontrol: XPRSgetintcontrolFn,
-    pub xprs_setdblcontrol: XPRSsetdblcontrolFn,
-    pub xprs_getdblcontrol: XPRSgetdblcontrolFn,
-    pub xprs_getintattrib: XPRSgetintattribFn,
-    pub xprs_getdblattrib: XPRSgetdblattribFn,
-    pub xprs_getlasterror: XPRSgetlasterrorFn,
-    pub xprs_license: XPRSlicenseFn,
-    pub xprs_getlicerrmsg: XPRSgetlicerrmsgFn,
-    pub xprs_getversion: XPRSgetversionFn,
-    pub xprs_getbanner: XPRSgetbannerFn,
-    pub xprs_setcbmessage: XPRSsetcbmessageFn,
+pub(crate) struct Api {
+    pub(crate) xprs_init: XPRSinitFn,
+    pub(crate) xprs_free: XPRSfreeFn,
+    pub(crate) xprs_createprob: XPRScreateprobFn,
+    pub(crate) xprs_destroyprob: XPRSdestroyprobFn,
+    pub(crate) xprs_loadlp: XPRSloadlpFn,
+    pub(crate) xprs_loadmip: XPRSloadmipFn,
+    pub(crate) xprs_addqmatrix64: XPRSaddqmatrix64Fn,
+    pub(crate) xprs_chgobjsense: XPRSchgobjsenseFn,
+    pub(crate) xprs_lpoptimize: XPRSlpoptimizeFn,
+    pub(crate) xprs_mipoptimize: XPRSmipoptimizeFn,
+    pub(crate) xprs_getlpsol: XPRSgetlpsolFn,
+    pub(crate) xprs_getmipsol: XPRSgetmipsolFn,
+    pub(crate) xprs_addmipsol: XPRSaddmipsolFn,
+    pub(crate) xprs_setintcontrol: XPRSsetintcontrolFn,
+    pub(crate) xprs_getintcontrol: XPRSgetintcontrolFn,
+    pub(crate) xprs_setdblcontrol: XPRSsetdblcontrolFn,
+    pub(crate) xprs_getdblcontrol: XPRSgetdblcontrolFn,
+    pub(crate) xprs_getintattrib: XPRSgetintattribFn,
+    pub(crate) xprs_getdblattrib: XPRSgetdblattribFn,
+    pub(crate) xprs_getlasterror: XPRSgetlasterrorFn,
+    pub(crate) xprs_license: XPRSlicenseFn,
+    pub(crate) xprs_getlicerrmsg: XPRSgetlicerrmsgFn,
+    pub(crate) xprs_getversion: XPRSgetversionFn,
+    pub(crate) xprs_getbanner: XPRSgetbannerFn,
+    pub(crate) xprs_setcbmessage: XPRSsetcbmessageFn,
     mip_loader_symbol: &'static str,
     message_callback: Option<MessageCallbackRegistration>,
 }
@@ -403,7 +403,7 @@ fn versioned_unix_library_candidates(lib_dir: &Path) -> Vec<LibraryTarget> {
     candidates
 }
 
-pub fn runtime_library_available(xpress_dir: Option<&Path>) -> bool {
+pub(crate) fn runtime_library_available(xpress_dir: Option<&Path>) -> bool {
     runtime_library_candidates(xpress_dir)
         .into_iter()
         .any(|target| {
@@ -414,7 +414,7 @@ pub fn runtime_library_available(xpress_dir: Option<&Path>) -> bool {
         })
 }
 
-pub fn api() -> Result<&'static Api, RuntimeLoadError> {
+pub(crate) fn api() -> Result<&'static Api, RuntimeLoadError> {
     API.get_or_init(load_api)
         .as_ref()
         .map_err(|error| RuntimeLoadError {
@@ -589,7 +589,7 @@ fn required_symbols_available_with(
 }
 
 /// Check an Xpress return code. Returns `Ok(())` for 0 or `Err(code)` otherwise.
-pub fn check_xprs(code: c_int) -> Result<(), c_int> {
+pub(crate) fn check_xprs(code: c_int) -> Result<(), c_int> {
     if code == 0 { Ok(()) } else { Err(code) }
 }
 

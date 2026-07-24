@@ -11,10 +11,10 @@ use crate::py_modules::views::{
 #[pyo3_macros::pyclass(from_py_object, name = "SnapshotMemoryEstimate")]
 #[derive(Clone)]
 pub struct PySnapshotMemoryEstimate {
-    pub coefficient_value_bytes: usize,
-    pub coefficient_index_bytes: usize,
-    pub variable_column_pointer_bytes: usize,
-    pub sparse_matrix_bytes: usize,
+    pub(crate) coefficient_value_bytes: usize,
+    pub(crate) coefficient_index_bytes: usize,
+    pub(crate) variable_column_pointer_bytes: usize,
+    pub(crate) sparse_matrix_bytes: usize,
 }
 
 #[pyo3_macros::pymethods]
@@ -44,10 +44,10 @@ impl PySnapshotMemoryEstimate {
 #[pyo3_macros::pyclass(from_py_object, name = "SnapshotMetadata")]
 #[derive(Clone)]
 pub struct PySnapshotMetadata {
-    pub variables: usize,
-    pub constraints: usize,
-    pub coefficients: usize,
-    pub memory: PySnapshotMemoryEstimate,
+    pub(crate) variables: usize,
+    pub(crate) constraints: usize,
+    pub(crate) coefficients: usize,
+    pub(crate) memory: PySnapshotMemoryEstimate,
 }
 
 #[pyo3_macros::pymethods]
@@ -77,12 +77,12 @@ impl PySnapshotMetadata {
 #[pyo3_macros::pyclass(from_py_object, name = "ModelSnapshot")]
 #[derive(Clone)]
 pub struct PyModelSnapshot {
-    pub variables: Vec<PyVariableView>,
-    pub constraints: Vec<PyConstraintView>,
-    pub coefficients: Option<Vec<PyCoefficientView>>,
-    pub objective: Option<PyObjectiveView>,
-    pub slacks: Option<Vec<PySlackView>>,
-    pub metadata: PySnapshotMetadata,
+    pub(crate) variables: Vec<PyVariableView>,
+    pub(crate) constraints: Vec<PyConstraintView>,
+    pub(crate) coefficients: Option<Vec<PyCoefficientView>>,
+    pub(crate) objective: Option<PyObjectiveView>,
+    pub(crate) slacks: Option<Vec<PySlackView>>,
+    pub(crate) metadata: PySnapshotMetadata,
 }
 
 #[pyo3_macros::pymethods]

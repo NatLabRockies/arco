@@ -20,14 +20,14 @@ pub struct SolveOverrides {
 /// Base solver settings that persist across solve() calls.
 #[derive(Debug, Clone, Default)]
 pub struct SolverSettings {
-    pub presolve: Option<bool>,
-    pub threads: Option<u32>,
-    pub tolerance: Option<f64>,
-    pub time_limit: Option<f64>,
-    pub mip_gap: Option<f64>,
-    pub verbosity: Option<u32>,
-    pub log_to_console: Option<bool>,
-    pub parameters: SolverParameters,
+    pub(crate) presolve: Option<bool>,
+    pub(crate) threads: Option<u32>,
+    pub(crate) tolerance: Option<f64>,
+    pub(crate) time_limit: Option<f64>,
+    pub(crate) mip_gap: Option<f64>,
+    pub(crate) verbosity: Option<u32>,
+    pub(crate) log_to_console: Option<bool>,
+    pub(crate) parameters: SolverParameters,
 }
 
 impl SolverSettings {
@@ -149,7 +149,7 @@ fn merge_solver_parameter(
     parameters
 }
 
-pub fn apply_solver_updates(
+pub(crate) fn apply_solver_updates(
     settings: SolverSettings,
     update: Option<&Bound<'_, PyDict>>,
 ) -> PyResult<SolverSettings> {
@@ -212,14 +212,14 @@ fn solver_repr(label: &str, settings: &SolverSettings) -> String {
 #[pyo3_macros::pyclass(from_py_object, subclass, name = "Solver")]
 #[derive(Debug, Clone)]
 pub struct PySolver {
-    pub settings: SolverSettings,
+    pub(crate) settings: SolverSettings,
 }
 
 #[pyo3_macros::pyclass(from_py_object, name = "SolverSelection")]
 #[derive(Debug, Clone)]
 pub struct PySolverSelection {
-    pub token: String,
-    pub family_hint: Option<String>,
+    pub(crate) token: String,
+    pub(crate) family_hint: Option<String>,
 }
 
 #[pyo3_macros::pymethods]
@@ -265,9 +265,9 @@ impl PySolverSelection {
 #[pyo3_macros::pyclass(from_py_object, name = "SolverProfile")]
 #[derive(Debug, Clone)]
 pub struct PySolverProfile {
-    pub name: String,
-    pub family: String,
-    pub transport: String,
+    pub(crate) name: String,
+    pub(crate) family: String,
+    pub(crate) transport: String,
 }
 
 #[pyo3_macros::pymethods]

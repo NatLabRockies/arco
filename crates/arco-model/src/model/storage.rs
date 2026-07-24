@@ -47,7 +47,7 @@ impl Model {
     }
 
     /// Get the coefficients for a specific variable (column)
-    pub fn get_column(&self, var_id: VariableId) -> Option<&[(ConstraintId, f64)]> {
+    pub(crate) fn get_column(&self, var_id: VariableId) -> Option<&[(ConstraintId, f64)]> {
         self.columns
             .get(var_id.inner() as usize)
             .map(|col| col.as_slice())

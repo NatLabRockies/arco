@@ -374,15 +374,15 @@ fn diagnostic_codes(py: Python<'_>) -> PyResult<PyObject> {
 #[derive(Clone)]
 pub struct BlockPort {
     #[pyo3(get)]
-    pub block_name: String,
+    pub(crate) block_name: String,
     #[pyo3(get)]
-    pub key: String,
+    pub(crate) key: String,
     #[pyo3(get)]
-    pub kind: String,
+    pub(crate) kind: String,
 }
 
 impl BlockPort {
-    pub fn new_input(block_name: String, key: String) -> Self {
+    pub(crate) fn new_input(block_name: String, key: String) -> Self {
         Self {
             block_name,
             key,
@@ -390,7 +390,7 @@ impl BlockPort {
         }
     }
 
-    pub fn new_output(block_name: String, key: String) -> Self {
+    pub(crate) fn new_output(block_name: String, key: String) -> Self {
         Self {
             block_name,
             key,
@@ -420,7 +420,7 @@ use py_exports::{
 /// Python wrapper for the Arco optimization model
 #[pyo3_macros::pyclass(name = "Model")]
 pub struct PyModel {
-    pub(crate) inner: Model,
+    inner: Model,
     solver_settings: SolverSettings,
     default_backend: String,
     last_solution: Option<Py<PySolveResult>>,
@@ -440,7 +440,7 @@ pub struct PyModel {
 }
 
 impl PyModel {
-    pub(crate) fn from_parts(
+    fn from_parts(
         inner: Model,
         solver_settings: SolverSettings,
         default_backend: String,

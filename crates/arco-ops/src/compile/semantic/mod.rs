@@ -6,4 +6,4 @@ mod validation;
 
 pub use error::*;
 pub use types::*;
-pub use validation::validate_program;
+pub(crate) use validation::validate_program;

@@ -24,6 +24,7 @@ env:
   RUST_TOOLCHAIN_VERSION: "1.85"
   TORC_VERSION: "0.37.2"
   CARGO_DIST_VERSION: "0.31.0"
+  HAWK_VERSION: "0.1.9"
 
 jobs:
   version-consistency:
@@ -84,6 +85,7 @@ jobs:
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
+              - 'hawk.toml'
               - 'justfile'
               - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/setup_highs_binary_env.sh'
@@ -398,6 +400,47 @@ jobs:
 
       - name: Run clippy (workspace --all-features)
         run: just ci-rust-clippy
+
+  hawk:
+    name: Hawk visibility analysis
+    needs: [ci-plan, version-consistency]
+    if: needs.ci-plan.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: "none"
+          install-uv: "false"
+          install-just: "false"
+          sync-python-licenses: "false"
+          cache-rust: "false"
+          save-rust-cache: "false"
+          save-solver-cache: "false"
+          rust-cache-shared-key: hawk
+
+      - name: Install Hawk toolchain
+        run: rustup toolchain install 1.97.1
+
+      - name: Install Hawk
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            "https://github.com/astral-sh/hawk/releases/download/${HAWK_VERSION}/cargo-hawk-installer.sh" | sh
+
+      - name: Generate lockfile
+        run: cargo +"${RUST_TOOLCHAIN_VERSION}" generate-lockfile
+
+      - name: Run Hawk
+        run: cargo +1.97.1 hawk check --target-dir target/hawk -D warnings
 
   rust-test:
     name: Rust test (all-features)

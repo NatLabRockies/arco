@@ -39,7 +39,7 @@ impl Model {
     }
 
     /// Get objective name.
-    pub fn get_objective_name(&self) -> Option<&str> {
+    pub(crate) fn get_objective_name(&self) -> Option<&str> {
         self.objective_name.as_deref()
     }
 
@@ -108,7 +108,7 @@ impl Model {
     }
 
     /// Set metadata for a constraint.
-    pub fn set_constraint_metadata(
+    pub(crate) fn set_constraint_metadata(
         &mut self,
         id: ConstraintId,
         metadata: serde_json::Value,
@@ -121,7 +121,7 @@ impl Model {
     }
 
     /// Get metadata for a constraint.
-    pub fn get_constraint_metadata(&self, id: ConstraintId) -> Option<&serde_json::Value> {
+    pub(crate) fn get_constraint_metadata(&self, id: ConstraintId) -> Option<&serde_json::Value> {
         self.constraint_metadata
             .as_ref()
             .and_then(|meta| meta.get(&id))

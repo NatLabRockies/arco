@@ -139,7 +139,7 @@ pub type OpsValidationIssue = ValidationIssue;
 
 /// Validation report for the operations facade.
 #[cfg(feature = "compile")]
-pub type OpsValidationReport = ValidationReport;
+pub(crate) type OpsValidationReport = ValidationReport;
 
 /// Compile/check error exposed by the operations facade.
 #[cfg(feature = "compile")]
@@ -204,7 +204,7 @@ impl ArcoOps {
 
     /// Load and parse a KDL model file.
     #[cfg(feature = "compile")]
-    pub fn load_file(path: &Path) -> Result<ParsedSource, OpsSourceError> {
+    pub(crate) fn load_file(path: &Path) -> Result<ParsedSource, OpsSourceError> {
         parse_program_file(path)
     }
 
@@ -263,7 +263,10 @@ impl ArcoOps {
     }
 
     /// Solve through a solver implementation using the shared solver contract.
-    pub fn solve<S>(solver: &mut S, config: &SolverConfig) -> Result<S::Solution, SolverError>
+    pub(crate) fn solve<S>(
+        solver: &mut S,
+        config: &SolverConfig,
+    ) -> Result<S::Solution, SolverError>
     where
         S: Solve,
         S::Solution: SolutionView,
@@ -277,7 +280,7 @@ impl ArcoOps {
     }
 
     /// Resolve a solver selection against the available registry and profiles.
-    pub fn resolve_solver_selection(
+    pub(crate) fn resolve_solver_selection(
         registry: &SolverRegistry,
         profiles: &BTreeMap<String, SolverProfile>,
         selection: &str,
@@ -286,7 +289,7 @@ impl ArcoOps {
     }
 
     /// Check that a resolved solver can satisfy a model before solving.
-    pub fn preflight_solver_selection(
+    pub(crate) fn preflight_solver_selection(
         registry: &SolverRegistry,
         selection: &ResolvedSelection,
         model: &arco_model::Model,
@@ -306,7 +309,7 @@ impl ArcoOps {
     }
 
     /// Solve a primitive model view through an adapter-neutral backend registry.
-    pub fn solve_model_view(
+    pub(crate) fn solve_model_view(
         registry: &ModelViewBackendRegistry<'_>,
         family: &str,
         model: &dyn arco_model::ModelView,
@@ -340,7 +343,7 @@ impl ArcoOps {
     }
 
     /// Build a minimal solve request from an optional solver selection.
-    pub fn build_solve_request(selection: Option<SolverSelection>) -> SolveRequest {
+    pub(crate) fn build_solve_request(selection: Option<SolverSelection>) -> SolveRequest {
         selection.map_or_else(SolveRequest::new, |value| {
             SolveRequest::new().with_selection(value)
         })
@@ -348,7 +351,7 @@ impl ArcoOps {
 
     /// Run canonical validation on a lowered solve target.
     #[cfg(feature = "compile")]
-    pub fn validate_target(target: &SolveTarget) -> OpsValidationReport {
+    pub(crate) fn validate_target(target: &SolveTarget) -> OpsValidationReport {
         validate_solve_target(target.has_variables())
     }
 

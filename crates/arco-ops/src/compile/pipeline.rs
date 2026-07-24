@@ -58,7 +58,7 @@ impl Diagnostic for PipelineError {
     }
 }
 
-pub fn compile_file(path: &Path) -> Result<CompiledProgram, PipelineError> {
+pub(crate) fn compile_file(path: &Path) -> Result<CompiledProgram, PipelineError> {
     let parse_start = Instant::now();
     let parsed_source = parse_program_file(path)?;
     let parse = parse_start.elapsed();
@@ -93,7 +93,7 @@ pub fn compile_file(path: &Path) -> Result<CompiledProgram, PipelineError> {
     })
 }
 
-pub fn validate_file(path: &Path) -> Result<ValidatedProgram, PipelineError> {
+pub(crate) fn validate_file(path: &Path) -> Result<ValidatedProgram, PipelineError> {
     let validated = validate_source_file(path)?;
 
     Ok(ValidatedProgram {

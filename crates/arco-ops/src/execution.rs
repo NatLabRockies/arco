@@ -241,7 +241,7 @@ pub enum ExecutionError {
 }
 
 impl MockArcoAdapter {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self
     }
 }
@@ -253,12 +253,12 @@ impl RustArcoAdapter {
         }
     }
 
-    pub fn with_console_log(log_to_console: bool) -> Self {
+    pub(crate) fn with_console_log(log_to_console: bool) -> Self {
         Self { log_to_console }
     }
 }
 
-pub fn builtin_adapter_for_selection(
+pub(crate) fn builtin_adapter_for_selection(
     selection: &crate::solve::ResolvedSelection,
     log_to_console: bool,
     profile: Option<&crate::solve::SolverProfile>,
@@ -278,7 +278,7 @@ impl ScipArcoAdapter {
         }
     }
 
-    pub fn with_native_profile(log_to_console: bool, solver_config: SolverConfig) -> Self {
+    pub(crate) fn with_native_profile(log_to_console: bool, solver_config: SolverConfig) -> Self {
         Self {
             log_to_console,
             solver_config,
@@ -351,7 +351,7 @@ pub fn execute_problem(
     execute_problem_with_options(problem, adapter, true)
 }
 
-pub fn execute_problem_with_options(
+pub(crate) fn execute_problem_with_options(
     problem: &CompiledProblem,
     adapter: &dyn OptimizationAdapter,
     include_variable_values: bool,

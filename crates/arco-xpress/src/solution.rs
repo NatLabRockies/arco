@@ -27,12 +27,12 @@ impl Solution {
     }
 
     /// Core solver status.
-    pub fn core_status(&self) -> CoreSolverStatus {
+    pub(crate) fn core_status(&self) -> CoreSolverStatus {
         self.core_status
     }
 
     /// Whether this solution came from a MIP solve.
-    pub fn is_mip(&self) -> bool {
+    pub(crate) fn is_mip(&self) -> bool {
         self.is_mip
     }
 
@@ -42,12 +42,12 @@ impl Solution {
     }
 
     /// Variable dual values (reduced costs).
-    pub fn variable_duals(&self) -> &[f64] {
+    pub(crate) fn variable_duals(&self) -> &[f64] {
         &self.variable_duals
     }
 
     /// Constraint dual values (shadow prices).
-    pub fn constraint_duals(&self) -> &[f64] {
+    pub(crate) fn constraint_duals(&self) -> &[f64] {
         &self.constraint_duals
     }
 
@@ -57,22 +57,22 @@ impl Solution {
     }
 
     /// Primal value of variable at `index`, or `None` if out of bounds.
-    pub fn get_primal(&self, index: usize) -> Option<f64> {
+    pub(crate) fn get_primal(&self, index: usize) -> Option<f64> {
         self.primal_values.get(index).copied()
     }
 
     /// Reduced cost of variable at `index`, or `None` if out of bounds.
-    pub fn get_variable_dual(&self, index: usize) -> Option<f64> {
+    pub(crate) fn get_variable_dual(&self, index: usize) -> Option<f64> {
         self.variable_duals.get(index).copied()
     }
 
     /// Shadow price of constraint at `index`, or `None` if out of bounds.
-    pub fn get_constraint_dual(&self, index: usize) -> Option<f64> {
+    pub(crate) fn get_constraint_dual(&self, index: usize) -> Option<f64> {
         self.constraint_duals.get(index).copied()
     }
 
     /// Whether the solution status is optimal.
-    pub fn is_optimal(&self) -> bool {
+    pub(crate) fn is_optimal(&self) -> bool {
         matches!(self.core_status, CoreSolverStatus::Optimal)
     }
 
@@ -87,17 +87,17 @@ impl Solution {
     }
 
     /// Whether the problem was proven infeasible.
-    pub fn is_infeasible(&self) -> bool {
+    pub(crate) fn is_infeasible(&self) -> bool {
         matches!(self.core_status, CoreSolverStatus::Infeasible)
     }
 
     /// Whether the problem was proven unbounded.
-    pub fn is_unbounded(&self) -> bool {
+    pub(crate) fn is_unbounded(&self) -> bool {
         matches!(self.core_status, CoreSolverStatus::Unbounded)
     }
 
     /// Convert this Xpress-specific solution into a solver-agnostic `arco_model::Solution`.
-    pub fn into_core_solution(self) -> CoreSolution {
+    pub(crate) fn into_core_solution(self) -> CoreSolution {
         CoreSolution {
             primal_values: self.primal_values,
             variable_duals: self.variable_duals,

@@ -37,13 +37,13 @@ type LabeledOperand = (Vec<Py<PyIndexSet>>, Vec<f64>);
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ExpressionTermCounts {
-    pub linear: usize,
-    pub quadratic: usize,
-    pub cubic: usize,
+    pub(crate) linear: usize,
+    pub(crate) quadratic: usize,
+    pub(crate) cubic: usize,
 }
 
 impl ExpressionTermCounts {
-    pub fn estimated_term_bytes(self) -> usize {
+    pub(crate) fn estimated_term_bytes(self) -> usize {
         self.linear * std::mem::size_of::<(VariableId, f64)>()
             + self.quadratic * std::mem::size_of::<(VariableId, VariableId, f64)>()
             + self.cubic * std::mem::size_of::<(VariableId, VariableId, VariableId, f64)>()
@@ -439,7 +439,7 @@ pub(super) fn multiply_sparse_expr_with_labeled_operand(
     )))
 }
 
-pub(super) fn find_sparse_axis(
+fn find_sparse_axis(
     index_sets: &[Py<PyIndexSet>],
     py: Python<'_>,
     index_set: &Bound<'_, PyIndexSet>,
@@ -916,7 +916,7 @@ pub struct LinearArrayCore {
 }
 
 impl LinearArrayCore {
-    pub fn new(index_sets: Vec<Py<PyIndexSet>>, shape: Vec<usize>, values: Vec<PyExpr>) -> Self {
+    pub(crate) fn new(index_sets: Vec<Py<PyIndexSet>>, shape: Vec<usize>, values: Vec<PyExpr>) -> Self {
         Self {
             index_sets,
             shape,
@@ -925,7 +925,7 @@ impl LinearArrayCore {
     }
 
     /// Clone the core, requires GIL for cloning Py<T>.
-    pub fn clone_with_gil(&self) -> Self {
+    pub(crate) fn clone_with_gil(&self) -> Self {
         Python::attach(|py| Self {
             index_sets: self.index_sets.iter().map(|s| s.clone_ref(py)).collect(),
             shape: self.shape.clone(),
@@ -933,7 +933,7 @@ impl LinearArrayCore {
         })
     }
 
-    pub fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
+    pub(crate) fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
         Python::attach(|py| {
             self.index_sets
                 .iter()
@@ -1252,32 +1252,32 @@ impl LinearArrayCore {
 /// A template for one term per element. Element `i`'s variable ID = `start_var_id + i`.
 #[derive(Clone, Debug)]
 pub struct CompactTerm {
-    pub start_var_id: u32,
-    pub coefficient: f64,
+    pub(crate) start_var_id: u32,
+    pub(crate) coefficient: f64,
 }
 
 /// Compact expression storage: represents N elements with O(terms_per_element) memory.
 /// For element `i`: `expr_i = constant + sum(term.coeff * var(term.start_var_id + i))`
 #[derive(Clone, Debug)]
 pub struct CompactExprStorage {
-    pub terms: Vec<CompactTerm>,
-    pub constant: f64,
-    pub count: usize,
+    pub(crate) terms: Vec<CompactTerm>,
+    pub(crate) constant: f64,
+    pub(crate) count: usize,
 }
 
 /// Sparse expression storage: inactive dense slots are implicit zeros.
 #[derive(Clone, Debug)]
 pub(crate) struct SparseExprStorage {
-    pub active_indices: Vec<usize>,
-    pub values: Vec<PyExpr>,
+    pub(crate) active_indices: Vec<usize>,
+    pub(crate) values: Vec<PyExpr>,
 }
 
 impl SparseExprStorage {
-    pub fn term_counts(&self) -> ExpressionTermCounts {
+    pub(crate) fn term_counts(&self) -> ExpressionTermCounts {
         expression_term_counts(&self.values)
     }
 
-    pub fn to_core(&self, index_sets: &[Py<PyIndexSet>], shape: &[usize]) -> LinearArrayCore {
+    pub(crate) fn to_core(&self, index_sets: &[Py<PyIndexSet>], shape: &[usize]) -> LinearArrayCore {
         let total = shape.iter().product();
         let mut values = vec![PyExpr::default(); total];
         for (active_idx, expr) in self.active_indices.iter().zip(self.values.iter()) {
@@ -1295,7 +1295,7 @@ impl SparseExprStorage {
 
 impl CompactExprStorage {
     /// Create from a single variable array (coefficient 1.0, constant 0.0).
-    pub fn from_variable_array(start_var_id: u32, count: usize) -> Self {
+    pub(crate) fn from_variable_array(start_var_id: u32, count: usize) -> Self {
         Self {
             terms: vec![CompactTerm {
                 start_var_id,
@@ -1307,7 +1307,7 @@ impl CompactExprStorage {
     }
 
     /// Scale all coefficients and the constant.
-    pub fn scale(&self, factor: f64) -> Self {
+    pub(crate) fn scale(&self, factor: f64) -> Self {
         Self {
             terms: self
                 .terms
@@ -1323,7 +1323,7 @@ impl CompactExprStorage {
     }
 
     /// Add another compact storage, merging duplicate start_var_ids.
-    pub fn add_compact(&self, other: &CompactExprStorage) -> Self {
+    pub(crate) fn add_compact(&self, other: &CompactExprStorage) -> Self {
         debug_assert_eq!(self.count, other.count);
         let mut terms = self.terms.clone();
         for other_term in &other.terms {
@@ -1345,12 +1345,12 @@ impl CompactExprStorage {
     }
 
     /// Subtract another compact storage.
-    pub fn sub_compact(&self, other: &CompactExprStorage) -> Self {
+    pub(crate) fn sub_compact(&self, other: &CompactExprStorage) -> Self {
         self.add_compact(&other.scale(-1.0))
     }
 
     /// Add a constant offset.
-    pub fn add_constant(&self, value: f64) -> Self {
+    pub(crate) fn add_constant(&self, value: f64) -> Self {
         Self {
             terms: self.terms.clone(),
             constant: self.constant + value,
@@ -1359,7 +1359,7 @@ impl CompactExprStorage {
     }
 
     /// Materialize to LinearArrayCore (fallback).
-    pub fn to_core(&self, index_sets: &[Py<PyIndexSet>], shape: &[usize]) -> LinearArrayCore {
+    pub(crate) fn to_core(&self, index_sets: &[Py<PyIndexSet>], shape: &[usize]) -> LinearArrayCore {
         let values = (0..self.count)
             .map(|i| {
                 let terms: Vec<(VariableId, f64)> = self
@@ -1395,7 +1395,7 @@ impl CompactExprStorage {
     }
 
     /// Count expression terms without materializing each element.
-    pub fn term_counts(&self) -> ExpressionTermCounts {
+    pub(crate) fn term_counts(&self) -> ExpressionTermCounts {
         ExpressionTermCounts {
             linear: self.terms.len() * self.count,
             quadratic: 0,
@@ -1404,7 +1404,7 @@ impl CompactExprStorage {
     }
 
     /// Sum all elements to a single PyExpr.
-    pub fn sum_all(&self) -> PyExpr {
+    pub(crate) fn sum_all(&self) -> PyExpr {
         let linear = self.collect_linear_terms();
         let total_constant = self.constant * self.count as f64;
         PyExpr::from_expr(Expr::new(linear, total_constant))
@@ -1428,7 +1428,7 @@ pub(crate) enum ExprArrayStorage {
 
 impl ExprArrayStorage {
     /// Materialize to LinearArrayCore.
-    pub fn to_core(&self) -> LinearArrayCore {
+    pub(crate) fn to_core(&self) -> LinearArrayCore {
         match self {
             ExprArrayStorage::Full(core) => core.clone_with_gil(),
             ExprArrayStorage::Compact {
@@ -1444,7 +1444,7 @@ impl ExprArrayStorage {
         }
     }
 
-    pub fn count(&self) -> usize {
+    pub(crate) fn count(&self) -> usize {
         match self {
             ExprArrayStorage::Full(core) => core.values.len(),
             ExprArrayStorage::Compact { storage, .. } => storage.count,
@@ -1452,7 +1452,7 @@ impl ExprArrayStorage {
         }
     }
 
-    pub fn shape(&self) -> &[usize] {
+    pub(crate) fn shape(&self) -> &[usize] {
         match self {
             ExprArrayStorage::Full(core) => &core.shape,
             ExprArrayStorage::Compact { shape, .. } => shape,
@@ -1460,7 +1460,7 @@ impl ExprArrayStorage {
         }
     }
 
-    pub fn index_sets_ref(&self) -> &[Py<PyIndexSet>] {
+    pub(crate) fn index_sets_ref(&self) -> &[Py<PyIndexSet>] {
         match self {
             ExprArrayStorage::Full(core) => &core.index_sets,
             ExprArrayStorage::Compact { index_sets, .. } => index_sets,
@@ -1468,7 +1468,7 @@ impl ExprArrayStorage {
         }
     }
 
-    pub fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
+    pub(crate) fn clone_index_sets(&self) -> Vec<Py<PyIndexSet>> {
         Python::attach(|py| {
             self.index_sets_ref()
                 .iter()
@@ -1478,14 +1478,14 @@ impl ExprArrayStorage {
     }
 
     /// Get the compact storage if available.
-    pub fn as_compact(&self) -> Option<&CompactExprStorage> {
+    pub(crate) fn as_compact(&self) -> Option<&CompactExprStorage> {
         match self {
             ExprArrayStorage::Compact { storage, .. } => Some(storage),
             ExprArrayStorage::Full(_) | ExprArrayStorage::Sparse { .. } => None,
         }
     }
 
-    pub fn as_sparse(&self) -> Option<&SparseExprStorage> {
+    pub(crate) fn as_sparse(&self) -> Option<&SparseExprStorage> {
         match self {
             ExprArrayStorage::Sparse { storage, .. } => Some(storage),
             ExprArrayStorage::Full(_) | ExprArrayStorage::Compact { .. } => None,

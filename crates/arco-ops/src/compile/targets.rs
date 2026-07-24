@@ -11,16 +11,20 @@ pub enum ObjectiveSense {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SolveTarget {
     /// Human-readable target identifier.
-    pub name: String,
+    pub(crate) name: String,
     /// Number of decision variables.
-    pub variable_count: usize,
+    pub(crate) variable_count: usize,
     /// Number of constraints.
-    pub constraint_count: usize,
+    pub(crate) constraint_count: usize,
 }
 
 impl SolveTarget {
     /// Build a new target summary.
-    pub fn new(name: impl Into<String>, variable_count: usize, constraint_count: usize) -> Self {
+    pub(crate) fn new(
+        name: impl Into<String>,
+        variable_count: usize,
+        constraint_count: usize,
+    ) -> Self {
         Self {
             name: name.into(),
             variable_count,
@@ -29,7 +33,7 @@ impl SolveTarget {
     }
 
     /// Whether the target has any decision variables.
-    pub fn has_variables(&self) -> bool {
+    pub(crate) fn has_variables(&self) -> bool {
         self.variable_count > 0
     }
 }
@@ -52,11 +56,11 @@ fn default_linearized() -> bool {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VariableInstance {
-    pub name: String,
-    pub family: String,
-    pub lower: f64,
-    pub upper: Option<f64>,
-    pub kind: VariableKind,
+    pub(crate) name: String,
+    pub(crate) family: String,
+    pub(crate) lower: f64,
+    pub(crate) upper: Option<f64>,
+    pub(crate) kind: VariableKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,10 +72,10 @@ pub enum VariableKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LinearConstraint {
-    pub name: String,
-    pub sense: ConstraintSense,
-    pub rhs: f64,
-    pub terms: Vec<LinearTerm>,
+    pub(crate) name: String,
+    pub(crate) sense: ConstraintSense,
+    pub(crate) rhs: f64,
+    pub(crate) terms: Vec<LinearTerm>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,21 +87,21 @@ pub enum ConstraintSense {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LinearObjective {
-    pub name: String,
-    pub sense: ObjectiveSense,
-    pub constant: f64,
-    pub terms: Vec<LinearTerm>,
+    pub(crate) name: String,
+    pub(crate) sense: ObjectiveSense,
+    pub(crate) constant: f64,
+    pub(crate) terms: Vec<LinearTerm>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LinearReport {
-    pub name: String,
-    pub constant: f64,
-    pub terms: Vec<LinearTerm>,
+    pub(crate) name: String,
+    pub(crate) constant: f64,
+    pub(crate) terms: Vec<LinearTerm>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LinearTerm {
-    pub variable_name: String,
-    pub coefficient: f64,
+    pub(crate) variable_name: String,
+    pub(crate) coefficient: f64,
 }

@@ -596,12 +596,12 @@ fn model_snapshot_artifact(snapshot: ModelSnapshot) -> Value {
 
 /// Stored block definition for model.add_block()
 pub(crate) struct BlockDef {
-    pub(crate) name: String,
-    pub(crate) build_adapter: PyObject,
-    pub(crate) extract_adapter: PyObject,
-    pub(crate) input_fields: Py<PyDict>,
-    pub(crate) output_fields: Py<PyDict>,
-    pub(crate) provided_inputs: Py<PyDict>,
+    name: String,
+    build_adapter: PyObject,
+    extract_adapter: PyObject,
+    input_fields: Py<PyDict>,
+    output_fields: Py<PyDict>,
+    provided_inputs: Py<PyDict>,
 }
 
 struct TypedBlockMeta {
@@ -709,8 +709,8 @@ impl TypedBlockDecorator {
 
 /// Stored link definition for model.link()
 pub(crate) struct LinkDef {
-    pub(crate) source: BlockPort,
-    pub(crate) target: BlockPort,
+    source: BlockPort,
+    target: BlockPort,
 }
 
 impl PyModel {

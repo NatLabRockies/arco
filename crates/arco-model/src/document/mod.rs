@@ -37,7 +37,7 @@ pub struct DocumentHeader {
 }
 
 impl DocumentHeader {
-    pub fn v1(document_kind: DocumentKind, scalar_type: ScalarType) -> Self {
+    pub(crate) fn v1(document_kind: DocumentKind, scalar_type: ScalarType) -> Self {
         Self {
             schema_version: 1,
             document_kind,
@@ -52,7 +52,7 @@ impl DocumentHeader {
 pub struct CanonicalScalar(String);
 
 impl CanonicalScalar {
-    pub fn from_f64(value: f64) -> Option<Self> {
+    pub(crate) fn from_f64(value: f64) -> Option<Self> {
         if value.is_finite() {
             Some(Self(value.to_string()))
         } else if value == f64::INFINITY {
@@ -64,7 +64,7 @@ impl CanonicalScalar {
         }
     }
 
-    pub fn to_f64(&self) -> Result<f64, DocumentError> {
+    pub(crate) fn to_f64(&self) -> Result<f64, DocumentError> {
         match self.0.as_str() {
             "inf" | "+inf" => Ok(f64::INFINITY),
             "-inf" => Ok(f64::NEG_INFINITY),
@@ -81,7 +81,7 @@ impl CanonicalScalar {
         })
     }
 
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -124,8 +124,8 @@ impl From<ModelError> for DocumentError {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundsDocument {
-    pub lower: CanonicalScalar,
-    pub upper: CanonicalScalar,
+    pub(crate) lower: CanonicalScalar,
+    pub(crate) upper: CanonicalScalar,
 }
 
 impl BoundsDocument {
@@ -142,36 +142,36 @@ impl BoundsDocument {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VariableDocument {
-    pub id: u32,
-    pub bounds: BoundsDocument,
-    pub is_integer: bool,
-    pub is_active: bool,
-    pub name: Option<String>,
-    pub metadata: Option<serde_json::Value>,
+    pub(crate) id: u32,
+    pub(crate) bounds: BoundsDocument,
+    pub(crate) is_integer: bool,
+    pub(crate) is_active: bool,
+    pub(crate) name: Option<String>,
+    pub(crate) metadata: Option<serde_json::Value>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConstraintDocument {
-    pub id: u32,
-    pub bounds: BoundsDocument,
-    pub name: Option<String>,
-    pub metadata: Option<serde_json::Value>,
+    pub(crate) id: u32,
+    pub(crate) bounds: BoundsDocument,
+    pub(crate) name: Option<String>,
+    pub(crate) metadata: Option<serde_json::Value>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoefficientDocument {
-    pub variable_id: u32,
-    pub constraint_id: u32,
-    pub value: CanonicalScalar,
+    pub(crate) variable_id: u32,
+    pub(crate) constraint_id: u32,
+    pub(crate) value: CanonicalScalar,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectiveTermDocument {
-    pub variable_id: u32,
-    pub value: CanonicalScalar,
+    pub(crate) variable_id: u32,
+    pub(crate) value: CanonicalScalar,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ObjectiveDocument {
-    pub sense: Option<Sense>,
-    pub terms: Vec<ObjectiveTermDocument>,
-    pub name: Option<String>,
+    pub(crate) sense: Option<Sense>,
+    pub(crate) terms: Vec<ObjectiveTermDocument>,
+    pub(crate) name: Option<String>,
 }
 
 /// Stable model document.
@@ -202,7 +202,7 @@ impl ModelDocument {
         }
     }
 
-    pub fn from_model(view: &impl ModelView) -> Result<Self, DocumentError> {
+    pub(crate) fn from_model(view: &impl ModelView) -> Result<Self, DocumentError> {
         let mut doc = Self::new_f64();
         doc.fingerprint = Some(view.fingerprint().0);
         for idx in 0..view.num_variables() {
@@ -256,7 +256,7 @@ impl ModelDocument {
         Ok(doc)
     }
 
-    pub fn to_model(&self) -> Result<Model, DocumentError> {
+    pub(crate) fn to_model(&self) -> Result<Model, DocumentError> {
         ensure_header(&self.header, DocumentKind::Model)?;
         let mut builder = ModelBuilder::<f64>::new();
         for variable in &self.variables {
@@ -335,19 +335,19 @@ fn ensure_header(header: &DocumentHeader, kind: DocumentKind) -> Result<(), Docu
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetDocument {
-    pub name: String,
-    pub values: Vec<IndexValue>,
+    pub(crate) name: String,
+    pub(crate) values: Vec<IndexValue>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TupleSetDocument {
-    pub name: String,
-    pub arity: usize,
-    pub keys: Vec<IndexKey>,
+    pub(crate) name: String,
+    pub(crate) arity: usize,
+    pub(crate) keys: Vec<IndexKey>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DomainDocument {
-    pub name: String,
-    pub keys: Vec<IndexKey>,
+    pub(crate) name: String,
+    pub(crate) keys: Vec<IndexKey>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ParameterStorageDocument {
@@ -362,25 +362,25 @@ pub enum ParameterStorageDocument {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParameterTableDocument {
-    pub name: String,
-    pub storage: ParameterStorageDocument,
+    pub(crate) name: String,
+    pub(crate) storage: ParameterStorageDocument,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttributeTableDocument {
-    pub name: String,
-    pub rows: Vec<(IndexKey, String)>,
+    pub(crate) name: String,
+    pub(crate) rows: Vec<(IndexKey, String)>,
 }
 
 /// Stable indexed-data document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexedDataDocument {
     #[serde(flatten)]
-    pub header: DocumentHeader,
-    pub sets: Vec<SetDocument>,
-    pub tuple_sets: Vec<TupleSetDocument>,
-    pub domains: Vec<DomainDocument>,
-    pub parameters: Vec<ParameterTableDocument>,
-    pub attributes: Vec<AttributeTableDocument>,
+    pub(crate) header: DocumentHeader,
+    pub(crate) sets: Vec<SetDocument>,
+    pub(crate) tuple_sets: Vec<TupleSetDocument>,
+    pub(crate) domains: Vec<DomainDocument>,
+    pub(crate) parameters: Vec<ParameterTableDocument>,
+    pub(crate) attributes: Vec<AttributeTableDocument>,
 }
 
 impl IndexedDataDocument {
@@ -394,7 +394,7 @@ impl IndexedDataDocument {
             attributes: Vec::new(),
         }
     }
-    pub fn from_indexed_data(data: &IndexedData<f64>) -> Result<Self, DocumentError> {
+    pub(crate) fn from_indexed_data(data: &IndexedData<f64>) -> Result<Self, DocumentError> {
         let mut doc = Self::new_f64();
         doc.sets = data
             .sets
@@ -469,7 +469,7 @@ impl IndexedDataDocument {
             .collect();
         Ok(doc)
     }
-    pub fn to_indexed_data(&self) -> Result<IndexedData<f64>, DocumentError> {
+    pub(crate) fn to_indexed_data(&self) -> Result<IndexedData<f64>, DocumentError> {
         ensure_header(&self.header, DocumentKind::IndexedData)?;
         let mut data = IndexedData::default();
         for set_doc in &self.sets {

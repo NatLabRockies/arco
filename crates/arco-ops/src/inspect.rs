@@ -14,82 +14,82 @@ mod modeling;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InspectPayload {
-    pub meta: Meta,
+    pub(crate) meta: Meta,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub set: Vec<SetRecord>,
+    pub(crate) set: Vec<SetRecord>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub variable: Vec<VariableRecord>,
+    pub(crate) variable: Vec<VariableRecord>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub parameter: Vec<ParameterRecord>,
+    pub(crate) parameter: Vec<ParameterRecord>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub expression: Vec<ExpressionRecord>,
+    pub(crate) expression: Vec<ExpressionRecord>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub constraint: Vec<ConstraintRecord>,
-    pub objective: ObjectiveRecord,
+    pub(crate) constraint: Vec<ConstraintRecord>,
+    pub(crate) objective: ObjectiveRecord,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub report: Vec<ReportRecord>,
+    pub(crate) report: Vec<ReportRecord>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub chronology: Option<ChronologyRecord>,
+    pub(crate) chronology: Option<ChronologyRecord>,
 }
 
 // ─── Records ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Meta {
-    pub entrypoint: String,
-    pub scenario: String,
-    pub counts: Counts,
-    pub memory: SnapshotMemoryEstimate,
+    pub(crate) entrypoint: String,
+    pub(crate) scenario: String,
+    pub(crate) counts: Counts,
+    pub(crate) memory: SnapshotMemoryEstimate,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Counts {
-    pub set: usize,
-    pub variable: usize,
-    pub variable_instances: usize,
-    pub parameter: usize,
-    pub constraint: usize,
-    pub constraint_instances: usize,
-    pub coefficient_instances: usize,
-    pub expression: usize,
+    pub(crate) set: usize,
+    pub(crate) variable: usize,
+    pub(crate) variable_instances: usize,
+    pub(crate) parameter: usize,
+    pub(crate) constraint: usize,
+    pub(crate) constraint_instances: usize,
+    pub(crate) coefficient_instances: usize,
+    pub(crate) expression: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetRecord {
-    pub id: usize,
-    pub name: String,
+    pub(crate) id: usize,
+    pub(crate) name: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub aliases: Vec<String>,
-    pub size: usize,
-    pub dtype: String,
+    pub(crate) aliases: Vec<String>,
+    pub(crate) size: usize,
+    pub(crate) dtype: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub subset_of: Vec<SetRef>,
+    pub(crate) subset_of: Vec<SetRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetRef {
-    pub name: String,
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetBinding {
-    pub name: String,
+    pub(crate) name: String,
     #[serde(rename = "as", skip_serializing_if = "Option::is_none")]
-    pub alias: Option<String>,
-    pub size: usize,
+    pub(crate) alias: Option<String>,
+    pub(crate) size: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableRecord {
-    pub id: usize,
-    pub name: String,
-    pub kind: String,
-    pub instances: usize,
+    pub(crate) id: usize,
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) instances: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub lower: Option<BoundValue>,
+    pub(crate) lower: Option<BoundValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub upper: Option<BoundValue>,
-    pub set: Vec<SetBinding>,
+    pub(crate) upper: Option<BoundValue>,
+    pub(crate) set: Vec<SetBinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,88 +101,88 @@ pub enum BoundValue {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParameterRecord {
-    pub id: usize,
-    pub name: String,
-    pub kind: String,
-    pub dtype: String,
-    pub set: Vec<SetBinding>,
+    pub(crate) id: usize,
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) dtype: String,
+    pub(crate) set: Vec<SetBinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpressionRecord {
-    pub id: usize,
-    pub name: String,
-    pub formula: String,
-    pub uses: Vec<UseRef>,
+    pub(crate) id: usize,
+    pub(crate) name: String,
+    pub(crate) formula: String,
+    pub(crate) uses: Vec<UseRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UseRef {
-    pub name: String,
-    pub kind: String,
+    pub(crate) name: String,
+    pub(crate) kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<String>,
+    pub(crate) role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConstraintRecord {
-    pub id: usize,
-    pub name: String,
-    pub relation: String,
-    pub template: String,
-    pub source: SourceRef,
-    pub scope: Vec<SetBinding>,
-    pub lhs: Vec<TermRef>,
+    pub(crate) id: usize,
+    pub(crate) name: String,
+    pub(crate) relation: String,
+    pub(crate) template: String,
+    pub(crate) source: SourceRef,
+    pub(crate) scope: Vec<SetBinding>,
+    pub(crate) lhs: Vec<TermRef>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub rhs: Vec<TermRef>,
-    pub instances: usize,
+    pub(crate) rhs: Vec<TermRef>,
+    pub(crate) instances: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceRef {
-    pub kind: String,
-    pub name: String,
+    pub(crate) kind: String,
+    pub(crate) name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TermRef {
-    pub name: String,
-    pub kind: String,
-    pub over: Vec<SetBinding>,
+    pub(crate) name: String,
+    pub(crate) kind: String,
+    pub(crate) over: Vec<SetBinding>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reduction: Option<String>,
+    pub(crate) reduction: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub reduce_over: Vec<SetRef>,
+    pub(crate) reduce_over: Vec<SetRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectiveRecord {
-    pub name: String,
-    pub sense: ObjectiveSense,
-    pub term: Vec<ObjectiveTermRef>,
+    pub(crate) name: String,
+    pub(crate) sense: ObjectiveSense,
+    pub(crate) term: Vec<ObjectiveTermRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectiveTermRef {
-    pub name: String,
-    pub kind: String,
+    pub(crate) name: String,
+    pub(crate) kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportRecord {
-    pub id: usize,
-    pub name: String,
-    pub formula: String,
+    pub(crate) id: usize,
+    pub(crate) name: String,
+    pub(crate) formula: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChronologyRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub initial_boundary: Option<String>,
+    pub(crate) initial_boundary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub terminal_boundary: Option<String>,
+    pub(crate) terminal_boundary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub initial_commitment_boundary: Option<String>,
+    pub(crate) initial_commitment_boundary: Option<String>,
 }
 
 // ─── Builder ─────────────────────────────────────────────────────

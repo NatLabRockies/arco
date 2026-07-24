@@ -60,11 +60,11 @@ pub struct ProjectionDecl {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FilterComparators {
-    pub eq: Option<LiteralValue>,
-    pub ge: Option<LiteralValue>,
-    pub geq: Option<LiteralValue>,
-    pub le: Option<LiteralValue>,
-    pub leq: Option<LiteralValue>,
+    pub(crate) eq: Option<LiteralValue>,
+    pub(crate) ge: Option<LiteralValue>,
+    pub(crate) geq: Option<LiteralValue>,
+    pub(crate) le: Option<LiteralValue>,
+    pub(crate) leq: Option<LiteralValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,7 +209,7 @@ pub struct ParsedSource {
 }
 
 impl SourceProgram {
-    pub fn first_scenario(&self) -> Option<&ScenarioDecl> {
+    pub(crate) fn first_scenario(&self) -> Option<&ScenarioDecl> {
         self.scenarios.first()
     }
 
