@@ -11,6 +11,7 @@ arco-debug-bin := justfile_directory() / "target/debug/arco"
 arco-release-bin := justfile_directory() / "target/release/arco"
 cli-artifact := justfile_directory() / "artifacts/arco-cli-linux.tar.gz"
 solver-build-env := justfile_directory() / "scripts/with_solver_build_env.sh"
+ruff-version := "0.15.6"
 
 alias t := test
 alias rt := rust-test
@@ -42,12 +43,12 @@ setup:
 [group: 'dev']
 fmt:
     cargo fmt --all
-    cd bindings/python && uv run --no-project --with ruff ruff format --verbose
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff format --verbose
 
 [group: 'dev']
 fmt-check:
     cargo fmt --all -- --check
-    cd bindings/python && uv run --no-project --with ruff ruff format --check
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff format --check
 
 [group: 'dev']
 check:
@@ -155,19 +156,19 @@ py-dev: py-licenses py-sync
 
 [group: 'python']
 py-fmt:
-    cd bindings/python && uv run --no-project --with ruff ruff format --verbose
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff format --verbose
 
 [group: 'python']
 py-fmt-check:
-    cd bindings/python && uv run --no-project --with ruff ruff format --check
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff format --check
 
 [group: 'python']
 py-lint:
-    cd bindings/python && uv run --no-project --with ruff ruff check --fix --config=pyproject.toml
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff check --fix --config=pyproject.toml
 
 [group: 'python']
 py-lint-check:
-    cd bindings/python && uv run --no-project --with ruff ruff check --config=pyproject.toml
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff check --config=pyproject.toml
 
 [group: 'python']
 py-type:
