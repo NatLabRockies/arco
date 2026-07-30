@@ -6,6 +6,13 @@
 
 * **solver:** expose solver-independent `LpAlgorithm` selection with native HiGHS, Xpress, and SCIP mappings; restore Python Xpress feature detection after the binding-crate split
 
+## [0.10.0](https://github.com/NatLabRockies/arco/compare/v0.9.0...v0.10.0) (2026-07-30)
+
+
+### Features
+
+* **solver:** add backend-independent LP algorithm selection ([#371](https://github.com/NatLabRockies/arco/issues/371)) ([59c6070](https://github.com/NatLabRockies/arco/commit/59c607007fc9ddd12339db6247096f8c3a6dca23))
+
 ## [0.9.0](https://github.com/NatLabRockies/arco/compare/v0.8.2...v0.9.0) (2026-07-18)
 
 
