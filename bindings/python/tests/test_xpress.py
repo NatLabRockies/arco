@@ -79,8 +79,8 @@ def test_xpress_solver_selection_family_solves_model() -> None:
 
 
 @pytest.mark.skipif(
-    not HAS_XPRESS_BACKEND,
-    reason="xpress backend not available in this build",
+    (not HAS_XPRESS_RUNTIME) or (not HAS_XPRESS_BACKEND),
+    reason="xpress runtime/backend not available in this build",
 )
 def test_xpress_solves_with_selected_lp_algorithms() -> None:
     runtime_dir = XPRESS_RUNTIME_INFO.get("runtime_dir")

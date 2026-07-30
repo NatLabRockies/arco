@@ -1621,7 +1621,11 @@ impl<T> Model<T> {
 
     /// Sets a SCIP character parameter and returns a new `Model` instance with the parameter set.
     #[allow(unused_mut)]
-    pub fn set_char_param(mut self, param: &str, value: i8) -> Result<Self, Retcode> {
+    pub fn set_char_param(
+        mut self,
+        param: &str,
+        value: std::os::raw::c_char,
+    ) -> Result<Self, Retcode> {
         self.scip.set_char_param(param, value)?;
         Ok(self)
     }

@@ -13,6 +13,7 @@ use arco_solver::{
 use russcip::{Model, ProblemOrSolving, Solution, Status, VarType, WithSolutions};
 use std::collections::BTreeMap;
 use std::fmt;
+use std::os::raw::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 const SCIP_INFINITY: f64 = 1.0e20;
@@ -434,13 +435,13 @@ fn solve_problem_native(
     })
 }
 
-fn scip_lp_algorithm(algorithm: LpAlgorithm) -> Result<i8, Error> {
+fn scip_lp_algorithm(algorithm: LpAlgorithm) -> Result<c_char, Error> {
     match algorithm {
-        LpAlgorithm::Automatic => Ok(b's' as i8),
-        LpAlgorithm::PrimalSimplex => Ok(b'p' as i8),
-        LpAlgorithm::DualSimplex => Ok(b'd' as i8),
-        LpAlgorithm::Barrier => Ok(b'b' as i8),
-        LpAlgorithm::BarrierWithCrossover => Ok(b'c' as i8),
+        LpAlgorithm::Automatic => Ok(b's' as c_char),
+        LpAlgorithm::PrimalSimplex => Ok(b'p' as c_char),
+        LpAlgorithm::DualSimplex => Ok(b'd' as c_char),
+        LpAlgorithm::Barrier => Ok(b'b' as c_char),
+        LpAlgorithm::BarrierWithCrossover => Ok(b'c' as c_char),
         LpAlgorithm::PrimalDualFirstOrder => Err(Error::Process {
             message: "lp_algorithm 'primal_dual_first_order' is not supported by the SCIP backend"
                 .to_string(),
@@ -622,11 +623,11 @@ mod tests {
     #[test]
     fn maps_lp_algorithms_to_scip_character_controls() {
         for (algorithm, expected) in [
-            (LpAlgorithm::Automatic, b's' as i8),
-            (LpAlgorithm::PrimalSimplex, b'p' as i8),
-            (LpAlgorithm::DualSimplex, b'd' as i8),
-            (LpAlgorithm::Barrier, b'b' as i8),
-            (LpAlgorithm::BarrierWithCrossover, b'c' as i8),
+            (LpAlgorithm::Automatic, b's' as c_char),
+            (LpAlgorithm::PrimalSimplex, b'p' as c_char),
+            (LpAlgorithm::DualSimplex, b'd' as c_char),
+            (LpAlgorithm::Barrier, b'b' as c_char),
+            (LpAlgorithm::BarrierWithCrossover, b'c' as c_char),
         ] {
             assert_eq!(
                 scip_lp_algorithm(algorithm).expect("algorithm should be supported"),
