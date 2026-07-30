@@ -401,16 +401,16 @@ solution = model.solve(solver=selection, log_to_console=False)
 
 ### Settings mapping
 
-| Setting                                | Xpress control    | Notes                                           |
-| -------------------------------------- | ----------------- | ----------------------------------------------- |
-| `time_limit`                           | `XPRS_MAXTIME`    |                                                 |
-| `mip_gap`                              | `XPRS_MIPRELSTOP` |                                                 |
-| `tolerance`                            | `XPRS_FEASTOL`    |                                                 |
-| `presolve`                             | `XPRS_PRESOLVE`   | 1 = on, 0 = off                                 |
-| `threads`                              | `XPRS_THREADS`    |                                                 |
-| `log_to_console`                       | `XPRS_OUTPUTLOG`  | 1 = on, 0 = off                                 |
-| `verbosity`                            | --                | Unsupported; raises `SolverInvalidSettingError` |
-| `lp_algorithm`                         | optimizer flags + `XPRS_CROSSOVER` | Uses the shared mapping documented above.       |
+| Setting          | Xpress control                     | Notes                                           |
+| ---------------- | ---------------------------------- | ----------------------------------------------- |
+| `time_limit`     | `XPRS_MAXTIME`                     |                                                 |
+| `mip_gap`        | `XPRS_MIPRELSTOP`                  |                                                 |
+| `tolerance`      | `XPRS_FEASTOL`                     |                                                 |
+| `presolve`       | `XPRS_PRESOLVE`                    | 1 = on, 0 = off                                 |
+| `threads`        | `XPRS_THREADS`                     |                                                 |
+| `log_to_console` | `XPRS_OUTPUTLOG`                   | 1 = on, 0 = off                                 |
+| `verbosity`      | --                                 | Unsupported; raises `SolverInvalidSettingError` |
+| `lp_algorithm`   | optimizer flags + `XPRS_CROSSOVER` | Uses the shared mapping documented above.       |
 
 ## SCIP (embedded native LP / MIP solver)
 
@@ -461,16 +461,16 @@ solution = model.solve(solver=selection, log_to_console=False)
 
 ### Settings mapping
 
-| Setting          | SCIP handling          | Notes                                               |
-| ---------------- | ---------------------- | --------------------------------------------------- |
-| `time_limit`     | `set limits/time`      | From profile or Python settings                     |
-| `mip_gap`        | `set limits/gap`       | From profile or Python settings                     |
-| `log_to_console` | SCIP output toggle     | `false` keeps logs quiet                            |
-| `presolve`       | `presolving/maxrounds` | `false` disables presolve; `true` uses SCIP default |
-| `threads`        | `parallel/maxnthreads` |                                                     |
-| `tolerance`      | `numerics/feastol`     | Feasibility tolerance                               |
-| `verbosity`      | `display/verblevel`    | SCIP verbosity level                                |
-| `lp_algorithm`   | `lp/initalgorithm` + `lp/resolvealgorithm` | Shared mapping above          |
+| Setting          | SCIP handling                              | Notes                                               |
+| ---------------- | ------------------------------------------ | --------------------------------------------------- |
+| `time_limit`     | `set limits/time`                          | From profile or Python settings                     |
+| `mip_gap`        | `set limits/gap`                           | From profile or Python settings                     |
+| `log_to_console` | SCIP output toggle                         | `false` keeps logs quiet                            |
+| `presolve`       | `presolving/maxrounds`                     | `false` disables presolve; `true` uses SCIP default |
+| `threads`        | `parallel/maxnthreads`                     |                                                     |
+| `tolerance`      | `numerics/feastol`                         | Feasibility tolerance                               |
+| `verbosity`      | `display/verblevel`                        | SCIP verbosity level                                |
+| `lp_algorithm`   | `lp/initalgorithm` + `lp/resolvealgorithm` | Shared mapping above                                |
 
 ## IPOPT (nonlinear / continuous solver)
 
