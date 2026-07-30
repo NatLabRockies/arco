@@ -2,6 +2,7 @@
 
 use arco_model::expr::ComparisonSense;
 use arco_model::{Sense, SimplifyLevel};
+use arco_solver::LpAlgorithm;
 use pyo3::prelude::*;
 
 use crate::py_modules::errors::ConstraintSenseError;
@@ -136,10 +137,59 @@ impl From<SimplifyLevel> for PySimplifyLevel {
     }
 }
 
+/// Python enum for solver-independent LP algorithm selection.
+#[pyo3_macros::pyclass(from_py_object, name = "LpAlgorithm", eq, eq_int)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PyLpAlgorithm {
+    #[pyo3(name = "AUTOMATIC")]
+    Automatic,
+    #[pyo3(name = "PRIMAL_SIMPLEX")]
+    PrimalSimplex,
+    #[pyo3(name = "DUAL_SIMPLEX")]
+    DualSimplex,
+    #[pyo3(name = "BARRIER")]
+    Barrier,
+    #[pyo3(name = "BARRIER_WITH_CROSSOVER")]
+    BarrierWithCrossover,
+    #[pyo3(name = "PRIMAL_DUAL_FIRST_ORDER")]
+    PrimalDualFirstOrder,
+    #[pyo3(name = "CONCURRENT")]
+    Concurrent,
+}
+
+impl From<PyLpAlgorithm> for LpAlgorithm {
+    fn from(algorithm: PyLpAlgorithm) -> Self {
+        match algorithm {
+            PyLpAlgorithm::Automatic => LpAlgorithm::Automatic,
+            PyLpAlgorithm::PrimalSimplex => LpAlgorithm::PrimalSimplex,
+            PyLpAlgorithm::DualSimplex => LpAlgorithm::DualSimplex,
+            PyLpAlgorithm::Barrier => LpAlgorithm::Barrier,
+            PyLpAlgorithm::BarrierWithCrossover => LpAlgorithm::BarrierWithCrossover,
+            PyLpAlgorithm::PrimalDualFirstOrder => LpAlgorithm::PrimalDualFirstOrder,
+            PyLpAlgorithm::Concurrent => LpAlgorithm::Concurrent,
+        }
+    }
+}
+
+impl From<LpAlgorithm> for PyLpAlgorithm {
+    fn from(algorithm: LpAlgorithm) -> Self {
+        match algorithm {
+            LpAlgorithm::Automatic => PyLpAlgorithm::Automatic,
+            LpAlgorithm::PrimalSimplex => PyLpAlgorithm::PrimalSimplex,
+            LpAlgorithm::DualSimplex => PyLpAlgorithm::DualSimplex,
+            LpAlgorithm::Barrier => PyLpAlgorithm::Barrier,
+            LpAlgorithm::BarrierWithCrossover => PyLpAlgorithm::BarrierWithCrossover,
+            LpAlgorithm::PrimalDualFirstOrder => PyLpAlgorithm::PrimalDualFirstOrder,
+            LpAlgorithm::Concurrent => PyLpAlgorithm::Concurrent,
+        }
+    }
+}
+
 /// Register enum classes with the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySense>()?;
     m.add_class::<PyComparisonSense>()?;
     m.add_class::<PySimplifyLevel>()?;
+    m.add_class::<PyLpAlgorithm>()?;
     Ok(())
 }

@@ -309,6 +309,7 @@ impl OptimizationAdapter for ScipArcoAdapter {
             threads: self.solver_config.threads,
             tolerance: self.solver_config.tolerance,
             verbosity: self.solver_config.verbosity,
+            lp_algorithm: self.solver_config.lp_algorithm,
         };
         let variable_families = problem
             .variables

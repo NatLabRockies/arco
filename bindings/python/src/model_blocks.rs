@@ -1,3 +1,4 @@
+use crate::py_modules::enums::PyLpAlgorithm;
 use crate::py_modules::errors::{BlockArtifactError, BlockContractError, BlockResultError};
 use crate::py_modules::serde_bridge;
 use crate::{BlockPort, PyModel, PyObject, PySolveResult};
@@ -715,6 +716,7 @@ pub(crate) struct LinkDef {
 
 impl PyModel {
     /// Execute composed block solve by delegating to BlockModel infrastructure.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn solve_composed(
         &mut self,
         py: Python<'_>,
@@ -724,6 +726,7 @@ impl PyModel {
         time_limit: Option<f64>,
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
+        lp_algorithm: Option<PyLpAlgorithm>,
     ) -> PyResult<Py<PySolveResult>> {
         if primal_start.is_some_and(|values| !values.is_empty()) {
             return Err(
@@ -811,6 +814,9 @@ impl PyModel {
                 }
                 if let Some(level) = verbosity {
                     solve_kwargs.set_item("verbosity", level)?;
+                }
+                if let Some(algorithm) = lp_algorithm {
+                    solve_kwargs.set_item("lp_algorithm", algorithm)?;
                 }
 
                 let solution_any = if solve_kwargs.is_empty() {

@@ -1619,6 +1619,13 @@ impl<T> Model<T> {
         Ok(self)
     }
 
+    /// Sets a SCIP character parameter and returns a new `Model` instance with the parameter set.
+    #[allow(unused_mut)]
+    pub fn set_char_param(mut self, param: &str, value: i8) -> Result<Self, Retcode> {
+        self.scip.set_char_param(param, value)?;
+        Ok(self)
+    }
+
     /// Sets a SCIP integer parameter and returns a new `Model` instance with the parameter set.
     #[allow(unused_mut)]
     pub fn set_int_param(mut self, param: &str, value: i32) -> Result<Self, Retcode> {
