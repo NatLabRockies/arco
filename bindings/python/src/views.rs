@@ -21,12 +21,12 @@ fn pythonize_metadata(
 #[pyo3_macros::pyclass(from_py_object, name = "VariableView")]
 #[derive(Clone)]
 pub struct PyVariableView {
-    pub id: u32,
-    pub name: Option<String>,
-    pub bounds: Bounds,
-    pub is_integer: bool,
-    pub is_active: bool,
-    pub metadata: Option<serde_json::Value>,
+    pub(crate) id: u32,
+    pub(crate) name: Option<String>,
+    pub(crate) bounds: Bounds,
+    pub(crate) is_integer: bool,
+    pub(crate) is_active: bool,
+    pub(crate) metadata: Option<serde_json::Value>,
 }
 
 #[pyo3_macros::pymethods]
@@ -66,11 +66,11 @@ impl PyVariableView {
 #[pyo3_macros::pyclass(from_py_object, name = "ConstraintView")]
 #[derive(Clone)]
 pub struct PyConstraintView {
-    pub id: u32,
-    pub name: Option<String>,
-    pub bounds: Bounds,
-    pub nnz: usize,
-    pub metadata: Option<serde_json::Value>,
+    pub(crate) id: u32,
+    pub(crate) name: Option<String>,
+    pub(crate) bounds: Bounds,
+    pub(crate) nnz: usize,
+    pub(crate) metadata: Option<serde_json::Value>,
 }
 
 #[pyo3_macros::pymethods]
@@ -105,9 +105,9 @@ impl PyConstraintView {
 #[pyo3_macros::pyclass(from_py_object, name = "CoefficientView")]
 #[derive(Clone)]
 pub struct PyCoefficientView {
-    pub variable_id: u32,
-    pub constraint_id: u32,
-    pub value: f64,
+    pub(crate) variable_id: u32,
+    pub(crate) constraint_id: u32,
+    pub(crate) value: f64,
 }
 
 #[pyo3_macros::pymethods]
@@ -132,9 +132,9 @@ impl PyCoefficientView {
 #[pyo3_macros::pyclass(from_py_object, name = "ObjectiveView")]
 #[derive(Clone)]
 pub struct PyObjectiveView {
-    pub sense: Option<String>,
-    pub terms: Vec<(u32, f64)>,
-    pub name: Option<String>,
+    pub(crate) sense: Option<String>,
+    pub(crate) terms: Vec<(u32, f64)>,
+    pub(crate) name: Option<String>,
 }
 
 #[pyo3_macros::pymethods]
@@ -159,12 +159,12 @@ impl PyObjectiveView {
 #[pyo3_macros::pyclass(from_py_object, name = "SlackView")]
 #[derive(Clone)]
 pub struct PySlackView {
-    pub constraint_id: u32,
-    pub bound: String,
-    pub penalty: f64,
-    pub lower_variable: Option<u32>,
-    pub upper_variable: Option<u32>,
-    pub name: Option<String>,
+    pub(crate) constraint_id: u32,
+    pub(crate) bound: String,
+    pub(crate) penalty: f64,
+    pub(crate) lower_variable: Option<u32>,
+    pub(crate) upper_variable: Option<u32>,
+    pub(crate) name: Option<String>,
 }
 
 #[pyo3_macros::pymethods]

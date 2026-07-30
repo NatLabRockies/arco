@@ -47,11 +47,11 @@ uv run --with maturin maturin develop --no-default-features --features pyo3/exte
 Without a solver feature, that solver's Python class remains importable but
 solve will fail fast with a rebuild hint.
 
-Run linting:
+Run linting from the repository root so the project-pinned tool versions are used:
 
 ```bash
-uv run ruff check .
-uv run ty check .
+just py-lint-check
+just py-type
 ```
 
 Run Python example formulations from the repository root:

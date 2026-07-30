@@ -732,7 +732,7 @@ fn render_signature(name: &str, indices: &[String]) -> String {
     format!("{name}[{normalized}]")
 }
 
-pub(crate) fn collect_control_overrides<'a>(
+fn collect_control_overrides<'a>(
     controls: impl Iterator<
         Item = (
             &'a str,

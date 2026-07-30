@@ -7,7 +7,7 @@ use pyo3::buffer::PyBuffer;
 use pyo3::prelude::*;
 
 /// Extract indices (i32 -> usize) from a numpy buffer.
-pub fn extract_indices(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
+pub(crate) fn extract_indices(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize>> {
     let values = if let Ok(buffer) = PyBuffer::<i32>::get(obj) {
         if buffer.dimensions() != 1 {
             return Err(CscDimensionError::new_err(format!(
@@ -51,7 +51,7 @@ pub fn extract_indices(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<usize
 }
 
 /// Extract f64 values from a numpy buffer or Python sequence.
-pub fn extract_f64(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
+pub(crate) fn extract_f64(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
     if let Ok(buffer) = PyBuffer::<f64>::get(obj) {
         if buffer.dimensions() != 1 {
             return Err(CscDimensionError::new_err(format!(
@@ -93,7 +93,7 @@ pub fn extract_f64(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<f64>> {
 }
 
 /// Extract boolean values from a Python object.
-pub fn extract_bool(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<bool>> {
+pub(crate) fn extract_bool(obj: &Bound<'_, PyAny>, name: &str) -> PyResult<Vec<bool>> {
     obj.extract()
         .map_err(|_| CscDtypeError::new_err(format!("{name} must be a boolean array")))
 }

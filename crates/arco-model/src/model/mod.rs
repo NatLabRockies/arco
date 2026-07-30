@@ -55,27 +55,27 @@ pub use view::{ModelFingerprint, ModelPatch, ModelView, PatchedModelView, Struct
 /// The internal representation uses column-first sparse storage (CSC format).
 #[derive(Debug, Clone)]
 pub struct Model {
-    pub(crate) variables: Vec<Bounds>,
-    pub(crate) variable_is_integer_bits: Vec<u64>,
-    pub(crate) variable_is_inactive_bits: Vec<u64>,
-    pub(crate) constraints: Vec<Constraint>,
-    pub(crate) objective: Objective,
-    pub(crate) objective_name: Option<String>,
+    variables: Vec<Bounds>,
+    variable_is_integer_bits: Vec<u64>,
+    variable_is_inactive_bits: Vec<u64>,
+    constraints: Vec<Constraint>,
+    objective: Objective,
+    objective_name: Option<String>,
     simplify_level: SimplifyLevel,
     // Column-first sparse storage: indexed by variable_id, each entry is a list of
     // (constraint_id, coefficient) pairs. Uses SmallVec for inline storage of ≤2 entries.
-    pub(crate) columns: Vec<ColumnVec>,
-    pub(crate) next_variable_id: u32,
-    pub(crate) next_constraint_id: u32,
-    pub(crate) slack_handles: Vec<SlackHandle>,
+    columns: Vec<ColumnVec>,
+    next_variable_id: u32,
+    next_constraint_id: u32,
+    slack_handles: Vec<SlackHandle>,
     // Lazy-allocated metadata storage
-    pub(crate) variable_names: Option<BTreeMap<VariableId, String>>,
-    pub(crate) constraint_names: Option<BTreeMap<ConstraintId, String>>,
-    pub(crate) variable_metadata: Option<BTreeMap<VariableId, serde_json::Value>>,
-    pub(crate) constraint_metadata: Option<BTreeMap<ConstraintId, serde_json::Value>>,
+    variable_names: Option<BTreeMap<VariableId, String>>,
+    constraint_names: Option<BTreeMap<ConstraintId, String>>,
+    variable_metadata: Option<BTreeMap<VariableId, serde_json::Value>>,
+    constraint_metadata: Option<BTreeMap<ConstraintId, serde_json::Value>>,
     // Reverse lookup for O(1) name-to-id resolution
-    pub(crate) variable_name_to_id: Option<HashMap<String, VariableId>>,
-    pub(crate) constraint_name_to_id: Option<HashMap<String, ConstraintId>>,
+    variable_name_to_id: Option<HashMap<String, VariableId>>,
+    constraint_name_to_id: Option<HashMap<String, ConstraintId>>,
 }
 
 pub(crate) const BITS_PER_WORD: usize = u64::BITS as usize;
@@ -184,7 +184,7 @@ impl Model {
     }
 
     #[inline]
-    pub(crate) fn push_variable(&mut self, variable: Variable) {
+    fn push_variable(&mut self, variable: Variable) {
         let idx = self.variables.len();
         self.variables.push(variable.bounds);
         self.columns.push(ColumnVec::new());
@@ -197,7 +197,7 @@ impl Model {
     }
 
     #[inline]
-    pub(crate) fn get_variable_by_index(&self, idx: usize) -> Option<Variable> {
+    fn get_variable_by_index(&self, idx: usize) -> Option<Variable> {
         let bounds = *self.variables.get(idx)?;
         Some(Variable {
             bounds,
@@ -207,7 +207,7 @@ impl Model {
     }
 
     #[inline]
-    pub(crate) fn set_variable_active_by_index(&mut self, idx: usize, active: bool) -> bool {
+    fn set_variable_active_by_index(&mut self, idx: usize, active: bool) -> bool {
         if idx >= self.variables.len() {
             return false;
         }
@@ -216,7 +216,7 @@ impl Model {
     }
 
     #[inline]
-    pub(crate) fn variable_is_active_by_index(&self, idx: usize) -> Option<bool> {
+    fn variable_is_active_by_index(&self, idx: usize) -> Option<bool> {
         if idx >= self.variables.len() {
             return None;
         }
@@ -249,7 +249,7 @@ impl Model {
         }
     }
 
-    pub(crate) fn ensure_variable_exists(&self, id: VariableId) -> Result<(), ModelError> {
+    fn ensure_variable_exists(&self, id: VariableId) -> Result<(), ModelError> {
         if (id.inner() as usize) < self.variables.len() {
             Ok(())
         } else {
@@ -257,7 +257,7 @@ impl Model {
         }
     }
 
-    pub(crate) fn ensure_constraint_exists(&self, id: ConstraintId) -> Result<(), ModelError> {
+    fn ensure_constraint_exists(&self, id: ConstraintId) -> Result<(), ModelError> {
         if (id.inner() as usize) < self.constraints.len() {
             Ok(())
         } else {
@@ -267,10 +267,7 @@ impl Model {
 
     /// Normalize terms with minimal allocations.
     /// Uses in-place deduplication instead of HashMap to reduce allocations.
-    pub(crate) fn normalize_terms(
-        &self,
-        mut terms: Vec<(VariableId, f64)>,
-    ) -> Vec<(VariableId, f64)> {
+    fn normalize_terms(&self, mut terms: Vec<(VariableId, f64)>) -> Vec<(VariableId, f64)> {
         let started = Instant::now();
         let terms_in = terms.len();
 

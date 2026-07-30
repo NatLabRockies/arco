@@ -168,7 +168,7 @@ impl OptimizationAdapter for ScipArcoAdapter {
     }
 }
 
-pub fn adapter_for_selection(
+pub(crate) fn adapter_for_selection(
     selection: &ResolvedSelection,
     log_to_console: bool,
     profile: Option<&SolverProfile>,

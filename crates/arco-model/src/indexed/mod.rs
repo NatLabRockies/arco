@@ -38,11 +38,11 @@ impl Set {
         self.values.insert(value)
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn values(&self) -> impl Iterator<Item = &IndexValue> {
+    pub(crate) fn values(&self) -> impl Iterator<Item = &IndexValue> {
         self.values.iter()
     }
 }
@@ -56,7 +56,7 @@ pub struct TupleSet {
 }
 
 impl TupleSet {
-    pub fn new(name: impl Into<String>, arity: usize) -> Self {
+    pub(crate) fn new(name: impl Into<String>, arity: usize) -> Self {
         Self {
             name: name.into(),
             arity,
@@ -64,7 +64,7 @@ impl TupleSet {
         }
     }
 
-    pub fn insert(&mut self, key: IndexKey) -> bool {
+    pub(crate) fn insert(&mut self, key: IndexKey) -> bool {
         if key.0.len() == self.arity {
             self.keys.insert(key)
         } else {
@@ -72,15 +72,15 @@ impl TupleSet {
         }
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn arity(&self) -> usize {
+    pub(crate) fn arity(&self) -> usize {
         self.arity
     }
 
-    pub fn keys(&self) -> impl Iterator<Item = &IndexKey> {
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &IndexKey> {
         self.keys.iter()
     }
 }
@@ -93,18 +93,18 @@ pub struct Domain {
 }
 
 impl Domain {
-    pub fn new(name: impl Into<String>, keys: Vec<IndexKey>) -> Self {
+    pub(crate) fn new(name: impl Into<String>, keys: Vec<IndexKey>) -> Self {
         Self {
             name: name.into(),
             keys,
         }
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn keys(&self) -> &[IndexKey] {
+    pub(crate) fn keys(&self) -> &[IndexKey] {
         &self.keys
     }
 }
@@ -209,7 +209,7 @@ impl<S: Copy + PartialOrd + From<u32> + std::ops::Add<Output = S> + std::ops::Di
 }
 
 impl<S> ParameterTable<S> {
-    pub fn from_dense(
+    pub(crate) fn from_dense(
         name: impl Into<String>,
         shape: Vec<usize>,
         values: Vec<S>,
@@ -225,7 +225,7 @@ impl<S> ParameterTable<S> {
         })
     }
 
-    pub fn get(&self, key: &IndexKey) -> Option<&S> {
+    pub(crate) fn get(&self, key: &IndexKey) -> Option<&S> {
         match &self.storage {
             ParameterStorage::Sparse(values) => values.get(key),
             ParameterStorage::Dense { shape, values } => {
@@ -235,7 +235,7 @@ impl<S> ParameterTable<S> {
         }
     }
 
-    pub fn rows(&self) -> Vec<(IndexKey, &S)> {
+    pub(crate) fn rows(&self) -> Vec<(IndexKey, &S)> {
         match &self.storage {
             ParameterStorage::Sparse(values) => values
                 .iter()
@@ -247,7 +247,7 @@ impl<S> ParameterTable<S> {
         }
     }
 
-    pub fn materialize(&self, domain: &Domain) -> Vec<(IndexKey, &S)> {
+    pub(crate) fn materialize(&self, domain: &Domain) -> Vec<(IndexKey, &S)> {
         domain
             .keys()
             .iter()
@@ -255,7 +255,7 @@ impl<S> ParameterTable<S> {
             .collect()
     }
 
-    pub fn filter_keys(&self, mut keep: impl FnMut(&IndexKey) -> bool) -> Self
+    pub(crate) fn filter_keys(&self, mut keep: impl FnMut(&IndexKey) -> bool) -> Self
     where
         S: Clone,
     {
@@ -271,11 +271,11 @@ impl<S> ParameterTable<S> {
         }
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn storage(&self) -> &ParameterStorage<S> {
+    pub(crate) fn storage(&self) -> &ParameterStorage<S> {
         &self.storage
     }
 }
@@ -335,26 +335,26 @@ pub struct AttributeTable {
 }
 
 impl AttributeTable {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub(crate) fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             values: BTreeMap::new(),
         }
     }
 
-    pub fn insert(&mut self, key: IndexKey, value: impl Into<String>) {
+    pub(crate) fn insert(&mut self, key: IndexKey, value: impl Into<String>) {
         self.values.insert(key, value.into());
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn get(&self, key: &IndexKey) -> Option<&str> {
+    pub(crate) fn get(&self, key: &IndexKey) -> Option<&str> {
         self.values.get(key).map(String::as_str)
     }
 
-    pub fn rows(&self) -> Vec<(IndexKey, &String)> {
+    pub(crate) fn rows(&self) -> Vec<(IndexKey, &String)> {
         self.values
             .iter()
             .map(|(key, value)| (key.clone(), value))
@@ -366,10 +366,10 @@ impl AttributeTable {
 #[derive(Debug, Clone, Default)]
 pub struct IndexedData<S = f64> {
     pub sets: BTreeMap<String, Set>,
-    pub tuple_sets: BTreeMap<String, TupleSet>,
-    pub domains: BTreeMap<String, Domain>,
+    pub(crate) tuple_sets: BTreeMap<String, TupleSet>,
+    pub(crate) domains: BTreeMap<String, Domain>,
     pub parameters: BTreeMap<String, ParameterTable<S>>,
-    pub attributes: BTreeMap<String, AttributeTable>,
+    pub(crate) attributes: BTreeMap<String, AttributeTable>,
     string_pool: BTreeSet<String>,
 }
 

@@ -18,7 +18,7 @@ pub struct SolverProfile {
 }
 
 impl SolverProfile {
-    pub fn merged_with(&self, overlay: &Self) -> Self {
+    pub(crate) fn merged_with(&self, overlay: &Self) -> Self {
         let mut merged = self.clone();
         merged.family.clone_from(&overlay.family);
         merged.transport = overlay.transport;

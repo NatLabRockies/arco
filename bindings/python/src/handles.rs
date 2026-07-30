@@ -13,7 +13,7 @@ pub struct PySlackHandle {
 }
 
 impl PySlackHandle {
-    pub fn from_handle(handle: SlackHandle) -> Self {
+    pub(crate) fn from_handle(handle: SlackHandle) -> Self {
         Self { inner: handle }
     }
 }
@@ -57,7 +57,7 @@ pub struct PyElasticHandle {
 }
 
 impl PyElasticHandle {
-    pub fn from_handle(handle: ElasticHandle) -> Self {
+    pub(crate) fn from_handle(handle: ElasticHandle) -> Self {
         Self {
             lower: handle.lower,
             upper: handle.upper,
@@ -83,7 +83,7 @@ impl PyElasticHandle {
 }
 
 /// Register handle classes with the Python module.
-pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySlackHandle>()?;
     m.add_class::<PyElasticHandle>()?;
     Ok(())

@@ -144,14 +144,14 @@ impl Model {
     /// Minimize a linear expression.
     ///
     /// Returns an error if the model already has an objective.
-    pub fn minimize(&mut self, expr: Expr) -> Result<(), ModelError> {
+    pub(crate) fn minimize(&mut self, expr: Expr) -> Result<(), ModelError> {
         self.set_sense(expr, Sense::Minimize)
     }
 
     /// Maximize a linear expression.
     ///
     /// Returns an error if the model already has an objective.
-    pub fn maximize(&mut self, expr: Expr) -> Result<(), ModelError> {
+    pub(crate) fn maximize(&mut self, expr: Expr) -> Result<(), ModelError> {
         self.set_sense(expr, Sense::Maximize)
     }
 
@@ -179,7 +179,7 @@ impl Model {
     }
 
     /// Add a constraint from a comparison expression (e.g., `x + y <= 10`).
-    pub fn add_constraint_expr(
+    pub(crate) fn add_constraint_expr(
         &mut self,
         constraint: ConstraintExpr,
     ) -> Result<ConstraintId, ModelError> {

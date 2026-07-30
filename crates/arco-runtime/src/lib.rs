@@ -9,13 +9,13 @@ pub struct RuntimeWorkspace {
 }
 
 impl RuntimeWorkspace {
-    pub fn create(prefix: &str) -> Result<Self, std::io::Error> {
+    pub(crate) fn create(prefix: &str) -> Result<Self, std::io::Error> {
         let path = unique_temp_path(prefix);
         std::fs::create_dir_all(&path)?;
         Ok(Self { path })
     }
 
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 }

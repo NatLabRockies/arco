@@ -4,76 +4,76 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct RunSummary {
-    pub entrypoint: String,
-    pub backend: &'static str,
-    pub solve_status: &'static str,
-    pub active_scenario: String,
-    pub objective: ObjectiveSummary,
-    pub reports: Vec<ReportSummary>,
+    pub(crate) entrypoint: String,
+    pub(crate) backend: &'static str,
+    pub(crate) solve_status: &'static str,
+    pub(crate) active_scenario: String,
+    pub(crate) objective: ObjectiveSummary,
+    pub(crate) reports: Vec<ReportSummary>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub dual_reports: Vec<DualReportSummary>,
+    pub(crate) dual_reports: Vec<DualReportSummary>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub variables: Vec<VariableSummary>,
-    pub counts: ProblemCounts,
-    pub timing: TimingSummary,
+    pub(crate) variables: Vec<VariableSummary>,
+    pub(crate) counts: ProblemCounts,
+    pub(crate) timing: TimingSummary,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ObjectiveSummary {
-    pub name: String,
-    pub sense: String,
-    pub value: f64,
+    pub(crate) name: String,
+    pub(crate) sense: String,
+    pub(crate) value: f64,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ReportSummary {
-    pub name: String,
+    pub(crate) name: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub index: Vec<String>,
-    pub values: Vec<BTreeMap<String, serde_json::Value>>,
+    pub(crate) index: Vec<String>,
+    pub(crate) values: Vec<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct VariableSummary {
-    pub name: String,
-    pub representative_value: f64,
+    pub(crate) name: String,
+    pub(crate) representative_value: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub values: Option<Vec<VariableValueSummary>>,
+    pub(crate) values: Option<Vec<VariableValueSummary>>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct VariableValueSummary {
-    pub name: String,
-    pub value: f64,
+    pub(crate) name: String,
+    pub(crate) value: f64,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct DualReportSummary {
-    pub name: String,
-    pub values: Vec<DualReportValueSummary>,
+    pub(crate) name: String,
+    pub(crate) values: Vec<DualReportValueSummary>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct DualReportValueSummary {
-    pub instance: String,
-    pub value: f64,
+    pub(crate) instance: String,
+    pub(crate) value: f64,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ProblemCounts {
-    pub parameters: usize,
-    pub variables: usize,
-    pub constraints: usize,
+    pub(crate) parameters: usize,
+    pub(crate) variables: usize,
+    pub(crate) constraints: usize,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct TimingSummary {
-    pub parse_ms: f64,
-    pub validate_ms: f64,
-    pub compile_ms: f64,
-    pub solve_ms: f64,
-    pub total_ms: f64,
-    pub peak_memory_bytes: Option<u64>,
+    pub(crate) parse_ms: f64,
+    pub(crate) validate_ms: f64,
+    pub(crate) compile_ms: f64,
+    pub(crate) solve_ms: f64,
+    pub(crate) total_ms: f64,
+    pub(crate) peak_memory_bytes: Option<u64>,
 }
 
 pub(crate) fn summarize_variables(

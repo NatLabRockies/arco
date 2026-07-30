@@ -250,7 +250,7 @@ pub struct ModelViewFormatRequest<'a, V: ModelView + ?Sized> {
 /// Rendering policy for model-view exports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RenderPolicy {
-    pub include_generated_names: bool,
+    pub(crate) include_generated_names: bool,
 }
 
 impl Default for RenderPolicy {
@@ -264,12 +264,12 @@ impl Default for RenderPolicy {
 /// Format result bytes and basic metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FormatResult {
-    pub bytes: Vec<u8>,
-    pub format: &'static str,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) format: &'static str,
 }
 
 /// Render a primitive model view as LP text.
-pub fn write_model_view_lp(
+pub(crate) fn write_model_view_lp(
     model: &impl ModelView,
     writer: &mut dyn Write,
 ) -> Result<(), ExportError> {
@@ -278,7 +278,7 @@ pub fn write_model_view_lp(
 }
 
 /// Render a primitive model view as LP bytes.
-pub fn export_model_view_lp(model: &impl ModelView) -> Result<FormatResult, ExportError> {
+pub(crate) fn export_model_view_lp(model: &impl ModelView) -> Result<FormatResult, ExportError> {
     let mut bytes = Vec::new();
     write_model_view_lp(model, &mut bytes)?;
     Ok(FormatResult {
@@ -288,7 +288,7 @@ pub fn export_model_view_lp(model: &impl ModelView) -> Result<FormatResult, Expo
 }
 
 /// Render a primitive model view as MPS text.
-pub fn write_model_view_mps(
+pub(crate) fn write_model_view_mps(
     model: &impl ModelView,
     writer: &mut dyn Write,
 ) -> Result<(), ExportError> {
@@ -297,7 +297,7 @@ pub fn write_model_view_mps(
 }
 
 /// Render a primitive model view as MPS bytes.
-pub fn export_model_view_mps(model: &impl ModelView) -> Result<FormatResult, ExportError> {
+pub(crate) fn export_model_view_mps(model: &impl ModelView) -> Result<FormatResult, ExportError> {
     let mut bytes = Vec::new();
     write_model_view_mps(model, &mut bytes)?;
     Ok(FormatResult {

@@ -11,12 +11,12 @@ pub enum SolverTransport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SolverCapabilityModel {
-    pub supports_integer: bool,
-    pub warm_start: bool,
-    pub quadratic_objective: bool,
-    pub quadratic_constraints: bool,
-    pub multi_objective: bool,
-    pub iis: bool,
+    pub(crate) supports_integer: bool,
+    pub(crate) warm_start: bool,
+    pub(crate) quadratic_objective: bool,
+    pub(crate) quadratic_constraints: bool,
+    pub(crate) multi_objective: bool,
+    pub(crate) iis: bool,
 }
 
 impl SolverCapabilityModel {
@@ -31,7 +31,7 @@ impl SolverCapabilityModel {
         }
     }
 
-    pub fn continuous_default() -> Self {
+    pub(crate) fn continuous_default() -> Self {
         Self {
             supports_integer: false,
             warm_start: true,

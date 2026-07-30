@@ -23,19 +23,19 @@ pub struct ArtifactRetention {
 }
 
 impl ArtifactRetention {
-    pub const KEEP_BOTH: Self = Self {
+    pub(crate) const KEEP_BOTH: Self = Self {
         keep_diagnostics: true,
         keep_model: true,
         keep_solution: true,
     };
 
-    pub const KEEP_SOLUTION_ONLY: Self = Self {
+    pub(crate) const KEEP_SOLUTION_ONLY: Self = Self {
         keep_diagnostics: true,
         keep_model: false,
         keep_solution: true,
     };
 
-    pub const KEEP_NONE: Self = Self {
+    pub(crate) const KEEP_NONE: Self = Self {
         keep_diagnostics: false,
         keep_model: false,
         keep_solution: false,

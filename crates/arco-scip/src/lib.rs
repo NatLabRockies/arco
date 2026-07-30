@@ -17,7 +17,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 const SCIP_INFINITY: f64 = 1.0e20;
 
-pub const FAMILY_NAME: &str = "scip";
+pub(crate) const FAMILY_NAME: &str = "scip";
 pub const BACKEND_NAME: &str = "arco-rust-scip";
 
 /// Native SCIP backend for primitive model views.
@@ -39,7 +39,7 @@ impl ModelViewBackend for ScipModelViewBackend {
 }
 
 /// Solve a primitive model view with bundled native SCIP.
-pub fn solve_model_view(
+pub(crate) fn solve_model_view(
     model: &(impl ModelView + ?Sized),
     config: &SolverConfig,
 ) -> Result<ModelViewSolveResult, SolverError> {
@@ -47,7 +47,7 @@ pub fn solve_model_view(
 }
 
 /// Solve a primitive model view with explicit native SCIP options.
-pub fn solve_model_view_with_options(
+pub(crate) fn solve_model_view_with_options(
     model: &(impl ModelView + ?Sized),
     config: &SolverConfig,
     options: &NativeSolveOptions,
@@ -256,7 +256,7 @@ pub struct ScipProblem<'a> {
     pub variable_families: &'a [String],
 }
 
-pub fn solve_problem(
+pub(crate) fn solve_problem(
     problem: ScipProblem<'_>,
     include_variable_values: bool,
     log_to_console: bool,

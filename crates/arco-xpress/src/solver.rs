@@ -130,7 +130,7 @@ fn xpress_api() -> Result<&'static ffi::Api, SolverError> {
     })
 }
 
-pub fn license_candidates(xpress_dir: Option<&Path>) -> Vec<PathBuf> {
+pub(crate) fn license_candidates(xpress_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("XPAUTH_PATH").filter(|value| !value.is_empty()) {
         candidates.push(PathBuf::from(path));
@@ -867,7 +867,7 @@ impl<'model> Solver<'model> {
         self.update_config(|config| config.with_log_to_console(enabled));
     }
 
-    pub fn set_time_limit(&mut self, seconds: f64) {
+    pub(crate) fn set_time_limit(&mut self, seconds: f64) {
         self.update_config(|config| config.with_time_limit(seconds));
     }
 
@@ -883,7 +883,7 @@ impl<'model> Solver<'model> {
         self.update_config(|config| config.with_presolve(enabled));
     }
 
-    pub fn set_threads(&mut self, threads: u32) {
+    pub(crate) fn set_threads(&mut self, threads: u32) {
         self.update_config(|config| config.with_threads(threads));
     }
 
@@ -891,7 +891,7 @@ impl<'model> Solver<'model> {
         self.update_config(|config| config.with_tolerance(tolerance));
     }
 
-    pub fn config(&self) -> &SolverConfig {
+    pub(crate) fn config(&self) -> &SolverConfig {
         &self.config
     }
 
@@ -903,7 +903,7 @@ impl<'model> Solver<'model> {
         self.solve_with_config(&self.config)
     }
 
-    pub fn solve_with_config(&self, config: &SolverConfig) -> Result<Solution, SolverError> {
+    pub(crate) fn solve_with_config(&self, config: &SolverConfig) -> Result<Solution, SolverError> {
         solve_problem(self.model, config).map(|artifacts| artifacts.solution)
     }
 }

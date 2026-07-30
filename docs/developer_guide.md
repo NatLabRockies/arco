@@ -64,6 +64,28 @@ just py-type
 just py-test
 ```
 
+### Hawk visibility analysis
+
+Hawk checks the public Rust surface reachable from the shipped `arco` CLI.
+It uses Rust 1.97.1 because Hawk is coupled to the compiler version it was
+built against.
+
+Install the pinned release and run the local check with:
+
+```bash
+rustup toolchain install 1.97.1
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/astral-sh/hawk/releases/download/0.1.9/cargo-hawk-installer.sh | sh
+just hawk
+```
+
+The configuration lives in `hawk.toml`. The default feature profile is
+intentional: Arco's SCIP backends are mutually exclusive, so Hawk's default
+`--all-features` profile cannot be used for this workspace. CI enforces Hawk
+with `-D warnings`; `dead_code` is allowed separately because Hawk is the
+workspace's public-visibility check and restricted test/optional-feature APIs
+must not remain public solely to suppress Rust's dead-code lint.
+
 ### Docs and examples loop
 
 ```bash

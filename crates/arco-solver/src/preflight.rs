@@ -5,11 +5,11 @@ use arco_model::{ModelView, VariableId};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SolverRequirements {
     /// Optional transport requirement.
-    pub transport: Option<SolverTransport>,
+    pub(crate) transport: Option<SolverTransport>,
     /// Require warm-start support.
-    pub require_warm_start: bool,
+    pub(crate) require_warm_start: bool,
     /// Require IIS support.
-    pub require_iis: bool,
+    pub(crate) require_iis: bool,
 }
 
 /// Preflight validation errors.

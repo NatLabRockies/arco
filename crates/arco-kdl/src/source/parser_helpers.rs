@@ -147,7 +147,7 @@ pub(super) fn positional_value(
     Ok(None)
 }
 
-pub(super) fn literal_from_arg(
+fn literal_from_arg(
     node: &KdlNode,
     value: &KdlValue,
     context: &ParseContext<'_>,
@@ -172,7 +172,7 @@ pub(super) fn literal_from_arg(
     ))
 }
 
-pub(super) fn child_node<'a>(
+fn child_node<'a>(
     node: &'a KdlNode,
     name: &'static str,
     context: &ParseContext<'_>,
@@ -182,7 +182,7 @@ pub(super) fn child_node<'a>(
         .ok_or_else(|| missing_node_error(name, node, context))
 }
 
-pub(super) fn child_arg_string(
+fn child_arg_string(
     node: &KdlNode,
     child_name: &'static str,
     index: usize,
@@ -271,11 +271,7 @@ pub(super) fn missing_node_error(
     }
 }
 
-pub(super) fn missing_argument_error(
-    node: &KdlNode,
-    index: usize,
-    context: &ParseContext<'_>,
-) -> SourceError {
+fn missing_argument_error(node: &KdlNode, index: usize, context: &ParseContext<'_>) -> SourceError {
     SourceError::MissingArgument {
         node: node.name().value().to_string(),
         index,
@@ -285,7 +281,7 @@ pub(super) fn missing_argument_error(
     }
 }
 
-pub(super) fn missing_property_error(
+fn missing_property_error(
     node: &KdlNode,
     property: &'static str,
     context: &ParseContext<'_>,

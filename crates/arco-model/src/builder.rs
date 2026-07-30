@@ -30,7 +30,7 @@ pub type Model64 = FrozenModel<f64>;
 pub type Model32 = FrozenModel<f32>;
 
 impl<S> FrozenModel<S> {
-    pub(crate) fn new(model: Model) -> Self {
+    fn new(model: Model) -> Self {
         Self {
             model,
             _scalar: PhantomData,
@@ -119,22 +119,25 @@ impl<S> Default for ModelBuilder<S> {
 }
 
 impl<S> ModelBuilder<S> {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             model: Model::new(),
             _scalar: PhantomData,
         }
     }
 
-    pub fn add_variable(&mut self, variable: Variable) -> Result<VariableId, ModelError> {
+    pub(crate) fn add_variable(&mut self, variable: Variable) -> Result<VariableId, ModelError> {
         self.model.add_variable(variable)
     }
 
-    pub fn add_constraint(&mut self, constraint: Constraint) -> Result<ConstraintId, ModelError> {
+    pub(crate) fn add_constraint(
+        &mut self,
+        constraint: Constraint,
+    ) -> Result<ConstraintId, ModelError> {
         self.model.add_constraint(constraint)
     }
 
-    pub fn set_coefficient(
+    pub(crate) fn set_coefficient(
         &mut self,
         variable_id: VariableId,
         constraint_id: ConstraintId,
@@ -144,7 +147,7 @@ impl<S> ModelBuilder<S> {
             .set_coefficient(variable_id, constraint_id, coefficient)
     }
 
-    pub fn set_variable_name(
+    pub(crate) fn set_variable_name(
         &mut self,
         variable_id: VariableId,
         name: impl Into<String>,
@@ -152,7 +155,7 @@ impl<S> ModelBuilder<S> {
         self.model.set_variable_name(variable_id, name.into())
     }
 
-    pub fn set_constraint_name(
+    pub(crate) fn set_constraint_name(
         &mut self,
         constraint_id: ConstraintId,
         name: impl Into<String>,
@@ -160,19 +163,19 @@ impl<S> ModelBuilder<S> {
         self.model.set_constraint_name(constraint_id, name.into())
     }
 
-    pub fn set_objective(&mut self, objective: Objective) -> Result<(), ModelError> {
+    pub(crate) fn set_objective(&mut self, objective: Objective) -> Result<(), ModelError> {
         self.model.set_objective(objective)
     }
 
-    pub fn set_objective_name(&mut self, name: Option<String>) -> Result<(), ModelError> {
+    pub(crate) fn set_objective_name(&mut self, name: Option<String>) -> Result<(), ModelError> {
         self.model.set_objective_name(name)
     }
 
-    pub fn finish(self) -> FrozenModel<S> {
+    pub(crate) fn finish(self) -> FrozenModel<S> {
         FrozenModel::new(self.model)
     }
 
-    pub fn finish_legacy_model(self) -> Model {
+    pub(crate) fn finish_legacy_model(self) -> Model {
         self.model
     }
 }

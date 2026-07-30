@@ -35,7 +35,7 @@ pub struct CompactConstraintStorage {
 
 impl CompactConstraintStorage {
     /// Get the rhs as a Vec<f64> (expanding scalar if needed).
-    pub fn rhs_vec(&self) -> Vec<f64> {
+    pub(crate) fn rhs_vec(&self) -> Vec<f64> {
         match &self.rhs {
             CompactRhs::Scalar(v) => vec![*v; self.count],
             CompactRhs::Vec(v) => v.clone(),
@@ -89,7 +89,7 @@ pub struct PyConstraintArray {
 }
 
 impl PyConstraintArray {
-    pub fn new(
+    pub(crate) fn new(
         exprs: Vec<PyExpr>,
         sense: ComparisonSense,
         rhs: Vec<f64>,

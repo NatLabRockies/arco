@@ -64,9 +64,9 @@ pub struct OpsLinearObjective {
 /// Linear report DTO.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OpsLinearReport {
-    pub name: String,
-    pub constant: f64,
-    pub terms: Vec<OpsLinearTerm>,
+    pub(crate) name: String,
+    pub(crate) constant: f64,
+    pub(crate) terms: Vec<OpsLinearTerm>,
 }
 
 /// Algebraic problem DTO used at interaction-surface boundaries.

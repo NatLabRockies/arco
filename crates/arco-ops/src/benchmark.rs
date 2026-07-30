@@ -37,44 +37,44 @@ pub enum BenchmarkError {
 
 #[derive(Debug, Deserialize)]
 pub struct BenchmarkManifest {
-    pub version: u32,
-    pub cases: Vec<BenchmarkCaseDefinition>,
+    pub(crate) version: u32,
+    pub(crate) cases: Vec<BenchmarkCaseDefinition>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct BenchmarkCaseDefinition {
-    pub id: String,
-    pub description: String,
-    pub entrypoint: String,
-    pub expected_semantic_program: String,
-    pub expected_e2e_summary: String,
-    pub solvable: bool,
+    pub(crate) id: String,
+    pub(crate) description: String,
+    pub(crate) entrypoint: String,
+    pub(crate) expected_semantic_program: String,
+    pub(crate) expected_e2e_summary: String,
+    pub(crate) solvable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct SemanticProgramExpectation {
-    pub case_id: String,
-    pub active_scenario: String,
-    pub sets: ExpectedSets,
+    pub(crate) case_id: String,
+    pub(crate) active_scenario: String,
+    pub(crate) sets: ExpectedSets,
     #[serde(default)]
-    pub parameters: ExpectedParameters,
+    pub(crate) parameters: ExpectedParameters,
     #[serde(default)]
-    pub variable_families: Vec<String>,
+    pub(crate) variable_families: Vec<String>,
     #[serde(default)]
-    pub chronology: ExpectedChronology,
+    pub(crate) chronology: ExpectedChronology,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ExpectedSets {
-    pub assets: Vec<String>,
+    pub(crate) assets: Vec<String>,
     #[serde(default)]
-    pub candidate_assets: Vec<String>,
-    pub time: ExpectedTimeSet,
+    pub(crate) candidate_assets: Vec<String>,
+    pub(crate) time: ExpectedTimeSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ExpectedTimeSet {
-    pub steps: usize,
+    pub(crate) steps: usize,
 }
 
 pub type ExpectedParameters = ResolvedParameters;
@@ -83,28 +83,28 @@ pub type ExpectedChronology = ResolvedChronology;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ExpectedE2eSummary {
-    pub case_id: String,
-    pub expect_parse_success: bool,
-    pub expect_semantic_validation_success: bool,
-    pub expect_compile_success: bool,
-    pub expect_solve_success: bool,
+    pub(crate) case_id: String,
+    pub(crate) expect_parse_success: bool,
+    pub(crate) expect_semantic_validation_success: bool,
+    pub(crate) expect_compile_success: bool,
+    pub(crate) expect_solve_success: bool,
     #[serde(default)]
-    pub objective: Option<ExpectedObjective>,
+    pub(crate) objective: Option<ExpectedObjective>,
     #[serde(default)]
-    pub reports: Vec<String>,
+    pub(crate) reports: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ExpectedObjective {
-    pub name: String,
-    pub sense: ObjectiveSense,
+    pub(crate) name: String,
+    pub(crate) sense: ObjectiveSense,
 }
 
 #[derive(Debug)]
 pub struct CaseOutcome {
-    pub case_id: String,
-    pub actual_semantic_program: SemanticProgramExpectation,
-    pub actual_e2e_summary: ExpectedE2eSummary,
+    pub(crate) case_id: String,
+    pub(crate) actual_semantic_program: SemanticProgramExpectation,
+    pub(crate) actual_e2e_summary: ExpectedE2eSummary,
 }
 
 pub fn load_manifest(path: &Path) -> Result<BenchmarkManifest, BenchmarkError> {

@@ -1,0 +1,12 @@
+# Keep uniform public fields together when one field is required by the CLI.
+preserve-uniform-field-visibility = true
+
+[[production]]
+package = "arco-cli"
+bin = "arco"
+reason = "shipped command-line application"
+
+# `--all-features` enables mutually exclusive SCIP backends in this workspace.
+# Analyze the normal default-feature product instead.
+[[feature-profile]]
+name = "default"

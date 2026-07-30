@@ -28,7 +28,7 @@ pub enum IpoptSolveStatus {
 
 impl IpoptSolveStatus {
     /// Create from the string returned by the native IPOPT status.
-    pub fn from_ipopt_debug(debug: &str) -> Self {
+    pub(crate) fn from_ipopt_debug(debug: &str) -> Self {
         match debug {
             "SolveSucceeded" => Self::SolveSucceeded,
             "SolvedToAcceptableLevel" => Self::SolvedToAcceptableLevel,

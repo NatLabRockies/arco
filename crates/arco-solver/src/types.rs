@@ -23,7 +23,7 @@ pub trait SolverStatusMapping {
 }
 
 impl SolverStatus {
-    pub const fn is_optimal(self) -> bool {
+    pub(crate) const fn is_optimal(self) -> bool {
         matches!(self, SolverStatus::Optimal)
     }
 
@@ -34,15 +34,15 @@ impl SolverStatus {
         )
     }
 
-    pub const fn is_infeasible(self) -> bool {
+    pub(crate) const fn is_infeasible(self) -> bool {
         matches!(self, SolverStatus::Infeasible)
     }
 
-    pub const fn is_unbounded(self) -> bool {
+    pub(crate) const fn is_unbounded(self) -> bool {
         matches!(self, SolverStatus::Unbounded)
     }
 
-    pub const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             SolverStatus::Optimal => "optimal",
             SolverStatus::Infeasible => "infeasible",
@@ -123,7 +123,7 @@ pub enum SolverError {
 }
 
 impl SolverError {
-    pub const fn code(&self) -> &'static str {
+    pub(crate) const fn code(&self) -> &'static str {
         match self {
             SolverError::EmptyModel => "SOLVER_EMPTY_MODEL",
             SolverError::NoObjective => "SOLVER_NO_OBJECTIVE",

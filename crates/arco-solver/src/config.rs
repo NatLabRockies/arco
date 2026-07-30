@@ -68,7 +68,7 @@ impl SolverConfig {
         self
     }
 
-    pub fn merged_with(&self, overlay: &Self) -> Self {
+    pub(crate) fn merged_with(&self, overlay: &Self) -> Self {
         let mut merged = self.clone();
         if overlay.time_limit.is_some() {
             merged.time_limit = overlay.time_limit;
@@ -97,7 +97,7 @@ impl SolverConfig {
         merged
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.time_limit.is_none()
             && self.mip_gap.is_none()
             && self.verbosity.is_none()

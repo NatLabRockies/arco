@@ -78,27 +78,27 @@ impl PyExpr {
         Self::from_expr(self.inner.without_constant())
     }
 
-    pub fn scale(&self, by: f64) -> Self {
+    pub(crate) fn scale(&self, by: f64) -> Self {
         Self::from_expr(self.inner.scale(by))
     }
 
-    pub fn add(&self, other: PyExpr) -> Self {
+    pub(crate) fn add(&self, other: PyExpr) -> Self {
         Self::from_expr(self.inner.add(&other.inner))
     }
 
-    pub fn add_assign(&mut self, other: &PyExpr) {
+    pub(crate) fn add_assign(&mut self, other: &PyExpr) {
         self.inner.add_assign(&other.inner);
     }
 
-    pub fn add_assign_owned(&mut self, other: PyExpr) {
+    pub(crate) fn add_assign_owned(&mut self, other: PyExpr) {
         self.inner.add_assign_owned(other.inner);
     }
 
-    pub fn add_constant(&self, value: f64) -> Self {
+    pub(crate) fn add_constant(&self, value: f64) -> Self {
         Self::from_expr(self.inner.add_constant(value))
     }
 
-    pub fn compare_py(
+    pub(crate) fn compare_py(
         &self,
         rhs: &Bound<'_, PyAny>,
         sense: ComparisonSense,
@@ -109,17 +109,17 @@ impl PyExpr {
         ))
     }
 
-    pub fn add_any(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+    pub(crate) fn add_any(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let ExprLike(other) = other.extract()?;
         Ok(self.add(other))
     }
 
-    pub fn sub_any(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+    pub(crate) fn sub_any(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let ExprLike(other) = other.extract()?;
         Ok(self.add(other.scale(-1.0)))
     }
 
-    pub fn rsub_any(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
+    pub(crate) fn rsub_any(&self, other: &Bound<'_, PyAny>) -> PyResult<Self> {
         let ExprLike(other) = other.extract()?;
         Ok(other.add(self.scale(-1.0)))
     }
@@ -352,7 +352,7 @@ pub struct PyConstraintExpr {
 }
 
 impl PyConstraintExpr {
-    pub fn new(inner: ConstraintExpr) -> Self {
+    pub(crate) fn new(inner: ConstraintExpr) -> Self {
         Self { inner }
     }
 
@@ -418,7 +418,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// Compare a linear `PyExpr` against `rhs`. If `rhs` is a `NonlinearExpr` (and
 /// the `ipopt` feature is enabled), returns a `PyNonlinearConstraintExpr`;
 /// otherwise returns a `PyConstraintExpr`.
-pub fn nl_or_linear_compare(
+pub(crate) fn nl_or_linear_compare(
     py: Python<'_>,
     lhs: &PyExpr,
     rhs: &Bound<'_, PyAny>,

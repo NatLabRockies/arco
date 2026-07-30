@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FamilySignature {
-    pub target: String,
-    pub indices: Vec<String>,
-    pub index_domains: BTreeMap<String, String>,
+    pub(crate) target: String,
+    pub(crate) indices: Vec<String>,
+    pub(crate) index_domains: BTreeMap<String, String>,
 }
 
 impl FamilySignature {
@@ -23,7 +23,7 @@ impl FamilySignature {
         }
     }
 
-    pub fn from_index_decls(
+    pub(crate) fn from_index_decls(
         target: impl Into<String>,
         decls: &[arco_kdl::source::IndexDecl],
     ) -> Self {
@@ -44,7 +44,7 @@ impl FamilySignature {
         }
     }
 
-    pub fn render(&self) -> String {
+    pub(crate) fn render(&self) -> String {
         if self.indices.is_empty() {
             return self.target.clone();
         }
@@ -54,9 +54,9 @@ impl FamilySignature {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VariableDeclOverrides {
-    pub kind: Option<VariableKindDecl>,
-    pub lower: Option<BoundExpr>,
-    pub upper: Option<BoundExpr>,
+    pub(crate) kind: Option<VariableKindDecl>,
+    pub(crate) lower: Option<BoundExpr>,
+    pub(crate) upper: Option<BoundExpr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -78,17 +78,17 @@ pub struct SemanticProgram {
 }
 
 impl SemanticProgram {
-    pub fn time_steps(&self) -> usize {
+    pub(crate) fn time_steps(&self) -> usize {
         self.time_set().map_or(0, |set| set.values.len())
     }
 
-    pub fn is_time_set_name(&self, name: &str) -> bool {
+    pub(crate) fn is_time_set_name(&self, name: &str) -> bool {
         self.resolve_set(name)
             .zip(self.time_set())
             .is_some_and(|(candidate, time_set)| std::ptr::eq(candidate, time_set))
     }
 
-    pub fn resolve_set(&self, name: &str) -> Option<&ResolvedSet> {
+    pub(crate) fn resolve_set(&self, name: &str) -> Option<&ResolvedSet> {
         if let Some(set) = self.set_registry.get(name) {
             return Some(set);
         }
@@ -116,76 +116,76 @@ impl SemanticProgram {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedSet {
-    pub values: Vec<String>,
-    pub tuple_components: Option<Vec<String>>,
-    pub tuple_component_domains: Option<Vec<String>>,
-    pub tuple_rows: Option<Vec<Vec<String>>>,
+    pub(crate) values: Vec<String>,
+    pub(crate) tuple_components: Option<Vec<String>>,
+    pub(crate) tuple_component_domains: Option<Vec<String>>,
+    pub(crate) tuple_rows: Option<Vec<Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ResolvedParameters {
-    pub series: Vec<String>,
-    pub indexed: Vec<String>,
-    pub asset: Vec<String>,
+    pub(crate) series: Vec<String>,
+    pub(crate) indexed: Vec<String>,
+    pub(crate) asset: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 #[allow(clippy::struct_field_names)]
 pub struct ResolvedChronology {
-    pub initial_boundary: Option<String>,
-    pub terminal_boundary: Option<String>,
-    pub initial_commitment_boundary: Option<String>,
+    pub(crate) initial_boundary: Option<String>,
+    pub(crate) terminal_boundary: Option<String>,
+    pub(crate) initial_commitment_boundary: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedConstraint {
-    pub name: String,
-    pub source_kind: String,
-    pub source_name: String,
-    pub diagnostic_id: String,
-    pub expression_text: String,
-    pub expression: ConstraintBody,
-    pub generation_bindings: Vec<GenerationBinding>,
-    pub generation_filter_text: Option<String>,
-    pub generation_filter: Option<Expr>,
+    pub(crate) name: String,
+    pub(crate) source_kind: String,
+    pub(crate) source_name: String,
+    pub(crate) diagnostic_id: String,
+    pub(crate) expression_text: String,
+    pub(crate) expression: ConstraintBody,
+    pub(crate) generation_bindings: Vec<GenerationBinding>,
+    pub(crate) generation_filter_text: Option<String>,
+    pub(crate) generation_filter: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedExpression {
-    pub name: String,
-    pub formula_text: String,
-    pub formula: Expr,
-    pub generation_bindings: Vec<GenerationBinding>,
-    pub generation_filter_text: Option<String>,
-    pub generation_filter: Option<Expr>,
+    pub(crate) name: String,
+    pub(crate) formula_text: String,
+    pub(crate) formula: Expr,
+    pub(crate) generation_bindings: Vec<GenerationBinding>,
+    pub(crate) generation_filter_text: Option<String>,
+    pub(crate) generation_filter: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedObjective {
-    pub name: String,
-    pub sense: ObjectiveSense,
-    pub expression_text: String,
-    pub expression: Expr,
+    pub(crate) name: String,
+    pub(crate) sense: ObjectiveSense,
+    pub(crate) expression_text: String,
+    pub(crate) expression: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedReport {
-    pub name: String,
-    pub formula_text: String,
-    pub formula: Expr,
+    pub(crate) name: String,
+    pub(crate) formula_text: String,
+    pub(crate) formula: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedVariableReport {
-    pub control_name: String,
-    pub indices: Vec<String>,
-    pub compiled_family: String,
-    pub filter: Option<Expr>,
+    pub(crate) control_name: String,
+    pub(crate) indices: Vec<String>,
+    pub(crate) compiled_family: String,
+    pub(crate) filter: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedDualReport {
-    pub constraint_name: String,
+    pub(crate) constraint_name: String,
 }

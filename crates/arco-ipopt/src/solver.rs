@@ -81,17 +81,13 @@ impl Solver {
     pub fn solve(&mut self) -> Result<Solution, SolverError> {
         solve_problem(&self.config)
     }
-
-    pub fn solve_with_config(&mut self, config: &SolverConfig) -> Result<Solution, SolverError> {
-        solve_problem(config)
-    }
 }
 
 impl Solve for Solver {
     type Solution = Solution;
 
     fn solve(&mut self, config: &SolverConfig) -> Result<Self::Solution, GenericSolverError> {
-        self.solve_with_config(config)
+        solve_problem(config)
     }
 }
 

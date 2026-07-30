@@ -17,11 +17,11 @@ const PREVIEW_DOMAIN_ITEMS: usize = 20;
 #[derive(Debug, Clone, Copy)]
 pub struct PrettyPrintOptions {
     /// Maximum number of constraints to render.
-    pub constraints: Option<usize>,
+    pub(crate) constraints: Option<usize>,
     /// Maximum number of terms to render per linear expression.
-    pub terms: Option<usize>,
+    pub(crate) terms: Option<usize>,
     /// Maximum number of domain or bounds items to show in grouped sections.
-    pub domain_items: Option<usize>,
+    pub(crate) domain_items: Option<usize>,
 }
 
 impl PrettyPrintOptions {

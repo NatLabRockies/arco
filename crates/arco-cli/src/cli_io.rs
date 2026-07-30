@@ -18,7 +18,10 @@ impl From<bool> for ColorMode {
     }
 }
 
-pub fn write_all_ignoring_broken_pipe<W: Write>(writer: &mut W, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_all_ignoring_broken_pipe<W: Write>(
+    writer: &mut W,
+    bytes: &[u8],
+) -> io::Result<()> {
     ignore_broken_pipe(writer.write_all(bytes))?;
     ignore_broken_pipe(writer.flush())
 }
@@ -65,7 +68,7 @@ pub fn should_colorize_stdout(stdout_is_terminal: bool) -> bool {
     stdout_is_terminal
 }
 
-pub fn format_timed_status(
+pub(crate) fn format_timed_status(
     status: &str,
     elapsed_ms: u128,
     detail: &str,
@@ -79,14 +82,14 @@ pub fn format_timed_status(
     style_dimmed(&payload, color_mode)
 }
 
-pub fn style_error_label(content: &str, color_mode: ColorMode) -> String {
+pub(crate) fn style_error_label(content: &str, color_mode: ColorMode) -> String {
     if color_mode == ColorMode::Disabled {
         return content.to_string();
     }
     format!("{ANSI_RED}{ANSI_BOLD}{content}{ANSI_NO_BOLD}{ANSI_RESET}")
 }
 
-pub fn style_bold_in_dim(content: &str, color_mode: ColorMode) -> String {
+pub(crate) fn style_bold_in_dim(content: &str, color_mode: ColorMode) -> String {
     if color_mode == ColorMode::Disabled {
         return content.to_string();
     }

@@ -27,7 +27,7 @@ pub struct PySlackVariable {
 }
 
 impl PySlackVariable {
-    pub fn new(
+    pub(crate) fn new(
         constraint: Py<PyConstraint>,
         bound_str: String,
         penalty: f64,
@@ -123,7 +123,7 @@ impl PySlackVariable {
 }
 
 /// Register SlackVariable class with the Python module.
-pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySlackVariable>()?;
     Ok(())
 }

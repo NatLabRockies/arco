@@ -7,10 +7,12 @@
 use arco_model::{ModelView, VariableId};
 use arco_solver::SolverError;
 
-pub struct ArcoProblem;
+pub(crate) struct ArcoProblem;
 
 impl ArcoProblem {
-    pub fn validate_supported_model(model: &(impl ModelView + ?Sized)) -> Result<(), SolverError> {
+    pub(crate) fn validate_supported_model(
+        model: &(impl ModelView + ?Sized),
+    ) -> Result<(), SolverError> {
         if model.num_variables() == 0 {
             return Err(SolverError::EmptyModel);
         }

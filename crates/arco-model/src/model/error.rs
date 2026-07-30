@@ -29,7 +29,7 @@ pub enum ModelError {
 
 impl ModelError {
     /// Returns a semantic error code for programmatic handling.
-    pub fn code(&self) -> &'static str {
+    pub(crate) fn code(&self) -> &'static str {
         match self {
             ModelError::EmptyModel => "MODEL_EMPTY",
             ModelError::InvalidVariableId(_) => "VARIABLE_INVALID_ID",

@@ -72,7 +72,7 @@ impl std::fmt::Debug for PyBounds {
 }
 
 impl PyBounds {
-    pub fn from_inner(inner: Bounds) -> Self {
+    pub(crate) fn from_inner(inner: Bounds) -> Self {
         Self {
             inner,
             array_lower: None,
@@ -80,7 +80,7 @@ impl PyBounds {
         }
     }
 
-    pub fn is_array_bounds(&self) -> bool {
+    pub(crate) fn is_array_bounds(&self) -> bool {
         self.array_lower.is_some()
     }
 }
@@ -184,7 +184,7 @@ pub enum PyBoundType {
 
 impl PyBoundType {
     /// Convert the bound type to a full BoundsSpec for internal use.
-    pub fn spec(&self) -> BoundsSpec {
+    pub(crate) fn spec(&self) -> BoundsSpec {
         match self {
             PyBoundType::PositiveFloat => BoundsSpec {
                 bounds: Bounds::new(f64::MIN_POSITIVE, f64::INFINITY),

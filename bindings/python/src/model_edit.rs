@@ -403,7 +403,7 @@ impl PyModel {
     }
 
     /// Name a contiguous block of constraints starting at `first_id`.
-    pub(crate) fn name_constraint_block(
+    fn name_constraint_block(
         &mut self,
         first_id: ConstraintId,
         count: usize,
@@ -423,7 +423,7 @@ impl PyModel {
 
     /// Insert constraints via compact term patterns (zero per-element allocation).
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn add_constraints_compact_internal(
+    fn add_constraints_compact_internal(
         &mut self,
         compact: &arrays::CompactConstraintStorage,
         active: Option<&Bound<'_, PyAny>>,

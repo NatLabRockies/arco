@@ -49,14 +49,14 @@ pub struct PySolveResult {
 }
 
 impl PySolveResult {
-    pub fn new(inner: Solution) -> Self {
+    pub(crate) fn new(inner: Solution) -> Self {
         Self {
             inner,
             blocks_ref: None,
         }
     }
 
-    pub fn with_blocks(inner: Solution, blocks: PyObject) -> Self {
+    pub(crate) fn with_blocks(inner: Solution, blocks: PyObject) -> Self {
         Self {
             inner,
             blocks_ref: Some(blocks),
@@ -416,7 +416,7 @@ impl PySolveResult {
 }
 
 /// Register solution classes with the Python module.
-pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySolveResult>()?;
     m.add_class::<PySolutionStatus>()?;
     Ok(())

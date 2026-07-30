@@ -11,6 +11,7 @@ arco-debug-bin := justfile_directory() / "target/debug/arco"
 arco-release-bin := justfile_directory() / "target/release/arco"
 cli-artifact := justfile_directory() / "artifacts/arco-cli-linux.tar.gz"
 solver-build-env := justfile_directory() / "scripts/with_solver_build_env.sh"
+ruff-version := "0.15.6"
 
 alias t := test
 alias rt := rust-test
@@ -31,6 +32,7 @@ help:
     printf '  just test                  Run Rust and Python tests\n'
     printf '  just kdl-examples          Run curated KDL CLI acceptance examples\n'
     printf '  just smoke-solver highs    Run one solver smoke check\n'
+    printf '  just hawk                  Check unnecessary public Rust visibility\n'
     printf '  just ci                    Run the local CI aggregate\n'
 
 [group: 'onboarding']
@@ -41,12 +43,12 @@ setup:
 [group: 'dev']
 fmt:
     cargo fmt --all
-    cd bindings/python && uv run --no-project --with ruff ruff format --verbose
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff format --verbose
 
 [group: 'dev']
 fmt-check:
     cargo fmt --all -- --check
-    cd bindings/python && uv run --no-project --with ruff ruff format --check
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff format --check
 
 [group: 'dev']
 check:
@@ -107,6 +109,11 @@ rust-test:
     PYO3_PYTHON=${PYO3_PYTHON:-python3} ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} test -p arco-scip --no-default-features --features scip-bundled
 
 [group: 'rust']
+hawk:
+    cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} generate-lockfile
+    ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${HAWK_TOOLCHAIN_VERSION:-1.97.1} hawk check --target-dir target/hawk -D warnings
+
+[group: 'rust']
 scip-feature-guard:
     if cargo check -p arco-scip --no-default-features --features scip-bundled,scip-from-source; then \
         printf 'expected arco-scip to reject scip-bundled + scip-from-source\n' >&2; \
@@ -149,19 +156,19 @@ py-dev: py-licenses py-sync
 
 [group: 'python']
 py-fmt:
-    cd bindings/python && uv run --no-project --with ruff ruff format --verbose
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff format --verbose
 
 [group: 'python']
 py-fmt-check:
-    cd bindings/python && uv run --no-project --with ruff ruff format --check
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff format --check
 
 [group: 'python']
 py-lint:
-    cd bindings/python && uv run --no-project --with ruff ruff check --fix --config=pyproject.toml
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff check --fix --config=pyproject.toml
 
 [group: 'python']
 py-lint-check:
-    cd bindings/python && uv run --no-project --with ruff ruff check --config=pyproject.toml
+    cd bindings/python && uv run --no-project --with "ruff=={{ ruff-version }}" ruff check --config=pyproject.toml
 
 [group: 'python']
 py-type:
