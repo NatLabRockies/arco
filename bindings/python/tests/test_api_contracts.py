@@ -965,6 +965,25 @@ def test_debug_api_contract_exposes_solver_setting_error_codes() -> None:
         raise AssertionError("expected solver setting validation to fail")
 
 
+def test_solver_api_exposes_solver_independent_lp_algorithm() -> None:
+    solver = arco.HiGHS(lp_algorithm=arco.LpAlgorithm.DUAL_SIMPLEX)
+    assert solver.lp_algorithm == arco.LpAlgorithm.DUAL_SIMPLEX
+
+    updated = solver.copy(update={"lp_algorithm": arco.LpAlgorithm.BARRIER})
+    assert updated.lp_algorithm == arco.LpAlgorithm.BARRIER
+    assert solver.lp_algorithm == arco.LpAlgorithm.DUAL_SIMPLEX
+
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+    model.add_constraint(x >= 1.0)
+    model.minimize(x)
+    result = model.solve(
+        lp_algorithm=arco.LpAlgorithm.PRIMAL_SIMPLEX,
+        log_to_console=False,
+    )
+    assert result.is_optimal()
+
+
 def test_debug_api_contract_rejects_xpress_unsupported_verbosity() -> None:
     codes = arco.diagnostic_codes()
 

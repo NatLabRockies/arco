@@ -5,8 +5,8 @@ use crate::solution::Solution;
 use crate::status;
 use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
 use arco_solver::{
-    ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverDiagnostic, SolverError,
-    SolverModelStats, validate_model_view_solve_result,
+    LpAlgorithm, ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverDiagnostic,
+    SolverError, SolverModelStats, validate_model_view_solve_result,
 };
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
@@ -393,10 +393,33 @@ fn ensure_non_negative_finite_setting(name: &str, value: Option<f64>) -> Result<
     Ok(())
 }
 
+fn lp_optimizer_flags(config: &SolverConfig) -> Result<Option<&'static CStr>, SolverError> {
+    match config.lp_algorithm {
+        None | Some(LpAlgorithm::Automatic) => Ok(None),
+        Some(LpAlgorithm::PrimalSimplex) => Ok(Some(c"p")),
+        Some(LpAlgorithm::DualSimplex) => Ok(Some(c"d")),
+        Some(LpAlgorithm::Barrier | LpAlgorithm::BarrierWithCrossover) => Ok(Some(c"b")),
+        Some(LpAlgorithm::Concurrent) => Ok(Some(c"pdb")),
+        Some(LpAlgorithm::PrimalDualFirstOrder) => Err(SolverError::InvalidSettings(
+            "lp_algorithm 'primal_dual_first_order' is not supported by the Xpress backend"
+                .to_string(),
+        )),
+    }
+}
+
+fn lp_crossover_setting(config: &SolverConfig) -> Option<c_int> {
+    match config.lp_algorithm {
+        Some(LpAlgorithm::Barrier) => Some(0),
+        Some(LpAlgorithm::BarrierWithCrossover) => Some(1),
+        _ => None,
+    }
+}
+
 fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
     ensure_non_negative_finite_setting("time_limit", config.time_limit)?;
     ensure_non_negative_finite_setting("mip_gap", config.mip_gap)?;
     ensure_non_negative_finite_setting("tolerance", config.tolerance)?;
+    let _ = lp_optimizer_flags(config)?;
 
     if let Some(0) = config.threads {
         return Err(SolverError::InvalidSettings(
@@ -446,8 +469,6 @@ fn apply_solver_config(
     prob: ffi::XPRSprob,
     config: &SolverConfig,
 ) -> Result<(), SolverError> {
-    validate_solver_config(config)?;
-
     let log_to_console = config.log_to_console.unwrap_or(false);
     if log_to_console {
         enable_console_logging(api, prob)?;
@@ -470,6 +491,9 @@ fn apply_solver_config(
         set_dbl_control(api, prob, ffi::XPRS_FEASTOL, tolerance)?;
         set_dbl_control(api, prob, ffi::XPRS_OPTIMALITYTOL, tolerance)?;
     }
+    if let Some(crossover) = lp_crossover_setting(config) {
+        set_int_control(api, prob, ffi::XPRS_CROSSOVER, crossover)?;
+    }
 
     Ok(())
 }
@@ -487,6 +511,8 @@ fn solve_problem(
     if model.num_variables() == 0 {
         return Err(SolverError::EmptyModel);
     }
+    validate_solver_config(config)?;
+    let optimizer_flags_ptr = lp_optimizer_flags(config)?.map_or(std::ptr::null(), CStr::as_ptr);
 
     let solve_started = Instant::now();
     let ncols = model.num_variables();
@@ -658,10 +684,10 @@ fn solve_problem(
 
     let run_start = Instant::now();
     if has_integer {
-        ffi::check_xprs(unsafe { (api.xprs_mipoptimize)(prob, std::ptr::null()) })
+        ffi::check_xprs(unsafe { (api.xprs_mipoptimize)(prob, optimizer_flags_ptr) })
             .map_err(|rc| xpress_failure_error(api, prob, "XPRSmipoptimize", rc, model))?;
     } else {
-        ffi::check_xprs(unsafe { (api.xprs_lpoptimize)(prob, std::ptr::null()) })
+        ffi::check_xprs(unsafe { (api.xprs_lpoptimize)(prob, optimizer_flags_ptr) })
             .map_err(|rc| xpress_failure_error(api, prob, "XPRSlpoptimize", rc, model))?;
     }
     let run_seconds = run_start.elapsed().as_secs_f64();
@@ -891,6 +917,11 @@ impl<'model> Solver<'model> {
         self.update_config(|config| config.with_tolerance(tolerance));
     }
 
+    /// Select the solver-independent LP algorithm preference.
+    pub fn set_lp_algorithm(&mut self, algorithm: LpAlgorithm) {
+        self.update_config(|config| config.with_lp_algorithm(algorithm));
+    }
+
     pub(crate) fn config(&self) -> &SolverConfig {
         &self.config
     }
@@ -983,10 +1014,12 @@ mod tests {
         solver.set_threads(2);
         solver.set_time_limit(5.0);
         solver.set_log_to_console(false);
+        solver.set_lp_algorithm(LpAlgorithm::Barrier);
 
         assert_eq!(solver.config().threads, Some(2));
         assert_eq!(solver.config().time_limit, Some(5.0));
         assert_eq!(solver.config().log_to_console, Some(false));
+        assert_eq!(solver.config().lp_algorithm, Some(LpAlgorithm::Barrier));
     }
 
     #[test]
@@ -1020,6 +1053,58 @@ mod tests {
         assert!(matches!(
             error,
             SolverError::InvalidSettings(message) if message == "threads must be >= 1"
+        ));
+    }
+
+    #[test]
+    fn maps_lp_algorithms_to_xpress_optimizer_flags() {
+        for (algorithm, expected_flag) in [
+            (LpAlgorithm::Automatic, None),
+            (LpAlgorithm::PrimalSimplex, Some("p")),
+            (LpAlgorithm::DualSimplex, Some("d")),
+            (LpAlgorithm::Barrier, Some("b")),
+            (LpAlgorithm::BarrierWithCrossover, Some("b")),
+            (LpAlgorithm::Concurrent, Some("pdb")),
+        ] {
+            let config = SolverConfig::new().with_lp_algorithm(algorithm);
+            assert_eq!(
+                lp_optimizer_flags(&config)
+                    .expect("supported LP algorithm should be accepted")
+                    .map(CStr::to_str)
+                    .transpose()
+                    .expect("algorithm flags should be UTF-8"),
+                expected_flag,
+                "unexpected optimizer flags for {algorithm:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn maps_barrier_crossover_modes_to_xpress_control_values() {
+        assert_eq!(
+            lp_crossover_setting(&SolverConfig::new().with_lp_algorithm(LpAlgorithm::Barrier)),
+            Some(0)
+        );
+        assert_eq!(
+            lp_crossover_setting(
+                &SolverConfig::new().with_lp_algorithm(LpAlgorithm::BarrierWithCrossover)
+            ),
+            Some(1)
+        );
+        assert_eq!(lp_crossover_setting(&SolverConfig::new()), None);
+    }
+
+    #[test]
+    fn rejects_unsupported_xpress_lp_algorithm() {
+        let config = SolverConfig::new().with_lp_algorithm(LpAlgorithm::PrimalDualFirstOrder);
+        let error = lp_optimizer_flags(&config)
+            .expect_err("unsupported LP algorithm should be rejected before solving");
+
+        assert!(matches!(
+            error,
+            SolverError::InvalidSettings(message)
+                if message.contains("primal_dual_first_order")
+                    && message.contains("Xpress backend")
         ));
     }
 

@@ -1,5 +1,5 @@
 use arco_model::{Bounds, Constraint, Model, Objective, Sense, Variable};
-use arco_solver::{SolverConfig, SolverError, check_small_lp, check_small_milp};
+use arco_solver::{LpAlgorithm, SolverConfig, SolverError, check_small_lp, check_small_milp};
 use arco_xpress::{Solver, XpressModelViewBackend, detect_xpress_dir};
 use std::path::PathBuf;
 
@@ -84,6 +84,33 @@ fn model_view_shared_small_milp_conformance_with_local_xpress_install() {
     assert_eq!(report.variables, 1);
     assert_eq!(report.constraints, 1);
     assert_eq!(report.coefficients, 1);
+}
+
+#[test]
+fn model_view_solves_with_selected_lp_algorithms() {
+    let Some(_xpress_dir) = local_xpress_dir() else {
+        return;
+    };
+
+    let backend = XpressModelViewBackend;
+    for algorithm in [
+        LpAlgorithm::PrimalSimplex,
+        LpAlgorithm::DualSimplex,
+        LpAlgorithm::Barrier,
+    ] {
+        let config = SolverConfig::new()
+            .with_log_to_console(false)
+            .with_lp_algorithm(algorithm);
+        match check_small_lp(&backend, &config) {
+            Ok(report) => assert_close(report.objective_value, 2.0),
+            Err(SolverError::SolverSpecific(message))
+                if message.contains("Xpress license initialization failed") =>
+            {
+                return;
+            }
+            Err(error) => panic!("xpress {algorithm:?} LP solve succeeds: {error:?}"),
+        }
+    }
 }
 
 #[test]

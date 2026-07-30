@@ -7,12 +7,13 @@ use arco_format::{
 };
 use arco_model::{ModelView, VariableId};
 use arco_solver::{
-    ModelViewBackend, ModelViewSolveResult, SolverCapabilityModel, SolverConfig, SolverError,
-    SolverFamily, SolverRegistry, SolverStatus, validate_model_view_solve_result,
+    LpAlgorithm, ModelViewBackend, ModelViewSolveResult, SolverCapabilityModel, SolverConfig,
+    SolverError, SolverFamily, SolverRegistry, SolverStatus, validate_model_view_solve_result,
 };
 use russcip::{Model, ProblemOrSolving, Solution, Status, VarType, WithSolutions};
 use std::collections::BTreeMap;
 use std::fmt;
+use std::os::raw::c_char;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 const SCIP_INFINITY: f64 = 1.0e20;
@@ -223,6 +224,7 @@ pub struct NativeSolveOptions {
     pub threads: Option<u32>,
     pub tolerance: Option<f64>,
     pub verbosity: Option<u32>,
+    pub lp_algorithm: Option<LpAlgorithm>,
 }
 
 impl NativeSolveOptions {
@@ -245,6 +247,9 @@ impl NativeSolveOptions {
         }
         if config.verbosity.is_some() {
             options.verbosity = config.verbosity;
+        }
+        if config.lp_algorithm.is_some() {
+            options.lp_algorithm = config.lp_algorithm;
         }
         options
     }
@@ -341,6 +346,19 @@ fn solve_problem_native(
                 message: format!("failed to set SCIP verbosity: {source:?}"),
             })?;
     }
+    if let Some(algorithm) = options.lp_algorithm {
+        let native_algorithm = scip_lp_algorithm(algorithm)?;
+        model = model
+            .set_char_param("lp/initalgorithm", native_algorithm)
+            .map_err(|source| Error::Process {
+                message: format!("failed to set SCIP initial LP algorithm: {source:?}"),
+            })?;
+        model = model
+            .set_char_param("lp/resolvealgorithm", native_algorithm)
+            .map_err(|source| Error::Process {
+                message: format!("failed to set SCIP resolve LP algorithm: {source:?}"),
+            })?;
+    }
 
     let mut variables = Vec::with_capacity(problem.portable.variable_instances.len());
     let mut variable_indices = BTreeMap::new();
@@ -415,6 +433,23 @@ fn solve_problem_native(
         report_values,
         variable_values,
     })
+}
+
+fn scip_lp_algorithm(algorithm: LpAlgorithm) -> Result<c_char, Error> {
+    match algorithm {
+        LpAlgorithm::Automatic => Ok(b's' as c_char),
+        LpAlgorithm::PrimalSimplex => Ok(b'p' as c_char),
+        LpAlgorithm::DualSimplex => Ok(b'd' as c_char),
+        LpAlgorithm::Barrier => Ok(b'b' as c_char),
+        LpAlgorithm::BarrierWithCrossover => Ok(b'c' as c_char),
+        LpAlgorithm::PrimalDualFirstOrder => Err(Error::Process {
+            message: "lp_algorithm 'primal_dual_first_order' is not supported by the SCIP backend"
+                .to_string(),
+        }),
+        LpAlgorithm::Concurrent => Err(Error::Process {
+            message: "lp_algorithm 'concurrent' is not supported by the SCIP backend".to_string(),
+        }),
+    }
 }
 
 fn validate_native_options(options: &NativeSolveOptions) -> Result<(), Error> {
@@ -583,6 +618,53 @@ mod tests {
 
         let error = validate_native_options(&options).expect_err("NaN time limit should fail");
         assert!(error.to_string().contains("time_limit"));
+    }
+
+    #[test]
+    fn maps_lp_algorithms_to_scip_character_controls() {
+        for (algorithm, expected) in [
+            (LpAlgorithm::Automatic, b's' as c_char),
+            (LpAlgorithm::PrimalSimplex, b'p' as c_char),
+            (LpAlgorithm::DualSimplex, b'd' as c_char),
+            (LpAlgorithm::Barrier, b'b' as c_char),
+            (LpAlgorithm::BarrierWithCrossover, b'c' as c_char),
+        ] {
+            assert_eq!(
+                scip_lp_algorithm(algorithm).expect("algorithm should be supported"),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_scip_lp_algorithms() {
+        for algorithm in [LpAlgorithm::PrimalDualFirstOrder, LpAlgorithm::Concurrent] {
+            let error =
+                scip_lp_algorithm(algorithm).expect_err("unsupported algorithm should be rejected");
+            assert!(
+                error
+                    .to_string()
+                    .contains("not supported by the SCIP backend")
+            );
+        }
+    }
+
+    #[test]
+    fn model_view_solves_with_selected_lp_algorithms() {
+        let backend = ScipModelViewBackend;
+        for algorithm in [
+            LpAlgorithm::PrimalSimplex,
+            LpAlgorithm::DualSimplex,
+            LpAlgorithm::Barrier,
+            LpAlgorithm::BarrierWithCrossover,
+        ] {
+            let config = SolverConfig::new()
+                .with_log_to_console(false)
+                .with_lp_algorithm(algorithm);
+            let report = arco_solver::check_small_lp(&backend, &config)
+                .unwrap_or_else(|error| panic!("SCIP should solve with {algorithm:?}: {error}"));
+            assert!((report.objective_value - 2.0).abs() < 1e-9);
+        }
     }
 
     #[test]

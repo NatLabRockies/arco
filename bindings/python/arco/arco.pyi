@@ -120,6 +120,15 @@ class SimplifyLevel(Enum):
     NONE: SimplifyLevel
     LIGHT: SimplifyLevel
 
+class LpAlgorithm(Enum):
+    AUTOMATIC: LpAlgorithm
+    PRIMAL_SIMPLEX: LpAlgorithm
+    DUAL_SIMPLEX: LpAlgorithm
+    BARRIER: LpAlgorithm
+    BARRIER_WITH_CROSSOVER: LpAlgorithm
+    PRIMAL_DUAL_FIRST_ORDER: LpAlgorithm
+    CONCURRENT: LpAlgorithm
+
 class SolutionStatus(Enum):
     OPTIMAL: SolutionStatus
     INFEASIBLE: SolutionStatus
@@ -170,6 +179,7 @@ class Solver:
         mip_gap: float | None = None,
         verbosity: int | None = None,
         log_to_console: bool | None = None,
+        lp_algorithm: LpAlgorithm | None = None,
         parameters: Mapping[str, str] | None = None,
         solver: str | None = None,
     ) -> None: ...
@@ -187,10 +197,14 @@ class Solver:
     def verbosity(self) -> int | None: ...
     @property
     def log_to_console(self) -> bool | None: ...
+    @property
+    def lp_algorithm(self) -> LpAlgorithm | None: ...
     def copy(
         self,
         *,
-        update: Mapping[str, bool | int | float | str | Mapping[str, str] | None]
+        update: Mapping[
+            str, bool | int | float | str | LpAlgorithm | Mapping[str, str] | None
+        ]
         | None = None,
     ) -> Solver: ...
 
@@ -228,6 +242,7 @@ class HiGHS(Solver):
         mip_gap: float | None = None,
         verbosity: int | None = None,
         log_to_console: bool | None = None,
+        lp_algorithm: LpAlgorithm | None = None,
         parameters: Mapping[str, str] | None = None,
         solver: str | None = None,
     ) -> None: ...
@@ -248,6 +263,7 @@ class Xpress(Solver):
         mip_gap: float | None = None,
         verbosity: int | None = None,
         log_to_console: bool | None = None,
+        lp_algorithm: LpAlgorithm | None = None,
         parameters: Mapping[str, str] | None = None,
         solver: str | None = None,
     ) -> None: ...
@@ -263,6 +279,7 @@ class Scip(Solver):
         mip_gap: float | None = None,
         verbosity: int | None = None,
         log_to_console: bool | None = None,
+        lp_algorithm: LpAlgorithm | None = None,
         parameters: Mapping[str, str] | None = None,
         solver: str | None = None,
     ) -> None: ...
@@ -849,6 +866,7 @@ class Model:
         time_limit: float | None = None,
         mip_gap: float | None = None,
         verbosity: int | None = None,
+        lp_algorithm: LpAlgorithm | None = None,
     ) -> SolveResult: ...
     def inspect(
         self,

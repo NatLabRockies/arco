@@ -2,7 +2,7 @@
 
 use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
 use arco_solver::{
-    ModelViewBackend, ModelViewSolveResult, SolverConfig, SolverStatus,
+    LpAlgorithm, ModelViewBackend, ModelViewSolveResult, SolverConfig, SolverStatus,
     validate_model_view_solve_result,
 };
 use std::collections::BTreeMap;
@@ -509,11 +509,48 @@ fn apply_direct_solver_config(
         highs_model.set_double_option("primal_feasibility_tolerance", tolerance)?;
         highs_model.set_double_option("dual_feasibility_tolerance", tolerance)?;
     }
+    if let Some(algorithm) = config.lp_algorithm {
+        apply_lp_algorithm(highs_model, algorithm)?;
+    }
     for (key, value) in &config.parameters {
         if key.starts_with("arco.") {
             continue;
         }
         highs_model.set_string_option(key.as_str(), value.as_str())?;
+    }
+    Ok(())
+}
+
+fn apply_lp_algorithm(
+    highs_model: &mut DirectHighsModel,
+    algorithm: LpAlgorithm,
+) -> Result<(), SolverError> {
+    match algorithm {
+        LpAlgorithm::Automatic => highs_model.set_string_option("solver", "choose")?,
+        LpAlgorithm::PrimalSimplex => {
+            highs_model.set_string_option("solver", "simplex")?;
+            highs_model.set_int_option("simplex_strategy", 4)?;
+        }
+        LpAlgorithm::DualSimplex => {
+            highs_model.set_string_option("solver", "simplex")?;
+            highs_model.set_int_option("simplex_strategy", 1)?;
+        }
+        LpAlgorithm::Barrier => {
+            highs_model.set_string_option("solver", "ipm")?;
+            highs_model.set_string_option("run_crossover", "off")?;
+        }
+        LpAlgorithm::BarrierWithCrossover => {
+            highs_model.set_string_option("solver", "ipm")?;
+            highs_model.set_string_option("run_crossover", "on")?;
+        }
+        LpAlgorithm::PrimalDualFirstOrder => {
+            highs_model.set_string_option("solver", "pdlp")?;
+        }
+        LpAlgorithm::Concurrent => {
+            return Err(SolverError::InvalidSettings(
+                "lp_algorithm 'concurrent' is not supported by the HiGHS backend".to_string(),
+            ));
+        }
     }
     Ok(())
 }

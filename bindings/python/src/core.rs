@@ -413,7 +413,8 @@ mod py_exports;
 use py_exports::{
     BoundsSpec, PyBlockHandle, PyBlockPorts, PyBlockResults, PyBounds, PyComparisonSense,
     PyConstraint, PyConstraintArray, PyConstraintExpr, PyElasticHandle, PyExpr, PyExprArray,
-    PyIndexSet, PyModelSnapshot, PySense, PySimplifyLevel, PySlackVariable, PyVariable,
+    PyIndexSet, PyLpAlgorithm, PyModelSnapshot, PySense, PySimplifyLevel, PySlackVariable,
+    PyVariable,
     PyVariableArray, SolverSettings,
 };
 
@@ -1056,8 +1057,9 @@ impl PyModel {
     /// Optional solver controls include `time_limit`, `mip_gap`, and `verbosity`.
     /// Pass `solver=arco.Xpress()` to use FICO Xpress instead of the default HiGHS solver.
     #[pyo3(
-        signature = (*, solver=None, log_to_console=None, primal_start=None, time_limit=None, mip_gap=None, verbosity=None)
+        signature = (*, solver=None, log_to_console=None, primal_start=None, time_limit=None, mip_gap=None, verbosity=None, lp_algorithm=None)
     )]
+    #[allow(clippy::too_many_arguments)]
     fn solve(
         &mut self,
         py: Python<'_>,
@@ -1067,6 +1069,7 @@ impl PyModel {
         time_limit: Option<f64>,
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
+        lp_algorithm: Option<PyLpAlgorithm>,
     ) -> PyResult<Py<PySolveResult>> {
         if primal_start
             .as_ref()
@@ -1087,6 +1090,7 @@ impl PyModel {
                 time_limit,
                 mip_gap,
                 verbosity,
+                lp_algorithm,
             );
         }
 
@@ -1106,6 +1110,10 @@ impl PyModel {
                 if let Some(v) = verbosity {
                     settings.verbosity = Some(v);
                 }
+                if let Some(algorithm) = lp_algorithm {
+                    settings.set_lp_algorithm(algorithm);
+                }
+                pym::solver::validate_backend_settings("ipopt", &settings)?;
                 let _ = time_limit;
                 let _ = mip_gap;
                 let solver = pym::solver::PySolver { settings };
@@ -1124,6 +1132,7 @@ impl PyModel {
             time_limit,
             mip_gap,
             verbosity,
+            lp_algorithm,
         )?;
         self.last_solution = Some(py_result.clone_ref(py));
         Ok(py_result)
@@ -1610,8 +1619,17 @@ mod tests {
 
     #[test]
     fn solver_settings_rejects_zero_threads() {
-        let result =
-            SolverSettings::new(None, Some(0), None, None, None, None, None, BTreeMap::new());
+        let result = SolverSettings::new(
+            None,
+            Some(0),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            BTreeMap::new(),
+        );
         assert!(result.is_err());
     }
 
@@ -1621,6 +1639,7 @@ mod tests {
             None,
             None,
             Some(-0.5),
+            None,
             None,
             None,
             None,
@@ -1640,6 +1659,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             BTreeMap::new(),
         );
         assert!(result.is_err());
@@ -1655,6 +1675,7 @@ mod tests {
             Some(-0.1),
             None,
             None,
+            None,
             BTreeMap::new(),
         );
         assert!(result.is_err());
@@ -1662,7 +1683,17 @@ mod tests {
 
     #[test]
     fn solver_settings_accepts_defaults() {
-        let result = SolverSettings::new(None, None, None, None, None, None, None, BTreeMap::new());
+        let result = SolverSettings::new(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            BTreeMap::new(),
+        );
         assert!(result.is_ok());
     }
 }

@@ -116,15 +116,16 @@ This is equivalent to constructing an `arco.HiGHS(...)` and passing it via the
 All settings return `None` when not explicitly set, in which case the solver
 backend uses its own default.
 
-| Setting          | Type    | Description                                                       |
-| ---------------- | ------- | ----------------------------------------------------------------- |
-| `presolve`       | `bool`  | Enable or disable the presolve phase.                             |
-| `threads`        | `int`   | Number of threads the solver may use.                             |
-| `tolerance`      | `float` | Feasibility tolerance for primal and dual values.                 |
-| `time_limit`     | `float` | Maximum wall-clock seconds the solver may run.                    |
-| `mip_gap`        | `float` | Relative MIP optimality gap at which the solver stops.            |
-| `verbosity`      | `int`   | Solver output verbosity level (backend-specific scale).           |
-| `log_to_console` | `bool`  | Whether the solver prints progress to the console during a solve. |
+| Setting          | Type          | Description                                                       |
+| ---------------- | ------------- | ----------------------------------------------------------------- |
+| `presolve`       | `bool`        | Enable or disable the presolve phase.                             |
+| `threads`        | `int`         | Number of threads the solver may use.                             |
+| `tolerance`      | `float`       | Feasibility tolerance for primal and dual values.                 |
+| `time_limit`     | `float`       | Maximum wall-clock seconds the solver may run.                    |
+| `mip_gap`        | `float`       | Relative MIP optimality gap at which the solver stops.            |
+| `verbosity`      | `int`         | Solver output verbosity level (backend-specific scale).           |
+| `log_to_console` | `bool`        | Whether the solver prints progress to the console during a solve. |
+| `lp_algorithm`   | `LpAlgorithm` | Solver-independent LP algorithm preference.                       |
 
 > [!NOTE]
 > Not every backend interprets every setting. Arco validates shared settings at
@@ -135,6 +136,40 @@ backend uses its own default.
 > `threads` must be at least `1`. Invalid values raise
 > `SolverInvalidSettingError` with diagnostic code
 > `arco::solver::invalid_setting`.
+
+## Select an LP algorithm
+
+Use `LpAlgorithm` when you want to select an LP algorithm without encoding a
+backend's native option names:
+
+```python
+import arco
+
+solver = arco.HiGHS(
+    lp_algorithm=arco.LpAlgorithm.BARRIER_WITH_CROSSOVER,
+    log_to_console=False,
+)
+solution = model.solve(solver=solver)
+```
+
+The same setting is available on `arco.HiGHS`, `arco.Xpress`, `arco.Scip`, the
+generic `arco.Solver`, and the one-off `model.solve(lp_algorithm=...)` call.
+Each adapter translates the semantic value into its native settings:
+
+| `LpAlgorithm` value       | HiGHS                                  | Xpress            | SCIP              |
+| ------------------------- | -------------------------------------- | ----------------- | ----------------- |
+| `AUTOMATIC`               | `solver=choose`                        | no optimize flags | `lp/*algorithm=s` |
+| `PRIMAL_SIMPLEX`          | `solver=simplex`, `simplex_strategy=4` | `p` flag          | `lp/*algorithm=p` |
+| `DUAL_SIMPLEX`            | `solver=simplex`, `simplex_strategy=1` | `d` flag          | `lp/*algorithm=d` |
+| `BARRIER`                 | `solver=ipm`, `run_crossover=off`      | `b` flag          | `lp/*algorithm=b` |
+| `BARRIER_WITH_CROSSOVER`  | `solver=ipm`, `run_crossover=on`       | `b` flag          | `lp/*algorithm=c` |
+| `PRIMAL_DUAL_FIRST_ORDER` | `solver=pdlp`                          | unsupported       | unsupported       |
+| `CONCURRENT`              | unsupported                            | `pdb` flags       | unsupported       |
+
+A backend that cannot represent a selected algorithm raises
+`SolverInvalidSettingError`; it does not silently substitute another method.
+For MIPs, the setting controls LP relaxations according to each solver's native
+semantics.
 
 ## Xpress (LP / MIP solver)
 
@@ -366,15 +401,16 @@ solution = model.solve(solver=selection, log_to_console=False)
 
 ### Settings mapping
 
-| Setting          | Xpress control    | Notes                                           |
-| ---------------- | ----------------- | ----------------------------------------------- |
-| `time_limit`     | `XPRS_MAXTIME`    |                                                 |
-| `mip_gap`        | `XPRS_MIPRELSTOP` |                                                 |
-| `tolerance`      | `XPRS_FEASTOL`    |                                                 |
-| `presolve`       | `XPRS_PRESOLVE`   | 1 = on, 0 = off                                 |
-| `threads`        | `XPRS_THREADS`    |                                                 |
-| `log_to_console` | `XPRS_OUTPUTLOG`  | 1 = on, 0 = off                                 |
-| `verbosity`      | --                | Unsupported; raises `SolverInvalidSettingError` |
+| Setting          | Xpress control                     | Notes                                           |
+| ---------------- | ---------------------------------- | ----------------------------------------------- |
+| `time_limit`     | `XPRS_MAXTIME`                     |                                                 |
+| `mip_gap`        | `XPRS_MIPRELSTOP`                  |                                                 |
+| `tolerance`      | `XPRS_FEASTOL`                     |                                                 |
+| `presolve`       | `XPRS_PRESOLVE`                    | 1 = on, 0 = off                                 |
+| `threads`        | `XPRS_THREADS`                     |                                                 |
+| `log_to_console` | `XPRS_OUTPUTLOG`                   | 1 = on, 0 = off                                 |
+| `verbosity`      | --                                 | Unsupported; raises `SolverInvalidSettingError` |
+| `lp_algorithm`   | optimizer flags + `XPRS_CROSSOVER` | Uses the shared mapping documented above.       |
 
 ## SCIP (embedded native LP / MIP solver)
 
@@ -425,21 +461,23 @@ solution = model.solve(solver=selection, log_to_console=False)
 
 ### Settings mapping
 
-| Setting          | SCIP handling          | Notes                                               |
-| ---------------- | ---------------------- | --------------------------------------------------- |
-| `time_limit`     | `set limits/time`      | From profile or Python settings                     |
-| `mip_gap`        | `set limits/gap`       | From profile or Python settings                     |
-| `log_to_console` | SCIP output toggle     | `false` keeps logs quiet                            |
-| `presolve`       | `presolving/maxrounds` | `false` disables presolve; `true` uses SCIP default |
-| `threads`        | `parallel/maxnthreads` |                                                     |
-| `tolerance`      | `numerics/feastol`     | Feasibility tolerance                               |
-| `verbosity`      | `display/verblevel`    | SCIP verbosity level                                |
+| Setting          | SCIP handling                              | Notes                                               |
+| ---------------- | ------------------------------------------ | --------------------------------------------------- |
+| `time_limit`     | `set limits/time`                          | From profile or Python settings                     |
+| `mip_gap`        | `set limits/gap`                           | From profile or Python settings                     |
+| `log_to_console` | SCIP output toggle                         | `false` keeps logs quiet                            |
+| `presolve`       | `presolving/maxrounds`                     | `false` disables presolve; `true` uses SCIP default |
+| `threads`        | `parallel/maxnthreads`                     |                                                     |
+| `tolerance`      | `numerics/feastol`                         | Feasibility tolerance                               |
+| `verbosity`      | `display/verblevel`                        | SCIP verbosity level                                |
+| `lp_algorithm`   | `lp/initalgorithm` + `lp/resolvealgorithm` | Shared mapping above                                |
 
 ## IPOPT (nonlinear / continuous solver)
 
 The IPOPT backend is available when Arco is built with the `ipopt` feature flag.
 IPOPT is a continuous-only solver -- it does not support integer or binary
 variables. Passing a model that contains integer variables will raise an error.
+IPOPT does not expose the shared `lp_algorithm` setting.
 
 > [!IMPORTANT]
 > Building with IPOPT requires the IPOPT C library to be installed on the

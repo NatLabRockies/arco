@@ -16,7 +16,7 @@ use scip_sys::{
     SCIP_SOL, SCIP_Var, Scip,
 };
 use std::collections::BTreeMap;
-use std::ffi::{CStr, CString, c_int};
+use std::ffi::{CStr, CString, c_char, c_int};
 use std::mem::MaybeUninit;
 use std::rc::Rc;
 
@@ -72,6 +72,12 @@ impl ScipPtr {
     pub(crate) fn set_bool_param(&self, param: &str, value: bool) -> Result<(), Retcode> {
         let param = CString::new(param).unwrap();
         scip_call! { ffi::SCIPsetBoolParam(self.raw, param.as_ptr(), if value { 1u32 } else { 0u32 }) };
+        Ok(())
+    }
+
+    pub(crate) fn set_char_param(&self, param: &str, value: c_char) -> Result<(), Retcode> {
+        let param = CString::new(param).map_err(|_| Retcode::InvalidData)?;
+        scip_call! { ffi::SCIPsetCharParam(self.raw, param.as_ptr(), value) };
         Ok(())
     }
 

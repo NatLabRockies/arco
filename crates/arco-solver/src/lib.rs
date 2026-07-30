@@ -16,7 +16,7 @@ mod traits;
 mod types;
 
 pub use backend::SolverBackend as GenericSolverBackend;
-pub use config::SolverConfig;
+pub use config::{LpAlgorithm, SolverConfig};
 pub use conformance::{
     BackendConformanceReport, check_empty_model_rejected, check_no_objective_rejected,
     check_small_lp, check_small_milp, small_lp_model, small_milp_model,

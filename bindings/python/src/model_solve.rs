@@ -1,3 +1,4 @@
+use crate::py_modules::enums::PyLpAlgorithm;
 use crate::py_modules::errors;
 use crate::py_modules::solver::{
     SolveOverrides, detect_default_backend, extract_solver_settings, solve_failure_solution,
@@ -11,6 +12,7 @@ use arco_solver::{
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn solve_model(
     model: &mut PyModel,
     py: Python<'_>,
@@ -20,6 +22,7 @@ pub(crate) fn solve_model(
     time_limit: Option<f64>,
     mip_gap: Option<f64>,
     verbosity: Option<u32>,
+    lp_algorithm: Option<PyLpAlgorithm>,
 ) -> PyResult<Py<PySolveResult>> {
     if model.inner.num_variables() == 0 {
         return Err(errors::generic_solver_error_to_py(SolverError::EmptyModel));
@@ -42,7 +45,10 @@ pub(crate) fn solve_model(
     } else {
         model.solver_settings.clone()
     };
-    let effective_settings = effective_settings.with_overrides(overrides)?;
+    let mut effective_settings = effective_settings.with_overrides(overrides)?;
+    if let Some(lp_algorithm) = lp_algorithm {
+        effective_settings.set_lp_algorithm(lp_algorithm);
+    }
     validate_backend_settings(&selected_backend, &effective_settings)?;
     if selected_backend == "xpress" && !crate::py_modules::solver::xpress_backend_enabled() {
         return Err(errors::generic_solver_error_to_py(SolverError::SolverNotAvailable(

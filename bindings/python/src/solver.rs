@@ -1,5 +1,6 @@
 //! Python wrappers for solver configuration and instances.
 
+use crate::py_modules::enums::PyLpAlgorithm;
 use crate::py_modules::errors::SolverInvalidSettingError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -27,6 +28,7 @@ pub struct SolverSettings {
     pub(crate) mip_gap: Option<f64>,
     pub(crate) verbosity: Option<u32>,
     pub(crate) log_to_console: Option<bool>,
+    pub(crate) lp_algorithm: Option<PyLpAlgorithm>,
     pub(crate) parameters: SolverParameters,
 }
 
@@ -40,6 +42,7 @@ impl SolverSettings {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         presolve: Option<bool>,
         threads: Option<u32>,
@@ -48,6 +51,7 @@ impl SolverSettings {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        lp_algorithm: Option<PyLpAlgorithm>,
         parameters: SolverParameters,
     ) -> PyResult<Self> {
         if let Some(threads) = threads {
@@ -72,8 +76,13 @@ impl SolverSettings {
             mip_gap,
             verbosity,
             log_to_console,
+            lp_algorithm,
             parameters,
         })
+    }
+
+    pub fn set_lp_algorithm(&mut self, algorithm: PyLpAlgorithm) {
+        self.lp_algorithm = Some(algorithm);
     }
 
     pub fn with_overrides(&self, overrides: SolveOverrides) -> PyResult<Self> {
@@ -85,6 +94,7 @@ impl SolverSettings {
             overrides.mip_gap.or(self.mip_gap),
             overrides.verbosity.or(self.verbosity),
             overrides.log_to_console.or(self.log_to_console),
+            self.lp_algorithm,
             self.parameters.clone(),
         )
     }
@@ -113,6 +123,9 @@ impl SolverSettings {
         if let Some(log_to_console) = self.log_to_console {
             config = config.with_log_to_console(log_to_console);
         }
+        if let Some(lp_algorithm) = self.lp_algorithm {
+            config = config.with_lp_algorithm(lp_algorithm.into());
+        }
         for (key, value) in &self.parameters {
             config = config.with_parameter(key.clone(), value.clone());
         }
@@ -126,16 +139,24 @@ pub fn validate_backend_settings(backend: &str, settings: &SolverSettings) -> Py
             "verbosity is not supported by the Xpress backend",
         ));
     }
+    if backend == "ipopt" && settings.lp_algorithm.is_some() {
+        return Err(SolverInvalidSettingError::new_err(
+            "lp_algorithm is not supported by the IPOPT backend",
+        ));
+    }
     Ok(())
 }
 
-fn extract_optional<T: for<'a, 'py> FromPyObject<'a, 'py, Error = PyErr>>(
+fn extract_optional<T: for<'a, 'py> FromPyObject<'a, 'py>>(
     value: &Bound<'_, PyAny>,
-) -> PyResult<Option<T>> {
+) -> PyResult<Option<T>>
+where
+    for<'a, 'py> <T as FromPyObject<'a, 'py>>::Error: Into<PyErr>,
+{
     if value.is_none() {
         return Ok(None);
     }
-    value.extract().map(Some)
+    value.extract().map(Some).map_err(Into::into)
 }
 
 fn merge_solver_parameter(
@@ -167,6 +188,7 @@ pub(crate) fn apply_solver_updates(
             "mip_gap" => settings.mip_gap = extract_optional(&value)?,
             "verbosity" => settings.verbosity = extract_optional(&value)?,
             "log_to_console" => settings.log_to_console = extract_optional(&value)?,
+            "lp_algorithm" => settings.lp_algorithm = extract_optional(&value)?,
             "parameters" => settings.parameters = value.extract()?,
             "solver" => {
                 let value: Option<String> = extract_optional(&value)?;
@@ -191,13 +213,14 @@ pub(crate) fn apply_solver_updates(
         settings.mip_gap,
         settings.verbosity,
         settings.log_to_console,
+        settings.lp_algorithm,
         settings.parameters,
     )
 }
 
 fn solver_repr(label: &str, settings: &SolverSettings) -> String {
     format!(
-        "{label}(presolve={:?}, threads={:?}, tolerance={:?}, time_limit={:?}, mip_gap={:?}, verbosity={:?}, log_to_console={:?}, parameters={:?})",
+        "{label}(presolve={:?}, threads={:?}, tolerance={:?}, time_limit={:?}, mip_gap={:?}, verbosity={:?}, log_to_console={:?}, lp_algorithm={:?}, parameters={:?})",
         settings.presolve,
         settings.threads,
         settings.tolerance,
@@ -205,6 +228,7 @@ fn solver_repr(label: &str, settings: &SolverSettings) -> String {
         settings.mip_gap,
         settings.verbosity,
         settings.log_to_console,
+        settings.lp_algorithm,
         settings.parameters,
     )
 }
@@ -308,7 +332,7 @@ impl PySolverProfile {
 impl PySolver {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, lp_algorithm=None, parameters=None, solver=None)
     )]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -319,6 +343,7 @@ impl PySolver {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        lp_algorithm: Option<PyLpAlgorithm>,
         parameters: Option<SolverParameters>,
         solver: Option<String>,
     ) -> PyResult<Self> {
@@ -330,6 +355,7 @@ impl PySolver {
             mip_gap,
             verbosity,
             log_to_console,
+            lp_algorithm,
             merge_solver_parameter(parameters, solver),
         )?;
         Ok(Self { settings })
@@ -370,6 +396,11 @@ impl PySolver {
         self.settings.log_to_console
     }
 
+    #[getter]
+    fn lp_algorithm(&self) -> Option<PyLpAlgorithm> {
+        self.settings.lp_algorithm
+    }
+
     #[pyo3(signature = (*, update=None))]
     fn copy(&self, py: Python<'_>, update: Option<&Bound<'_, PyDict>>) -> PyResult<Py<Self>> {
         let settings = apply_solver_updates(self.settings.clone(), update)?;
@@ -389,7 +420,7 @@ pub struct PyHiGHS;
 impl PyHiGHS {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, lp_algorithm=None, parameters=None, solver=None)
     )]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -400,6 +431,7 @@ impl PyHiGHS {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        lp_algorithm: Option<PyLpAlgorithm>,
         parameters: Option<SolverParameters>,
         solver: Option<String>,
     ) -> PyResult<PyClassInitializer<Self>> {
@@ -411,6 +443,7 @@ impl PyHiGHS {
             mip_gap,
             verbosity,
             log_to_console,
+            lp_algorithm,
             merge_solver_parameter(parameters, solver),
         )?;
         Ok(PyClassInitializer::from(PySolver { settings }).add_subclass(PyHiGHS))
@@ -442,7 +475,7 @@ pub struct PyXpress;
 impl PyXpress {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, lp_algorithm=None, parameters=None, solver=None)
     )]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -453,6 +486,7 @@ impl PyXpress {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        lp_algorithm: Option<PyLpAlgorithm>,
         parameters: Option<SolverParameters>,
         solver: Option<String>,
     ) -> PyResult<PyClassInitializer<Self>> {
@@ -464,6 +498,7 @@ impl PyXpress {
             mip_gap,
             verbosity,
             log_to_console,
+            lp_algorithm,
             merge_solver_parameter(parameters, solver),
         )?;
         validate_backend_settings("xpress", &settings)?;
@@ -497,7 +532,7 @@ pub struct PyScip;
 impl PyScip {
     #[new]
     #[pyo3(
-        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, parameters=None, solver=None)
+        signature = (*, presolve=None, threads=None, tolerance=None, time_limit=None, mip_gap=None, verbosity=None, log_to_console=None, lp_algorithm=None, parameters=None, solver=None)
     )]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -508,6 +543,7 @@ impl PyScip {
         mip_gap: Option<f64>,
         verbosity: Option<u32>,
         log_to_console: Option<bool>,
+        lp_algorithm: Option<PyLpAlgorithm>,
         parameters: Option<SolverParameters>,
         solver: Option<String>,
     ) -> PyResult<PyClassInitializer<Self>> {
@@ -519,6 +555,7 @@ impl PyScip {
             mip_gap,
             verbosity,
             log_to_console,
+            lp_algorithm,
             merge_solver_parameter(parameters, solver),
         )?;
         Ok(PyClassInitializer::from(PySolver { settings }).add_subclass(PyScip))
@@ -574,6 +611,7 @@ impl PyIpopt {
             mip_gap,
             verbosity,
             log_to_console,
+            None,
             merge_solver_parameter(parameters, solver),
         )?;
         Ok(PyClassInitializer::from(PySolver { settings }).add_subclass(PyIpopt))

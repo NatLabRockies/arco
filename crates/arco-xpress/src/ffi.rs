@@ -27,6 +27,7 @@ pub(crate) const XPRS_PRESOLVE: c_int = 8011;
 pub(crate) const XPRS_LPLOG: c_int = 8009;
 pub(crate) const XPRS_MIPLOG: c_int = 8028;
 pub(crate) const XPRS_OUTPUTLOG: c_int = 8035;
+pub(crate) const XPRS_CROSSOVER: c_int = 8044;
 
 // Double control indices
 pub(crate) const XPRS_MAXTIME: c_int = 8020;

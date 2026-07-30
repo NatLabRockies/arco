@@ -1,7 +1,9 @@
 pub use crate::py_modules::arrays::{PyConstraintArray, PyExprArray, PyVariableArray};
 pub use crate::py_modules::bounds::{BoundsSpec, PyBounds};
 pub use crate::py_modules::constraint::PyConstraint;
-pub use crate::py_modules::enums::{PyComparisonSense, PySense, PySimplifyLevel};
+pub use crate::py_modules::enums::{
+    PyComparisonSense, PyLpAlgorithm, PySense, PySimplifyLevel,
+};
 pub use crate::py_modules::expr::{PyConstraintExpr, PyExpr};
 pub(crate) use crate::py_modules::handles::PyElasticHandle;
 pub use crate::py_modules::index_set::PyIndexSet;
