@@ -1111,7 +1111,7 @@ impl PyModel {
                     settings.verbosity = Some(v);
                 }
                 if let Some(algorithm) = lp_algorithm {
-                    settings.lp_algorithm = Some(algorithm);
+                    settings.set_lp_algorithm(algorithm);
                 }
                 pym::solver::validate_backend_settings("ipopt", &settings)?;
                 let _ = time_limit;

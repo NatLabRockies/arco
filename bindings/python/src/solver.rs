@@ -81,6 +81,10 @@ impl SolverSettings {
         })
     }
 
+    pub fn set_lp_algorithm(&mut self, algorithm: PyLpAlgorithm) {
+        self.lp_algorithm = Some(algorithm);
+    }
+
     pub fn with_overrides(&self, overrides: SolveOverrides) -> PyResult<Self> {
         Self::new(
             self.presolve,

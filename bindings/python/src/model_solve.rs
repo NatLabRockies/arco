@@ -47,7 +47,7 @@ pub(crate) fn solve_model(
     };
     let mut effective_settings = effective_settings.with_overrides(overrides)?;
     if let Some(lp_algorithm) = lp_algorithm {
-        effective_settings.lp_algorithm = Some(lp_algorithm);
+        effective_settings.set_lp_algorithm(lp_algorithm);
     }
     validate_backend_settings(&selected_backend, &effective_settings)?;
     if selected_backend == "xpress" && !crate::py_modules::solver::xpress_backend_enabled() {
