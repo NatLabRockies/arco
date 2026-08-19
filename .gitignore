@@ -578,6 +578,7 @@ bindings/python/licenses/
 
 # Local agent scratch space
 .opencode/
+PAPERCUTS.md
 
 # Local one-off plan notes (keep repo plans tracked)
 docs/plan*

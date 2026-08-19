@@ -269,8 +269,8 @@ pub struct FormatResult {
 }
 
 /// Render a primitive model view as LP text.
-pub(crate) fn write_model_view_lp(
-    model: &impl ModelView,
+pub fn write_model_view_lp(
+    model: &(impl ModelView + ?Sized),
     writer: &mut dyn Write,
 ) -> Result<(), ExportError> {
     let portable = portable_problem_from_model_view(model);

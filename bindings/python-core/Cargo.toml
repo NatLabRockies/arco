@@ -16,6 +16,7 @@ pyo3-macros = { workspace = true }
 arco-arrays = { workspace = true }
 arco-blocks = { workspace = true }
 arco-diagnostics = { workspace = true }
+arco-format = { workspace = true, default-features = false }
 arco-highs = { workspace = true }
 arco-model = { workspace = true, default-features = false }
 arco-ops = { workspace = true, optional = true }

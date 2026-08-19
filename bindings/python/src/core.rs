@@ -17,6 +17,7 @@ use arco_model::{
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyType};
+use std::path::PathBuf;
 
 macro_rules! wrap_pyfunction {
     ($function:path, $py_or_module:expr) => {{
@@ -1321,6 +1322,11 @@ impl PyModel {
     /// - shape: tuple (num_constraints, num_variables)
     fn export_coo(&self, py: Python<'_>) -> PyResult<PyObject> {
         pym::model_inspect::export_coo(self, py)
+    }
+
+    /// Write the primitive model as UTF-8 LP text.
+    fn write_lp(&self, path: PathBuf) -> PyResult<()> {
+        pym::model_inspect::write_lp(self, &path)
     }
 
     /// Inspect the model structure and return a snapshot.

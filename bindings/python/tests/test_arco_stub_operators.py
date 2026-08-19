@@ -180,6 +180,7 @@ def test_model_stub_exposes_expert_sparse_apis_without_internal_columns() -> Non
         "def export_csc(self) -> CscExport: ...",
         "def export_crs(self) -> CrsExport: ...",
         "def export_coo(self) -> CooExport: ...",
+        "def write_lp(self, path: str | PathLike[str]) -> None: ...",
     ]
     _assert_signatures_present(
         block=model_block, expected_signatures=expected_signatures

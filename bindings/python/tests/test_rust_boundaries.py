@@ -31,6 +31,7 @@ def test_python_cargo_depends_on_shared_public_contracts_only_among_arco_crates(
     assert {
         "arco-arrays",
         "arco-blocks",
+        "arco-format",
         "arco-highs",
         "arco-model",
         "arco-solver",
