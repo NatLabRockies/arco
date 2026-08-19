@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import numpy as np
+import pytest
 
 import arco
 
@@ -61,6 +63,63 @@ def test_expert_csc_import_export_and_raw_result_accessors() -> None:
         "values": [1.0],
         "shape": (1, 1),
     }
+
+
+def test_model_write_lp_exports_named_mixed_integer_model(tmp_path: Path) -> None:
+    model = arco.Model()
+    continuous = model.add_variable(
+        bounds=arco.Bounds(lower=0.0, upper=10.0), name="continuous"
+    )
+    integer = model.add_variable(
+        bounds=arco.Bounds(lower=-2.0, upper=5.0), is_integer=True, name="integer"
+    )
+    binary = model.add_variable(bounds=arco.Binary, is_binary=True, name="binary")
+    model.add_constraint(continuous + integer + binary >= 3.0, name="demand")
+    model.maximize(3.0 * continuous + integer + binary, name="profit")
+
+    output_path = tmp_path / "model.lp"
+    output_path.write_text("stale output", encoding="utf-8")
+
+    assert model.write_lp(output_path) is None
+    assert model.write_lp(str(output_path)) is None
+
+    output = output_path.read_text(encoding="utf-8")
+    assert output.startswith("\\ Problem name: MODEL\nMaximize\n")
+    assert "  profit: 3 continuous + integer + binary" in output
+    assert "Subject To\n  demand: continuous + integer + binary >= 3" in output
+    assert "  0 <= continuous <= 10" in output
+    assert "  -2 <= integer <= 5" in output
+    assert "  0 <= binary <= 1" in output
+    assert "Generals\n  integer\n" in output
+    assert "Binaries\n  binary\n" in output
+    assert output.endswith("End\n")
+
+
+def test_model_write_lp_uses_generated_names_for_unnamed_objects(
+    tmp_path: Path,
+) -> None:
+    model = arco.Model()
+    variable = model.add_variable(bounds=arco.NonNegativeFloat)
+    model.add_constraint(variable >= 1.0)
+    model.minimize(variable)
+
+    output_path = tmp_path / "generated.lp"
+    model.write_lp(output_path)
+
+    output = output_path.read_text(encoding="utf-8")
+    assert "  obj: x0" in output
+    assert "  c0: x0 >= 1" in output
+    assert "  0 <= x0" in output
+
+
+def test_model_write_lp_reports_output_path_for_io_failures(tmp_path: Path) -> None:
+    model = arco.Model()
+    model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+    model.minimize(model.get_variable(name="x"), name="cost")
+    output_path = tmp_path / "missing" / "model.lp"
+
+    with pytest.raises(OSError, match=str(output_path)):
+        model.write_lp(output_path)
 
 
 def test_expert_raw_objective_requires_keywords() -> None:

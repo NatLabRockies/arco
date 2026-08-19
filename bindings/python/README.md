@@ -2,7 +2,26 @@
 
 The Python package remains in `bindings/python` for path compatibility with existing build, release, and editable-install workflows. Its Rust crate is named `arco-python` and is the Python interaction surface; public Python imports stay under `arco`.
 
-Python-facing solve orchestration is routed through the shared `arco-ops` facade where it overlaps with other interaction surfaces. The public Python API is unchanged.
+Python-facing solve orchestration is routed through the shared `arco-ops` facade where it overlaps with other interaction surfaces. The public Python API remains under `arco`.
+
+Write a Python-built model to LP format with the shared exporter:
+
+```python
+from pathlib import Path
+
+import arco
+
+model = arco.Model()
+x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+model.add_constraint(x >= 1.0, name="minimum")
+model.minimize(x, name="cost")
+
+output_path = Path("model.lp")
+model.write_lp(output_path)
+```
+
+`write_lp` accepts a string or any `os.PathLike[str]`, overwrites the target,
+and returns `None`.
 
 Build and install locally with the repository solver setup:
 
