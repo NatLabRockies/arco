@@ -99,6 +99,9 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'justfile'
+              - 'scripts/build_python_wheel.sh'
+              - 'scripts/test_build_python_wheel.py'
+              - 'scripts/setup_manylinux_native_deps.sh'
               - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/setup_highs_binary_env.sh'
               - 'scripts/setup_scip_binary_env.sh'
@@ -140,6 +143,10 @@ jobs:
               - 'bindings/python/pyproject.toml'
               - 'bindings/python/uv.lock'
               - 'CHANGELOG.md'
+              - 'justfile'
+              - 'scripts/build_python_wheel.sh'
+              - 'scripts/test_build_python_wheel.py'
+              - 'scripts/setup_manylinux_native_deps.sh'
               - 'scripts/check_release_version_metadata.py'
               - 'scripts/ci_cargo_dist_preflight.sh'
               - 'scripts/ci_dist_plan_output.sh'
@@ -757,7 +764,8 @@ jobs:
     needs: [version-consistency, ci-plan]
     if: needs.ci-plan.outputs.release == 'true' || needs.ci-plan.outputs.github_actions == 'true'
     runs-on: ${{ matrix.platform.os }}
-    timeout-minutes: 25
+    container: ${{ matrix.platform.manylinux && 'quay.io/pypa/manylinux_2_28_x86_64@sha256:65140ef21cef92d0c13d001708afd7d304d7a154f7120d039df99dac708f3ffb' || null }} # zizmor: ignore[unpinned-images]
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -770,7 +778,8 @@ jobs:
             wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source"
         platform:
           - label: linux
-            os: ubuntu-latest
+            os: ubuntu-22.04
+            manylinux: true
             wheel_python: python3
           - label: macos-arm64
             os: macos-14
@@ -782,6 +791,16 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+
+      - name: Install Rust in manylinux container
+        if: ${{ matrix.platform.manylinux }}
+        shell: bash
+        run: bash scripts/ci_install_rust_if_missing.sh
+
+      - name: Configure manylinux native dependency builds
+        if: ${{ matrix.platform.manylinux }}
+        shell: bash
+        run: bash scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
 
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
@@ -798,11 +817,27 @@ jobs:
           save-uv-cache: "false"
           save-rust-cache: "false"
 
+      - name: Test wheel build configuration
+        if: ${{ matrix.platform.manylinux && matrix.python.label == 'abi3' }}
+        run: uv run --no-project --with pytest pytest scripts/test_build_python_wheel.py -q
+
       - name: Build wheel and validate import
         env:
+          PYTHON_WHEEL_COMPATIBILITY: ${{ matrix.platform.manylinux && 'manylinux_2_28' || 'pypi' }}
           PYTHON_WHEEL_INTERPRETER: ${{ matrix.platform.wheel_python }}
           PYTHON_WHEEL_FEATURES: ${{ matrix.python.wheel_features }}
         run: just ci-python-release-wheel "dist/*.whl"
+
+      - name: Verify Linux wheel target
+        if: ${{ matrix.platform.manylinux }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          wheels=(dist/*-manylinux_2_28_x86_64.whl)
+          if [[ "${#wheels[@]}" -ne 1 ]]; then
+            echo "expected one manylinux_2_28_x86_64 wheel, found ${#wheels[@]}" >&2
+            exit 1
+          fi
 
       - name: Build sdist
         if: matrix.platform.label == 'linux' && matrix.python.label == 'abi3'

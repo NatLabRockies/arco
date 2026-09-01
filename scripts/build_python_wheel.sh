@@ -3,6 +3,7 @@ set -euo pipefail
 
 main() {
 	local interpreter="${PYTHON_WHEEL_INTERPRETER:-python3}"
+	local compatibility="${PYTHON_WHEEL_COMPATIBILITY:-pypi}"
 	local features="${PYTHON_WHEEL_FEATURES:-}"
 	local no_default_features="${PYTHON_WHEEL_NO_DEFAULT_FEATURES:-}"
 	local build_args=(
@@ -10,7 +11,7 @@ main() {
 		--release
 		--manifest-path bindings/python/Cargo.toml
 		-i "$interpreter"
-		--compatibility pypi
+		--compatibility "$compatibility"
 		--out dist
 	)
 

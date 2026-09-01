@@ -42,7 +42,8 @@ jobs:
   py-build:
     name: Build Python distributions (${{ matrix.platform.label }}, ${{ matrix.python.label }})
     runs-on: ${{ matrix.platform.os }}
-    timeout-minutes: 15
+    container: ${{ matrix.platform.manylinux && 'quay.io/pypa/manylinux_2_28_x86_64@sha256:65140ef21cef92d0c13d001708afd7d304d7a154f7120d039df99dac708f3ffb' || null }} # zizmor: ignore[unpinned-images]
+    timeout-minutes: 30
     permissions:
       contents: write # Required when upload_to_release publishes artifacts to a GitHub Release.
     strategy:
@@ -57,7 +58,8 @@ jobs:
             wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source"
         platform:
           - label: linux
-            os: ubuntu-latest
+            os: ubuntu-22.04
+            manylinux: true
             wheel_python: python3
           - label: macos-arm64
             os: macos-14
@@ -73,6 +75,16 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Install Rust in manylinux container
+        if: ${{ matrix.platform.manylinux }}
+        shell: bash
+        run: bash scripts/ci_install_rust_if_missing.sh
+
+      - name: Configure manylinux native dependency builds
+        if: ${{ matrix.platform.manylinux }}
+        shell: bash
+        run: bash scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
+
       - name: Set up build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -87,6 +99,7 @@ jobs:
       - name: Build wheel
         shell: bash
         env:
+          PYTHON_WHEEL_COMPATIBILITY: ${{ matrix.platform.manylinux && 'manylinux_2_28' || 'pypi' }}
           PYTHON_WHEEL_INTERPRETER: ${{ matrix.platform.wheel_python }}
           PYTHON_WHEEL_FEATURES: ${{ matrix.python.wheel_features }}
         run: |
@@ -96,6 +109,17 @@ jobs:
             just --shell "C:/Program Files/Git/bin/bash.exe" --shell-arg "-eu" --shell-arg "-o" --shell-arg "pipefail" --shell-arg "-c" py-build-release-wheel
           else
             just py-build-release-wheel
+          fi
+
+      - name: Verify Linux wheel target
+        if: ${{ matrix.platform.manylinux }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          wheels=(dist/*-manylinux_2_28_x86_64.whl)
+          if [[ "${#wheels[@]}" -ne 1 ]]; then
+            echo "expected one manylinux_2_28_x86_64 wheel, found ${#wheels[@]}" >&2
+            exit 1
           fi
 
       - name: Build sdist
