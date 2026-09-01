@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -280,7 +280,7 @@ jobs:
         run: bash ./scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         env:
           ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
           ARCO_HIGHS_TARGETS: ${{ join(matrix.targets, ',') }}
@@ -363,7 +363,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -393,7 +393,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -420,7 +420,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -461,7 +461,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -492,7 +492,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -520,7 +520,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -580,7 +580,7 @@ jobs:
         run: bash scripts/ci_install_apt_deps.sh
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -641,7 +641,7 @@ jobs:
           key: ${{ runner.os }}-torc-${{ env.TORC_VERSION }}
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
@@ -733,7 +733,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ matrix.python-version }}
           uv-version: ${{ env.UV_VERSION }}
@@ -803,7 +803,7 @@ jobs:
         run: bash scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         env:
           ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
         with:
@@ -855,7 +855,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}

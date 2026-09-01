@@ -86,7 +86,7 @@ jobs:
         run: bash scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ matrix.python.version }}
           uv-version: ${{ env.UV_VERSION }}

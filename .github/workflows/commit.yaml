@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up build environment
-        uses: ./.github/actions/setup-build-env
+        uses: $/.github/actions/setup-build-env
         with:
           python-version: "3.12"
           uv-version: ${{ env.UV_VERSION }}
