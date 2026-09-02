@@ -6,7 +6,8 @@ Use this when a release is ready but a Python wheel build or PyPI upload fails.
 
 1. Merge the release-please PR.
 2. Let `release-please` dispatch the cargo-dist release.
-3. Let each Python wheel job upload its artifact to the GitHub Release.
+3. Let the Python wheel matrix store its artifacts, then let the dedicated upload
+   job publish the complete set to the GitHub Release.
 4. Let PyPI publish after all Python artifacts build.
 5. Verify the release files on PyPI.
 
