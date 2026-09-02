@@ -77,10 +77,10 @@ still perform the same setup and validation work.
 The `py-build`, `upload-vscode-extension`, `upload-python-distributions`, and
 `publish-pypi` jobs in `release-please.yaml` depend on the
 `dispatch-dist-release` job. That job does not finish until the cargo-dist
-workflow has published the GitHub Release. PyPI publishing also waits for the VS
-Code extension upload and the Python distribution asset upload. If cargo-dist
-fails, times out, or either release-asset upload fails, PyPI publishing does not
-start.
+workflow has published the GitHub Release. PyPI publishing waits for the Python
+distribution asset upload. The VS Code extension upload runs separately and does
+not block PyPI publishing. If cargo-dist fails, times out, or the Python
+release-asset upload fails, PyPI publishing does not start.
 
 ## Release Notes
 
