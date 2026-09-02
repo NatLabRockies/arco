@@ -141,7 +141,7 @@ repos:
         exclude: ^third_party/
 
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: v1.14.0
+    rev: v1.29.0
     hooks:
       - id: zizmor
         args: [--pedantic, --config, .github/zizmor.yml]
