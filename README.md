@@ -170,8 +170,15 @@ uv add arco
 ```
 
 ```bash
+uv pip install arco
+```
+
+```bash
 pip install arco
 ```
+
+Linux x86_64 Python wheels support glibc 2.28 or newer, including EL8 systems
+such as Kestrel.
 
 ### From Source
 
