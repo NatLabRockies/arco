@@ -1,0 +1,236 @@
+name: Cargo-dist build
+
+on:
+  workflow_call:
+    inputs:
+      checkout-ref:
+        description: Ref containing the candidate merge tree
+        required: true
+        type: string
+    outputs:
+      tested_merge_sha:
+        description: Commit checked out from the pull request merge ref
+        value: ${{ jobs.plan.outputs.tested_merge_sha }}
+      source_tree:
+        description: Git tree checked out from the pull request merge ref
+        value: ${{ jobs.plan.outputs.source_tree }}
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.9.4"
+  JUST_VERSION: "1.43.0"
+  PYTHON_LATEST: "3.12"
+  RUST_TOOLCHAIN_VERSION: "1.85"
+  CARGO_DIST_VERSION: "0.31.0"
+
+jobs:
+  plan:
+    name: Plan CLI artifacts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      artifacts_matrix: ${{ steps.plan.outputs.artifacts_matrix }}
+      source_tree: ${{ steps.identity.outputs.source_tree }}
+      tested_merge_sha: ${{ steps.identity.outputs.tested_merge_sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.checkout-ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - id: identity
+        name: Record candidate tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'tested_merge_sha=%s\n' "$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'source_tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+
+      - name: Install Cargo-dist
+        run: bash scripts/ci_install_dist_unix.sh
+        env:
+          CARGO_DIST_VERSION: ${{ env.CARGO_DIST_VERSION }}
+
+      - id: plan
+        name: Create Cargo-dist plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist plan --output-format=json > plan-dist-manifest.json
+          matrix="$(jq -c '.ci.github.artifacts_matrix' plan-dist-manifest.json)"
+          [[ "$matrix" != null ]] || { echo "Cargo-dist returned no artifact matrix" >&2; exit 1; }
+          printf 'artifacts_matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Cargo-dist plan
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-cargo-dist-plan
+          path: plan-dist-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+  local:
+    name: Build CLI (${{ join(matrix.targets, ', ') }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.artifacts_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container && matrix.container.image || null }} # zizmor: ignore[unpinned-images]
+    timeout-minutes: 60
+    env:
+      BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+    steps:
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.checkout-ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Rust in container
+        if: matrix.container
+        run: bash scripts/ci_install_rust_if_missing.sh
+
+      - name: Configure manylinux native dependencies
+        if: matrix.container && contains(join(matrix.targets, ','), 'x86_64-unknown-linux-gnu')
+        shell: bash
+        run: bash scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
+
+      - name: Set up build environment
+        uses: $/.github/actions/setup-build-env
+        env:
+          ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
+          ARCO_HIGHS_TARGETS: ${{ join(matrix.targets, ',') }}
+          ARCO_SCIP_TARGETS: ${{ join(matrix.targets, ',') }}
+        with:
+          python-version: ${{ env.PYTHON_LATEST }}
+          uv-version: ${{ env.UV_VERSION }}
+          just-version: ${{ env.JUST_VERSION }}
+          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          rust-components: none
+          rust-cache-shared-key: candidate-cargo-dist-${{ matrix.host }}
+          save-rust-cache: false
+          save-uv-cache: false
+          save-solver-cache: false
+
+      - name: Set up Xpress runtime
+        shell: bash
+        env:
+          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+          XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
+          XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+        run: bash scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
+
+      - name: Validate Xpress runtime
+        shell: bash
+        run: bash scripts/ci_validate_xpress_runtime_env.sh
+
+      - name: Install Cargo-dist (Unix)
+        if: runner.os != 'Windows'
+        run: bash scripts/ci_install_dist_unix.sh
+        env:
+          CARGO_DIST_VERSION: ${{ env.CARGO_DIST_VERSION }}
+
+      - name: Install Cargo-dist (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/ci_install_dist_windows.ps1
+        env:
+          CARGO_DIST_VERSION: ${{ env.CARGO_DIST_VERSION }}
+
+      - name: Download Cargo-dist plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-cargo-dist-plan
+          path: target/distrib
+
+      - name: Install Cargo-dist build dependencies
+        if: matrix.packages_install != ''
+        env:
+          DIST_PACKAGES_INSTALL: ${{ matrix.packages_install }}
+        shell: bash
+        run: bash -c "$DIST_PACKAGES_INSTALL"
+
+      - id: cargo-dist
+        name: Build Cargo-dist artifacts
+        env:
+          DIST_ARGS: ${{ matrix.dist_args }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist build --print=linkage --output-format=json ${DIST_ARGS} > dist-manifest.json
+          printf 'paths<<EOF\n' >> "$GITHUB_OUTPUT"
+          dist print-upload-files-from-manifest --manifest dist-manifest.json >> "$GITHUB_OUTPUT"
+          printf 'EOF\n' >> "$GITHUB_OUTPUT"
+          mkdir -p target/distrib
+          cp dist-manifest.json "$BUILD_MANIFEST_NAME"
+
+      - name: Upload Cargo-dist local artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-candidate-part-cargo-dist-local-${{ join(matrix.targets, '_') }}
+          path: |
+            ${{ steps.cargo-dist.outputs.paths }}
+            ${{ env.BUILD_MANIFEST_NAME }}
+          if-no-files-found: error
+          retention-days: 90
+
+  global:
+    name: Build CLI installers and checksums
+    needs: [plan, local]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.checkout-ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Cargo-dist
+        run: bash scripts/ci_install_dist_unix.sh
+        env:
+          CARGO_DIST_VERSION: ${{ env.CARGO_DIST_VERSION }}
+
+      - name: Download Cargo-dist plan
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: candidate-cargo-dist-plan
+          path: target/distrib
+
+      - name: Download Cargo-dist local artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-candidate-part-cargo-dist-local-*
+          path: target/distrib
+          merge-multiple: true
+
+      - id: cargo-dist
+        name: Build Cargo-dist global artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist build --artifacts=global --output-format=json > dist-manifest.json
+          printf 'paths<<EOF\n' >> "$GITHUB_OUTPUT"
+          jq --raw-output '.upload_files[]' dist-manifest.json >> "$GITHUB_OUTPUT"
+          printf 'EOF\n' >> "$GITHUB_OUTPUT"
+
+      - name: Upload Cargo-dist global artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-candidate-part-cargo-dist-global
+          path: |
+            ${{ steps.cargo-dist.outputs.paths }}
+            dist-manifest.json
+          if-no-files-found: error
+          retention-days: 90

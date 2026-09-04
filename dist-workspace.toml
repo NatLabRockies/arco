@@ -11,7 +11,7 @@ unix-archive = ".tar.gz"
 packages = ["arco-cli"]
 # CI backends to support
 ci = "github"
-# Where to host releases
+# Keep GitHub as the artifact host for generated installer URLs.
 hosting = "github"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
@@ -21,18 +21,10 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 pr-run-mode = "skip"
 # A prefix git tags must include for dist to care about them
 tag-namespace = "v"
-# Which phase dist should use to create the GitHub release
-github-release = "announce"
-# Whether to enable GitHub Attestations
-github-attestations = true
-# When to generate GitHub Attestations
-github-attestations-phase = "announce"
-# Extra build setup steps for generated GitHub Actions release jobs.
+# Extra setup shared by Cargo-dist GitHub Actions build jobs.
 github-build-setup = "../build-setup.yml"
 # Path that installers should place binaries in
 install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
-# Whether CI should trigger releases with dispatches instead of tag pushes
-dispatch-releases = true
 # Build only the required packages, and individually
 precise-builds = true
 # Whether to install an updater program
@@ -41,7 +33,7 @@ install-updater = false
 # Build x86_64 Linux on a glibc 2.28 baseline for EL8/HPC compatibility.
 [dist.github-custom-runners.x86_64-unknown-linux-gnu]
 runner = "ubuntu-22.04"
-container = { image = "quay.io/pypa/manylinux_2_28_x86_64", host = "x86_64-unknown-linux-gnu" }
+container = { image = "quay.io/pypa/manylinux_2_28_x86_64@sha256:65140ef21cef92d0c13d001708afd7d304d7a154f7120d039df99dac708f3ffb", host = "x86_64-unknown-linux-gnu" }
 
 [dist.github-action-commits]
 "actions/checkout" = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"

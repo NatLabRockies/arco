@@ -23,7 +23,6 @@ env:
   PYTHON_LATEST: "3.12"
   RUST_TOOLCHAIN_VERSION: "1.85"
   TORC_VERSION: "0.37.2"
-  CARGO_DIST_VERSION: "0.31.0"
   HAWK_VERSION: "0.1.9"
 
 jobs:
@@ -68,8 +67,6 @@ jobs:
       solver: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.solver == 'true' }}
       kdl: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.kdl == 'true' }}
       benchmarks: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.benchmarks == 'true' }}
-      release: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.release == 'true' }}
-      github_actions: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.github_actions == 'true' }}
       vscode_extension: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.vscode_extension == 'true' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -138,35 +135,6 @@ jobs:
               - 'scripts/bench.py'
               - 'scripts/bench_guard.py'
               - 'benchmarks/**'
-            release:
-              - 'Cargo.toml'
-              - 'bindings/python/pyproject.toml'
-              - 'bindings/python/uv.lock'
-              - 'CHANGELOG.md'
-              - 'justfile'
-              - 'scripts/build_python_wheel.sh'
-              - 'scripts/test_build_python_wheel.py'
-              - 'scripts/setup_manylinux_native_deps.sh'
-              - 'scripts/check_release_version_metadata.py'
-              - 'scripts/ci_cargo_dist_preflight.sh'
-              - 'scripts/ci_dist_plan_output.sh'
-              - 'scripts/ci_ensure_dist_executable.sh'
-              - 'scripts/ci_install_dist_unix.sh'
-              - 'scripts/ci_install_dist_windows.ps1'
-              - 'scripts/ci_install_rust_if_missing.sh'
-              - 'scripts/ci_setup_rust_toolchain.sh'
-              - 'scripts/ci_validate_xpress_runtime_env.sh'
-              - 'scripts/ci_verify_generated_dist_workflow.sh'
-              - '.github/release-please-config.json'
-              - '.github/release-please-manifest.json'
-              - 'dist-workspace.toml'
-            github_actions:
-              - '.github/workflows/**'
-              - '.github/build-setup.yml'
-              - '.github/dependabot.yml'
-              - 'scripts/check_release_version_metadata.py'
-              - 'scripts/ci_*.ps1'
-              - 'scripts/ci_*.sh'
             vscode_extension:
               - 'scripts/ci_vscode_extension_check.sh'
               - 'tools/vscode-arco-kdl/**'
@@ -179,8 +147,6 @@ jobs:
           SOLVER: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.solver == 'true' }}
           KDL: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.kdl == 'true' }}
           BENCHMARKS: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.benchmarks == 'true' }}
-          RELEASE: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.release == 'true' }}
-          ACTIONS_CONFIG: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.github_actions == 'true' }}
           VSCODE_EXTENSION: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.vscode_extension == 'true' }}
         run: bash scripts/ci-plan.sh
 
@@ -202,154 +168,6 @@ jobs:
 
       - name: Check and package VS Code extension
         run: bash scripts/ci_vscode_extension_check.sh
-
-  cargo-dist:
-    name: cargo-dist workflow
-    needs: [ci-plan, version-consistency]
-    if: needs.ci-plan.outputs.release == 'true' || needs.ci-plan.outputs.github_actions == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      artifacts_matrix: ${{ steps.plan.outputs.artifacts_matrix }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Restore dist cache
-        id: dist-cache-restore
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
-        with:
-          path: |
-            ~/.cargo/bin/dist
-            ~/.cargo/bin/dist.exe
-          key: ${{ runner.os }}-${{ runner.arch }}-dist-${{ env.CARGO_DIST_VERSION }}
-
-      - name: Install dist
-        if: steps.dist-cache-restore.outputs.cache-hit != 'true'
-        shell: bash
-        run: bash scripts/ci_install_dist_unix.sh
-
-      - name: Save dist cache
-        if: github.event_name != 'pull_request' && steps.dist-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
-        with:
-          path: |
-            ~/.cargo/bin/dist
-            ~/.cargo/bin/dist.exe
-          key: ${{ runner.os }}-${{ runner.arch }}-dist-${{ env.CARGO_DIST_VERSION }}
-
-      - name: Ensure dist is executable
-        if: runner.os != 'Windows'
-        run: bash scripts/ci_ensure_dist_executable.sh
-
-      - name: Verify generated workflow is current
-        run: bash scripts/ci_verify_generated_dist_workflow.sh
-
-      - id: plan
-        name: Check dist release plan
-        run: bash scripts/ci_dist_plan_output.sh
-
-  cargo-dist-artifact-preflight:
-    name: cargo-dist preflight (${{ join(matrix.targets, ', ') }})
-    needs: [ci-plan, version-consistency, cargo-dist]
-    if: needs.cargo-dist.result == 'success' && needs.cargo-dist.outputs.artifacts_matrix != '' && needs.cargo-dist.outputs.artifacts_matrix != 'null'
-    runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container && 'quay.io/pypa/manylinux_2_28_x86_64@sha256:65140ef21cef92d0c13d001708afd7d304d7a154f7120d039df99dac708f3ffb' || null }} # zizmor: ignore[unpinned-images]
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.cargo-dist.outputs.artifacts_matrix) }}
-    steps:
-      - name: Enable Windows long paths
-        run: git config --global core.longpaths true
-
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          submodules: recursive
-
-      - name: Install Rust in container
-        if: matrix.container
-        shell: bash
-        run: bash scripts/ci_install_rust_if_missing.sh
-
-      - name: Configure manylinux native dependency builds
-        if: matrix.container && contains(join(matrix.targets, ','), 'x86_64-unknown-linux-gnu')
-        shell: bash
-        run: bash ./scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
-
-      - name: Set up build environment
-        uses: $/.github/actions/setup-build-env
-        env:
-          ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
-          ARCO_HIGHS_TARGETS: ${{ join(matrix.targets, ',') }}
-          ARCO_SCIP_TARGETS: ${{ join(matrix.targets, ',') }}
-        with:
-          python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
-          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          rust-components: "none"
-          install-just: "false"
-          install-uv: "true"
-          sync-python-licenses: "false"
-          rust-cache-shared-key: cargo-dist-${{ matrix.host }}
-          save-rust-cache: "false"
-          save-uv-cache: "false"
-          save-solver-cache: "false"
-
-      - name: Set up Xpress runtime
-        shell: bash
-        env:
-          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
-          XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
-          XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
-        run: bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
-
-      - name: Validate XPRESSDIR for xpress-enabled dist builds
-        shell: bash
-        run: bash scripts/ci_validate_xpress_runtime_env.sh
-
-      - name: Restore dist cache
-        id: dist-cache-restore
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
-        with:
-          path: |
-            ~/.cargo/bin/dist
-            ~/.cargo/bin/dist.exe
-          key: ${{ runner.os }}-${{ runner.arch }}-dist-${{ env.CARGO_DIST_VERSION }}
-
-      - name: Install dist (Unix)
-        if: runner.os != 'Windows' && steps.dist-cache-restore.outputs.cache-hit != 'true'
-        shell: bash
-        run: bash scripts/ci_install_dist_unix.sh
-
-      - name: Install dist (Windows)
-        if: runner.os == 'Windows' && steps.dist-cache-restore.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: ./scripts/ci_install_dist_windows.ps1
-
-      - name: Save dist cache
-        if: github.event_name != 'pull_request' && steps.dist-cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
-        with:
-          path: |
-            ~/.cargo/bin/dist
-            ~/.cargo/bin/dist.exe
-          key: ${{ runner.os }}-${{ runner.arch }}-dist-${{ env.CARGO_DIST_VERSION }}
-
-      - name: Ensure dist is executable
-        if: runner.os != 'Windows'
-        run: bash scripts/ci_ensure_dist_executable.sh
-
-      - name: Build local cargo-dist artifacts
-        shell: bash
-        env:
-          DIST_CONTAINER_IMAGE: ${{ matrix.container && matrix.container.image || '' }}
-          DIST_PLAN_ARGS: ${{ matrix.dist_args }}
-          DIST_TARGETS: ${{ join(matrix.targets, ',') }}
-        run: bash scripts/ci_cargo_dist_preflight.sh
 
   rust-fmt:
     name: Rust format
@@ -726,7 +544,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ${{ fromJSON(github.event_name == 'pull_request' && needs.ci-plan.outputs.release != 'true' && '["3.12"]' || '["3.10", "3.11", "3.12", "3.13", "3.14"]') }}
+        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -758,90 +576,6 @@ jobs:
       - name: Run docs doctests
         if: matrix.python-version == '3.12'
         run: just ci-docs-test
-
-  python-release-preflight:
-    name: Python release preflight (${{ matrix.platform.label }}, ${{ matrix.python.label }})
-    needs: [version-consistency, ci-plan]
-    if: needs.ci-plan.outputs.release == 'true' || needs.ci-plan.outputs.github_actions == 'true'
-    runs-on: ${{ matrix.platform.os }}
-    container: ${{ matrix.platform.manylinux && 'quay.io/pypa/manylinux_2_28_x86_64@sha256:65140ef21cef92d0c13d001708afd7d304d7a154f7120d039df99dac708f3ffb' || null }} # zizmor: ignore[unpinned-images]
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        python:
-          - label: cp310
-            version: "3.10"
-            wheel_features: "pyo3/extension-module,xpress,scip-from-source"
-          - label: abi3
-            version: "3.11"
-            wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source"
-        platform:
-          - label: linux
-            os: ubuntu-22.04
-            manylinux: true
-            wheel_python: python3
-          - label: macos-arm64
-            os: macos-14
-            wheel_python: python3
-          - label: windows
-            os: windows-latest
-            wheel_python: python
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Install Rust in manylinux container
-        if: ${{ matrix.platform.manylinux }}
-        shell: bash
-        run: bash scripts/ci_install_rust_if_missing.sh
-
-      - name: Configure manylinux native dependency builds
-        if: ${{ matrix.platform.manylinux }}
-        shell: bash
-        run: bash scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
-
-      - name: Set up build environment
-        uses: $/.github/actions/setup-build-env
-        env:
-          ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
-        with:
-          python-version: ${{ matrix.python.version }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
-          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          rust-components: "none"
-          rust-cache-shared-key: python-release-${{ matrix.platform.label }}-${{ matrix.python.label }}
-          sync-python-licenses: "false"
-          save-uv-cache: "false"
-          save-rust-cache: "false"
-
-      - name: Test wheel build configuration
-        if: ${{ matrix.platform.manylinux && matrix.python.label == 'abi3' }}
-        run: uv run --no-project --with pytest pytest scripts/test_build_python_wheel.py -q
-
-      - name: Build wheel and validate import
-        env:
-          PYTHON_WHEEL_COMPATIBILITY: ${{ matrix.platform.manylinux && 'manylinux_2_28' || 'pypi' }}
-          PYTHON_WHEEL_INTERPRETER: ${{ matrix.platform.wheel_python }}
-          PYTHON_WHEEL_FEATURES: ${{ matrix.python.wheel_features }}
-        run: just ci-python-release-wheel "dist/*.whl"
-
-      - name: Verify Linux wheel target
-        if: ${{ matrix.platform.manylinux }}
-        shell: bash
-        run: |
-          shopt -s nullglob
-          wheels=(dist/*-manylinux_2_28_x86_64.whl)
-          if [[ "${#wheels[@]}" -ne 1 ]]; then
-            echo "expected one manylinux_2_28_x86_64 wheel, found ${#wheels[@]}" >&2
-            exit 1
-          fi
-
-      - name: Build sdist
-        if: matrix.platform.label == 'linux' && matrix.python.label == 'abi3'
-        run: just py-build-sdist
 
   kdl-examples:
     name: KDL examples

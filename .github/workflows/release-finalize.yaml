@@ -1,0 +1,334 @@
+name: Finalize immutable release
+
+on:
+  push:
+    branches:
+      - main
+      - release/*
+
+concurrency:
+  group: release-finalize-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read # Required to identify merged Release Please PRs.
+
+env:
+  RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+
+jobs:
+  classify:
+    name: Classify merged commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      eligible: ${{ steps.identity.outputs.eligible }}
+      version: ${{ steps.identity.outputs.version }}
+      pr_number: ${{ steps.identity.outputs.pr_number }}
+      source_tree: ${{ steps.identity.outputs.source_tree }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - id: identity
+        name: Find merged Release Please PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          MERGED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'eligible=false\n' >> "$GITHUB_OUTPUT"
+          printf 'source_tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          pull_requests="$(gh api "/repos/${REPOSITORY}/commits/${MERGED_SHA}/pulls")"
+          release_pr="$(jq -c '
+            [ .[]
+              | select(.merged_at != null)
+              | select(.base.ref == "main" or (.base.ref | startswith("release/")))
+              | select(.user.type == "Bot")
+              | select(.title | test("^chore: release v[0-9]+\\.[0-9]+\\.[0-9]+([-.][0-9A-Za-z.-]+)?$"))
+            ] | first // empty
+          ' <<<"$pull_requests")"
+          [[ -n "$release_pr" ]] || { echo "ordinary push; no release finalization"; exit 0; }
+          title="$(jq -r '.title' <<<"$release_pr")"
+          [[ "$title" =~ ^chore:\ release\ v([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?)$ ]] || exit 1
+          printf 'eligible=true\n' >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+          printf 'pr_number=%s\n' "$(jq -r '.number' <<<"$release_pr")" >> "$GITHUB_OUTPUT"
+
+  locate-candidate:
+    name: Locate immutable candidate
+    needs: classify
+    if: needs.classify.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run_id: ${{ steps.locate.outputs.run_id }}
+      artifact_id: ${{ steps.locate.outputs.artifact_id }}
+      artifact_digest: ${{ steps.locate.outputs.artifact_digest }}
+    permissions:
+      actions: read # Required to locate the retained candidate artifact.
+      contents: read # Required to query release metadata.
+      pull-requests: read # Required by the merged-PR handoff.
+    steps:
+      - id: locate
+        name: Find exact candidate artifact
+        env:
+          GH_TOKEN: ${{ env.RELEASE_TAG_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ needs.classify.outputs.version }}
+          PR_NUMBER: ${{ needs.classify.outputs.pr_number }}
+          SOURCE_TREE: ${{ needs.classify.outputs.source_tree }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_name="release-candidate-v${VERSION}-pr${PR_NUMBER}-tree${SOURCE_TREE}"
+          candidate_runs="$RUNNER_TEMP/release-candidate-runs.txt"
+          gh run list \
+            --workflow release-candidate.yaml \
+            --event pull_request \
+            --status success \
+            --limit 100 \
+            --json databaseId,pullRequests \
+            --jq '.[] | [.databaseId, ([.pullRequests[].number] | join(","))] | @tsv' \
+            | awk -F '\t' -v pr="$PR_NUMBER" '$2 == pr {print $1}' \
+            | sort -n > "$candidate_runs"
+
+          while IFS= read -r run_id; do
+            [[ -n "$run_id" ]] || continue
+            artifacts="$(gh api --method GET "/repos/${REPOSITORY}/actions/artifacts" \
+              -f "name=${candidate_name}" -F per_page=100)"
+            artifact="$(jq -c --argjson run_id "$run_id" '
+              [.artifacts[] | select(.workflow_run.id == $run_id and .expired == false)]
+              | if length == 1 then .[0] else empty end
+            ' <<<"$artifacts")"
+            [[ -n "$artifact" ]] || continue
+            [[ "$(jq -r '.name' <<<"$artifact")" == "$candidate_name" ]] || continue
+            digest="$(jq -r '.digest // empty' <<<"$artifact")"
+            [[ "$digest" == sha256:* ]] || { echo "candidate artifact has no native digest" >&2; exit 1; }
+            printf 'run_id=%s\n' "$run_id" >> "$GITHUB_OUTPUT"
+            printf 'artifact_id=%s\n' "$(jq -r '.id' <<<"$artifact")" >> "$GITHUB_OUTPUT"
+            printf 'artifact_digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+            echo "selected candidate run ${run_id}, artifact ${artifact}"
+            exit 0
+          done < "$candidate_runs"
+          echo "no candidate artifact named ${candidate_name} was found for PR ${PR_NUMBER}" >&2
+          exit 1
+
+  finalize:
+    name: Finalize immutable release
+    needs: [classify, locate-candidate]
+    if: needs.classify.outputs.eligible == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read # Required to download the retained candidate artifact.
+      contents: write # Required to create the tag and GitHub Release.
+      pull-requests: read # Required by the merged-PR handoff.
+    env:
+      GH_TOKEN: ${{ env.RELEASE_TAG_TOKEN }}
+      REPOSITORY: ${{ github.repository }}
+      VERSION: ${{ needs.classify.outputs.version }}
+      PR_NUMBER: ${{ needs.classify.outputs.pr_number }}
+      SOURCE_TREE: ${{ needs.classify.outputs.source_tree }}
+      MERGED_SHA: ${{ github.sha }}
+      CANDIDATE_RUN_ID: ${{ needs.locate-candidate.outputs.run_id }}
+      CANDIDATE_ARTIFACT_ID: ${{ needs.locate-candidate.outputs.artifact_id }}
+      CANDIDATE_ARTIFACT_DIGEST: ${{ needs.locate-candidate.outputs.artifact_digest }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download candidate with native digest verification
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.locate-candidate.outputs.artifact_id }}
+          github-token: ${{ env.RELEASE_TAG_TOKEN }}
+          repository: ${{ github.repository }}
+          path: candidate-bundle
+          digest-mismatch: error
+
+      - name: Verify merged version metadata
+        run: |
+          set -euo pipefail
+          actual_version="$(python scripts/check_release_version_metadata.py | awk '{print $NF}')"
+          [[ "$actual_version" == "$VERSION" ]] || {
+            echo "merged metadata version ${actual_version} does not match ${VERSION}" >&2
+            exit 1
+          }
+
+      - name: Verify candidate and merged tree
+        env:
+          TAG: v${{ needs.classify.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="$(find candidate-bundle -type f -name RELEASE_METADATA.json -print -quit)"
+          [[ -n "$metadata" ]] || { echo "candidate metadata is missing" >&2; exit 1; }
+          jq -e \
+            --arg version "$VERSION" \
+            --arg tag "$TAG" \
+            --argjson pr_number "$PR_NUMBER" \
+            --arg tree "$SOURCE_TREE" \
+            --argjson run_id "$CANDIDATE_RUN_ID" \
+            '(.schema_version == 1)
+              and (.version == $version)
+              and (.release_tag == $tag)
+              and (.pr_number == $pr_number)
+              and (.source_tree == $tree)
+              and (.candidate_run_id == $run_id)
+              and (.artifact_name == ("release-candidate-v" + $version + "-pr" + ($pr_number | tostring) + "-tree" + $tree))' \
+            "$metadata" >/dev/null
+          [[ "$(git rev-parse 'HEAD^{tree}')" == "$SOURCE_TREE" ]] || {
+            echo "merged tree does not match the candidate tree" >&2
+            exit 1
+          }
+
+          one_file() {
+            local pattern="$1"
+            local count
+            count="$(find candidate-bundle -type f -name "$pattern" | wc -l)"
+            [[ "$count" -eq 1 ]] || {
+              echo "expected one candidate file matching ${pattern}, found ${count}" >&2
+              exit 1
+            }
+          }
+          wheel_count="$(find candidate-bundle -type f -name '*.whl' | wc -l)"
+          [[ "$wheel_count" -eq 6 ]] || { echo "expected six Python wheels" >&2; exit 1; }
+          one_file "arco-${VERSION}-cp310-cp310-manylinux_2_28_x86_64.whl"
+          one_file "arco-${VERSION}-cp311-abi3-manylinux_2_28_x86_64.whl"
+          one_file "arco-${VERSION}-cp310-cp310-macosx-*_arm64.whl"
+          one_file "arco-${VERSION}-cp311-abi3-macosx-*_arm64.whl"
+          one_file "arco-${VERSION}-cp310-cp310-win_amd64.whl"
+          one_file "arco-${VERSION}-cp311-abi3-win_amd64.whl"
+          one_file "arco-${VERSION}.tar.gz"
+          [[ "$(find candidate-bundle -type f -name '*.vsix' | wc -l)" -eq 1 ]] || {
+            echo "expected one VSIX" >&2
+            exit 1
+          }
+          [[ "$(find candidate-bundle -type f -name '*dist-manifest.json' | wc -l)" -gt 0 ]] || {
+            echo "Cargo-dist manifest is missing" >&2
+            exit 1
+          }
+          [[ "$(find candidate-bundle -type f -name '*.sha256' | wc -l)" -gt 0 ]] || {
+            echo "Cargo-dist checksum is missing" >&2
+            exit 1
+          }
+          echo "candidate ${CANDIDATE_ARTIFACT_ID} verified with native digest ${CANDIDATE_ARTIFACT_DIGEST}"
+
+      - name: Create or verify annotated release tag
+        env:
+          TAG: v${{ needs.classify.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_tag() {
+            local ref_json tag_object tag_commit
+            ref_json="$(gh api "/repos/${REPOSITORY}/git/ref/tags/${TAG}")"
+            [[ "$(jq -r '.object.type' <<<"$ref_json")" == tag ]] || exit 1
+            tag_object="$(jq -r '.object.sha' <<<"$ref_json")"
+            tag_commit="$(gh api "/repos/${REPOSITORY}/git/tags/${tag_object}" --jq '.object.sha')"
+            [[ "$tag_commit" == "$MERGED_SHA" ]] || {
+              echo "$TAG points at $tag_commit, expected $MERGED_SHA" >&2
+              exit 1
+            }
+          }
+          if ! gh api "/repos/${REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            tag_object="$(gh api --method POST "/repos/${REPOSITORY}/git/tags" \
+              --raw-field "tag=${TAG}" \
+              --raw-field "message=Release ${TAG}" \
+              --raw-field "object=${MERGED_SHA}" \
+              --raw-field 'type=commit' --jq '.sha')"
+            if ! gh api --method POST "/repos/${REPOSITORY}/git/refs" \
+              --raw-field "ref=refs/tags/${TAG}" --raw-field "sha=${tag_object}" >/dev/null; then
+              echo "tag creation raced or was rejected; verifying the existing ref" >&2
+            fi
+          fi
+          verify_tag
+
+      - name: Create or resume draft GitHub Release
+        id: release
+        env:
+          TAG: v${{ needs.classify.outputs.version }}
+        run: |
+          set -euo pipefail
+          if release_json="$(gh api "/repos/${REPOSITORY}/releases/tags/${TAG}" 2>/dev/null)"; then
+            if [[ "$(jq -r '.draft' <<<"$release_json")" != true ]]; then
+              [[ "$(jq -r '.immutable // false' <<<"$release_json")" == true ]] || {
+                echo "published release is not immutable; refusing to continue" >&2
+                exit 1
+              }
+              echo "immutable release already exists; verifying it without mutation"
+            fi
+          else
+            gh release create "$TAG" --draft --verify-tag --generate-notes --title "$TAG"
+            release_json="$(gh api "/repos/${REPOSITORY}/releases/tags/${TAG}")"
+          fi
+          printf 'release_id=%s\n' "$(jq -r '.id' <<<"$release_json")" >> "$GITHUB_OUTPUT"
+          printf 'draft=%s\n' "$(jq -r '.draft' <<<"$release_json")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload draft assets without replacement
+        env:
+          TAG: v${{ needs.classify.outputs.version }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          RELEASE_DRAFT: ${{ steps.release.outputs.draft }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' files < <(find candidate-bundle -type f -print0)
+          [[ "${#files[@]}" -gt 0 ]] || { echo "candidate bundle is empty" >&2; exit 1; }
+          declare -A seen=()
+          for path in "${files[@]}"; do
+            name="${path##*/}"
+            [[ -z "${seen[$name]+present}" ]] || { echo "duplicate release asset: ${name}" >&2; exit 1; }
+            seen[$name]=present
+          done
+          assets_url="/repos/${REPOSITORY}/releases/${RELEASE_ID}/assets"
+          remote="$RUNNER_TEMP/release-assets.json"
+          gh api "$assets_url" > "$remote"
+          missing=()
+          for path in "${files[@]}"; do
+            name="${path##*/}"
+            asset="$(jq -c --arg name "$name" '[.[] | select(.name == $name)] | first' "$remote")"
+            if [[ "$asset" == null ]]; then
+              [[ "$RELEASE_DRAFT" == true ]] || {
+                echo "published release is missing asset ${name}" >&2
+                exit 1
+              }
+              missing+=("$path")
+              continue
+            fi
+            local_digest="$(sha256sum "$path" | awk '{print $1}')"
+            [[ "$(jq -r '.digest // empty' <<<"$asset")" == "sha256:${local_digest}" ]] || {
+              echo "existing draft asset ${name} has a different digest" >&2
+              exit 1
+            }
+          done
+          if [[ "${#missing[@]}" -gt 0 ]]; then
+            gh release upload "$TAG" "${missing[@]}"
+          fi
+          gh api "$assets_url" > "$remote"
+          expected="$RUNNER_TEMP/release-expected.txt"
+          actual="$RUNNER_TEMP/release-actual.txt"
+          printf '%s\n' "${files[@]##*/}" | sort > "$expected"
+          jq -r '.[].name' "$remote" | sort > "$actual"
+          cmp -s "$expected" "$actual" || { echo "draft asset set is incomplete" >&2; exit 1; }
+
+      - name: Publish immutable GitHub Release
+        env:
+          TAG: v${{ needs.classify.outputs.version }}
+          RELEASE_DRAFT: ${{ steps.release.outputs.draft }}
+        run: |
+          if [[ "$RELEASE_DRAFT" == true ]]; then
+            gh release edit "$TAG" --draft=false
+          else
+            echo "immutable GitHub Release is already published"
+          fi

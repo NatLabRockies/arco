@@ -21,11 +21,9 @@ append_bucket_name() {
 
 enabled_buckets=""
 skipped_buckets=""
-for bucket in RUST PYTHON DOCS SOLVER KDL BENCHMARKS RELEASE ACTIONS_CONFIG VSCODE_EXTENSION; do
+for bucket in RUST PYTHON DOCS SOLVER KDL BENCHMARKS VSCODE_EXTENSION; do
   label="$bucket"
-  if [[ "$bucket" == "ACTIONS_CONFIG" ]]; then
-    label="GITHUB_ACTIONS"
-  elif [[ "$bucket" == "VSCODE_EXTENSION" ]]; then
+  if [[ "$bucket" == "VSCODE_EXTENSION" ]]; then
     label="VS_CODE_EXTENSION"
   fi
 
@@ -66,10 +64,6 @@ benchmarks_or_rust_enabled="false"
 if bucket_enabled BENCHMARKS || bucket_enabled RUST; then
   benchmarks_or_rust_enabled="true"
 fi
-release_or_actions_enabled="false"
-if bucket_enabled RELEASE || bucket_enabled ACTIONS_CONFIG; then
-  release_or_actions_enabled="true"
-fi
 vscode_extension_enabled="false"
 bucket_enabled VSCODE_EXTENSION && vscode_extension_enabled="true"
 cli_build_enabled="false"
@@ -90,7 +84,6 @@ fi
   echo '| Job | Decision | Reason |'
   echo '|---|---|---|'
   job_decision 'VS Code extension' "$vscode_extension_enabled" 'VS Code extension inputs changed' 'VS Code extension inputs unchanged'
-  job_decision 'cargo-dist workflow' "$release_or_actions_enabled" 'release or GitHub Actions inputs changed' 'release and GitHub Actions inputs unchanged'
   job_decision 'Rust format check' "$rust_enabled" 'Rust bucket enabled' 'Rust bucket disabled'
   job_decision 'Rust clippy (all-features)' "$rust_enabled" 'Rust bucket enabled' 'Rust bucket disabled'
   job_decision 'Rust test (all-features)' "$rust_enabled" 'Rust bucket enabled' 'Rust bucket disabled'

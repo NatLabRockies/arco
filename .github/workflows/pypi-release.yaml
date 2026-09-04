@@ -1,0 +1,120 @@
+name: PyPI release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published immutable GitHub Release tag
+        required: true
+        type: string
+
+concurrency:
+  group: pypi-release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  publish:
+    name: Publish exact release assets to PyPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # Required for PyPI trusted publishing via OIDC.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/arco
+    steps:
+      - name: Verify published immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]] || {
+            echo "invalid release tag: ${TAG}" >&2
+            exit 1
+          }
+          release="$(gh release view "$TAG" --json isDraft,isImmutable)"
+          [[ "$(jq -r '.isDraft' <<<"$release")" == false ]] || {
+            echo "${TAG} is still a draft" >&2
+            exit 1
+          }
+          [[ "$(jq -r '.isImmutable' <<<"$release")" == true ]] || {
+            echo "${TAG} is not an immutable GitHub Release" >&2
+            exit 1
+          }
+
+      - name: Download Python assets from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf release-assets
+          gh release download "$TAG" \
+            --dir release-assets \
+            --pattern RELEASE_METADATA.json \
+            --pattern "arco-*.whl" \
+            --pattern "arco-${TAG#v}.tar.gz"
+
+      - name: Verify release assets and prepare PyPI upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          metadata=release-assets/RELEASE_METADATA.json
+          [[ -f "$metadata" ]] || { echo "release metadata is missing" >&2; exit 1; }
+          jq -e --arg version "$version" --arg tag "$TAG" \
+            '(.schema_version == 1) and (.version == $version) and (.release_tag == $tag)' \
+            "$metadata" >/dev/null
+
+          shopt -s nullglob
+          wheels=(release-assets/*.whl)
+          [[ "${#wheels[@]}" -eq 6 ]] || { echo "expected six Python wheels" >&2; exit 1; }
+          one_file() {
+            local pattern="$1"
+            local matches=(release-assets/$pattern)
+            [[ "${#matches[@]}" -eq 1 ]] || {
+              echo "expected one release asset matching ${pattern}" >&2
+              exit 1
+            }
+          }
+          one_file "arco-${version}-cp310-cp310-manylinux_2_28_x86_64.whl"
+          one_file "arco-${version}-cp311-abi3-manylinux_2_28_x86_64.whl"
+          one_file "arco-${version}-cp310-cp310-macosx-*_arm64.whl"
+          one_file "arco-${version}-cp311-abi3-macosx-*_arm64.whl"
+          one_file "arco-${version}-cp310-cp310-win_amd64.whl"
+          one_file "arco-${version}-cp311-abi3-win_amd64.whl"
+          one_file "arco-${version}.tar.gz"
+
+          release_id="$(gh release view "$TAG" --json databaseId --jq '.databaseId')"
+          remote="$RUNNER_TEMP/pypi-release-assets.json"
+          gh api "/repos/${REPOSITORY}/releases/${release_id}/assets" > "$remote"
+          mkdir -p dist
+          for path in "${wheels[@]}" "release-assets/arco-${version}.tar.gz"; do
+            name="${path##*/}"
+            local_digest="$(sha256sum "$path" | awk '{print $1}')"
+            remote_digest="$(jq -r --arg name "$name" '[.[] | select(.name == $name)] | first | .digest // empty' "$remote")"
+            [[ "$remote_digest" == "sha256:${local_digest}" ]] || {
+              echo "release asset digest mismatch: ${name}" >&2
+              exit 1
+            }
+            cp "$path" dist/
+          done
+
+      - name: Publish exact files to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: dist/
+          skip-existing: true
