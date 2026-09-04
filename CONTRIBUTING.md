@@ -70,17 +70,12 @@ The repository ships GitHub Actions for package validation and release:
 
 - `CI` runs ordinary validation, install/import smoke tests, source-distribution
   checks, and docs doctests. It does not run the full release matrix.
-- `release-please.yaml` opens or updates the version and changelog PR only.
-  Its bot token must be configured when the PR needs to trigger candidate CI.
-- `release-candidate.yaml` builds the complete pre-merge candidate: Cargo-dist
-  CLI artifacts, the six required Python wheels, one Linux sdist, and the VS
-  Code extension. GitHub's native artifact merge action stores one immutable
-  candidate packet.
-- `release-finalize.yaml` verifies the candidate against the merged Git tree,
-  creates the protected annotated tag, and publishes one immutable GitHub
-  Release without rebuilding or replacing assets.
-- `pypi-release.yaml` publishes Python files downloaded from the immutable
-  GitHub Release and supports tag-only retries.
+- `release-please.yaml` opens or updates the version and changelog PR. After a
+  release PR is merged, the same workflow builds the complete release, publishes
+  its draft GitHub Release, and publishes Python files from that release. It
+  supports tag-only PyPI retries through `workflow_dispatch`.
+- `cargo-dist-build.yaml` is the reusable Cargo-dist build stage. It plans and
+  builds CLI artifacts but does not publish them.
 - Releases follow one platform version stream (`arco`) that updates workspace
   and Python package versions together.
 - `arco` publishes artifacts and releases; Rust crates are internal and

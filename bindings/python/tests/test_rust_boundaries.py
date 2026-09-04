@@ -68,7 +68,7 @@ def test_release_wheel_recipe_allows_the_abi3_matrix_features() -> None:
     )
 
     abi3_features = 'wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source"'
-    for workflow in (".github/workflows/release-candidate.yaml",):
+    for workflow in (".github/workflows/release-please.yaml",):
         assert abi3_features in (ROOT / workflow).read_text()
 
 
