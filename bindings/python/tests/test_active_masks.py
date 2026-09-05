@@ -379,6 +379,148 @@ def test_sparse_active_mask_diff_counts_ramping_terms_without_dense_storage() ->
     assert estimate["linear_terms"] == 64
 
 
+def test_sparse_diff_merges_holes_and_drops_zero_rows() -> None:
+    model = arco.Model()
+    outer = arco.IndexSet(name="outer", members=range(2))
+    hour = arco.IndexSet(name="hour", members=range(4))
+    inner = arco.IndexSet(name="inner", members=range(2))
+    active = np.array(
+        [
+            [[True, False], [False, True], [True, True], [False, False]],
+            [[False, True], [True, False], [False, False], [True, True]],
+        ],
+        dtype=bool,
+    )
+    gen = model.add_variables(
+        axes=(outer, hour, inner),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+    )
+
+    for axis_number, axis in enumerate((outer, hour, inner)):
+        ramp_a = np.diff(gen, axis=axis)
+        ramp_b = gen.diff(over=axis)
+        expected_active = np.logical_or(
+            np.take(active, range(active.shape[axis_number] - 1), axis=axis_number),
+            np.take(active, range(1, active.shape[axis_number]), axis=axis_number),
+        )
+        expected_terms = np.take(
+            active.astype(int), range(active.shape[axis_number] - 1), axis=axis_number
+        ) + np.take(
+            active.astype(int), range(1, active.shape[axis_number]), axis=axis_number
+        )
+
+        assert ramp_a.shape[axis_number] == active.shape[axis_number] - 1
+        assert ramp_a.memory_estimate()["active_slots"] == int(expected_active.sum())
+        assert ramp_a.memory_estimate()["linear_terms"] == int(expected_terms.sum())
+        assert ramp_b.memory_estimate() == ramp_a.memory_estimate()
+
+    zero_diff = np.diff(gen * 0.0, axis=hour)
+    assert zero_diff.memory_estimate()["active_slots"] == 0
+
+
+def test_sparse_diff_preserves_locations_and_signs_on_each_axis() -> None:
+    active = np.array(
+        [
+            [[True, False], [False, True], [True, True], [False, False]],
+            [[False, True], [True, False], [False, False], [True, True]],
+        ],
+        dtype=bool,
+    )
+    axes = (
+        arco.IndexSet(name="outer", members=range(2)),
+        arco.IndexSet(name="hour", members=range(4)),
+        arco.IndexSet(name="inner", members=range(2)),
+    )
+
+    for axis_number, axis in enumerate(axes):
+        model = arco.Model()
+        gen = model.add_variables(
+            axes=axes,
+            bounds=arco.NonNegativeFloat,
+            active=active,
+            name="gen",
+        )
+        ramp = np.diff(gen, axis=axis)
+        expected_active = np.logical_or(
+            np.take(active, range(active.shape[axis_number] - 1), axis=axis_number),
+            np.take(active, range(1, active.shape[axis_number]), axis=axis_number),
+        )
+        output_axes = list(axes)
+        output_axes[axis_number] = axis[:-1]
+        target = model.add_variables(
+            axes=tuple(output_axes),
+            bounds=arco.NonNegativeFloat,
+            active=expected_active,
+            name="target",
+        )
+        model.add_constraints(ramp == target, name="diff")
+        snapshot = model.inspect(include_coeffs=True)
+        assert snapshot.coefficients is not None
+
+        source_ids = dict(zip(np.flatnonzero(active), map(int, gen.variables)))
+        target_ids = dict(
+            zip(np.flatnonzero(expected_active), map(int, target.variables))
+        )
+        expected_rows: list[list[tuple[int, float]]] = []
+        for output_flat in np.flatnonzero(expected_active):
+            coordinates = list(np.unravel_index(output_flat, expected_active.shape))
+            previous_flat = np.ravel_multi_index(tuple(coordinates), active.shape)
+            coordinates[axis_number] += 1
+            current_flat = np.ravel_multi_index(tuple(coordinates), active.shape)
+            expected_row = []
+            if active.flat[current_flat]:
+                expected_row.append((source_ids[current_flat], 1.0))
+            if active.flat[previous_flat]:
+                expected_row.append((source_ids[previous_flat], -1.0))
+            expected_row.append((target_ids[output_flat], -1.0))
+            expected_rows.append(expected_row)
+
+        actual_rows: dict[int, list[tuple[int, float]]] = {}
+        for coefficient in snapshot.coefficients:
+            actual_rows.setdefault(coefficient.constraint_id, []).append(
+                (coefficient.variable_id, coefficient.value)
+            )
+        assert [
+            sorted(actual_rows[constraint.id]) for constraint in snapshot.constraints
+        ] == [sorted(row) for row in expected_rows]
+        assert ramp.index_sets[axis_number].members == list(axis.members)[1:]
+
+
+def test_sparse_diff_keeps_rows_when_nonzero_terms_cancel() -> None:
+    model = arco.Model()
+    outer = arco.IndexSet(name="outer", members=range(2))
+    hour = arco.IndexSet(name="hour", members=range(3))
+    active = np.array([True, False], dtype=bool)
+    gen = model.add_variables(
+        axes=(outer,),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+    )
+    repeated = gen * arco.param(np.ones(3), axes=(hour,))
+
+    ramp = np.diff(repeated, axis=hour)
+    estimate = ramp.memory_estimate()
+    assert ramp.shape == (3 - 1, 2)
+    assert estimate["active_slots"] == 2
+    assert estimate["linear_terms"] == 4
+
+
+def test_sparse_diff_singleton_axis_has_no_rows() -> None:
+    model = arco.Model()
+    hour = arco.IndexSet(name="hour", members=[0])
+    gen = model.add_variables(
+        axes=(hour,),
+        bounds=arco.NonNegativeFloat,
+        active=np.array([True], dtype=bool),
+    )
+
+    ramp = np.diff(gen, axis=hour)
+
+    assert ramp.shape == (0,)
+    assert ramp.memory_estimate()["active_slots"] == 0
+
+
 def test_sparse_ramping_constraints_intersect_labeled_active_mask() -> None:
     model = arco.Model()
     tech = arco.IndexSet(name="tech", members=range(4))

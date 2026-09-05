@@ -15,6 +15,7 @@ use crate::py_modules::arrays::{
     PyConstraintArray, PyVariableArray, SparseExprStorage, array_cumsum, array_diff, array_roll,
     combine_sparse_expr_same_shape, compare_sparse_expr_same_shape, compare_with_compact_fallback,
     diff_sparse_expr, expression_term_counts, multiply_sparse_expr_with_labeled_operand,
+    SparseDiffSource,
     multiply_sparse_expr_with_scalar, roll_sparse_expr, set_solver_matrix_memory_estimate,
     sum_sparse_expr, try_extract_compact,
 };
@@ -572,7 +573,7 @@ impl PyExprArray {
                 index_sets,
                 shape,
                 &storage.active_indices,
-                &storage.values,
+                SparseDiffSource::Expressions(&storage.values),
                 py,
                 over,
             );
@@ -742,7 +743,7 @@ impl PyExprArray {
                     index_sets,
                     shape,
                     &storage.active_indices,
-                    &storage.values,
+                    SparseDiffSource::Expressions(&storage.values),
                     py,
                     &axis,
                 );

@@ -573,34 +573,173 @@ pub(super) fn sum_sparse_expr(
     }
 }
 
-fn sparse_output_flat_for_source(
-    flat_idx: usize,
-    shape: &[usize],
-    source_strides: &[usize],
-    output_strides: &[usize],
-    diff_axis: usize,
-    output_axis_coordinate: usize,
-) -> usize {
-    let mut remainder = flat_idx;
-    let mut output_flat = 0usize;
+#[derive(Clone, Copy)]
+pub(super) enum SparseDiffSource<'a> {
+    Expressions(&'a [PyExpr]),
+    VariableIds(&'a [u32]),
+}
 
-    for axis in 0..shape.len() {
-        let mut coordinate = remainder / source_strides[axis];
-        remainder %= source_strides[axis];
-        if axis == diff_axis {
-            coordinate = output_axis_coordinate;
+impl SparseDiffSource<'_> {
+    fn len(self) -> usize {
+        match self {
+            Self::Expressions(values) => values.len(),
+            Self::VariableIds(var_ids) => var_ids.len(),
         }
-        output_flat += coordinate * output_strides[axis];
     }
 
-    output_flat
+    fn is_zero(self, source_pos: usize) -> bool {
+        match self {
+            Self::Expressions(values) => {
+                let value = &values[source_pos];
+                value.inner().num_terms() == 0 && value.constant() == 0.0
+            }
+            Self::VariableIds(_) => false,
+        }
+    }
+
+    fn scaled(self, source_pos: usize, factor: f64) -> PyExpr {
+        match self {
+            Self::Expressions(values) => values[source_pos].scale(factor),
+            Self::VariableIds(var_ids) => PyExpr::from_term(var_ids[source_pos], factor),
+        }
+    }
+}
+
+struct SparseDiffMapping {
+    axis_size: usize,
+    source_stride: usize,
+    source_block: usize,
+}
+
+impl SparseDiffMapping {
+    fn new(shape: &[usize], axis: usize) -> PyResult<Self> {
+        let source_stride = shape[axis + 1..]
+            .iter()
+            .try_fold(1usize, |total, dimension| total.checked_mul(*dimension))
+            .ok_or_else(|| ArrayDimensionError::new_err("sparse diff shape is too large"))?;
+        let source_block = source_stride
+            .checked_mul(shape[axis])
+            .ok_or_else(|| ArrayDimensionError::new_err("sparse diff shape is too large"))?;
+        Ok(Self {
+            axis_size: shape[axis],
+            source_block,
+            source_stride,
+        })
+    }
+
+    fn next(
+        &self,
+        active_indices: &[usize],
+        source_pos: &mut usize,
+        positive: bool,
+    ) -> Option<(usize, usize)> {
+        while let Some(active_idx) = active_indices.get(*source_pos).copied() {
+            let current_source_pos = *source_pos;
+            *source_pos += 1;
+            if self.source_stride == 0 {
+                return None;
+            }
+            let axis_coordinate = (active_idx / self.source_stride) % self.axis_size;
+            let valid = if positive {
+                axis_coordinate > 0
+            } else {
+                axis_coordinate < self.axis_size.saturating_sub(1)
+            };
+            if !valid {
+                continue;
+            }
+            let outer = active_idx / self.source_block;
+            let output_flat = active_idx
+                - outer * self.source_stride
+                - if positive { self.source_stride } else { 0 };
+            return Some((output_flat, current_source_pos));
+        }
+        None
+    }
+}
+
+struct SparseDiffCursor<'a> {
+    active_indices: &'a [usize],
+    source_pos: usize,
+    positive: bool,
+    current: Option<(usize, usize)>,
+}
+
+impl<'a> SparseDiffCursor<'a> {
+    fn new(active_indices: &'a [usize], positive: bool) -> Self {
+        Self {
+            active_indices,
+            source_pos: 0,
+            positive,
+            current: None,
+        }
+    }
+
+    fn advance(&mut self, mapping: &SparseDiffMapping) {
+        self.current = mapping.next(self.active_indices, &mut self.source_pos, self.positive);
+    }
+
+    fn source_pos_at(&self, output_idx: usize) -> Option<usize> {
+        self.current
+            .filter(|(current_idx, _)| *current_idx == output_idx)
+            .map(|(_, source_pos)| source_pos)
+    }
+}
+
+enum SparseDiffContribution {
+    Positive(usize),
+    Negative(usize),
+    Both { positive: usize, negative: usize },
+}
+
+fn merge_sparse_diff_rows(
+    mapping: &SparseDiffMapping,
+    active_indices: &[usize],
+    source: SparseDiffSource<'_>,
+    mut visit: impl FnMut(usize, SparseDiffContribution),
+) {
+    let mut positive = SparseDiffCursor::new(active_indices, true);
+    let mut negative = SparseDiffCursor::new(active_indices, false);
+    positive.advance(mapping);
+    negative.advance(mapping);
+
+    while positive.current.is_some() || negative.current.is_some() {
+        let current_idx = match (positive.current, negative.current) {
+            (Some((positive_idx, _)), Some((negative_idx, _))) => positive_idx.min(negative_idx),
+            (Some((positive_idx, _)), None) => positive_idx,
+            (None, Some((negative_idx, _))) => negative_idx,
+            (None, None) => return,
+        };
+        let positive_pos = positive.source_pos_at(current_idx);
+        let negative_pos = negative.source_pos_at(current_idx);
+        let contribution = match (
+            positive_pos.filter(|source_pos| !source.is_zero(*source_pos)),
+            negative_pos.filter(|source_pos| !source.is_zero(*source_pos)),
+        ) {
+            (Some(positive), Some(negative)) => {
+                Some(SparseDiffContribution::Both { positive, negative })
+            }
+            (Some(positive), None) => Some(SparseDiffContribution::Positive(positive)),
+            (None, Some(negative)) => Some(SparseDiffContribution::Negative(negative)),
+            (None, None) => None,
+        };
+        if let Some(contribution) = contribution {
+            visit(current_idx, contribution);
+        }
+        if positive_pos.is_some() {
+            positive.advance(mapping);
+        }
+        if negative_pos.is_some() {
+            negative.advance(mapping);
+        }
+    }
 }
 
 pub(super) fn diff_sparse_expr(
     index_sets: &[Py<PyIndexSet>],
     shape: &[usize],
     active_indices: &[usize],
-    values: &[PyExpr],
+    source: SparseDiffSource<'_>,
     py: Python<'_>,
     over: &Bound<'_, PyAny>,
 ) -> PyResult<PyObject> {
@@ -612,6 +751,30 @@ pub(super) fn diff_sparse_expr(
     }
     let axis = axes[0];
     let axis_size = shape[axis];
+
+    if active_indices.len() != source.len() {
+        return Err(ArrayDimensionError::new_err(format!(
+            "sparse diff source length {} does not match active index length {}",
+            source.len(),
+            active_indices.len()
+        )));
+    }
+    let source_total = shape
+        .iter()
+        .try_fold(1usize, |total, dimension| total.checked_mul(*dimension))
+        .ok_or_else(|| ArrayDimensionError::new_err("sparse diff shape is too large"))?;
+    for (position, &active_idx) in active_indices.iter().enumerate() {
+        if active_idx >= source_total {
+            return Err(ArrayIndexError::new_err(format!(
+                "sparse diff active index {active_idx} at position {position} exceeds source size {source_total}"
+            )));
+        }
+        if position > 0 && active_indices[position - 1] >= active_idx {
+            return Err(ArrayDimensionError::new_err(
+                "sparse diff active indices must be strictly increasing",
+            ));
+        }
+    }
 
     let mut out_shape = shape.to_vec();
     out_shape[axis] = axis_size.saturating_sub(1);
@@ -633,53 +796,31 @@ pub(super) fn diff_sparse_expr(
         );
     }
 
-    let source_strides = arco_arrays::row_major_strides(shape);
-    let output_strides = arco_arrays::row_major_strides(&out_shape);
-    let mut contributions =
-        Vec::<(usize, PyExpr)>::with_capacity(active_indices.len().saturating_mul(2));
-
-    for (active_idx, expr) in active_indices.iter().zip(values.iter()) {
-        let axis_coordinate = (active_idx / source_strides[axis]) % axis_size;
-        if axis_coordinate > 0 {
-            let output_flat = sparse_output_flat_for_source(
-                *active_idx,
-                shape,
-                &source_strides,
-                &output_strides,
-                axis,
-                axis_coordinate - 1,
-            );
-            contributions.push((output_flat, expr.clone()));
-        }
-        if axis_coordinate + 1 < axis_size {
-            let output_flat = sparse_output_flat_for_source(
-                *active_idx,
-                shape,
-                &source_strides,
-                &output_strides,
-                axis,
-                axis_coordinate,
-            );
-            contributions.push((output_flat, expr.scale(-1.0)));
-        }
-    }
-
-    contributions.sort_unstable_by_key(|(idx, _)| *idx);
-    let mut out_indices = Vec::new();
-    let mut out_values = Vec::<PyExpr>::new();
-    for (idx, expr) in contributions {
-        if out_indices.last().copied() == Some(idx) {
-            if let Some(last) = out_values.last_mut() {
-                last.add_assign_owned(expr);
-            }
-            continue;
-        }
-        if expr.inner().num_terms() == 0 && expr.constant() == 0.0 {
-            continue;
-        }
-        out_indices.push(idx);
-        out_values.push(expr);
-    }
+    let mapping = SparseDiffMapping::new(shape, axis)?;
+    let mut output_count = 0;
+    merge_sparse_diff_rows(&mapping, active_indices, source, |_, _| {
+        output_count += 1;
+    });
+    let mut out_indices = Vec::with_capacity(output_count);
+    let mut out_values = Vec::with_capacity(output_count);
+    merge_sparse_diff_rows(
+        &mapping,
+        active_indices,
+        source,
+        |current_idx, contribution| {
+            let value = match contribution {
+                SparseDiffContribution::Positive(source_pos) => source.scaled(source_pos, 1.0),
+                SparseDiffContribution::Negative(source_pos) => source.scaled(source_pos, -1.0),
+                SparseDiffContribution::Both { positive, negative } => {
+                    let mut value = source.scaled(positive, 1.0);
+                    value.add_assign_owned(source.scaled(negative, -1.0));
+                    value
+                }
+            };
+            out_indices.push(current_idx);
+            out_values.push(value);
+        },
+    );
 
     Ok(
         PyExprArray::from_sparse(out_index_sets, out_shape, out_indices, out_values)
@@ -2775,4 +2916,64 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExprArray>()?;
     m.add_class::<PyConstraintArray>()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExprArrayStorage, SparseDiffSource, diff_sparse_expr};
+    use crate::py_modules::index_set::{IndexMember, PyIndexSet};
+    use pyo3::prelude::*;
+
+    fn run_sparse_diff(
+        py: Python<'_>,
+        active_indices: &[usize],
+        variable_ids: &[u32],
+    ) -> PyResult<Py<PyAny>> {
+        let axis = Py::new(
+            py,
+            PyIndexSet {
+                name: "axis".to_string(),
+                members: (0..4).map(IndexMember::Int).collect(),
+            },
+        )?;
+        let index_sets = vec![axis.clone_ref(py)];
+        diff_sparse_expr(
+            &index_sets,
+            &[4],
+            active_indices,
+            SparseDiffSource::VariableIds(variable_ids),
+            py,
+            axis.bind(py).as_any(),
+        )
+    }
+
+    #[test]
+    fn sparse_diff_output_storage_uses_exact_capacity() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let result = run_sparse_diff(py, &[1, 2, 3], &[10, 11, 12])?;
+            let result = result.bind(py).extract::<PyRef<'_, super::PyExprArray>>()?;
+            let ExprArrayStorage::Sparse { storage, .. } = &result.storage else {
+                panic!("sparse diff should return sparse expression storage");
+            };
+
+            assert_eq!(storage.active_indices.len(), 3);
+            assert_eq!(storage.values.len(), 3);
+            assert_eq!(storage.active_indices.capacity(), 3);
+            assert_eq!(storage.values.capacity(), 3);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn sparse_diff_rejects_malformed_active_indices() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            assert!(run_sparse_diff(py, &[1, 2, 3], &[10, 11]).is_err());
+            assert!(run_sparse_diff(py, &[2, 1], &[10, 11]).is_err());
+            assert!(run_sparse_diff(py, &[1, 1], &[10, 11]).is_err());
+            assert!(run_sparse_diff(py, &[4], &[10]).is_err());
+            Ok(())
+        })
+    }
 }

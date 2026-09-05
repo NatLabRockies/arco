@@ -25,6 +25,7 @@ use super::{
     expression_term_counts, multiply_sparse_variables_with_labeled_operand,
     multiply_sparse_variables_with_scalar, parse_sparse_axes, reduced_sparse_flat_index,
     roll_sparse_expr, set_solver_matrix_memory_estimate, try_extract_compact,
+    SparseDiffSource,
 };
 
 /// Compact metadata for a contiguous block of variables with scalar bounds.
@@ -1024,16 +1025,11 @@ impl PyVariableArray {
     #[pyo3(signature = (*, over))]
     fn diff(&self, py: Python<'_>, over: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         if let VariableStorage::Sparse(sparse) = &self.storage {
-            let values = sparse
-                .var_ids
-                .iter()
-                .map(|var_id| PyExpr::from_term(*var_id, 1.0))
-                .collect::<Vec<_>>();
             return diff_sparse_expr(
                 &self.index_sets,
                 &self.shape,
                 &sparse.active_indices,
-                &values,
+                SparseDiffSource::VariableIds(&sparse.var_ids),
                 py,
                 over,
             );
@@ -1199,16 +1195,11 @@ impl PyVariableArray {
                 let axis = kwargs.cast::<PyDict>()?.get_item("axis")?.ok_or_else(|| {
                     ArrayDimensionError::new_err("np.diff requires axis=IndexSet")
                 })?;
-                let values = sparse
-                    .var_ids
-                    .iter()
-                    .map(|var_id| PyExpr::from_term(*var_id, 1.0))
-                    .collect::<Vec<_>>();
                 return diff_sparse_expr(
                     &self.index_sets,
                     &self.shape,
                     &sparse.active_indices,
-                    &values,
+                    SparseDiffSource::VariableIds(&sparse.var_ids),
                     py,
                     &axis,
                 );
