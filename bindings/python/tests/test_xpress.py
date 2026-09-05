@@ -15,6 +15,29 @@ def build_model() -> arco.Model:
     return model
 
 
+def build_infeasible_model() -> arco.Model:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=0.0))
+    model.add_constraint(x >= 1.0, name="demand")
+    model.minimize(x)
+    return model
+
+
+def solve_xpress_or_skip(model: arco.Model, solver: arco.Xpress) -> arco.SolveResult:
+    runtime_dir = XPRESS_RUNTIME_INFO.get("runtime_dir")
+    if runtime_dir:
+        os.environ.setdefault("XPRESSDIR", str(runtime_dir))
+    try:
+        return model.solve(solver=solver)
+    except (
+        arco.SolverNotAvailableError
+    ) as exc:  # pragma: no cover - environment dependent
+        message = str(exc)
+        if "Xpress license initialization failed" in message:
+            pytest.skip(message)
+        raise
+
+
 XPRESS_RUNTIME_INFO = arco.solver_runtime_info(family="xpress")
 HAS_XPRESS_RUNTIME = bool(XPRESS_RUNTIME_INFO.get("runtime_dir"))
 HAS_XPRESS_BACKEND = bool(XPRESS_RUNTIME_INFO.get("backend_enabled"))
@@ -109,6 +132,62 @@ def test_xpress_solves_with_selected_lp_algorithms() -> None:
 
 
 @pytest.mark.skipif(
+    (not HAS_XPRESS_RUNTIME) or (not HAS_XPRESS_BACKEND),
+    reason="xpress runtime/backend not available in this build",
+)
+def test_xpress_consuming_solve_releases_model_at_native_handoff() -> None:
+    model = build_model()
+    result = solve_xpress_or_skip(
+        model,
+        arco.Xpress(
+            log_to_console=False,
+            parameters={
+                "arco.consume_model": "true",
+                "arco.extract_solution": "false",
+                "arco.fingerprint": "false",
+            },
+        ),
+    )
+
+    assert result.is_optimal()
+    assert result.objective_value == pytest.approx(2.0)
+    assert model.num_variables == 0
+    assert model.num_constraints == 0
+
+
+@pytest.mark.skipif(
+    (not HAS_XPRESS_RUNTIME) or (not HAS_XPRESS_BACKEND),
+    reason="xpress runtime/backend not available in this build",
+)
+def test_xpress_nonconsuming_solve_keeps_model_available() -> None:
+    model = build_model()
+    result = solve_xpress_or_skip(model, arco.Xpress(log_to_console=False))
+
+    assert result.is_optimal()
+    assert model.num_variables == 1
+    assert model.num_constraints == 1
+
+
+@pytest.mark.skipif(
+    (not HAS_XPRESS_RUNTIME) or (not HAS_XPRESS_BACKEND),
+    reason="xpress runtime/backend not available in this build",
+)
+def test_xpress_consuming_infeasible_solve_leaves_model_consumed() -> None:
+    model = build_infeasible_model()
+    result = solve_xpress_or_skip(
+        model,
+        arco.Xpress(
+            log_to_console=False,
+            parameters={"arco.consume_model": "true"},
+        ),
+    )
+
+    assert result.status == arco.SolutionStatus.INFEASIBLE
+    assert model.num_variables == 0
+    assert model.num_constraints == 0
+
+
+@pytest.mark.skipif(
     not HAS_XPRESS_BACKEND,
     reason="xpress backend not available in this build",
 )
@@ -133,3 +212,24 @@ def test_xpress_constructor_fails_fast_when_backend_disabled() -> None:
         arco.SolverNotAvailableError, match="built without the xpress feature"
     ):
         build_model().solve(solver=arco.Xpress(log_to_console=False))
+
+
+@pytest.mark.skipif(
+    (not HAS_XPRESS_BACKEND) or HAS_XPRESS_RUNTIME,
+    reason="requires an Xpress backend without a local runtime",
+)
+def test_xpress_consuming_preparation_failure_preserves_previous_solution() -> None:
+    model = build_model()
+    previous_result = model.solve(solver=arco.HiGHS(log_to_console=False))
+
+    with pytest.raises(arco.SolverNotAvailableError):
+        model.solve(
+            solver=arco.Xpress(
+                log_to_console=False,
+                parameters={"arco.consume_model": "true"},
+            )
+        )
+
+    assert model.num_variables == 1
+    assert model.num_constraints == 1
+    assert model._last_solution is previous_result
