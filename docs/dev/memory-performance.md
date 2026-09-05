@@ -140,10 +140,12 @@ model. This keeps fingerprint-disabled solves from paying for an unused hash
 pass.
 
 The existing borrowing solve APIs still retain their source models through
-optimization. Python's `arco.consume_model` behavior is unchanged by this Rust
-API. Releasing source allocations can reduce live memory during optimization,
-but allocator retention and the earlier loading peak can limit process peak
-RSS savings. This API alone does not establish GAMS memory parity.
+optimization. Python Xpress solves with `arco.consume_model=true` use the
+prepared boundary to release the source model before optimization; see
+[Manage model memory](../how-to/manage-model-memory.md) for the ownership and
+error contract. Releasing source allocations can reduce live memory during
+optimization, but allocator retention and the earlier loading peak can limit
+process peak RSS savings. This API alone does not establish GAMS memory parity.
 
 Run the lifetime and runtime cleanup regressions explicitly with a configured
 Xpress runtime and license:

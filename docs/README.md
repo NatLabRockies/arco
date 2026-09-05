@@ -46,6 +46,7 @@ point with self-contained examples you can copy and run.
 - [Define Block Schemas](how-to/block-schemas.md) -- define typed block input/output contracts for block composition.
 - [Numpy Integration](how-to/numpy-integration.md) -- array arithmetic, validated data-backed param arrays, indexing, and reductions.
 - [Configure Solver](how-to/configure-solver.md) -- solver objects, settings, and reusable configurations.
+- [Manage Model Memory](how-to/manage-model-memory.md) -- release model storage at an explicit solver handoff.
 - [Add a Solver Backend](how-to/add-solver-backend.md) -- add a solver through the shared ModelView and solver contracts.
 - [Debug Infeasibility](how-to/debug-infeasibility.md) -- use slacks and elastic constraints to diagnose infeasible models.
 - [Inspect a Model](how-to/inspect-model.md) -- examine model structure with snapshots before and after solving.

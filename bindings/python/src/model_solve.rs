@@ -49,8 +49,9 @@ pub(crate) fn solve_model(
     if let Some(lp_algorithm) = lp_algorithm {
         effective_settings.set_lp_algorithm(lp_algorithm);
     }
-    validate_backend_settings(&selected_backend, &effective_settings)?;
-    if selected_backend == "xpress" && !crate::py_modules::solver::xpress_backend_enabled() {
+    let backend_family = normalize_model_view_backend_family(&selected_backend);
+    validate_backend_settings(backend_family, &effective_settings)?;
+    if backend_family == "xpress" && !crate::py_modules::solver::xpress_backend_enabled() {
         return Err(errors::generic_solver_error_to_py(SolverError::SolverNotAvailable(
             "Python bindings were built without the xpress feature. Rebuild with: uv run --with maturin maturin develop --features xpress".to_string(),
         )));
@@ -63,31 +64,83 @@ pub(crate) fn solve_model(
         .get("arco.consume_model")
         .is_some_and(|value| value == "true");
 
-    let result =
-        match solve_model_view_with_builtin_backend(&selected_backend, &model.inner, &config) {
-            Ok(solution) => Ok(PySolveResult::new(solution_from_model_view_result(
-                solution,
-            ))),
-            Err(SolverError::SolveFailure { status }) => {
-                Ok(PySolveResult::new(solve_failure_solution(status)))
-            }
-            Err(error) => Err(errors::generic_solver_error_to_py(error)),
-        }?;
-
-    if consume_model {
-        model.inner = Default::default();
-        model.last_solution = None;
-        model.array_print_specs.clear();
-        model.constraint_print_specs.clear();
-        model.block_defs.clear();
-        model.link_defs.clear();
-        #[cfg(feature = "ipopt")]
+    let consumes_before_solve = consume_model && backend_family == "xpress";
+    let result = if consumes_before_solve {
+        #[cfg(feature = "xpress")]
         {
-            model.nonlinear_state = crate::py_modules::nonlinear_state::NonlinearState::default();
+            solve_consuming_xpress_model(model, &config)?
         }
+        #[cfg(not(feature = "xpress"))]
+        {
+            solve_borrowed_model(&selected_backend, model, &config)?
+        }
+    } else {
+        solve_borrowed_model(&selected_backend, model, &config)?
+    };
+
+    if consume_model && !consumes_before_solve {
+        clear_consumed_model_state(model);
     }
 
     Py::new(py, result)
+}
+
+fn solve_borrowed_model(
+    selected_backend: &str,
+    model: &PyModel,
+    config: &SolverConfig,
+) -> PyResult<PySolveResult> {
+    model_view_solve_result_to_py(solve_model_view_with_builtin_backend(
+        selected_backend,
+        &model.inner,
+        config,
+    ))
+}
+
+fn model_view_solve_result_to_py(
+    result: Result<ModelViewSolveResult, SolverError>,
+) -> PyResult<PySolveResult> {
+    match result {
+        Ok(solution) => Ok(PySolveResult::new(solution_from_model_view_result(solution))),
+        Err(SolverError::SolveFailure { status }) => {
+            Ok(PySolveResult::new(solve_failure_solution(status)))
+        }
+        Err(error) => Err(errors::generic_solver_error_to_py(error)),
+    }
+}
+
+#[cfg(feature = "xpress")]
+fn solve_consuming_xpress_model(
+    model: &mut PyModel,
+    config: &SolverConfig,
+) -> PyResult<PySolveResult> {
+    let prepared = prepare_consuming_xpress_model(model, config)
+        .map_err(errors::generic_solver_error_to_py)?;
+
+    model_view_solve_result_to_py(prepared.solve_model_view())
+}
+
+#[cfg(feature = "xpress")]
+fn prepare_consuming_xpress_model(
+    model: &mut PyModel,
+    config: &SolverConfig,
+) -> Result<arco_xpress::PreparedXpressModel, SolverError> {
+    let prepared = arco_xpress::PreparedXpressModel::prepare(&model.inner, config)?;
+    clear_consumed_model_state(model);
+    Ok(prepared)
+}
+
+fn clear_consumed_model_state(model: &mut PyModel) {
+    model.inner = Default::default();
+    model.last_solution = None;
+    model.array_print_specs.clear();
+    model.constraint_print_specs.clear();
+    model.block_defs.clear();
+    model.link_defs.clear();
+    #[cfg(feature = "ipopt")]
+    {
+        model.nonlinear_state = crate::py_modules::nonlinear_state::NonlinearState::default();
+    }
 }
 
 fn reject_unsupported_primal_start(primal_start: Option<&[(u32, f64)]>) -> Result<(), SolverError> {
@@ -157,5 +210,95 @@ fn solution_from_model_view_result(result: ModelViewSolveResult) -> Solution {
         status: result.status,
         solve_time_seconds: 0.0,
         metadata: result.metadata,
+    }
+}
+
+#[cfg(all(test, feature = "xpress"))]
+mod tests {
+    use super::*;
+    use arco_model::{Bounds, Constraint, Model, Objective, Sense, Variable};
+
+    fn model_with_objective() -> PyModel {
+        let mut inner = Model::new();
+        let variable = inner
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("variable");
+        let constraint = inner
+            .add_constraint(Constraint {
+                bounds: Bounds::new(1.0, f64::INFINITY),
+            })
+            .expect("constraint");
+        inner
+            .set_coefficient(variable, constraint, 1.0)
+            .expect("coefficient");
+        inner
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(variable, 2.0)],
+            })
+            .expect("objective");
+        PyModel::from_parts(
+            inner,
+            crate::py_modules::solver::SolverSettings::default(),
+            "xpress".to_string(),
+        )
+    }
+
+    #[test]
+    fn consuming_prepare_failure_preserves_model_state() {
+        let mut model = model_with_objective();
+        Python::initialize();
+        let previous_solution = Python::attach(|py| {
+            Py::new(
+                py,
+                PySolveResult::new(Solution {
+                    primal_values: vec![1.0],
+                    variable_duals: vec![0.0],
+                    constraint_duals: vec![0.0],
+                    row_values: vec![1.0],
+                    objective_value: 2.0,
+                    status: arco_solver::SolverStatus::Optimal,
+                    solve_time_seconds: 0.0,
+                    metadata: std::collections::BTreeMap::new(),
+                }),
+            )
+            .expect("previous solution")
+        });
+        model.last_solution = Some(previous_solution);
+        let error = match prepare_consuming_xpress_model(
+            &mut model,
+            &SolverConfig::new().with_threads(0),
+        ) {
+            Ok(_) => panic!("invalid preparation settings should fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, SolverError::InvalidSettings(_)));
+        assert_eq!(model.inner.num_variables(), 1);
+        assert_eq!(model.inner.num_constraints(), 1);
+        assert!(model.last_solution.is_some());
+    }
+
+    #[test]
+    #[ignore = "requires local Xpress runtime and license"]
+    fn consuming_prepare_clears_model_before_native_solve() {
+        let mut model = model_with_objective();
+        let prepared = prepare_consuming_xpress_model(
+            &mut model,
+            &SolverConfig::new()
+                .with_log_to_console(false)
+                .with_parameter("arco.extract_solution", "false")
+                .with_parameter("arco.fingerprint", "false"),
+        )
+        .unwrap_or_else(|error| panic!("unexpected Xpress preparation failure: {error}"));
+
+        assert_eq!(model.inner.num_variables(), 0);
+        assert_eq!(model.inner.num_constraints(), 0);
+        assert!(model.last_solution.is_none());
+        let result = prepared
+            .solve_model_view()
+            .unwrap_or_else(|error| panic!("unexpected Xpress solve failure: {error}"));
+        assert_eq!(result.status, arco_solver::SolverStatus::Optimal);
+        assert!((result.objective_value - 2.0).abs() < f64::EPSILON);
     }
 }
