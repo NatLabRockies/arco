@@ -303,11 +303,7 @@ impl PyModel {
         // Reconstruct from array_print_spec
         let spec = self.find_array_print_spec(vid)?;
         let offset = (var_id - spec.start_var_id) as usize;
-        let dense_offset = spec
-            .dense_indices
-            .as_ref()
-            .and_then(|indices| indices.get(offset).copied())
-            .unwrap_or(offset);
+        let dense_offset = spec.dense_offset(offset).unwrap_or(offset);
         if spec.len == 1 {
             Some(spec.base_name.clone())
         } else {
@@ -330,12 +326,10 @@ impl PyModel {
                 if spec.base_name != base {
                     continue;
                 }
-                if let Some(dense_indices) = spec.dense_indices.as_ref() {
-                    if let Some(active_pos) = dense_indices.iter().position(|idx| *idx == offset) {
-                        return Some(VariableId::new(spec.start_var_id + active_pos as u32));
-                    }
-                } else if offset < spec.len {
-                    return Some(VariableId::new(spec.start_var_id + offset as u32));
+                if let Some(active_pos) = spec.active_offset(offset) {
+                    let active_pos = u32::try_from(active_pos).ok()?;
+                    let variable_id = spec.start_var_id.checked_add(active_pos)?;
+                    return Some(VariableId::new(variable_id));
                 }
             }
         } else {

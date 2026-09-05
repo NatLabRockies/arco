@@ -19,6 +19,22 @@ spare capacity, allocator behavior, optional names and metadata, temporary
 construction arrays, and solver-owned memory. Header accounting does not prove
 a lower whole-process peak.
 
+## Sparse display-index mappings
+
+Python sparse array display metadata maps each active variable to its dense
+array offset. A full prefix uses an identity marker with no index payload.
+Strictly increasing sparse offsets use a two-`usize` run table only when its
+payload is smaller than the explicit index slice; short, irregular,
+non-monotonic, or duplicate mappings retain an explicit boxed slice so reverse
+lookup keeps the existing first-match behavior. Forward labels and reverse
+name lookup therefore preserve dense holes and nonzero array starts while
+avoiding one `usize` per active variable for long contiguous runs.
+
+The mapping representation is private to the Python binding and does not alter
+the public column or array contracts. Payload arithmetic describes Rust-owned
+buffer bytes only; it excludes enum/header bytes, Python metadata, allocator
+overhead, and process RSS.
+
 For the measurement protocol and fair process-level comparisons, see
 [Measuring memory performance](memory-performance.md). Do not compare a cached
 backend probe or a source-buffer estimate directly with a solver RSS result.
