@@ -59,6 +59,36 @@ buffers reduces live allocations but an allocator may retain those pages, and
 a previous high-water mark cannot decrease during a run. Record both allocated
 buffer bytes and process peak where possible.
 
+## Sparse differences
+
+Sparse `np.diff(array, axis=...)` maps each active source slot to at most two
+output slots: the positive source at the preceding axis coordinate and the
+negative source at the current coordinate. Sparse active indices are maintained
+in strictly increasing row-major order by the internal constructors and
+producer paths. The implementation merges those two monotonic streams, so it
+does not allocate the previous `O(active_slots)` pair buffer or sort cloned
+expressions. Variable arrays pass borrowed variable IDs into the merge and
+materialize expressions only for output rows.
+
+Sparse row membership remains observable through `memory_estimate()` and model
+inspection. A row with two nonzero contributions stays active even when the
+contributions cancel; a row whose available contributions are both exactly zero
+is omitted. Tests should cover inactive holes, each axis boundary, singleton
+and empty axes, zero-valued expressions, and broadcast expressions that reuse a
+variable across the differenced axis.
+
+The merge reduces temporary allocation during expression construction. It does
+not by itself establish a lower process RSS: use a fresh-process build probe
+and record dimensions, active-slot counts, coefficient counts, and RSS as
+specified above. The focused behavioral checks are:
+
+```bash
+bindings/python/.venv/bin/pytest \
+  bindings/python/tests/test_active_masks.py \
+  bindings/python/tests/test_axis_param.py \
+  bindings/python/tests/test_param_api.py -q
+```
+
 ## Solver loading
 
 The primitive model retains its coefficient columns while adapters construct
