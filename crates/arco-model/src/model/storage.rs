@@ -17,9 +17,13 @@ impl Model {
         self.constraints.len()
     }
 
-    /// Get the number of coefficients in the model.
+    /// Get the number of stored coefficients in O(1) time.
+    ///
+    /// The count includes duplicate rows and explicit zero values, matching the
+    /// physical column storage. Each model stores one additional `usize` for this
+    /// cached count, and successful matrix-entry insertions increment it once.
     pub fn num_coefficients(&self) -> usize {
-        self.columns.iter().map(|col| col.len()).sum()
+        self.coefficient_count
     }
 
     /// Get a variable by ID.

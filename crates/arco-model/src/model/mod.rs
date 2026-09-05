@@ -65,6 +65,8 @@ pub struct Model {
     // Column-first sparse storage: indexed by variable_id, each entry is a list of
     // (constraint_id, coefficient) pairs. Uses SmallVec for inline storage of ≤2 entries.
     columns: Vec<ColumnVec>,
+    // Number of stored matrix entries, including duplicate rows and explicit zeros.
+    coefficient_count: usize,
     next_variable_id: u32,
     next_constraint_id: u32,
     slack_handles: Vec<SlackHandle>,
@@ -96,12 +98,21 @@ pub(crate) fn slack_penalty_is_valid(penalty: f64) -> bool {
 }
 
 /// Upsert a coefficient in a column: update existing entry or append.
+///
+/// Returns `true` when a new entry was appended and `false` when an existing
+/// entry was updated.
 #[inline]
-pub(crate) fn column_upsert(column: &mut ColumnVec, constraint_id: ConstraintId, coefficient: f64) {
+pub(crate) fn column_upsert(
+    column: &mut ColumnVec,
+    constraint_id: ConstraintId,
+    coefficient: f64,
+) -> bool {
     if let Some(entry) = column.iter_mut().find(|(cid, _)| *cid == constraint_id) {
         entry.1 = coefficient;
+        false
     } else {
         column.push((constraint_id, coefficient));
+        true
     }
 }
 
@@ -117,6 +128,7 @@ impl Model {
             objective_name: None,
             simplify_level: SimplifyLevel::default(),
             columns: Vec::new(),
+            coefficient_count: 0,
             next_variable_id: 0,
             next_constraint_id: 0,
             slack_handles: Vec::new(),
@@ -140,6 +152,7 @@ impl Model {
             objective_name: None,
             simplify_level: SimplifyLevel::default(),
             columns: Vec::with_capacity(variable_capacity),
+            coefficient_count: 0,
             next_variable_id: 0,
             next_constraint_id: 0,
             slack_handles: Vec::new(),
@@ -365,6 +378,7 @@ mod tests {
     use crate::types::{Bounds, Constraint, Objective, Sense, Variable};
     use std::mem::{align_of, size_of};
 
+    mod coefficient_count;
     mod metadata_inspect;
     mod slack_csc;
     mod sparse_export;

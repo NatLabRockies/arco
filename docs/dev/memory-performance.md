@@ -95,6 +95,32 @@ bindings/python/.venv/bin/pytest \
   bindings/python/tests/test_param_api.py -q
 ```
 
+## Canonical coefficient count
+
+`Model::num_coefficients()` is an O(1) read backed by one cached `usize` per
+model. The cache counts physical entries in the column storage, including
+duplicate row IDs and explicit zero values. It is incremented only when a
+matrix entry is actually inserted; updating an existing `(variable,
+constraint)` entry does not change the count. Expression normalization still
+controls which terms reach storage, so this cache does not change duplicate,
+zero, cancellation, sparse export, fingerprint, or partial-error semantics.
+
+The compact and streaming batch insertion paths update the count after each
+successful push. CSC import updates it after each fully validated column is
+installed, so malformed input still cannot make a returned model report a
+different count from its stored entries. Cloning a model copies the cached
+value with the rest of the model. The trade-off is one `usize` per canonical
+model and one increment on each new stored entry; callers that need to inspect
+the columns should still use `Model::columns()`.
+
+For a bounded black-box query check, construct the same one-million-variable
+model in fresh release processes, use a bounded mix of empty and one-entry
+columns, and repeat `num_coefficients()` through `std::hint::black_box`. Report
+individual query and construction samples, process peak RSS, and the exact Rust
+revision/profile. This isolates the count-query cost while checking insertion
+overhead; it does not establish a lower construction peak or end-to-end solver
+memory use.
+
 ## Reusing sparse constraint arrays
 
 When a sparse `ConstraintArray` is inserted into a model, normalization
