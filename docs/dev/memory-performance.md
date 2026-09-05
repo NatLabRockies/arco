@@ -6,6 +6,9 @@ For the canonical model's per-column storage budget, see
 For short-expression normalization allocation behavior, see
 [Short expression memory](short-expression-memory.md).
 
+For releasing the source model before HiGHS optimization, see
+[HiGHS model ownership](highs-model-ownership.md).
+
 Measure model construction, solver loading, optimization, and solution
 extraction separately when evaluating an allocation change. A lower allocation
 count or smaller Rust buffer is useful evidence, but does not establish a lower
@@ -121,6 +124,28 @@ Input arrays passed through FFI may be released only after the solver has copied
 their contents. Scope temporary buffers to the loading operation once that
 ownership contract is established. Test LP and MIP paths, inactive variables,
 empty columns, bounds, and coefficient ordering when changing this boundary.
+
+### HiGHS input buffers
+
+HiGHS copies the arrays passed through `Highs_passLp` and `Highs_passMip` into
+its native model during the load call. The HiGHS 1.15.0 implementation uses
+`std::vector::assign` for those fields; see the [official source](https://github.com/ERGO-Code/HiGHS/blob/v1.15.0/highs/lp_data/Highs.cpp#L533-L624).
+The adapter therefore scopes its objective, bounds, integrality, and CSC
+buffers to preparation. Those temporary arrays are released before
+`Highs_run`; the native model and its solver-owned factorization remain live
+through optimization.
+
+When callers use the [HiGHS model ownership](highs-model-ownership.md) API and
+drop the source `ModelView` after loading, only native solver state,
+dimensions, fingerprint choice, extraction choice, and timing metadata remain.
+The existing borrowing solve path remains available for callers that need the
+source model throughout the solve.
+
+Run the ownership regressions with the pinned toolchain:
+
+```bash
+scripts/with_solver_build_env.sh rustup run 1.85.1 cargo test -p arco-highs --lib prepared_model_
+```
 
 ### Xpress input buffers
 

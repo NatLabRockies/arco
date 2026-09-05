@@ -11,4 +11,4 @@ pub use ffi::{
     highs_version,
 };
 pub use solution::Solution;
-pub use solver::{HighsModelViewBackend, SolverError, solve_model_view};
+pub use solver::{HighsModelViewBackend, PreparedHighsModel, SolverError, solve_model_view};
