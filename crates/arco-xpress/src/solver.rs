@@ -657,7 +657,7 @@ fn load_xpress_problem(
     load_data: XpressLoadData,
 ) -> Result<(), SolverError> {
     let has_integer = load_data.has_integer;
-    let result = if has_integer {
+    if has_integer {
         // SAFETY: every pointer references storage owned by `load_data`, which
         // remains alive for the complete Xpress load call.
         ffi::check_xprs(unsafe {
@@ -710,11 +710,10 @@ fn load_xpress_problem(
             )
         })
         .map_err(|rc| xpress_failure_error(api, prob, "XPRSloadlp", rc, model))
-    };
+    }
 
     // Xpress copies the arrays while loading the problem. Returning from this
     // function releases the owned load buffers before optimization starts.
-    result
 }
 
 struct SolveArtifacts {
