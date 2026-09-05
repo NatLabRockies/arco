@@ -198,8 +198,7 @@ impl Model {
         term_patterns: &[(u32, f64)],
         bounds_list: &[Bounds],
     ) -> Result<ConstraintId, ModelError> {
-        let indices = (0..bounds_list.len()).collect::<Vec<_>>();
-        self.add_constraints_compact_indexed(term_patterns, &indices, bounds_list)
+        self.add_constraints_compact_rows(term_patterns, bounds_list, 0..bounds_list.len())
     }
 
     /// Add constraints from compact term patterns using explicit source row indices.
@@ -208,6 +207,15 @@ impl Model {
         term_patterns: &[(u32, f64)],
         row_indices: &[usize],
         bounds_list: &[Bounds],
+    ) -> Result<ConstraintId, ModelError> {
+        self.add_constraints_compact_rows(term_patterns, bounds_list, row_indices.iter().copied())
+    }
+
+    fn add_constraints_compact_rows(
+        &mut self,
+        term_patterns: &[(u32, f64)],
+        bounds_list: &[Bounds],
+        row_indices: impl IntoIterator<Item = usize>,
     ) -> Result<ConstraintId, ModelError> {
         let count = bounds_list.len();
         if count == 0 {
@@ -226,7 +234,7 @@ impl Model {
         self.constraints.reserve(count);
         let first_constraint_id = self.next_constraint_id;
 
-        for (&source_idx, bounds) in row_indices.iter().zip(bounds_list) {
+        for (source_idx, bounds) in row_indices.into_iter().zip(bounds_list) {
             let constraint_id = ConstraintId::new(self.next_constraint_id);
             self.next_constraint_id += 1;
             self.constraints.push(Constraint { bounds: *bounds });
