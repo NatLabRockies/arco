@@ -131,7 +131,9 @@ impl Model {
                 }
                 column.push((ConstraintId::new(row as u32), coefficient));
             }
+            let column_len = column.len();
             model.columns[col] = column;
+            model.coefficient_count += column_len;
         }
 
         model.next_variable_id = num_variables as u32;

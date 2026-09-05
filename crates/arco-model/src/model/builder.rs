@@ -242,6 +242,7 @@ impl Model {
                     )));
                 }
                 self.columns[var_idx].push((constraint_id, coeff));
+                self.coefficient_count += 1;
             }
         }
 
@@ -301,6 +302,7 @@ impl Model {
                     return Err(ModelError::InvalidVariableId(var_id));
                 }
                 self.columns[var_idx].push((constraint_id, coeff));
+                self.coefficient_count += 1;
             }
         }
 
@@ -324,11 +326,13 @@ impl Model {
         self.ensure_constraint_exists(constraint_id)?;
 
         // Update or insert in column-first storage (Vec indexed by variable ID).
-        column_upsert(
+        if column_upsert(
             &mut self.columns[var_id.inner() as usize],
             constraint_id,
             coefficient,
-        );
+        ) {
+            self.coefficient_count += 1;
+        }
 
         Ok(())
     }
