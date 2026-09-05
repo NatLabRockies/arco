@@ -406,7 +406,9 @@ def test_sparse_diff_merges_holes_and_drops_zero_rows() -> None:
         )
         expected_terms = np.take(
             active.astype(int), range(active.shape[axis_number] - 1), axis=axis_number
-        ) + np.take(active.astype(int), range(1, active.shape[axis_number]), axis=axis_number)
+        ) + np.take(
+            active.astype(int), range(1, active.shape[axis_number]), axis=axis_number
+        )
 
         assert ramp_a.shape[axis_number] == active.shape[axis_number] - 1
         assert ramp_a.memory_estimate()["active_slots"] == int(expected_active.sum())
@@ -457,7 +459,9 @@ def test_sparse_diff_preserves_locations_and_signs_on_each_axis() -> None:
         assert snapshot.coefficients is not None
 
         source_ids = dict(zip(np.flatnonzero(active), map(int, gen.variables)))
-        target_ids = dict(zip(np.flatnonzero(expected_active), map(int, target.variables)))
+        target_ids = dict(
+            zip(np.flatnonzero(expected_active), map(int, target.variables))
+        )
         expected_rows: list[list[tuple[int, float]]] = []
         for output_flat in np.flatnonzero(expected_active):
             coordinates = list(np.unravel_index(output_flat, expected_active.shape))
@@ -477,9 +481,9 @@ def test_sparse_diff_preserves_locations_and_signs_on_each_axis() -> None:
             actual_rows.setdefault(coefficient.constraint_id, []).append(
                 (coefficient.variable_id, coefficient.value)
             )
-        assert [sorted(actual_rows[constraint.id]) for constraint in snapshot.constraints] == [
-            sorted(row) for row in expected_rows
-        ]
+        assert [
+            sorted(actual_rows[constraint.id]) for constraint in snapshot.constraints
+        ] == [sorted(row) for row in expected_rows]
         assert ramp.index_sets[axis_number].members == list(axis.members)[1:]
 
 
