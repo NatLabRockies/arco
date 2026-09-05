@@ -755,7 +755,7 @@ impl PyModel {
 
             // Full path
             return self.add_constraints_shaped_internal(
-                array.exprs().to_vec(),
+                array.exprs().iter().cloned(),
                 array.get_sense(),
                 array.get_rhs(),
                 active,

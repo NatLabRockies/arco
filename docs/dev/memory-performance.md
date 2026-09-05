@@ -185,6 +185,23 @@ PYTHONPATH=bindings/python bindings/python/.venv/bin/pytest \
   bindings/python/tests/test_owned_normalize.py -q
 ```
 
+## Streaming full materialized rows
+
+Full `ConstraintArray` insertion accepts an `ExactSizeIterator` of expressions.
+The array-backed callers borrow the source expression slice and clone one
+expression as the insertion iterator advances, so they do not first allocate a
+second vector containing the complete batch. The row count is read from the
+iterator before active-mask resolution; mask and shape errors therefore leave
+the source unconsumed and the model unchanged. Once insertion starts, the
+existing row order, normalization, and partial-error behavior remain in force:
+the model can contain rows inserted before a later invalid coefficient is
+reported.
+
+This removes a full-batch expression-vector allocation from the materialized
+path. It does not remove the expression storage held by a source array or
+establish a lower whole-process RSS. Reusing a source `ConstraintArray` remains
+supported, including repeated insertion with different active masks.
+
 ## Solver loading
 
 The primitive model retains its coefficient columns while adapters construct

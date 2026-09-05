@@ -80,3 +80,41 @@ def test_nonfinite_owned_axis_expression_still_fails_validation() -> None:
     reduced = source.sum(over=reduced_axis)
     with pytest.raises(arco.ConstraintInvalidBoundsError):
         model.add_constraints(reduced * np.nan >= reference)
+
+
+def test_full_param_comparison_can_be_reused_with_an_active_mask() -> None:
+    model = arco.Model()
+    index = arco.IndexSet(name="index", members=range(3))
+    variables = model.add_variables(
+        axes=(index,), bounds=arco.NonNegativeFloat, name="variables"
+    )
+    rhs = arco.param(np.array([2.0, 3.0, 4.0]), axes=(index,))
+    comparison = variables + 1.0 == rhs
+
+    model.add_constraints(comparison)
+    model.add_constraints(comparison, active=np.array([True, False, True]))
+
+    assert model.num_constraints == 5
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.coefficients is not None
+    assert [constraint.nnz for constraint in snapshot.constraints] == [1, 1, 1, 1, 1]
+    assert [
+        (coefficient.constraint_id, coefficient.variable_id, coefficient.value)
+        for coefficient in snapshot.coefficients
+    ] == [(0, 0, 1.0), (3, 0, 1.0), (1, 1, 1.0), (2, 2, 1.0), (4, 2, 1.0)]
+    assert [
+        (constraint.bounds.lower, constraint.bounds.upper)
+        for constraint in snapshot.constraints
+    ] == [(1.0, 1.0), (2.0, 2.0), (3.0, 3.0), (1.0, 1.0), (3.0, 3.0)]
+
+
+def test_full_param_comparison_rejects_invalid_mask_before_model_mutation() -> None:
+    model = arco.Model()
+    index = arco.IndexSet(name="index", members=range(3))
+    variables = model.add_variables(axes=(index,), bounds=arco.NonNegativeFloat)
+    comparison = variables + 1.0 == arco.param(np.array([2.0, 3.0, 4.0]), axes=(index,))
+
+    with pytest.raises(ValueError, match="broadcast"):
+        model.add_constraints(comparison, active=np.array([True, False]))
+
+    assert model.num_constraints == 0

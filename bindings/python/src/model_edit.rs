@@ -631,7 +631,7 @@ impl PyModel {
             core.compare_scalar(value, sense)
         };
         self.add_constraints_shaped_internal(
-            constraints.exprs().to_vec(),
+            constraints.exprs().iter().cloned(),
             constraints.get_sense(),
             constraints.get_rhs(),
             active,
@@ -643,16 +643,19 @@ impl PyModel {
 
     /// Insert constraints via materialized expressions (existing batch path).
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn add_constraints_shaped_internal(
+    pub(crate) fn add_constraints_shaped_internal<I>(
         &mut self,
-        exprs: Vec<PyExpr>,
+        exprs: I,
         sense: ComparisonSense,
         rhs: Vec<f64>,
         active: Option<&Bound<'_, PyAny>>,
         name: Option<String>,
         shape: &[usize],
         index_sets: &[Py<PyIndexSet>],
-    ) -> PyResult<PyConstraintArray> {
+    ) -> PyResult<PyConstraintArray>
+    where
+        I: ExactSizeIterator<Item = PyExpr>,
+    {
         let total = exprs.len();
         let active_indices = Self::resolve_active_indices(
             active,
@@ -1080,8 +1083,63 @@ impl PyModel {
 #[cfg(test)]
 mod tests {
     use crate::py_modules::model_edit::normalized_terms_for_batch;
+    use crate::{PyExpr, PyModel};
     use arco_model::VariableId;
-    use arco_model::expr::Expr;
+    use arco_model::expr::{ComparisonSense, Expr};
+    use pyo3::types::PyList;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    struct CountingIterator<I> {
+        inner: I,
+        consumed: Rc<Cell<usize>>,
+    }
+
+    impl<I: Iterator> Iterator for CountingIterator<I> {
+        type Item = I::Item;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let item = self.inner.next();
+            if item.is_some() {
+                self.consumed.set(self.consumed.get() + 1);
+            }
+            item
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            self.inner.size_hint()
+        }
+    }
+
+    impl<I: ExactSizeIterator> ExactSizeIterator for CountingIterator<I> {}
+
+    #[test]
+    fn shaped_rows_are_deferred_until_active_mask_validation() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|py| {
+            let mut model = PyModel::new(None, None).unwrap();
+            let consumed = Rc::new(Cell::new(0));
+            let rows = CountingIterator {
+                inner: vec![PyExpr::from_term(0, 1.0)].into_iter(),
+                consumed: Rc::clone(&consumed),
+            };
+            let active = PyList::new(py, [true, false]).unwrap();
+
+            let result = model.add_constraints_shaped_internal(
+                rows,
+                ComparisonSense::GreaterEqual,
+                vec![0.0],
+                Some(active.as_any()),
+                None,
+                &[1],
+                &[],
+            );
+
+            assert!(result.is_err());
+            assert_eq!(consumed.get(), 0);
+            assert_eq!(model.inner.num_constraints(), 0);
+        });
+    }
 
     #[test]
     fn owned_ordered_terms_reuse_the_linear_buffer() {
@@ -1187,5 +1245,37 @@ mod tests {
                 Err(arco_model::ModelError::InvalidCoefficient { .. })
             ));
         }
+    }
+
+    #[test]
+    fn nonfinite_batch_terms_preserve_partial_insertion() {
+        pyo3::Python::initialize();
+        pyo3::Python::attach(|_| {
+            let mut model = PyModel::new(None, None).unwrap();
+            assert!(model
+                .inner
+                .add_variable(arco_model::Variable::continuous(
+                    arco_model::Bounds::new(0.0, 1.0),
+                ))
+                .is_ok());
+            let rows = vec![
+                PyExpr::from_expr(Expr::from_linear(vec![(VariableId::new(0), 1.0)])),
+                PyExpr::from_expr(Expr::from_linear(vec![(VariableId::new(0), f64::NAN)])),
+            ];
+
+            let result = model.add_constraints_shaped_internal(
+                rows.into_iter(),
+                ComparisonSense::Equal,
+                vec![0.0, 0.0],
+                None,
+                None,
+                &[2],
+                &[],
+            );
+
+            assert!(result.is_err());
+            assert_eq!(model.inner.num_constraints(), 2);
+            assert_eq!(model.inner.num_coefficients(), 1);
+        });
     }
 }
