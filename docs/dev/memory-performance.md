@@ -157,6 +157,34 @@ bindings/python/.venv/bin/pytest \
   -k sparse_constraint_array_reuse_normalizes_terms -q
 ```
 
+## Reusing owned materialized rows
+
+The materialized Python constraint paths receive expressions that they already
+own. When an expression contains finite, nonzero linear terms with strictly
+increasing unique variable IDs, insertion consumes that expression and reuses
+its linear-term buffer. Duplicate, unsorted, zero, NaN, and infinite terms use
+the existing normalization path, preserving its duplicate accumulation and
+zero filtering. For expressions longer than two terms, this also avoids the
+temporary `HashMap` used by the general normalizer. The borrowed sparse
+insertion path is unchanged.
+
+The comparison path reads an expression's constant before consuming its owned
+linear terms, so constants continue to become constraint bounds. Reusing the
+same materialized or comparison array remains supported. This removes a
+temporary coefficient vector for eligible rows; it does not by itself
+establish a lower process RSS or change the stored matrix.
+
+The focused checks are:
+
+```bash
+RUSTUP_TOOLCHAIN=1.85.1 CARGO_BUILD_JOBS=1 \
+  scripts/with_solver_build_env.sh cargo test -p arco-python-core --lib \
+  py_modules::model_edit::tests
+
+PYTHONPATH=bindings/python bindings/python/.venv/bin/pytest \
+  bindings/python/tests/test_owned_normalize.py -q
+```
+
 ## Solver loading
 
 The primitive model retains its coefficient columns while adapters construct

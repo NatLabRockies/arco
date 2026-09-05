@@ -6,10 +6,26 @@ use crate::{
 };
 use arco_arrays::BroadcastPlan;
 use arco_model::Bounds;
-use arco_model::expr::ComparisonSense;
+use arco_model::expr::{ComparisonSense, Expr};
 use arco_model::{ConstraintId, Objective, Sense, Variable, VariableId};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
+
+fn normalized_terms_for_batch(expr: Expr) -> Vec<(VariableId, f64)> {
+    let linear_terms = expr.linear_terms();
+    let can_reuse = linear_terms
+        .iter()
+        .all(|(_, coefficient)| coefficient.is_finite() && *coefficient != 0.0)
+        && linear_terms
+            .windows(2)
+            .all(|window| window[0].0 < window[1].0);
+
+    if can_reuse {
+        expr.into_linear_terms()
+    } else {
+        expr.normalized_terms()
+    }
+}
 
 fn intersect_sorted_row_positions(row_indices: &[usize], active_indices: &[usize]) -> Vec<usize> {
     let mut row_pos = 0usize;
@@ -560,11 +576,10 @@ impl PyModel {
             let diff = left.values[idx]
                 .inner()
                 .add(&right.values[idx].inner().scale(-1.0));
-            let diff_expr = PyExpr::from_expr(diff);
-            let rhs_value = -diff_expr.constant();
+            let rhs_value = -diff.constant();
             filtered_rhs.push(rhs_value);
             (
-                diff_expr.without_constant().into_inner().normalized_terms(),
+                normalized_terms_for_batch(diff),
                 bounds_from_sense(sense, rhs_value),
             )
         });
@@ -663,7 +678,7 @@ impl PyModel {
                 }
                 filtered_rhs.push(rhs_val);
                 Some((
-                    expr.into_inner().normalized_terms(),
+                    normalized_terms_for_batch(expr.into_inner()),
                     bounds_from_sense(sense, rhs_val),
                 ))
             });
@@ -1059,5 +1074,118 @@ impl PyModel {
             bounds_specs,
             name,
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::py_modules::model_edit::normalized_terms_for_batch;
+    use arco_model::VariableId;
+    use arco_model::expr::Expr;
+
+    #[test]
+    fn owned_ordered_terms_reuse_the_linear_buffer() {
+        let mut terms = Vec::with_capacity(3);
+        terms.extend([
+            (VariableId::new(1), 1.0),
+            (VariableId::new(4), -2.0),
+            (VariableId::new(9), 3.0),
+        ]);
+        let pointer = terms.as_ptr();
+        let capacity = terms.capacity();
+
+        let normalized = normalized_terms_for_batch(Expr::from_linear(terms));
+
+        assert_eq!(normalized.as_ptr(), pointer);
+        assert_eq!(normalized.capacity(), capacity);
+        assert_eq!(normalized.len(), 3);
+        assert_eq!(
+            normalized,
+            vec![
+                (VariableId::new(1), 1.0),
+                (VariableId::new(4), -2.0),
+                (VariableId::new(9), 3.0),
+            ]
+        );
+    }
+
+    fn sorted_terms(mut terms: Vec<(VariableId, f64)>) -> Vec<(VariableId, f64)> {
+        terms.sort_by_key(|(variable, _)| *variable);
+        terms
+    }
+
+    fn assert_same_terms_by_bits(left: Vec<(VariableId, f64)>, right: Vec<(VariableId, f64)>) {
+        let left = sorted_terms(left);
+        let right = sorted_terms(right);
+        assert_eq!(left.len(), right.len());
+        for ((left_variable, left_coefficient), (right_variable, right_coefficient)) in
+            left.into_iter().zip(right)
+        {
+            assert_eq!(left_variable, right_variable);
+            if left_coefficient.is_nan() {
+                assert!(right_coefficient.is_nan());
+            } else {
+                assert_eq!(left_coefficient.to_bits(), right_coefficient.to_bits());
+            }
+        }
+    }
+
+    #[test]
+    fn ineligible_terms_use_the_existing_normalizer() {
+        let cases = [
+            Expr::from_linear(vec![
+                (VariableId::new(3), 2.0),
+                (VariableId::new(1), 4.0),
+                (VariableId::new(3), -0.5),
+                (VariableId::new(2), 0.0),
+                (VariableId::new(5), -0.0),
+            ]),
+            Expr::from_linear(vec![
+                (VariableId::new(3), 1.0e16),
+                (VariableId::new(3), 1.0),
+                (VariableId::new(3), -1.0e16),
+            ]),
+            Expr::from_linear(vec![
+                (VariableId::new(3), 1.0),
+                (VariableId::new(1), 2.0),
+                (VariableId::new(2), 3.0),
+            ]),
+            Expr::from_linear(vec![
+                (VariableId::new(1), f64::NAN),
+                (VariableId::new(2), f64::INFINITY),
+                (VariableId::new(3), -f64::INFINITY),
+            ]),
+        ];
+
+        for expr in cases {
+            let expected = expr.normalized_terms();
+            let actual = normalized_terms_for_batch(expr);
+            assert_same_terms_by_bits(actual, expected);
+        }
+    }
+
+    #[test]
+    fn nonfinite_terms_still_reach_model_coefficient_validation() {
+        for coefficient in [f64::NAN, f64::INFINITY, -f64::INFINITY] {
+            let mut model = arco_model::Model::new();
+            assert!(model
+                .add_variable(arco_model::Variable::continuous(arco_model::Bounds::new(
+                    0.0,
+                    1.0,
+                )))
+                .is_ok());
+            let terms = normalized_terms_for_batch(Expr::from_linear(vec![
+                (VariableId::new(0), coefficient),
+            ]));
+            let result = model.add_constraints_batch_streaming(
+                1,
+                std::iter::once((terms, arco_model::Bounds::new(0.0, 1.0))),
+            );
+
+            assert!(matches!(
+                result,
+                Err(arco_model::ModelError::InvalidCoefficient { .. })
+            ));
+        }
     }
 }
