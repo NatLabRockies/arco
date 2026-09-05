@@ -83,7 +83,7 @@ pub fn solve_model_view(
     let objective_coefficients = objective_coefficients(model);
     let _requested_load_path = requested_load_path(config)?;
     let matrix_start = Instant::now();
-    let load_data = build_direct_highs_load_data(model, &objective_coefficients)?;
+    let load_data = build_direct_highs_load_data(model, objective_coefficients)?;
     let mut highs_model = DirectHighsModel::load(load_data, sense)?;
     apply_direct_solver_config(&mut highs_model, config)?;
     let matrix_build_seconds = matrix_start.elapsed().as_secs_f64();
@@ -230,14 +230,13 @@ fn objective_coefficients(model: &(impl ModelView + ?Sized)) -> Vec<f64> {
 
 fn build_direct_highs_load_data(
     model: &(impl ModelView + ?Sized),
-    objective_coefficients: &[f64],
+    objective_coefficients: Vec<f64>,
 ) -> Result<DirectHighsLoadData, SolverError> {
     let num_cols = checked_highs_int(model.num_variables(), "variables")?;
     let num_rows = checked_highs_int(model.num_constraints(), "constraints")?;
     let num_nonzeros = checked_highs_int(model.num_coefficients(), "coefficients")?;
     let ncols = model.num_variables();
     let nrows = model.num_constraints();
-    let mut col_cost = Vec::with_capacity(ncols);
     let mut col_lower = Vec::with_capacity(ncols);
     let mut col_upper = Vec::with_capacity(ncols);
     let mut row_lower = Vec::with_capacity(nrows);
@@ -259,7 +258,6 @@ fn build_direct_highs_load_data(
 
     for index in 0..ncols {
         let variable_id = VariableId::new(index as u32);
-        let objective = objective_coefficients.get(index).copied().unwrap_or(0.0);
         let variable = model
             .variable(variable_id)
             .ok_or(SolverError::InvalidVariableId(index as u32))?;
@@ -273,7 +271,6 @@ fn build_direct_highs_load_data(
                 highs_sys::VAR_TYPE_CONTINUOUS
             });
         }
-        col_cost.push(objective);
         col_lower.push(variable.bounds.lower);
         col_upper.push(variable.bounds.upper);
         a_start.push(checked_highs_int(a_index.len(), "column start")?);
@@ -295,7 +292,7 @@ fn build_direct_highs_load_data(
         num_cols,
         num_rows,
         num_nonzeros,
-        col_cost,
+        col_cost: objective_coefficients,
         col_lower,
         col_upper,
         row_lower,
@@ -774,6 +771,97 @@ mod tests {
             result.metadata.get("highs_primal_solution_status"),
             Some(&(highs_sys::SOLUTION_STATUS_FEASIBLE as f64))
         );
+    }
+
+    #[test]
+    fn direct_load_preserves_sparse_empty_and_duplicate_objectives() {
+        let config = SolverConfig::new().with_parameter("arco.fingerprint", "false");
+
+        let mut sparse_model = Model::new();
+        sparse_model
+            .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
+            .expect("first variable");
+        sparse_model
+            .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
+            .expect("second variable");
+        let sparse_x2 = sparse_model
+            .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
+            .expect("third variable");
+        let sparse_constraint = sparse_model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(2.0, f64::INFINITY),
+            })
+            .expect("sparse constraint");
+        sparse_model
+            .set_coefficient(sparse_x2, sparse_constraint, 1.0)
+            .expect("sparse coefficient");
+        sparse_model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(sparse_x2, 3.0)],
+            })
+            .expect("sparse objective");
+
+        let sparse_result = solve_model_view(&sparse_model, &config).expect("sparse solve");
+        assert_eq!(sparse_result.primal_values, vec![0.0, 0.0, 2.0]);
+        assert_eq!(sparse_result.objective_value, 6.0);
+
+        let mut empty_model = Model::new();
+        empty_model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("empty-objective variable");
+        empty_model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: Vec::new(),
+            })
+            .expect("empty objective");
+
+        let empty_result = solve_model_view(&empty_model, &config).expect("empty solve");
+        assert_eq!(empty_result.objective_value, 0.0);
+
+        let mut duplicate_model = Model::new();
+        let duplicate_x = duplicate_model
+            .add_variable(Variable::continuous(Bounds::new(0.0, f64::INFINITY)))
+            .expect("duplicate-term variable");
+        let duplicate_constraint = duplicate_model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(1.0, f64::INFINITY),
+            })
+            .expect("duplicate-term constraint");
+        duplicate_model
+            .set_coefficient(duplicate_x, duplicate_constraint, 1.0)
+            .expect("duplicate-term coefficient");
+        duplicate_model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(duplicate_x, 2.0), (duplicate_x, 3.0)],
+            })
+            .expect("duplicate objective");
+
+        let duplicate_result =
+            solve_model_view(&duplicate_model, &config).expect("duplicate-term solve");
+        assert_eq!(duplicate_result.primal_values, vec![1.0]);
+        assert_eq!(duplicate_result.objective_value, 5.0);
+    }
+
+    #[test]
+    fn direct_load_reuses_dense_objective_allocation() {
+        let mut model = Model::new();
+        model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("first variable");
+        model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("second variable");
+
+        let objective_coefficients = vec![2.0, 0.0];
+        let allocation = objective_coefficients.as_ptr();
+        let load_data = build_direct_highs_load_data(&model, objective_coefficients)
+            .expect("load data should build");
+
+        assert_eq!(load_data.col_cost.as_ptr(), allocation);
+        assert_eq!(load_data.col_cost, [2.0, 0.0]);
     }
 
     #[test]
