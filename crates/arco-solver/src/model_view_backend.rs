@@ -85,11 +85,13 @@ pub fn validate_model_view_solve_result(
     model: &(impl ModelView + ?Sized),
     result: &ModelViewSolveResult,
 ) -> Result<(), SolverError> {
-    let expected_fingerprint = model.fingerprint();
-    if result.fingerprint.0 != 0 && result.fingerprint != expected_fingerprint {
-        return Err(SolverError::InvalidResultShape(
-            "result fingerprint does not match input model fingerprint".to_string(),
-        ));
+    if result.fingerprint.0 != 0 {
+        let expected_fingerprint = model.fingerprint();
+        if result.fingerprint != expected_fingerprint {
+            return Err(SolverError::InvalidResultShape(
+                "result fingerprint does not match input model fingerprint".to_string(),
+            ));
+        }
     }
     validate_model_view_solve_result_shape(result, model.num_variables(), model.num_constraints())
 }
@@ -137,12 +139,56 @@ fn validate_optional_len(name: &str, actual: usize, expected: usize) -> Result<(
 mod tests {
     use crate::{
         ModelViewBackend, ModelViewBackendRegistry, ModelViewSolveResult, SolverConfig,
-        SolverError, SolverStatus, validate_model_view_solve_result_shape,
+        SolverError, SolverStatus, validate_model_view_solve_result,
+        validate_model_view_solve_result_shape,
     };
     use arco_model::{
-        Bounds, Model, ModelFingerprint, ModelView, Objective, Sense, Variable, expr::Expr,
+        Bounds, Constraint, ConstraintId, Model, ModelFingerprint, ModelView, Objective, Sense,
+        Variable, VariableId, expr::Expr,
     };
+    use std::cell::Cell;
     use std::sync::Mutex;
+
+    struct CountingModelView<'a> {
+        model: &'a Model,
+        fingerprint_calls: Cell<usize>,
+    }
+
+    impl ModelView for CountingModelView<'_> {
+        fn num_variables(&self) -> usize {
+            self.model.num_variables()
+        }
+
+        fn num_constraints(&self) -> usize {
+            self.model.num_constraints()
+        }
+
+        fn num_coefficients(&self) -> usize {
+            self.model.num_coefficients()
+        }
+
+        fn variable(&self, id: VariableId) -> Option<Variable> {
+            ModelView::variable(self.model, id)
+        }
+
+        fn constraint(&self, id: ConstraintId) -> Option<Constraint> {
+            ModelView::constraint(self.model, id)
+        }
+
+        fn objective(&self) -> &Objective {
+            ModelView::objective(self.model)
+        }
+
+        fn column(&self, id: VariableId) -> Option<&[(ConstraintId, f64)]> {
+            ModelView::column(self.model, id)
+        }
+
+        fn fingerprint(&self) -> ModelFingerprint {
+            self.fingerprint_calls
+                .set(self.fingerprint_calls.get().saturating_add(1));
+            self.model.fingerprint()
+        }
+    }
 
     struct FixtureBackend;
 
@@ -257,6 +303,73 @@ mod tests {
                 Err(SolverError::InvalidResultShape(_))
             ));
         }
+    }
+
+    #[test]
+    fn zero_fingerprint_validation_skips_model_hash() {
+        let mut model = Model::new();
+        let variable = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("add variable");
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(variable, 1.0)],
+            })
+            .expect("set objective");
+        let view = CountingModelView {
+            model: &model,
+            fingerprint_calls: Cell::new(0),
+        };
+        let result = ModelViewSolveResult {
+            fingerprint: ModelFingerprint(0),
+            status: SolverStatus::Optimal,
+            objective_value: 0.0,
+            primal_values: vec![0.0],
+            variable_duals: Vec::new(),
+            row_values: Vec::new(),
+            constraint_duals: Vec::new(),
+            metadata: Default::default(),
+        };
+
+        validate_model_view_solve_result(&view, &result)
+            .expect("zero fingerprint result should validate by shape");
+        assert_eq!(view.fingerprint_calls.get(), 0);
+    }
+
+    #[test]
+    fn nonzero_fingerprint_validation_still_rejects_mismatch() {
+        let mut model = Model::new();
+        let variable = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("add variable");
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(variable, 1.0)],
+            })
+            .expect("set objective");
+        let view = CountingModelView {
+            model: &model,
+            fingerprint_calls: Cell::new(0),
+        };
+        let result = ModelViewSolveResult {
+            fingerprint: ModelFingerprint(model.fingerprint().0 ^ 1),
+            status: SolverStatus::Optimal,
+            objective_value: 0.0,
+            primal_values: vec![0.0],
+            variable_duals: Vec::new(),
+            row_values: Vec::new(),
+            constraint_duals: Vec::new(),
+            metadata: Default::default(),
+        };
+
+        assert!(matches!(
+            validate_model_view_solve_result(&view, &result),
+            Err(SolverError::InvalidResultShape(message))
+                if message.contains("fingerprint does not match")
+        ));
+        assert_eq!(view.fingerprint_calls.get(), 1);
     }
 
     #[test]
