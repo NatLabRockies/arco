@@ -27,6 +27,11 @@ Differences in factorization, presolve, or crossover memory cannot be attributed
 to the modeling frontend from a total-process peak alone. GAMS comparisons must
 include its solver process as well as model generation; a parent-process RSS
 measurement alone is insufficient for subprocess-based backends.
+Taking the maximum of parent and child high-water marks also does not measure
+their concurrent total, while adding their separate peaks can overestimate it.
+Use a consistently scoped job/process-tree measurement for the comparison and
+retain per-process measurements as diagnostics. Report sampling intervals and
+any shared-page accounting limitations.
 
 ## Existing construction probe
 
@@ -93,6 +98,53 @@ cargo test -p arco-xpress --test integration -- --test-threads=1
 
 Set `XPRESSDIR` to the runtime installation and `XPAUTH_PATH` to its license
 file for native integration checks. Keep license contents out of results.
+
+### Releasing the source model before Xpress optimization
+
+Rust callers can load a model with `arco_xpress::PreparedXpressModel::prepare`.
+The returned object owns the native problem and has no borrow of the source
+`ModelView`. After preparation succeeds, callers may drop their source model
+before optimization:
+
+```rust,ignore
+use arco_xpress::PreparedXpressModel;
+
+let prepared = PreparedXpressModel::prepare(&model, &config)?;
+drop(model);
+let result = prepared.solve_model_view()?;
+```
+
+`solve_model_view` returns the shared result with the fingerprint captured at
+preparation and validates vector lengths against captured dimensions. `solve`
+returns the Xpress `Solution` type. Both methods consume the prepared problem;
+native resources are released on success or error. Dropping an unsolved
+prepared problem also releases its native resources. Preparation errors leave
+the borrowed source model with the caller. After the caller drops that model,
+a subsequent solve error cannot restore it.
+
+Only one Arco Xpress session may be active in a process. Preparing another
+problem while one exists returns a busy error immediately. Drop or solve the
+first prepared problem before retrying. The session guard also covers ordinary
+Xpress solves and prevents process-wide runtime shutdown while another Arco
+problem is live. The prepared object must be used on its creating thread.
+
+The preparation API honors `arco.fingerprint=false` and
+`arco.extract_solution=false`. The `xpress_prepare_s` metadata includes loading
+and any fingerprint calculation; `xpress_run_s` measures native optimization.
+Time spent by the caller between preparation and solving is excluded.
+
+The existing borrowing solve APIs still retain their source models through
+optimization. Python's `arco.consume_model` behavior is unchanged by this Rust
+API. Releasing source allocations can reduce live memory during optimization,
+but allocator retention and the earlier loading peak can limit process peak
+RSS savings. This API alone does not establish GAMS memory parity.
+
+Run the lifetime and runtime cleanup regressions explicitly with a configured
+Xpress runtime and license:
+
+```bash
+cargo test -p arco-xpress --test integration prepared_xpress_ -- --ignored
+```
 
 An allocation improvement should ship with a focused correctness regression,
 a reproducible measurement, and an explicit statement of what remains
