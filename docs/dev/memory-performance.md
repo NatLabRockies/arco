@@ -133,6 +133,12 @@ The preparation API honors `arco.fingerprint=false` and
 and any fingerprint calculation; `xpress_run_s` measures native optimization.
 Time spent by the caller between preparation and solving is excluded.
 
+Shared model-view validation skips recomputing the model fingerprint when a
+result carries the zero fingerprint sentinel. It still validates every result
+vector length; nonzero fingerprints continue to be compared with the input
+model. This keeps fingerprint-disabled solves from paying for an unused hash
+pass.
+
 The existing borrowing solve APIs still retain their source models through
 optimization. Python's `arco.consume_model` behavior is unchanged by this Rust
 API. Releasing source allocations can reduce live memory during optimization,
