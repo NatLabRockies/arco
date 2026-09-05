@@ -13,7 +13,7 @@ model.add_constraint(x >= 1.0)
 model.minimize(x)
 
 solution = model.solve(
-    solver=arco.Xpress(
+    solver=arco.HiGHS(
         log_to_console=False,
         parameters={"arco.consume_model": "true"},
     )
@@ -22,22 +22,23 @@ assert solution.is_optimal()
 assert model.num_variables == 0
 ```
 
-For Xpress, Arco prepares the native problem first. After preparation succeeds,
-Arco clears the canonical model, array and constraint display metadata, block
-definitions, and any previous solution before native optimization starts. The
-returned solution remains usable, but the model cannot be inspected or solved
-again.
+For HiGHS and Xpress, Arco prepares the native problem first. After preparation
+succeeds, Arco clears the canonical model, array and constraint display
+metadata, block definitions, and any previous solution before native
+optimization starts. The returned solution remains usable, but the model cannot
+be inspected or solved again.
 
 If native preparation fails, the model remains unchanged, including any
-previous solution. Once preparation has succeeded, a later Xpress optimization
-or solution extraction error leaves the model consumed because its canonical
+previous solution. Once preparation has succeeded, a later optimization or
+solution extraction error leaves the model consumed because its canonical
 storage has already been released. Solver outcomes such as infeasible,
 unbounded, or time limit are returned as solution statuses and also leave the
 model consumed.
 
-The parameter is an explicit ownership choice. Omit it when callers need to
-inspect, solve again, or recover the model after a backend exception. Models
-using other solver families retain their existing consumption timing; models
-without the parameter keep their normal reusable behavior.
+The parameter is an explicit ownership choice at the native preparation
+handoff. Omit it when callers need to inspect, solve again, or recover the model
+after a backend exception. Models using other solver families retain their
+existing consumption timing; models without the parameter keep their normal
+reusable behavior.
 
 [How-to Guides](./) | [Docs home](../)

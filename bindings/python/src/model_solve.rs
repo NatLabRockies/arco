@@ -64,8 +64,11 @@ pub(crate) fn solve_model(
         .get("arco.consume_model")
         .is_some_and(|value| value == "true");
 
-    let consumes_before_solve = consume_model && backend_family == "xpress";
-    let result = if consumes_before_solve {
+    let consumes_before_solve =
+        consume_model && matches!(backend_family, "highs" | "xpress");
+    let result = if consume_model && backend_family == "highs" {
+        solve_consuming_highs_model(model, &config)?
+    } else if consumes_before_solve {
         #[cfg(feature = "xpress")]
         {
             solve_consuming_xpress_model(model, &config)?
@@ -107,6 +110,24 @@ fn model_view_solve_result_to_py(
         }
         Err(error) => Err(errors::generic_solver_error_to_py(error)),
     }
+}
+
+fn solve_consuming_highs_model(
+    model: &mut PyModel,
+    config: &SolverConfig,
+) -> PyResult<PySolveResult> {
+    let prepared = prepare_consuming_highs_model(model, config)
+        .map_err(errors::generic_solver_error_to_py)?;
+    model_view_solve_result_to_py(prepared.solve())
+}
+
+fn prepare_consuming_highs_model(
+    model: &mut PyModel,
+    config: &SolverConfig,
+) -> Result<arco_highs::PreparedHighsModel, SolverError> {
+    let prepared = arco_highs::PreparedHighsModel::prepare(&model.inner, config)?;
+    clear_consumed_model_state(model);
+    Ok(prepared)
 }
 
 #[cfg(feature = "xpress")]
@@ -213,12 +234,13 @@ fn solution_from_model_view_result(result: ModelViewSolveResult) -> Solution {
     }
 }
 
-#[cfg(all(test, feature = "xpress"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use arco_model::{Bounds, Constraint, Model, Objective, Sense, Variable};
+    use crate::py_modules::index_set::{IndexMember, PyIndexSet};
 
-    fn model_with_objective() -> PyModel {
+    fn model_with_objective_for_backend(default_backend: &str) -> PyModel {
         let mut inner = Model::new();
         let variable = inner
             .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
@@ -240,10 +262,170 @@ mod tests {
         PyModel::from_parts(
             inner,
             crate::py_modules::solver::SolverSettings::default(),
-            "xpress".to_string(),
+            default_backend.to_string(),
         )
     }
 
+    #[cfg(feature = "xpress")]
+    fn model_with_objective() -> PyModel {
+        model_with_objective_for_backend("xpress")
+    }
+
+    fn highs_model_with_objective() -> PyModel {
+        model_with_objective_for_backend("highs")
+    }
+
+    fn infeasible_highs_model() -> PyModel {
+        let mut inner = Model::new();
+        let variable = inner
+            .add_variable(Variable::continuous(Bounds::new(0.0, 0.0)))
+            .expect("variable");
+        let constraint = inner
+            .add_constraint(Constraint {
+                bounds: Bounds::new(1.0, f64::INFINITY),
+            })
+            .expect("constraint");
+        inner
+            .set_coefficient(variable, constraint, 1.0)
+            .expect("coefficient");
+        inner
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(variable, 1.0)],
+            })
+            .expect("objective");
+        PyModel::from_parts(
+            inner,
+            crate::py_modules::solver::SolverSettings::default(),
+            "highs".to_string(),
+        )
+    }
+
+    fn set_previous_solution(model: &mut PyModel) {
+        Python::initialize();
+        let previous_solution = Python::attach(|py| {
+            Py::new(
+                py,
+                PySolveResult::new(Solution {
+                    primal_values: vec![1.0],
+                    variable_duals: vec![0.0],
+                    constraint_duals: vec![1.0],
+                    row_values: vec![1.0],
+                    objective_value: 2.0,
+                    status: arco_solver::SolverStatus::Optimal,
+                    solve_time_seconds: 0.0,
+                    metadata: std::collections::BTreeMap::new(),
+                }),
+            )
+            .expect("previous solution")
+        });
+        model.last_solution = Some(previous_solution);
+    }
+
+    fn add_model_metadata(model: &mut PyModel) {
+        model
+            .constraint_print_specs
+            .push(crate::py_modules::model_pretty::ConstraintPrintSpec {
+                start_constraint_id: 0,
+                len: 1,
+                base_name: "constraint".to_string(),
+            });
+        Python::initialize();
+        Python::attach(|py| {
+            let index_set = Py::new(
+                py,
+                PyIndexSet {
+                    name: "index".to_string(),
+                    members: vec![IndexMember::Int(0)],
+                },
+            )
+            .expect("index set");
+            model.register_array_print_spec(
+                py,
+                0,
+                1,
+                &[index_set],
+                &[1],
+                Some("variable"),
+            );
+        });
+    }
+
+    #[test]
+    fn consuming_prepare_failure_preserves_highs_model_state() {
+        let mut model = highs_model_with_objective();
+        set_previous_solution(&mut model);
+        add_model_metadata(&mut model);
+        let error = match prepare_consuming_highs_model(
+            &mut model,
+            &SolverConfig::new().with_threads(0),
+        ) {
+            Ok(_) => panic!("invalid preparation settings should fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, SolverError::InvalidSettings(_)));
+        assert_eq!(model.inner.num_variables(), 1);
+        assert_eq!(model.inner.num_constraints(), 1);
+        assert!(model.last_solution.is_some());
+        assert_eq!(model.array_print_specs.len(), 1);
+        assert_eq!(model.constraint_print_specs.len(), 1);
+        assert_eq!(model.constraint_print_specs[0].base_name, "constraint");
+        assert_eq!(model.array_print_specs[0].len, 1);
+    }
+
+    #[test]
+    fn consuming_prepare_clears_highs_model_before_native_solve() {
+        let mut model = highs_model_with_objective();
+        set_previous_solution(&mut model);
+        add_model_metadata(&mut model);
+        let prepared = prepare_consuming_highs_model(
+            &mut model,
+            &SolverConfig::new()
+                .with_threads(1)
+                .with_parameter("arco.extract_solution", "false")
+                .with_parameter("arco.fingerprint", "false"),
+        )
+        .unwrap_or_else(|error| panic!("unexpected HiGHS preparation failure: {error}"));
+
+        assert_eq!(model.inner.num_variables(), 0);
+        assert_eq!(model.inner.num_constraints(), 0);
+        assert!(model.last_solution.is_none());
+        assert!(model.array_print_specs.is_empty());
+        assert!(model.constraint_print_specs.is_empty());
+        let result = prepared
+            .solve()
+            .unwrap_or_else(|error| panic!("unexpected HiGHS solve failure: {error}"));
+        assert_eq!(result.status, arco_solver::SolverStatus::Optimal);
+        assert!((result.objective_value - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn consuming_prepare_keeps_highs_model_consumed_when_native_solve_fails() {
+        let mut model = infeasible_highs_model();
+        let prepared = prepare_consuming_highs_model(
+            &mut model,
+            &SolverConfig::new()
+                .with_threads(1)
+                .with_parameter("arco.extract_solution", "false")
+                .with_parameter("arco.fingerprint", "false"),
+        )
+        .unwrap_or_else(|error| panic!("unexpected HiGHS preparation failure: {error}"));
+
+        assert_eq!(model.inner.num_variables(), 0);
+        assert_eq!(model.inner.num_constraints(), 0);
+        let error = prepared
+            .solve()
+            .expect_err("infeasible HiGHS solve should report failure");
+        assert!(matches!(
+            error,
+            SolverError::SolveFailure {
+                status: arco_solver::SolverStatus::Infeasible
+            }
+        ));
+    }
+
+    #[cfg(feature = "xpress")]
     #[test]
     fn consuming_prepare_failure_preserves_model_state() {
         let mut model = model_with_objective();
@@ -279,6 +461,7 @@ mod tests {
         assert!(model.last_solution.is_some());
     }
 
+    #[cfg(feature = "xpress")]
     #[test]
     #[ignore = "requires local Xpress runtime and license"]
     fn consuming_prepare_clears_model_before_native_solve() {
