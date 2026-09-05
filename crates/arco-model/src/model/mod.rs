@@ -363,11 +363,24 @@ mod tests {
     use super::*;
     use crate::expr::{ComparisonSense, ConstraintExpr, Expr};
     use crate::types::{Bounds, Constraint, Objective, Sense, Variable};
+    use std::mem::{align_of, size_of};
 
     mod metadata_inspect;
     mod slack_csc;
     mod sparse_export;
     mod support;
+
+    #[test]
+    fn column_storage_fits_its_pointer_aligned_memory_budget() {
+        type Entry = (ConstraintId, f64);
+
+        let data_alignment = align_of::<[Entry; 2]>().max(align_of::<(*mut Entry, usize)>());
+        let data_offset = size_of::<usize>().div_ceil(data_alignment) * data_alignment;
+        let data_size = size_of::<[Entry; 2]>().max(size_of::<(*mut Entry, usize)>());
+        let expected_size = (data_offset + data_size).div_ceil(data_alignment) * data_alignment;
+
+        assert!(size_of::<ColumnVec>() <= expected_size);
+    }
 
     #[test]
     fn test_new_model_is_empty() {
@@ -787,6 +800,52 @@ mod tests {
         assert_eq!(stored.len(), 1);
         // SmallVec with ≤2 entries uses inline storage (no heap allocation)
         assert!(!stored.spilled());
+    }
+
+    #[test]
+    fn test_column_storage_spills_after_two_entries_without_changing_slices() {
+        let mut model = Model::new();
+        let variables: Vec<_> = (0..5)
+            .map(|_| {
+                model
+                    .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+                    .unwrap()
+            })
+            .collect();
+        let constraints: Vec<_> = (0..9)
+            .map(|_| {
+                model
+                    .add_constraint(Constraint {
+                        bounds: Bounds::new(0.0, 1.0),
+                    })
+                    .unwrap()
+            })
+            .collect();
+
+        for (variable, entry_count) in variables.iter().zip([0, 1, 2, 3, 9]) {
+            for (index, constraint) in constraints.iter().take(entry_count).enumerate() {
+                model
+                    .set_coefficient(*variable, *constraint, (index + 1) as f64)
+                    .unwrap();
+            }
+        }
+
+        for (variable, entry_count) in variables.iter().zip([0, 1, 2, 3, 9]) {
+            let column = model.get_column(*variable).expect("column should exist");
+            assert_eq!(column.len(), entry_count);
+            let expected = constraints
+                .iter()
+                .take(entry_count)
+                .enumerate()
+                .map(|(index, constraint)| (*constraint, (index + 1) as f64))
+                .collect::<Vec<_>>();
+            assert_eq!(column, expected.as_slice());
+            assert_eq!(
+                model.columns[variable.inner() as usize].spilled(),
+                entry_count > 2
+            );
+        }
+        assert_eq!(model.num_coefficients(), 15);
     }
 
     #[test]
