@@ -35,7 +35,7 @@ sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 pyo3 = { version = "0.29", default-features = false }
 pyo3-macros = "0.29"
 tracing-subscriber = { version = "0.3", default-features = false }
-smallvec = "1"
+smallvec = { version = "1", features = ["union"] }
 arco-arrays = { path = "crates/arco-arrays" }
 arco-solver = { path = "crates/arco-solver", default-features = false }
 arco-highs = { path = "crates/arco-highs", default-features = false }

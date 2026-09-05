@@ -1,5 +1,8 @@
 # Measuring memory performance
 
+For the canonical model's per-column storage budget, see
+[Column storage memory](column-storage-memory.md).
+
 Measure model construction, solver loading, optimization, and solution
 extraction separately when evaluating an allocation change. A lower allocation
 count or smaller Rust buffer is useful evidence, but does not establish a lower
