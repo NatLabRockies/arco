@@ -3,7 +3,7 @@
 use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
 use arco_solver::{
     LpAlgorithm, ModelViewBackend, ModelViewSolveResult, SolverConfig, SolverStatus,
-    validate_model_view_solve_result,
+    validate_model_view_solve_result, validate_model_view_solve_result_shape,
 };
 use std::collections::BTreeMap;
 use std::ffi::{CString, c_void};
@@ -69,98 +69,157 @@ pub fn solve_model_view(
     model: &(impl ModelView + ?Sized),
     config: &SolverConfig,
 ) -> Result<ModelViewSolveResult, SolverError> {
-    if model.num_variables() == 0 {
-        return Err(SolverError::EmptyModel);
-    }
-    if model.objective().sense.is_none() && model.objective().terms.is_empty() {
-        return Err(SolverError::NoObjective);
-    }
-
-    let sense = match model.objective().sense.unwrap_or(Sense::Minimize) {
-        Sense::Minimize => highs_sys::OBJECTIVE_SENSE_MINIMIZE,
-        Sense::Maximize => highs_sys::OBJECTIVE_SENSE_MAXIMIZE,
-    };
-    let objective_coefficients = objective_coefficients(model);
-    let _requested_load_path = requested_load_path(config)?;
-    let matrix_start = Instant::now();
-    let load_data = build_direct_highs_load_data(model, objective_coefficients)?;
-    let mut highs_model = DirectHighsModel::load(load_data, sense)?;
-    apply_direct_solver_config(&mut highs_model, config)?;
-    let matrix_build_seconds = matrix_start.elapsed().as_secs_f64();
-
-    let highs_run_start = Instant::now();
-    let model_status = highs_model.solve()?;
-    let highs_run_seconds = highs_run_start.elapsed().as_secs_f64();
-    let mapped_status = raw_highs_model_status_to_solver_status(model_status);
-    let highs_model_status = model_status as f64;
-    let highs_primal_solution_status = highs_model.int_info_value("primal_solution_status")? as f64;
-    let objective_value = highs_model.objective_value();
-    let objective_value =
-        objective_value_for_primal_solution_status(objective_value, highs_primal_solution_status);
-    let reported_status =
-        status_with_primal_solution_availability(mapped_status, highs_primal_solution_status);
-    if !reported_status.is_feasible() {
-        return Err(SolverError::SolveFailure {
-            status: reported_status,
-        });
-    }
-    let extract_solution = config
-        .parameters
-        .get("arco.extract_solution")
-        .is_none_or(|value| value != "false");
-    let solution_extract_start = Instant::now();
-    let (primal_values, variable_duals, row_values, constraint_duals) = if extract_solution {
-        highs_model.solution_vectors(model.num_variables(), model.num_constraints())?
-    } else {
-        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
-    };
-    let solution_extract_seconds = solution_extract_start.elapsed().as_secs_f64();
-
-    let fingerprint_start = Instant::now();
-    let fingerprint = if config
-        .parameters
-        .get("arco.fingerprint")
-        .is_none_or(|value| value != "false")
-    {
-        model.fingerprint()
-    } else {
-        ModelFingerprint(0)
-    };
-    let fingerprint_seconds = fingerprint_start.elapsed().as_secs_f64();
-
-    let mut metadata = BTreeMap::new();
-    metadata.insert("highs_matrix_build_s".to_string(), matrix_build_seconds);
-    metadata.insert("highs_direct_load_path".to_string(), 1.0);
-    metadata.insert("highs_run_s".to_string(), highs_run_seconds);
-    metadata.insert("solution_extract_s".to_string(), solution_extract_seconds);
-    metadata.insert("fingerprint_s".to_string(), fingerprint_seconds);
-    metadata.insert("highs_model_status".to_string(), highs_model_status);
-    metadata.insert(
-        "highs_primal_solution_status".to_string(),
-        highs_primal_solution_status,
-    );
-    metadata.insert("num_variables".to_string(), model.num_variables() as f64);
-    metadata.insert(
-        "num_constraints".to_string(),
-        model.num_constraints() as f64,
-    );
-    metadata.insert(
-        "num_coefficients".to_string(),
-        model.num_coefficients() as f64,
-    );
-
-    let result = ModelViewSolveResult {
-        fingerprint,
-        status: reported_status,
-        objective_value,
-        primal_values,
-        variable_duals,
-        row_values,
-        constraint_duals,
-        metadata,
-    };
+    let prepared = PreparedHighsModel::prepare(model, config)?;
+    let result = prepared.solve()?;
     validate_model_view_solve_result(model, &result)?;
     Ok(result)
+}
+
+/// An owned HiGHS problem whose native state no longer borrows the source model.
+pub struct PreparedHighsModel {
+    highs_model: DirectHighsModel,
+    fingerprint: ModelFingerprint,
+    extract_solution: bool,
+    num_variables: usize,
+    num_constraints: usize,
+    num_coefficients: usize,
+    matrix_build_seconds: f64,
+    preparation_seconds: f64,
+    fingerprint_seconds: f64,
+}
+
+impl PreparedHighsModel {
+    /// Build an owned native HiGHS problem from a model view.
+    pub fn prepare(
+        model: &(impl ModelView + ?Sized),
+        config: &SolverConfig,
+    ) -> Result<Self, SolverError> {
+        if model.num_variables() == 0 {
+            return Err(SolverError::EmptyModel);
+        }
+        if model.objective().sense.is_none() && model.objective().terms.is_empty() {
+            return Err(SolverError::NoObjective);
+        }
+        validate_solver_config(config)?;
+        let _requested_load_path = requested_load_path(config)?;
+        let prepare_start = Instant::now();
+        let (fingerprint, fingerprint_seconds) = if config
+            .parameters
+            .get("arco.fingerprint")
+            .is_none_or(|value| value != "false")
+        {
+            let fingerprint_start = Instant::now();
+            let fingerprint = model.fingerprint();
+            (fingerprint, fingerprint_start.elapsed().as_secs_f64())
+        } else {
+            (ModelFingerprint(0), 0.0)
+        };
+        let num_variables = model.num_variables();
+        let num_constraints = model.num_constraints();
+        let num_coefficients = model.num_coefficients();
+        let sense = match model.objective().sense.unwrap_or(Sense::Minimize) {
+            Sense::Minimize => highs_sys::OBJECTIVE_SENSE_MINIMIZE,
+            Sense::Maximize => highs_sys::OBJECTIVE_SENSE_MAXIMIZE,
+        };
+        let objective_coefficients = objective_coefficients(model);
+        let matrix_start = Instant::now();
+        let load_data = build_direct_highs_load_data(model, objective_coefficients)?;
+        let mut highs_model = DirectHighsModel::load(load_data, sense)?;
+        apply_direct_solver_config(&mut highs_model, config)?;
+        let matrix_build_seconds = matrix_start.elapsed().as_secs_f64();
+        let extract_solution = config
+            .parameters
+            .get("arco.extract_solution")
+            .is_none_or(|value| value != "false");
+
+        Ok(Self {
+            highs_model,
+            fingerprint,
+            extract_solution,
+            num_variables,
+            num_constraints,
+            num_coefficients,
+            matrix_build_seconds,
+            preparation_seconds: prepare_start.elapsed().as_secs_f64(),
+            fingerprint_seconds,
+        })
+    }
+
+    /// Return the fingerprint captured while the source model was borrowed.
+    pub fn fingerprint(&self) -> ModelFingerprint {
+        self.fingerprint
+    }
+
+    /// Optimize the prepared native problem without retaining the source model.
+    pub fn solve(self) -> Result<ModelViewSolveResult, SolverError> {
+        let Self {
+            mut highs_model,
+            fingerprint,
+            extract_solution,
+            num_variables,
+            num_constraints,
+            num_coefficients,
+            matrix_build_seconds,
+            preparation_seconds,
+            fingerprint_seconds,
+        } = self;
+
+        let highs_run_start = Instant::now();
+        let model_status = highs_model.solve()?;
+        let highs_run_seconds = highs_run_start.elapsed().as_secs_f64();
+        let mapped_status = raw_highs_model_status_to_solver_status(model_status);
+        let highs_model_status = model_status as f64;
+        let highs_primal_solution_status =
+            highs_model.int_info_value("primal_solution_status")? as f64;
+        let objective_value = highs_model.objective_value();
+        let objective_value = objective_value_for_primal_solution_status(
+            objective_value,
+            highs_primal_solution_status,
+        );
+        let reported_status =
+            status_with_primal_solution_availability(mapped_status, highs_primal_solution_status);
+        if !reported_status.is_feasible() {
+            return Err(SolverError::SolveFailure {
+                status: reported_status,
+            });
+        }
+        let solution_extract_start = Instant::now();
+        let (primal_values, variable_duals, row_values, constraint_duals) = if extract_solution {
+            highs_model.solution_vectors(num_variables, num_constraints)?
+        } else {
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+        };
+        let solution_extract_seconds = solution_extract_start.elapsed().as_secs_f64();
+
+        let mut metadata = BTreeMap::new();
+        metadata.insert("highs_matrix_build_s".to_string(), matrix_build_seconds);
+        metadata.insert("highs_prepare_s".to_string(), preparation_seconds);
+        metadata.insert("highs_direct_load_path".to_string(), 1.0);
+        metadata.insert("highs_run_s".to_string(), highs_run_seconds);
+        metadata.insert("solution_extract_s".to_string(), solution_extract_seconds);
+        metadata.insert("fingerprint_s".to_string(), fingerprint_seconds);
+        metadata.insert("highs_model_status".to_string(), highs_model_status);
+        metadata.insert(
+            "highs_primal_solution_status".to_string(),
+            highs_primal_solution_status,
+        );
+        metadata.insert("num_variables".to_string(), num_variables as f64);
+        metadata.insert("num_constraints".to_string(), num_constraints as f64);
+        metadata.insert("num_coefficients".to_string(), num_coefficients as f64);
+
+        let result = ModelViewSolveResult {
+            fingerprint,
+            status: reported_status,
+            objective_value,
+            primal_values,
+            variable_duals,
+            row_values,
+            constraint_duals,
+            metadata,
+        };
+        validate_model_view_solve_result_shape(&result, num_variables, num_constraints)?;
+        Ok(result)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -619,7 +678,50 @@ mod tests {
     use arco_model::{Bounds, Constraint, Model, ModelView, Objective, Sense, Variable};
     use arco_solver::{
         check_empty_model_rejected, check_no_objective_rejected, check_small_lp, check_small_milp,
+        small_lp_model, small_milp_model,
     };
+    use std::cell::Cell;
+
+    struct CountingModelView<'a> {
+        model: &'a Model,
+        fingerprint_calls: Cell<usize>,
+    }
+
+    impl ModelView for CountingModelView<'_> {
+        fn num_variables(&self) -> usize {
+            self.model.num_variables()
+        }
+
+        fn num_constraints(&self) -> usize {
+            self.model.num_constraints()
+        }
+
+        fn num_coefficients(&self) -> usize {
+            self.model.num_coefficients()
+        }
+
+        fn variable(&self, id: VariableId) -> Option<arco_model::Variable> {
+            self.model.variable(id)
+        }
+
+        fn constraint(&self, id: ConstraintId) -> Option<arco_model::Constraint> {
+            self.model.constraint(id)
+        }
+
+        fn objective(&self) -> &arco_model::Objective {
+            self.model.objective()
+        }
+
+        fn column(&self, id: VariableId) -> Option<&[(ConstraintId, f64)]> {
+            self.model.column(id)
+        }
+
+        fn fingerprint(&self) -> ModelFingerprint {
+            self.fingerprint_calls
+                .set(self.fingerprint_calls.get().saturating_add(1));
+            self.model.fingerprint()
+        }
+    }
 
     #[test]
     fn model_view_solver_rejects_empty_problem() {
@@ -924,5 +1026,145 @@ mod tests {
                     || message.contains("run_crossover")
                     || message.contains("returned HiGHS status")
         ));
+    }
+
+    #[test]
+    fn prepared_model_solves_after_source_drop_for_lp_and_mip() {
+        let config = SolverConfig::new().with_threads(1);
+
+        let lp_model = small_lp_model();
+        let lp_fingerprint = lp_model.fingerprint();
+        let prepared_lp =
+            PreparedHighsModel::prepare(&lp_model, &config).expect("prepare HiGHS LP");
+        drop(lp_model);
+        let lp_result = prepared_lp.solve().expect("solve prepared HiGHS LP");
+        assert_eq!(lp_result.fingerprint, lp_fingerprint);
+        assert_eq!(lp_result.primal_values, [1.0]);
+        assert_eq!(lp_result.objective_value, 2.0);
+
+        let mip_model = small_milp_model();
+        let mip_fingerprint = mip_model.fingerprint();
+        let prepared_mip =
+            PreparedHighsModel::prepare(&mip_model, &config).expect("prepare HiGHS MILP");
+        drop(mip_model);
+        let mip_result = prepared_mip.solve().expect("solve prepared HiGHS MILP");
+        assert_eq!(mip_result.fingerprint, mip_fingerprint);
+        assert_eq!(mip_result.primal_values, [1.0]);
+        assert_eq!(mip_result.objective_value, 1.0);
+    }
+
+    #[test]
+    fn prepared_model_honors_disabled_fingerprint_and_extraction() {
+        let model = small_lp_model();
+        let view = CountingModelView {
+            model: &model,
+            fingerprint_calls: Cell::new(0),
+        };
+        let config = SolverConfig::new()
+            .with_threads(1)
+            .with_parameter("arco.fingerprint", "false")
+            .with_parameter("arco.extract_solution", "false");
+        let prepared = PreparedHighsModel::prepare(&view, &config).expect("prepare HiGHS model");
+        assert_eq!(view.fingerprint_calls.get(), 0);
+        let result = prepared.solve().expect("solve prepared HiGHS model");
+        assert_eq!(view.fingerprint_calls.get(), 0);
+
+        assert_eq!(result.fingerprint, ModelFingerprint(0));
+        assert!(result.primal_values.is_empty());
+        assert!(result.variable_duals.is_empty());
+        assert!(result.row_values.is_empty());
+        assert!(result.constraint_duals.is_empty());
+    }
+
+    #[test]
+    fn prepared_model_captures_enabled_fingerprint_once_before_source_drop() {
+        let model = small_lp_model();
+        let prepared = {
+            let view = CountingModelView {
+                model: &model,
+                fingerprint_calls: Cell::new(0),
+            };
+            let prepared = PreparedHighsModel::prepare(&view, &SolverConfig::new())
+                .expect("prepare HiGHS model");
+            assert_eq!(view.fingerprint_calls.get(), 1);
+            prepared
+        };
+        drop(model);
+
+        prepared.solve().expect("solve prepared HiGHS model");
+    }
+
+    #[test]
+    fn prepared_model_releases_native_state_on_drop_and_rejects_invalid_config_early() {
+        let model = small_lp_model();
+        let prepared =
+            PreparedHighsModel::prepare(&model, &SolverConfig::new()).expect("prepare HiGHS model");
+        drop(prepared);
+
+        let retry = PreparedHighsModel::prepare(&model, &SolverConfig::new())
+            .expect("prepare after dropping unsolved HiGHS model");
+        drop(retry);
+
+        let invalid_config = SolverConfig::new().with_threads(0);
+        let error = match PreparedHighsModel::prepare(&model, &invalid_config) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid configuration should fail before native load"),
+        };
+        assert!(
+            matches!(error, SolverError::InvalidSettings(message) if message == "threads must be >= 1")
+        );
+
+        let invalid_native_option = SolverConfig::new().with_parameter("run_crossover", "false");
+        let error = match PreparedHighsModel::prepare(&model, &invalid_native_option) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid native option should fail during preparation"),
+        };
+        assert!(
+            matches!(error, SolverError::SolverSpecific(message) if message.contains("run_crossover") || message.contains("Highs_setStringOptionValue") || message.contains("returned HiGHS status"))
+        );
+        PreparedHighsModel::prepare(&model, &SolverConfig::new())
+            .expect("native state should be released after preparation failure");
+    }
+
+    #[test]
+    fn prepared_model_releases_native_state_after_optimization_failure() {
+        let mut infeasible_model = Model::new();
+        let variable = infeasible_model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 1.0)))
+            .expect("variable");
+        let constraint = infeasible_model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(2.0, f64::INFINITY),
+            })
+            .expect("constraint");
+        infeasible_model
+            .set_coefficient(variable, constraint, 1.0)
+            .expect("coefficient");
+        infeasible_model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(variable, 1.0)],
+            })
+            .expect("objective");
+
+        let prepared = PreparedHighsModel::prepare(&infeasible_model, &SolverConfig::new())
+            .expect("prepare infeasible HiGHS model");
+        drop(infeasible_model);
+        let error = prepared
+            .solve()
+            .expect_err("infeasible HiGHS model must fail to solve");
+        assert!(matches!(
+            error,
+            SolverError::SolveFailure {
+                status: SolverStatus::Infeasible
+            }
+        ));
+
+        let retry_model = small_lp_model();
+        let retry = PreparedHighsModel::prepare(&retry_model, &SolverConfig::new())
+            .expect("prepare after failed HiGHS optimization");
+        drop(retry_model);
+        let result = retry.solve().expect("retry HiGHS solve");
+        assert_eq!(result.objective_value, 2.0);
     }
 }
