@@ -359,6 +359,27 @@ impl Expr {
 
     /// Merged linear terms with duplicates combined.
     pub fn normalized_terms(&self) -> Vec<(VariableId, f64)> {
+        if self.linear.len() <= 2 {
+            let mut normalized: Vec<(VariableId, f64)> = Vec::with_capacity(self.linear.len());
+            for &(variable, coefficient) in &self.linear {
+                if coefficient == 0.0 {
+                    continue;
+                }
+                if let Some((_, accumulated)) = normalized
+                    .iter_mut()
+                    .find(|(existing_variable, _)| *existing_variable == variable)
+                {
+                    *accumulated += coefficient;
+                } else {
+                    let mut accumulated = 0.0;
+                    accumulated += coefficient;
+                    normalized.push((variable, accumulated));
+                }
+            }
+            normalized.retain(|(_, coefficient)| *coefficient != 0.0);
+            return normalized;
+        }
+
         let mut merged: HashMap<VariableId, f64> = HashMap::with_capacity(self.linear.len());
         for (var_id, coeff) in &self.linear {
             if *coeff == 0.0 {
