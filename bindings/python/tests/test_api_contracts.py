@@ -334,6 +334,38 @@ def test_consuming_solve_releases_model_after_handoff() -> None:
     assert model.num_constraints == 0
 
 
+def test_consuming_infeasible_highs_solve_releases_model_after_handoff() -> None:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.Bounds(lower=0.0, upper=0.0), name="x")
+    model.add_constraint(x >= 1.0, name="infeasible")
+    model.minimize(x)
+
+    result = model.solve(
+        solver=arco.HiGHS(
+            log_to_console=False,
+            parameters={"arco.consume_model": "true"},
+        )
+    )
+
+    assert result.status == arco.SolutionStatus.INFEASIBLE
+    assert model.num_variables == 0
+    assert model.num_constraints == 0
+
+
+def test_nonconsuming_highs_solve_keeps_model_available() -> None:
+    model = arco.Model()
+    x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
+    model.add_constraint(x >= 1.0, name="lower_bound")
+    model.minimize(2.0 * x)
+
+    result = model.solve(solver=arco.HiGHS(log_to_console=False))
+
+    assert result.is_optimal()
+    assert round(result.objective_value, 6) == 2.0
+    assert model.num_variables == 1
+    assert model.num_constraints == 1
+
+
 def test_debug_api_contract_requires_keyword_solve_configuration() -> None:
     model = arco.Model()
     x = model.add_variable(bounds=arco.NonNegativeFloat, name="x")
