@@ -95,6 +95,9 @@ just kdl-examples
 
 ## Benchmarking
 
+For allocation changes and backend comparisons, follow the
+[memory measurement contract](dev/memory-performance.md).
+
 Run curated CLI benchmarks with:
 
 ```bash

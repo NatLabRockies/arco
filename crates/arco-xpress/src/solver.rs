@@ -498,35 +498,52 @@ fn apply_solver_config(
     Ok(())
 }
 
-struct SolveArtifacts {
-    solution: Solution,
-    metadata: BTreeMap<String, f64>,
+struct XpressLoadData {
+    objective_coefficients: Vec<f64>,
+    lower_bounds: Vec<f64>,
+    upper_bounds: Vec<f64>,
+    col_types: Vec<u8>,
+    int_col_indices: Vec<c_int>,
+    int_col_limits: Vec<f64>,
+    row_types: Vec<u8>,
+    rhs: Vec<f64>,
+    rng: Vec<f64>,
+    mstart: Vec<c_int>,
+    mrwind: Vec<c_int>,
+    dmatval: Vec<f64>,
+    has_integer: bool,
+    matrix_build_seconds: f64,
 }
 
-#[allow(unsafe_code)]
-fn solve_problem(
+fn count_xpress_matrix_entries(
     model: &(impl ModelView + ?Sized),
-    config: &SolverConfig,
-) -> Result<SolveArtifacts, SolverError> {
-    if model.num_variables() == 0 {
-        return Err(SolverError::EmptyModel);
+    ncols: usize,
+    nrows: usize,
+) -> Result<usize, SolverError> {
+    let mut count = 0;
+    for index in 0..ncols {
+        let variable_id = VariableId::new(index as u32);
+        let variable = model
+            .variable(variable_id)
+            .ok_or(SolverError::InvalidVariableId(variable_id.inner()))?;
+        if !variable.is_active {
+            continue;
+        }
+        if let Some(column) = model.column(variable_id) {
+            count += column
+                .iter()
+                .filter(|(constraint_id, _)| (constraint_id.inner() as usize) < nrows)
+                .count();
+        }
     }
-    validate_solver_config(config)?;
-    let optimizer_flags_ptr = lp_optimizer_flags(config)?.map_or(std::ptr::null(), CStr::as_ptr);
+    Ok(count)
+}
 
-    let solve_started = Instant::now();
+fn build_xpress_load_data(
+    model: &(impl ModelView + ?Sized),
+) -> Result<XpressLoadData, SolverError> {
     let ncols = model.num_variables();
     let nrows = model.num_constraints();
-    let sense = model.objective().sense.unwrap_or(Sense::Minimize);
-
-    debug!(
-        component = "solver",
-        operation = "solve",
-        solver = "xpress",
-        variables = ncols as u64,
-        constraints = nrows as u64,
-        "Starting Xpress solve"
-    );
 
     let mut objective_coefficients = vec![0.0; ncols];
     for (variable_id, coefficient) in &model.objective().terms {
@@ -588,9 +605,10 @@ fn solve_problem(
     }
 
     let matrix_build_start = Instant::now();
+    let matrix_entry_count = count_xpress_matrix_entries(model, ncols, nrows)?;
     let mut mstart = Vec::with_capacity(ncols + 1);
-    let mut mrwind = Vec::new();
-    let mut dmatval = Vec::new();
+    let mut mrwind = Vec::with_capacity(matrix_entry_count);
+    let mut dmatval = Vec::with_capacity(matrix_entry_count);
     for index in 0..ncols {
         mstart.push(mrwind.len() as c_int);
         let variable_id = VariableId::new(index as u32);
@@ -613,6 +631,125 @@ fn solve_problem(
     mstart.push(mrwind.len() as c_int);
     let matrix_build_seconds = matrix_build_start.elapsed().as_secs_f64();
 
+    Ok(XpressLoadData {
+        objective_coefficients,
+        lower_bounds,
+        upper_bounds,
+        col_types,
+        int_col_indices,
+        int_col_limits,
+        row_types,
+        rhs,
+        rng,
+        mstart,
+        mrwind,
+        dmatval,
+        has_integer,
+        matrix_build_seconds,
+    })
+}
+
+#[allow(unsafe_code)]
+fn load_xpress_problem(
+    api: &'static ffi::Api,
+    prob: ffi::XPRSprob,
+    model: &(impl ModelView + ?Sized),
+    load_data: XpressLoadData,
+) -> Result<(), SolverError> {
+    let has_integer = load_data.has_integer;
+    let result = if has_integer {
+        // SAFETY: every pointer references storage owned by `load_data`, which
+        // remains alive for the complete Xpress load call.
+        ffi::check_xprs(unsafe {
+            (api.xprs_loadmip)(
+                prob,
+                std::ptr::null(),
+                load_data.lower_bounds.len() as c_int,
+                load_data.row_types.len() as c_int,
+                load_data.row_types.as_ptr().cast::<c_char>(),
+                load_data.rhs.as_ptr(),
+                load_data.rng.as_ptr(),
+                load_data.objective_coefficients.as_ptr(),
+                load_data.mstart.as_ptr(),
+                std::ptr::null(),
+                load_data.mrwind.as_ptr(),
+                load_data.dmatval.as_ptr(),
+                load_data.lower_bounds.as_ptr(),
+                load_data.upper_bounds.as_ptr(),
+                load_data.int_col_indices.len() as c_int,
+                0,
+                load_data.col_types.as_ptr().cast::<c_char>(),
+                load_data.int_col_indices.as_ptr(),
+                load_data.int_col_limits.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        })
+        .map_err(|rc| xpress_failure_error(api, prob, api.mip_loader_symbol(), rc, model))
+    } else {
+        // SAFETY: every pointer references storage owned by `load_data`, which
+        // remains alive for the complete Xpress load call.
+        ffi::check_xprs(unsafe {
+            (api.xprs_loadlp)(
+                prob,
+                std::ptr::null(),
+                load_data.lower_bounds.len() as c_int,
+                load_data.row_types.len() as c_int,
+                load_data.row_types.as_ptr().cast::<c_char>(),
+                load_data.rhs.as_ptr(),
+                load_data.rng.as_ptr(),
+                load_data.objective_coefficients.as_ptr(),
+                load_data.mstart.as_ptr(),
+                std::ptr::null(),
+                load_data.mrwind.as_ptr(),
+                load_data.dmatval.as_ptr(),
+                load_data.lower_bounds.as_ptr(),
+                load_data.upper_bounds.as_ptr(),
+            )
+        })
+        .map_err(|rc| xpress_failure_error(api, prob, "XPRSloadlp", rc, model))
+    };
+
+    // Xpress copies the arrays while loading the problem. Returning from this
+    // function releases the owned load buffers before optimization starts.
+    result
+}
+
+struct SolveArtifacts {
+    solution: Solution,
+    metadata: BTreeMap<String, f64>,
+}
+
+#[allow(unsafe_code)]
+fn solve_problem(
+    model: &(impl ModelView + ?Sized),
+    config: &SolverConfig,
+) -> Result<SolveArtifacts, SolverError> {
+    if model.num_variables() == 0 {
+        return Err(SolverError::EmptyModel);
+    }
+    validate_solver_config(config)?;
+    let optimizer_flags_ptr = lp_optimizer_flags(config)?.map_or(std::ptr::null(), CStr::as_ptr);
+
+    let solve_started = Instant::now();
+    let ncols = model.num_variables();
+    let nrows = model.num_constraints();
+    let sense = model.objective().sense.unwrap_or(Sense::Minimize);
+
+    debug!(
+        component = "solver",
+        operation = "solve",
+        solver = "xpress",
+        variables = ncols as u64,
+        constraints = nrows as u64,
+        "Starting Xpress solve"
+    );
+
+    let load_data = build_xpress_load_data(model)?;
+    let matrix_build_seconds = load_data.matrix_build_seconds;
+
     let env_guard = xprs_init()?;
     let api = env_guard.api;
     let prob_guard = xprs_create_prob(api)?;
@@ -620,56 +757,8 @@ fn solve_problem(
 
     apply_solver_config(api, prob, config)?;
 
-    if has_integer {
-        ffi::check_xprs(unsafe {
-            (api.xprs_loadmip)(
-                prob,
-                std::ptr::null(),
-                ncols as c_int,
-                nrows as c_int,
-                row_types.as_ptr().cast::<c_char>(),
-                rhs.as_ptr(),
-                rng.as_ptr(),
-                objective_coefficients.as_ptr(),
-                mstart.as_ptr(),
-                std::ptr::null(),
-                mrwind.as_ptr(),
-                dmatval.as_ptr(),
-                lower_bounds.as_ptr(),
-                upper_bounds.as_ptr(),
-                int_col_indices.len() as c_int,
-                0,
-                col_types.as_ptr().cast::<c_char>(),
-                int_col_indices.as_ptr(),
-                int_col_limits.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                std::ptr::null(),
-                std::ptr::null(),
-            )
-        })
-        .map_err(|rc| xpress_failure_error(api, prob, api.mip_loader_symbol(), rc, model))?;
-    } else {
-        ffi::check_xprs(unsafe {
-            (api.xprs_loadlp)(
-                prob,
-                std::ptr::null(),
-                ncols as c_int,
-                nrows as c_int,
-                row_types.as_ptr().cast::<c_char>(),
-                rhs.as_ptr(),
-                rng.as_ptr(),
-                objective_coefficients.as_ptr(),
-                mstart.as_ptr(),
-                std::ptr::null(),
-                mrwind.as_ptr(),
-                dmatval.as_ptr(),
-                lower_bounds.as_ptr(),
-                upper_bounds.as_ptr(),
-            )
-        })
-        .map_err(|rc| xpress_failure_error(api, prob, "XPRSloadlp", rc, model))?;
-    }
+    let has_integer = load_data.has_integer;
+    load_xpress_problem(api, prob, model, load_data)?;
 
     ffi::check_xprs(unsafe {
         (api.xprs_chgobjsense)(
@@ -971,6 +1060,82 @@ mod tests {
             })
             .expect("objective");
         model
+    }
+
+    #[test]
+    fn load_data_uses_exact_csc_storage_and_lazy_mip_buffers() {
+        let mut model = Model::new();
+        let active_first = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("active variable");
+        let inactive = model
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: false,
+            })
+            .expect("inactive variable");
+        let active_last = model
+            .add_variable(Variable::continuous(Bounds::new(0.0, 10.0)))
+            .expect("active variable");
+        let first_row = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(0.0, 10.0),
+            })
+            .expect("first constraint");
+        let second_row = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(0.0, 10.0),
+            })
+            .expect("second constraint");
+        let third_row = model
+            .add_constraint(Constraint {
+                bounds: Bounds::new(0.0, 10.0),
+            })
+            .expect("third constraint");
+        model
+            .set_coefficient(active_first, first_row, 1.0)
+            .expect("coefficient");
+        model
+            .set_coefficient(active_first, second_row, 2.0)
+            .expect("coefficient");
+        model
+            .set_coefficient(active_first, third_row, 3.0)
+            .expect("coefficient");
+        model
+            .set_coefficient(inactive, first_row, 3.0)
+            .expect("coefficient");
+        model
+            .set_coefficient(active_last, second_row, 4.0)
+            .expect("coefficient");
+        model
+            .set_coefficient(active_last, third_row, 5.0)
+            .expect("coefficient");
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(active_first, 1.0)],
+            })
+            .expect("objective");
+
+        let load_data = build_xpress_load_data(&model).expect("load data");
+
+        assert_eq!(load_data.mstart, [0, 3, 3, 5]);
+        assert_eq!(load_data.mrwind, [0, 1, 2, 1, 2]);
+        assert_eq!(load_data.dmatval, [1.0, 2.0, 3.0, 4.0, 5.0]);
+        assert_eq!(load_data.mstart.capacity(), 4);
+        assert_eq!(load_data.mrwind.capacity(), 5);
+        assert_eq!(load_data.dmatval.capacity(), 5);
+        assert_eq!(load_data.mrwind.capacity(), load_data.mrwind.len());
+        assert_eq!(load_data.dmatval.capacity(), load_data.dmatval.len());
+        assert!(!load_data.has_integer);
+        assert_eq!(load_data.col_types.capacity(), 0);
+        assert_eq!(load_data.int_col_indices.capacity(), 0);
+        assert_eq!(load_data.int_col_limits.capacity(), 0);
+        let csc_bytes = load_data.mstart.capacity() * std::mem::size_of::<c_int>()
+            + load_data.mrwind.capacity() * std::mem::size_of::<c_int>()
+            + load_data.dmatval.capacity() * std::mem::size_of::<f64>();
+        assert_eq!(csc_bytes, 76);
     }
 
     #[test]
