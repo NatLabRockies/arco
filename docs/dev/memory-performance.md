@@ -68,6 +68,21 @@ buffers reduces live allocations but an allocator may retain those pages, and
 a previous high-water mark cannot decrease during a run. Record both allocated
 buffer bytes and process peak where possible.
 
+## Compact constraint rows
+
+`Model::add_constraints_compact` derives consecutive source row positions from
+the bounds length and streams them directly into the same insertion loop used
+by `add_constraints_compact_indexed`. It does not materialize a temporary
+`usize` index vector. The indexed API still borrows the caller's row positions
+and retains its existing zip truncation and partial-error behavior.
+
+The removed buffer is sized by one compact insertion batch. Its upper bound is
+the largest batch's row count; it must not be estimated from the formulation's
+aggregate reported constraint count. Eliminating this temporary reduces
+construction allocations without changing stored columns, coefficient counts,
+or later model mutation. It does not by itself establish a lower process RSS;
+measure the same compact batches in fresh processes when evaluating the effect.
+
 ## Sparse differences
 
 Sparse `np.diff(array, axis=...)` maps each active source slot to at most two
