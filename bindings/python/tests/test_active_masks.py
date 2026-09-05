@@ -521,6 +521,36 @@ def test_sparse_diff_singleton_axis_has_no_rows() -> None:
     assert ramp.memory_estimate()["active_slots"] == 0
 
 
+def test_sparse_constraint_array_reuse_normalizes_terms() -> None:
+    model = arco.Model()
+    index = arco.IndexSet(name="index", members=range(3))
+    variables = model.add_variables(
+        axes=(index,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False, True],
+    )
+    duplicate_terms = variables == 2.0 * variables
+    cancellation = variables == 1.0 * variables
+    first_only = np.array([True, False, False], dtype=bool)
+
+    model.add_constraints(duplicate_terms)
+    model.add_constraints(duplicate_terms, active=first_only)
+    model.add_constraints(cancellation)
+    model.add_constraints(cancellation, active=first_only)
+
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.coefficients is not None
+    assert [constraint.nnz for constraint in snapshot.constraints] == [1, 1, 1, 0, 0, 0]
+    assert [
+        (constraint.bounds.lower, constraint.bounds.upper)
+        for constraint in snapshot.constraints
+    ] == [(0.0, 0.0)] * 6
+    assert sorted(
+        (coefficient.constraint_id, coefficient.variable_id, coefficient.value)
+        for coefficient in snapshot.coefficients
+    ) == sorted([(0, 0, -1.0), (1, 1, -1.0), (2, 0, -1.0)])
+
+
 def test_sparse_ramping_constraints_intersect_labeled_active_mask() -> None:
     model = arco.Model()
     tech = arco.IndexSet(name="tech", members=range(4))

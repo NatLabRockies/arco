@@ -89,6 +89,24 @@ bindings/python/.venv/bin/pytest \
   bindings/python/tests/test_param_api.py -q
 ```
 
+## Reusing sparse constraint arrays
+
+When a sparse `ConstraintArray` is inserted into a model, normalization
+borrows each stored expression and returns an owned normalized coefficient
+vector. The same constraint array can still be inserted more than once, with or without an
+active mask, without cloning each expression first. Normalization still merges
+duplicate variable terms and retains rows whose terms cancel to zero so row
+selection and model inspection remain unchanged.
+
+The focused regression is in
+`bindings/python/tests/test_active_masks.py`:
+
+```bash
+bindings/python/.venv/bin/pytest \
+  bindings/python/tests/test_active_masks.py \
+  -k sparse_constraint_array_reuse_normalizes_terms -q
+```
+
 ## Solver loading
 
 The primitive model retains its coefficient columns while adapters construct

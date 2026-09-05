@@ -764,7 +764,7 @@ impl PyModel {
                 let rhs_val = rhs[position];
                 filtered_rhs.push(rhs_val);
                 (
-                    expr.clone().into_inner().normalized_terms(),
+                    expr.inner().normalized_terms(),
                     bounds_from_sense(sense, rhs_val),
                 )
             });
@@ -778,7 +778,7 @@ impl PyModel {
                 .map(|(expr, rhs_val)| {
                     filtered_rhs.push(rhs_val);
                     (
-                        expr.clone().into_inner().normalized_terms(),
+                        expr.inner().normalized_terms(),
                         bounds_from_sense(sense, rhs_val),
                     )
                 });
