@@ -172,6 +172,59 @@ def test_sparse_active_mask_reconstructs_variable_names_and_bounds_on_demand() -
     assert flow[4].bounds.upper == 5.0
 
 
+def test_sparse_active_mask_reconstructs_run_encoded_names_after_prefix() -> None:
+    model = arco.Model()
+    prefix_set = arco.IndexSet(name="prefix", members=[0, 1])
+    model.add_variables(axes=(prefix_set,), bounds=arco.NonNegativeFloat, name="prefix")
+
+    i = arco.IndexSet(name="i", members=range(7))
+    flow = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, True, True, False, True, True, True],
+        name="flow",
+    )
+
+    assert [variable.name for variable in flow.variables] == [
+        "flow[0]",
+        "flow[1]",
+        "flow[2]",
+        "flow[4]",
+        "flow[5]",
+        "flow[6]",
+    ]
+    assert model.get_variable(name="flow[6]").name == "flow[6]"
+
+
+def test_sparse_multidimensional_active_mask_uses_runs_for_name_lookup() -> None:
+    model = arco.Model()
+    prefix_set = arco.IndexSet(name="prefix", members=[0, 1])
+    model.add_variables(axes=(prefix_set,), bounds=arco.NonNegativeFloat, name="prefix")
+    source = arco.IndexSet(name="source", members=range(2))
+    sink = arco.IndexSet(name="sink", members=range(4))
+    active = np.array(
+        [[True, True, True, False], [True, True, True, False]], dtype=bool
+    )
+
+    flow = model.add_variables(
+        axes=(source, sink),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+        name="flow",
+    )
+
+    assert flow.shape == (2, 4)
+    assert [variable.name for variable in flow.variables] == [
+        "flow[0]",
+        "flow[1]",
+        "flow[2]",
+        "flow[4]",
+        "flow[5]",
+        "flow[6]",
+    ]
+    assert model.get_variable(name="flow[6]").name == "flow[6]"
+
+
 def test_sparse_active_mask_with_labeled_array_bounds_reads_only_active_slots() -> None:
     model = arco.Model()
     source = arco.IndexSet(name="source", members=range(3))

@@ -3,6 +3,9 @@
 For the canonical model's per-column storage budget, see
 [Column storage memory](column-storage-memory.md).
 
+That page also describes the private sparse display-index mapping used by the
+Python binding and its payload accounting limits.
+
 For short-expression normalization allocation behavior, see
 [Short expression memory](short-expression-memory.md).
 
