@@ -91,33 +91,26 @@ pub fn validate_model_view_solve_result(
             "result fingerprint does not match input model fingerprint".to_string(),
         ));
     }
+    validate_model_view_solve_result_shape(result, model.num_variables(), model.num_constraints())
+}
+
+/// Validate result vector lengths when only captured model dimensions remain.
+pub fn validate_model_view_solve_result_shape(
+    result: &ModelViewSolveResult,
+    variables: usize,
+    constraints: usize,
+) -> Result<(), SolverError> {
     if result.fingerprint.0 == 0 {
-        validate_optional_len(
-            "primal_values",
-            result.primal_values.len(),
-            model.num_variables(),
-        )?;
+        validate_optional_len("primal_values", result.primal_values.len(), variables)?;
     } else {
-        validate_required_len(
-            "primal_values",
-            result.primal_values.len(),
-            model.num_variables(),
-        )?;
+        validate_required_len("primal_values", result.primal_values.len(), variables)?;
     }
-    validate_optional_len(
-        "variable_duals",
-        result.variable_duals.len(),
-        model.num_variables(),
-    )?;
-    validate_optional_len(
-        "row_values",
-        result.row_values.len(),
-        model.num_constraints(),
-    )?;
+    validate_optional_len("variable_duals", result.variable_duals.len(), variables)?;
+    validate_optional_len("row_values", result.row_values.len(), constraints)?;
     validate_optional_len(
         "constraint_duals",
         result.constraint_duals.len(),
-        model.num_constraints(),
+        constraints,
     )?;
     Ok(())
 }
@@ -144,9 +137,11 @@ fn validate_optional_len(name: &str, actual: usize, expected: usize) -> Result<(
 mod tests {
     use crate::{
         ModelViewBackend, ModelViewBackendRegistry, ModelViewSolveResult, SolverConfig,
-        SolverError, SolverStatus,
+        SolverError, SolverStatus, validate_model_view_solve_result_shape,
     };
-    use arco_model::{Bounds, Model, ModelView, Objective, Sense, Variable, expr::Expr};
+    use arco_model::{
+        Bounds, Model, ModelFingerprint, ModelView, Objective, Sense, Variable, expr::Expr,
+    };
     use std::sync::Mutex;
 
     struct FixtureBackend;
@@ -241,6 +236,27 @@ mod tests {
             .expect_err("bad result shape should fail");
 
         assert!(matches!(error, SolverError::InvalidResultShape(_)));
+    }
+
+    #[test]
+    fn result_shape_validator_rejects_wrong_primal_lengths_with_or_without_fingerprint() {
+        for fingerprint in [ModelFingerprint(0), ModelFingerprint(1)] {
+            let result = ModelViewSolveResult {
+                fingerprint,
+                status: SolverStatus::Optimal,
+                objective_value: 0.0,
+                primal_values: vec![1.0],
+                variable_duals: Vec::new(),
+                row_values: Vec::new(),
+                constraint_duals: Vec::new(),
+                metadata: Default::default(),
+            };
+
+            assert!(matches!(
+                validate_model_view_solve_result_shape(&result, 2, 0),
+                Err(SolverError::InvalidResultShape(_))
+            ));
+        }
     }
 
     #[test]

@@ -10,6 +10,6 @@ mod status;
 
 pub use solution::Solution;
 pub use solver::{
-    Solver, XpressModelViewBackend, detect_xpress_dir, detect_xpress_license_path,
-    solve_model_view, xpress_runtime_available,
+    PreparedXpressModel, Solver, XpressModelViewBackend, detect_xpress_dir,
+    detect_xpress_license_path, solve_model_view, xpress_runtime_available,
 };

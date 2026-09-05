@@ -7,11 +7,13 @@ use arco_model::{ConstraintId, ModelFingerprint, ModelView, Sense, VariableId};
 use arco_solver::{
     LpAlgorithm, ModelViewBackend, ModelViewSolveResult, Solve, SolverConfig, SolverDiagnostic,
     SolverError, SolverModelStats, validate_model_view_solve_result,
+    validate_model_view_solve_result_shape,
 };
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock, TryLockError};
 use std::time::Instant;
 use tracing::{debug, warn};
 
@@ -37,6 +39,22 @@ impl Drop for XpressGuard {
 struct ProbGuard {
     api: &'static ffi::Api,
     prob: ffi::XPRSprob,
+}
+
+static XPRESS_SESSION: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn acquire_xpress_session() -> Result<MutexGuard<'static, ()>, SolverError> {
+    let lock = XPRESS_SESSION.get_or_init(|| Mutex::new(()));
+    match lock.try_lock() {
+        Ok(guard) => Ok(guard),
+        Err(TryLockError::WouldBlock) => Err(SolverError::SolverSpecific(
+            "Xpress runtime session is busy; drop the prepared model before starting another solve"
+                .to_string(),
+        )),
+        Err(TryLockError::Poisoned(_)) => Err(SolverError::SolverSpecific(
+            "Xpress runtime session lock is poisoned after a prior failure".to_string(),
+        )),
+    }
 }
 
 impl Drop for ProbGuard {
@@ -159,7 +177,14 @@ fn xprs_init() -> Result<XpressGuard, SolverError> {
         }
     }
 
-    let api = xpress_api()?;
+    let api = match xpress_api() {
+        Ok(api) => api,
+        Err(error) => {
+            restore_env("XPRESSDIR", original_xpressdir.as_deref());
+            restore_env("XPAUTH_PATH", original_xpauth.as_deref());
+            return Err(error);
+        }
+    };
 
     for candidate in license_candidates(detected_dir.as_deref()) {
         if !candidate.exists() {
@@ -228,14 +253,6 @@ fn xprs_last_error(api: &'static ffi::Api, prob: ffi::XPRSprob) -> Option<String
     }
 }
 
-fn xpress_model_stats(model: &(impl ModelView + ?Sized)) -> SolverModelStats {
-    SolverModelStats {
-        variables: model.num_variables(),
-        constraints: model.num_constraints(),
-        coefficients: model.num_coefficients(),
-    }
-}
-
 fn normalize_xpress_last_error(last_error: &str) -> String {
     let trimmed = last_error.trim();
     let without_prefix = trimmed.strip_prefix('?').unwrap_or(trimmed).trim_start();
@@ -266,7 +283,7 @@ fn xpress_failure_error(
     prob: ffi::XPRSprob,
     action: &str,
     rc: c_int,
-    model: &(impl ModelView + ?Sized),
+    model: &SolverModelStats,
 ) -> SolverError {
     let last_error = xprs_last_error(api, prob);
     if last_error
@@ -278,7 +295,7 @@ fn xpress_failure_error(
             operation: action.trim_start_matches("XPRS").to_ascii_lowercase(),
             return_code: rc,
             limit: 5000,
-            model: xpress_model_stats(model),
+            model: model.clone(),
         });
     }
 
@@ -653,10 +670,12 @@ fn build_xpress_load_data(
 fn load_xpress_problem(
     api: &'static ffi::Api,
     prob: ffi::XPRSprob,
-    model: &(impl ModelView + ?Sized),
+    model_stats: &SolverModelStats,
     load_data: XpressLoadData,
 ) -> Result<(), SolverError> {
     let has_integer = load_data.has_integer;
+    // Xpress copies the arrays while loading the problem. Returning from this
+    // function releases the owned load buffers before optimization starts.
     if has_integer {
         // SAFETY: every pointer references storage owned by `load_data`, which
         // remains alive for the complete Xpress load call.
@@ -687,7 +706,7 @@ fn load_xpress_problem(
                 std::ptr::null(),
             )
         })
-        .map_err(|rc| xpress_failure_error(api, prob, api.mip_loader_symbol(), rc, model))
+        .map_err(|rc| xpress_failure_error(api, prob, api.mip_loader_symbol(), rc, model_stats))
     } else {
         // SAFETY: every pointer references storage owned by `load_data`, which
         // remains alive for the complete Xpress load call.
@@ -709,11 +728,8 @@ fn load_xpress_problem(
                 load_data.upper_bounds.as_ptr(),
             )
         })
-        .map_err(|rc| xpress_failure_error(api, prob, "XPRSloadlp", rc, model))
+        .map_err(|rc| xpress_failure_error(api, prob, "XPRSloadlp", rc, model_stats))
     }
-
-    // Xpress copies the arrays while loading the problem. Returning from this
-    // function releases the owned load buffers before optimization starts.
 }
 
 struct SolveArtifacts {
@@ -721,173 +737,310 @@ struct SolveArtifacts {
     metadata: BTreeMap<String, f64>,
 }
 
-#[allow(unsafe_code)]
-fn solve_problem(
-    model: &(impl ModelView + ?Sized),
-    config: &SolverConfig,
-) -> Result<SolveArtifacts, SolverError> {
-    if model.num_variables() == 0 {
-        return Err(SolverError::EmptyModel);
-    }
-    validate_solver_config(config)?;
-    let optimizer_flags_ptr = lp_optimizer_flags(config)?.map_or(std::ptr::null(), CStr::as_ptr);
+struct XpressResources {
+    problem: ProbGuard,
+    environment: XpressGuard,
+    session: MutexGuard<'static, ()>,
+}
 
-    let solve_started = Instant::now();
-    let ncols = model.num_variables();
-    let nrows = model.num_constraints();
-    let sense = model.objective().sense.unwrap_or(Sense::Minimize);
+/// An Xpress problem whose native state no longer borrows the source model.
+pub struct PreparedXpressModel {
+    prob_guard: ProbGuard,
+    env_guard: XpressGuard,
+    session_guard: MutexGuard<'static, ()>,
+    optimizer_flags: Option<&'static CStr>,
+    extract_solution: bool,
+    fingerprint: ModelFingerprint,
+    model_stats: SolverModelStats,
+    has_integer: bool,
+    matrix_build_seconds: f64,
+    preparation_seconds: f64,
+    fingerprint_seconds: f64,
+}
 
-    debug!(
-        component = "solver",
-        operation = "solve",
-        solver = "xpress",
-        variables = ncols as u64,
-        constraints = nrows as u64,
-        "Starting Xpress solve"
-    );
-
-    let load_data = build_xpress_load_data(model)?;
-    let matrix_build_seconds = load_data.matrix_build_seconds;
-
-    let env_guard = xprs_init()?;
-    let api = env_guard.api;
-    let prob_guard = xprs_create_prob(api)?;
-    let prob = prob_guard.prob;
-
-    apply_solver_config(api, prob, config)?;
-
-    let has_integer = load_data.has_integer;
-    load_xpress_problem(api, prob, model, load_data)?;
-
-    ffi::check_xprs(unsafe {
-        (api.xprs_chgobjsense)(
-            prob,
-            match sense {
-                Sense::Minimize => ffi::XPRS_OBJ_MINIMIZE,
-                Sense::Maximize => ffi::XPRS_OBJ_MAXIMIZE,
-            },
-        )
-    })
-    .map_err(|rc| SolverError::SolverSpecific(format!("XPRSchgobjsense failed: {rc}")))?;
-
-    let run_start = Instant::now();
-    if has_integer {
-        ffi::check_xprs(unsafe { (api.xprs_mipoptimize)(prob, optimizer_flags_ptr) })
-            .map_err(|rc| xpress_failure_error(api, prob, "XPRSmipoptimize", rc, model))?;
-    } else {
-        ffi::check_xprs(unsafe { (api.xprs_lpoptimize)(prob, optimizer_flags_ptr) })
-            .map_err(|rc| xpress_failure_error(api, prob, "XPRSlpoptimize", rc, model))?;
-    }
-    let run_seconds = run_start.elapsed().as_secs_f64();
-    let solve_time_seconds = solve_started.elapsed().as_secs_f64();
-
-    let (core_status, has_solution, status_string) = if has_integer {
-        let raw = get_int_attrib(api, prob, ffi::XPRS_MIPSTATUS)?;
-        (
-            status::mip_status_to_core(raw),
-            status::mip_has_solution(raw),
-            status::mip_status_string(raw),
-        )
-    } else {
-        let raw = get_int_attrib(api, prob, ffi::XPRS_LPSTATUS)?;
-        (
-            status::lp_status_to_core(raw),
-            status::lp_has_solution(raw),
-            status::lp_status_string(raw),
-        )
-    };
-
-    debug!(
-        component = "solver",
-        operation = "solve",
-        solver = "xpress",
-        solver_status = status_string,
-        is_mip = has_integer,
-        duration_ms = solve_time_seconds * 1000.0,
-        "Xpress solve completed"
-    );
-
-    if !has_solution {
-        warn!(
-            component = "solver",
-            operation = "solve",
-            solver = "xpress",
-            solver_status = status_string,
-            duration_ms = solve_time_seconds * 1000.0,
-            "Solver did not return a feasible solution"
-        );
-        return Err(SolverError::SolveFailure {
-            status: core_status,
-        });
+impl PreparedXpressModel {
+    /// Build an owned native Xpress problem from a model view.
+    pub fn prepare(
+        model: &(impl ModelView + ?Sized),
+        config: &SolverConfig,
+    ) -> Result<Self, SolverError> {
+        Self::prepare_with_fingerprint(model, config, true)
     }
 
-    let objective_value = if has_integer {
-        get_dbl_attrib(api, prob, ffi::XPRS_MIPOBJVAL)?
-    } else {
-        get_dbl_attrib(api, prob, ffi::XPRS_LPOBJVAL)?
-    };
+    fn prepare_for_solver(
+        model: &(impl ModelView + ?Sized),
+        config: &SolverConfig,
+    ) -> Result<Self, SolverError> {
+        Self::prepare_with_fingerprint(model, config, false)
+    }
 
-    let extract_solution = config
-        .parameters
-        .get("arco.extract_solution")
-        .is_none_or(|value| value != "false");
-    let extract_start = Instant::now();
-    let (primal_values, variable_duals, row_values, constraint_duals) = if extract_solution {
-        let mut primal_values = vec![0.0; ncols];
-        let mut variable_duals = vec![0.0; ncols];
-        let mut row_values = vec![0.0; nrows];
-        let mut constraint_duals = vec![0.0; nrows];
-        if has_integer {
-            ffi::check_xprs(unsafe {
-                (api.xprs_getmipsol)(prob, primal_values.as_mut_ptr(), row_values.as_mut_ptr())
-            })
-            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSgetmipsol failed: {rc}")))?;
-            (primal_values, variable_duals, row_values, constraint_duals)
-        } else {
-            ffi::check_xprs(unsafe {
-                (api.xprs_getlpsol)(
-                    prob,
-                    primal_values.as_mut_ptr(),
-                    row_values.as_mut_ptr(),
-                    constraint_duals.as_mut_ptr(),
-                    variable_duals.as_mut_ptr(),
-                )
-            })
-            .map_err(|rc| SolverError::SolverSpecific(format!("XPRSgetlpsol failed: {rc}")))?;
-            (primal_values, variable_duals, row_values, constraint_duals)
+    #[allow(unsafe_code)]
+    fn prepare_with_fingerprint(
+        model: &(impl ModelView + ?Sized),
+        config: &SolverConfig,
+        capture_fingerprint: bool,
+    ) -> Result<Self, SolverError> {
+        if model.num_variables() == 0 {
+            return Err(SolverError::EmptyModel);
         }
-    } else {
-        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
-    };
-    let solution_extract_seconds = extract_start.elapsed().as_secs_f64();
+        if model.objective().sense.is_none() && model.objective().terms.is_empty() {
+            return Err(SolverError::NoObjective);
+        }
+        validate_solver_config(config)?;
+        let optimizer_flags = lp_optimizer_flags(config)?;
+        let extract_solution = config
+            .parameters
+            .get("arco.extract_solution")
+            .is_none_or(|value| value != "false");
+        let session_guard = acquire_xpress_session()?;
+        let prepare_started = Instant::now();
+        let (fingerprint, fingerprint_seconds) = if capture_fingerprint
+            && config
+                .parameters
+                .get("arco.fingerprint")
+                .is_none_or(|value| value != "false")
+        {
+            let fingerprint_started = Instant::now();
+            let fingerprint = model.fingerprint();
+            (fingerprint, fingerprint_started.elapsed().as_secs_f64())
+        } else {
+            (ModelFingerprint(0), 0.0)
+        };
+        let model_stats = SolverModelStats {
+            variables: model.num_variables(),
+            constraints: model.num_constraints(),
+            coefficients: model.num_coefficients(),
+        };
+        let sense = model.objective().sense.unwrap_or(Sense::Minimize);
 
-    drop(prob_guard);
-    drop(env_guard);
+        debug!(
+            component = "solver",
+            operation = "prepare",
+            solver = "xpress",
+            variables = model_stats.variables as u64,
+            constraints = model_stats.constraints as u64,
+            "Preparing Xpress solve"
+        );
 
-    let mut metadata = BTreeMap::new();
-    metadata.insert("xpress_matrix_build_s".to_string(), matrix_build_seconds);
-    metadata.insert("xpress_run_s".to_string(), run_seconds);
-    metadata.insert("solution_extract_s".to_string(), solution_extract_seconds);
-    metadata.insert("num_variables".to_string(), ncols as f64);
-    metadata.insert("num_constraints".to_string(), nrows as f64);
-    metadata.insert(
-        "num_coefficients".to_string(),
-        model.num_coefficients() as f64,
-    );
+        let load_data = build_xpress_load_data(model)?;
+        let matrix_build_seconds = load_data.matrix_build_seconds;
+        let has_integer = load_data.has_integer;
+        let env_guard = xprs_init()?;
+        let api = env_guard.api;
+        let prob_guard = xprs_create_prob(api)?;
+        let prob = prob_guard.prob;
 
-    Ok(SolveArtifacts {
-        solution: Solution {
+        apply_solver_config(api, prob, config)?;
+        load_xpress_problem(api, prob, &model_stats, load_data)?;
+
+        ffi::check_xprs(unsafe {
+            (api.xprs_chgobjsense)(
+                prob,
+                match sense {
+                    Sense::Minimize => ffi::XPRS_OBJ_MINIMIZE,
+                    Sense::Maximize => ffi::XPRS_OBJ_MAXIMIZE,
+                },
+            )
+        })
+        .map_err(|rc| SolverError::SolverSpecific(format!("XPRSchgobjsense failed: {rc}")))?;
+
+        Ok(Self {
+            session_guard,
+            env_guard,
+            prob_guard,
+            optimizer_flags,
+            extract_solution,
+            fingerprint,
+            model_stats,
+            has_integer,
+            matrix_build_seconds,
+            preparation_seconds: prepare_started.elapsed().as_secs_f64(),
+            fingerprint_seconds,
+        })
+    }
+
+    /// Fingerprint captured while the source model was borrowed.
+    pub fn fingerprint(&self) -> ModelFingerprint {
+        self.fingerprint
+    }
+
+    /// Optimize the prepared native problem and release all native resources.
+    #[allow(unsafe_code)]
+    pub fn solve(self) -> Result<Solution, SolverError> {
+        self.solve_artifacts().map(|artifacts| artifacts.solution)
+    }
+
+    /// Optimize the prepared problem and return the shared model-view result.
+    pub fn solve_model_view(self) -> Result<ModelViewSolveResult, SolverError> {
+        let model_stats = self.model_stats.clone();
+        let fingerprint = self.fingerprint;
+        let SolveArtifacts { solution, metadata } = self.solve_artifacts()?;
+        let Solution {
             primal_values,
             variable_duals,
             constraint_duals,
             row_values,
             objective_value,
             core_status,
-            is_mip: has_integer,
-            solve_time_seconds,
-        },
-        metadata,
-    })
+            ..
+        } = solution;
+        let result = ModelViewSolveResult {
+            fingerprint,
+            status: core_status,
+            objective_value,
+            primal_values,
+            variable_duals,
+            row_values,
+            constraint_duals,
+            metadata,
+        };
+        validate_model_view_solve_result_shape(
+            &result,
+            model_stats.variables,
+            model_stats.constraints,
+        )?;
+        Ok(result)
+    }
+
+    #[allow(unsafe_code)]
+    fn solve_artifacts(self) -> Result<SolveArtifacts, SolverError> {
+        let Self {
+            prob_guard,
+            env_guard,
+            session_guard,
+            optimizer_flags,
+            extract_solution,
+            fingerprint_seconds,
+            fingerprint: _,
+            model_stats,
+            has_integer,
+            matrix_build_seconds,
+            preparation_seconds,
+        } = self;
+        let resources = XpressResources {
+            problem: prob_guard,
+            environment: env_guard,
+            session: session_guard,
+        };
+        let api = resources.problem.api;
+        let prob = resources.problem.prob;
+        let ncols = model_stats.variables;
+        let nrows = model_stats.constraints;
+        let optimizer_flags_ptr = optimizer_flags.map_or(std::ptr::null(), CStr::as_ptr);
+        let run_start = Instant::now();
+
+        if has_integer {
+            ffi::check_xprs(unsafe { (api.xprs_mipoptimize)(prob, optimizer_flags_ptr) }).map_err(
+                |rc| xpress_failure_error(api, prob, "XPRSmipoptimize", rc, &model_stats),
+            )?;
+        } else {
+            ffi::check_xprs(unsafe { (api.xprs_lpoptimize)(prob, optimizer_flags_ptr) }).map_err(
+                |rc| xpress_failure_error(api, prob, "XPRSlpoptimize", rc, &model_stats),
+            )?;
+        }
+        let run_seconds = run_start.elapsed().as_secs_f64();
+        let (core_status, has_solution, status_string) = if has_integer {
+            let raw = get_int_attrib(api, prob, ffi::XPRS_MIPSTATUS)?;
+            (
+                status::mip_status_to_core(raw),
+                status::mip_has_solution(raw),
+                status::mip_status_string(raw),
+            )
+        } else {
+            let raw = get_int_attrib(api, prob, ffi::XPRS_LPSTATUS)?;
+            (
+                status::lp_status_to_core(raw),
+                status::lp_has_solution(raw),
+                status::lp_status_string(raw),
+            )
+        };
+        let solve_time_seconds = preparation_seconds + run_start.elapsed().as_secs_f64();
+
+        debug!(
+            component = "solver",
+            operation = "solve",
+            solver = "xpress",
+            solver_status = status_string,
+            is_mip = has_integer,
+            duration_ms = solve_time_seconds * 1000.0,
+            "Xpress solve completed"
+        );
+
+        if !has_solution {
+            warn!(
+                component = "solver",
+                operation = "solve",
+                solver = "xpress",
+                solver_status = status_string,
+                duration_ms = solve_time_seconds * 1000.0,
+                "Solver did not return a feasible solution"
+            );
+            return Err(SolverError::SolveFailure {
+                status: core_status,
+            });
+        }
+
+        let objective_value = if has_integer {
+            get_dbl_attrib(api, prob, ffi::XPRS_MIPOBJVAL)?
+        } else {
+            get_dbl_attrib(api, prob, ffi::XPRS_LPOBJVAL)?
+        };
+        let extract_start = Instant::now();
+        let (primal_values, variable_duals, row_values, constraint_duals) = if extract_solution {
+            let mut primal_values = vec![0.0; ncols];
+            let mut variable_duals = vec![0.0; ncols];
+            let mut row_values = vec![0.0; nrows];
+            let mut constraint_duals = vec![0.0; nrows];
+            if has_integer {
+                ffi::check_xprs(unsafe {
+                    (api.xprs_getmipsol)(prob, primal_values.as_mut_ptr(), row_values.as_mut_ptr())
+                })
+                .map_err(|rc| SolverError::SolverSpecific(format!("XPRSgetmipsol failed: {rc}")))?;
+            } else {
+                ffi::check_xprs(unsafe {
+                    (api.xprs_getlpsol)(
+                        prob,
+                        primal_values.as_mut_ptr(),
+                        row_values.as_mut_ptr(),
+                        constraint_duals.as_mut_ptr(),
+                        variable_duals.as_mut_ptr(),
+                    )
+                })
+                .map_err(|rc| SolverError::SolverSpecific(format!("XPRSgetlpsol failed: {rc}")))?;
+            }
+            (primal_values, variable_duals, row_values, constraint_duals)
+        } else {
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+        };
+        let solution_extract_seconds = extract_start.elapsed().as_secs_f64();
+
+        let mut metadata = BTreeMap::new();
+        metadata.insert("xpress_prepare_s".to_string(), preparation_seconds);
+        metadata.insert("xpress_matrix_build_s".to_string(), matrix_build_seconds);
+        metadata.insert("xpress_run_s".to_string(), run_seconds);
+        metadata.insert("solution_extract_s".to_string(), solution_extract_seconds);
+        metadata.insert("fingerprint_s".to_string(), fingerprint_seconds);
+        metadata.insert("num_variables".to_string(), ncols as f64);
+        metadata.insert("num_constraints".to_string(), nrows as f64);
+        metadata.insert(
+            "num_coefficients".to_string(),
+            model_stats.coefficients as f64,
+        );
+
+        Ok(SolveArtifacts {
+            solution: Solution {
+                primal_values,
+                variable_duals,
+                constraint_duals,
+                row_values,
+                objective_value,
+                core_status,
+                is_mip: has_integer,
+                solve_time_seconds,
+            },
+            metadata,
+        })
+    }
 }
 
 /// Xpress backend registration object for primitive model views.
@@ -913,43 +1066,8 @@ pub fn solve_model_view(
     model: &(impl ModelView + ?Sized),
     config: &SolverConfig,
 ) -> Result<ModelViewSolveResult, SolverError> {
-    if model.num_variables() == 0 {
-        return Err(SolverError::EmptyModel);
-    }
-    if model.objective().sense.is_none() && model.objective().terms.is_empty() {
-        return Err(SolverError::NoObjective);
-    }
-
-    let SolveArtifacts {
-        solution,
-        mut metadata,
-    } = solve_problem(model, config)?;
-
-    let fingerprint_start = Instant::now();
-    let fingerprint = if config
-        .parameters
-        .get("arco.fingerprint")
-        .is_none_or(|value| value != "false")
-    {
-        model.fingerprint()
-    } else {
-        ModelFingerprint(0)
-    };
-    metadata.insert(
-        "fingerprint_s".to_string(),
-        fingerprint_start.elapsed().as_secs_f64(),
-    );
-
-    let result = ModelViewSolveResult {
-        fingerprint,
-        status: solution.core_status(),
-        objective_value: solution.objective_value(),
-        primal_values: solution.primal_values().to_vec(),
-        variable_duals: solution.variable_duals().to_vec(),
-        row_values: solution.row_values.clone(),
-        constraint_duals: solution.constraint_duals().to_vec(),
-        metadata,
-    };
+    let prepared = PreparedXpressModel::prepare(model, config)?;
+    let result = prepared.solve_model_view()?;
     validate_model_view_solve_result(model, &result)?;
     Ok(result)
 }
@@ -1023,7 +1141,7 @@ impl<'model> Solver<'model> {
     }
 
     pub(crate) fn solve_with_config(&self, config: &SolverConfig) -> Result<Solution, SolverError> {
-        solve_problem(self.model, config).map(|artifacts| artifacts.solution)
+        PreparedXpressModel::prepare_for_solver(self.model, config)?.solve()
     }
 }
 
@@ -1207,6 +1325,21 @@ mod tests {
         assert!(matches!(
             error,
             SolverError::InvalidSettings(message) if message == "tolerance must be finite and >= 0"
+        ));
+    }
+
+    #[test]
+    fn prepared_rejects_invalid_config_before_native_initialization() {
+        let model = build_simple_model();
+        let error = match PreparedXpressModel::prepare(&model, &SolverConfig::new().with_threads(0))
+        {
+            Err(error) => error,
+            Ok(_) => panic!("invalid configuration must be rejected before preparation"),
+        };
+
+        assert!(matches!(
+            error,
+            SolverError::InvalidSettings(message) if message == "threads must be >= 1"
         ));
     }
 
