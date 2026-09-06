@@ -13,13 +13,11 @@ use super::indexing::{
     slice_indices, sliced_2d_index_sets, sliced_and_index_sets,
 };
 use crate::py_modules::arrays::{
-    CompactExprStorage, ComparisonSense, ExprArrayStorage, ExpressionTermCounts, LinearArrayCore,
-    BroadcastCompareOperand, PyConstraintArray, PyVariableArray, SparseCompareOperand,
-    SparseExprStorage, array_cumsum,
-    array_diff, array_roll,
-    combine_sparse_expr_same_shape, compare_with_compact_fallback,
+    BroadcastCompareOperand, CompactExprStorage, ComparisonSense, ExprArrayStorage,
+    ExpressionTermCounts, LinearArrayCore, PyConstraintArray, PyVariableArray,
+    SparseCompareOperand, SparseDiffSource, SparseExprNode, SparseExprStorage, array_cumsum,
+    array_diff, array_roll, combine_sparse_expr_same_shape, compare_with_compact_fallback,
     diff_sparse_expr, expression_term_counts, multiply_sparse_expr_with_labeled_operand,
-    SparseDiffSource,
     multiply_sparse_expr_with_scalar, roll_sparse_expr, set_solver_matrix_memory_estimate,
     sum_sparse_expr, try_broadcast_compare, try_extract_compact,
 };
@@ -31,7 +29,11 @@ pub struct PyExprArray {
 }
 
 impl PyExprArray {
-    pub(crate) fn new(index_sets: Vec<Py<PyIndexSet>>, shape: Vec<usize>, values: Vec<PyExpr>) -> Self {
+    pub(crate) fn new(
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+        values: Vec<PyExpr>,
+    ) -> Self {
         Self {
             storage: ExprArrayStorage::Full(LinearArrayCore::new(index_sets, shape, values)),
         }
@@ -65,10 +67,24 @@ impl PyExprArray {
         );
         Self {
             storage: ExprArrayStorage::Sparse {
-                storage: SparseExprStorage {
+                storage: SparseExprStorage::Eager {
                     active_indices,
                     values,
                 },
+                index_sets,
+                shape,
+            },
+        }
+    }
+
+    pub(crate) fn from_sparse_lazy(
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+        node: std::sync::Arc<SparseExprNode>,
+    ) -> Self {
+        Self {
+            storage: ExprArrayStorage::Sparse {
+                storage: SparseExprStorage::lazy(node),
                 index_sets,
                 shape,
             },
@@ -101,6 +117,75 @@ impl PyExprArray {
         rhs: &Bound<'_, PyAny>,
         sense: ComparisonSense,
     ) -> PyResult<PyConstraintArray> {
+        if let Some(left_node) = self.storage.sparse_node() {
+            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                if rhs_ref.storage.shape() == self.storage.shape() {
+                    if let Some(right_node) = rhs_ref.storage.sparse_node() {
+                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                            left_node.clone(),
+                            right_node,
+                            sense,
+                            self.storage.shape().to_vec(),
+                            self.storage.clone_index_sets(),
+                        ));
+                    }
+                    if let Some((right_indices, right_values)) = rhs_ref.sparse_entries() {
+                        if let Some(right_node) = SparseExprNode::values(
+                            rhs_ref.storage.shape().to_vec(),
+                            right_indices.to_vec(),
+                            right_values.to_vec(),
+                        ) {
+                            return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                                left_node,
+                                right_node,
+                                sense,
+                                self.storage.shape().to_vec(),
+                                self.storage.clone_index_sets(),
+                            ));
+                        }
+                    }
+                }
+            }
+            if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                if rhs_ref.get_shape() == self.storage.shape() {
+                    if let Some(right_node) =
+                        rhs_ref.sparse_expr_node(rhs_array.clone_ref(rhs.py()))
+                    {
+                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                            left_node,
+                            right_node,
+                            sense,
+                            self.storage.shape().to_vec(),
+                            self.storage.clone_index_sets(),
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some((left_indices, left_values)) = self.sparse_entries() {
+            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                if rhs_ref.storage.shape() == self.storage.shape() {
+                    if let Some(right_node) = rhs_ref.storage.sparse_node() {
+                        if let Some(left_node) = SparseExprNode::values(
+                            self.storage.shape().to_vec(),
+                            left_indices.to_vec(),
+                            left_values.to_vec(),
+                        ) {
+                            return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                                left_node,
+                                right_node,
+                                sense,
+                                self.storage.shape().to_vec(),
+                                self.storage.clone_index_sets(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         if self.sparse_entries().is_some() {
             if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
                 let rhs_ref = rhs_array.bind(rhs.py()).borrow();
@@ -275,6 +360,7 @@ impl PyExprArray {
     fn storage_kind(&self) -> &'static str {
         match &self.storage {
             ExprArrayStorage::Compact { .. } => "compact",
+            ExprArrayStorage::Sparse { storage, .. } if storage.is_lazy() => "sparse_lazy",
             ExprArrayStorage::Sparse { .. } => "sparse",
             ExprArrayStorage::Full(_) => "full",
         }
@@ -289,9 +375,17 @@ impl PyExprArray {
     }
 
     pub(crate) fn sparse_entries(&self) -> Option<(&[usize], &[PyExpr])> {
+        self.storage.as_sparse().and_then(|storage| {
+            storage
+                .values()
+                .map(|values| (storage.active_indices(), values))
+        })
+    }
+
+    pub(crate) fn materialized_sparse_entries(&self) -> Option<(Vec<usize>, Vec<PyExpr>)> {
         self.storage
             .as_sparse()
-            .map(|storage| (storage.active_indices.as_slice(), storage.values.as_slice()))
+            .map(SparseExprStorage::materialized_entries)
     }
 
     pub(crate) fn is_sparse(&self) -> bool {
@@ -308,24 +402,24 @@ impl PyExprArray {
                 let terms = storage
                     .terms
                     .iter()
-                    .map(|term| (VariableId::new(term.start_var_id + index as u32), term.coefficient))
+                    .map(|term| {
+                        (
+                            VariableId::new(term.start_var_id + index as u32),
+                            term.coefficient,
+                        )
+                    })
                     .collect();
                 Some(PyExpr::from_expr(Expr::new(terms, storage.constant)))
             }
-            ExprArrayStorage::Sparse { storage, .. } => storage
-                .active_indices
-                .binary_search(&index)
-                .ok()
-                .map(|position| storage.values[position].clone()),
+            ExprArrayStorage::Sparse { storage, .. } => {
+                Python::attach(|py| storage.value_at_flat(py, index))
+            }
         }
     }
 
     pub(crate) fn constant_at_flat(&self, index: usize) -> f64 {
         match &self.storage {
-            ExprArrayStorage::Full(core) => core
-                .values
-                .get(index)
-                .map_or(0.0, PyExpr::constant),
+            ExprArrayStorage::Full(core) => core.values.get(index).map_or(0.0, PyExpr::constant),
             ExprArrayStorage::Compact { storage, .. } => {
                 if index < storage.count {
                     storage.constant
@@ -333,11 +427,11 @@ impl PyExprArray {
                     0.0
                 }
             }
-            ExprArrayStorage::Sparse { storage, .. } => storage
-                .active_indices
-                .binary_search(&index)
-                .ok()
-                .map_or(0.0, |position| storage.values[position].constant()),
+            ExprArrayStorage::Sparse { storage, .. } => Python::attach(|py| {
+                storage
+                    .value_at_flat(py, index)
+                    .map_or(0.0, |value| value.constant())
+            }),
         }
     }
 
@@ -391,12 +485,25 @@ impl PyExprArray {
                 new_index_sets,
                 shape.clone(),
             )),
-            ExprArrayStorage::Sparse { storage, shape, .. } => Ok(Self::from_sparse(
-                new_index_sets,
-                shape.clone(),
-                storage.active_indices.clone(),
-                storage.values.clone(),
-            )),
+            ExprArrayStorage::Sparse { storage, shape, .. } => {
+                if let Some(node) = storage.node() {
+                    Ok(Self::from_sparse_lazy(new_index_sets, shape.clone(), node))
+                } else if let Some(values) = storage.values() {
+                    Ok(Self::from_sparse(
+                        new_index_sets,
+                        shape.clone(),
+                        storage.active_indices().to_vec(),
+                        values.to_vec(),
+                    ))
+                } else {
+                    Ok(Self::from_sparse(
+                        new_index_sets,
+                        shape.clone(),
+                        Vec::new(),
+                        Vec::new(),
+                    ))
+                }
+            }
         }
     }
 }
@@ -404,24 +511,58 @@ impl PyExprArray {
 // Explicit #[pyo3_macros::pymethods] with compact fast paths (replaces impl_array_ops! macro usage).
 #[pyo3_macros::pymethods]
 impl PyExprArray {
-    fn __add__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-        if let Some(self_compact) = self.as_compact() {
+    fn __add__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
+        let self_ref = slf.borrow();
+        if let Some(left_node) = self_ref.storage.sparse_node() {
+            if let Ok(other_handle) = other.extract::<Py<PyExprArray>>() {
+                let other_ref = other_handle.bind(other.py()).borrow();
+                if other_ref.storage.shape() == self_ref.storage.shape() {
+                    if let Some(right_node) = other_ref.storage.sparse_node() {
+                        if let Some(node) = SparseExprNode::add(left_node.clone(), right_node, 1.0)
+                        {
+                            return Ok(Self::from_sparse_lazy(
+                                self_ref.storage.clone_index_sets(),
+                                self_ref.storage.shape().to_vec(),
+                                node,
+                            ));
+                        }
+                    }
+                }
+            }
+            if let Ok(other_handle) = other.extract::<Py<PyVariableArray>>() {
+                let other_ref = other_handle.bind(other.py()).borrow();
+                if other_ref.get_shape() == self_ref.storage.shape() {
+                    if let Some(right_node) =
+                        other_ref.sparse_expr_node(other_handle.clone_ref(other.py()))
+                    {
+                        if let Some(node) = SparseExprNode::add(left_node, right_node, 1.0) {
+                            return Ok(Self::from_sparse_lazy(
+                                self_ref.storage.clone_index_sets(),
+                                self_ref.storage.shape().to_vec(),
+                                node,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(self_compact) = self_ref.as_compact() {
             if let Some(other_compact) = try_extract_compact(other) {
                 if self_compact.count == other_compact.count {
-                    return Ok(self.wrap_compact(self_compact.add_compact(&other_compact)));
+                    return Ok(self_ref.wrap_compact(self_compact.add_compact(&other_compact)));
                 }
             }
             if let Ok(value) = other.extract::<f64>() {
-                return Ok(self.wrap_compact(self_compact.add_constant(value)));
+                return Ok(self_ref.wrap_compact(self_compact.add_constant(value)));
             }
         }
-        if let Some((left_indices, left_values)) = self.sparse_entries() {
+        if let Some((left_indices, left_values)) = self_ref.sparse_entries() {
             if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
-                if other_array.storage.shape() == self.storage.shape() {
+                if other_array.storage.shape() == self_ref.storage.shape() {
                     if let Some((right_indices, right_values)) = other_array.sparse_entries() {
                         return Ok(combine_sparse_expr_same_shape(
-                            self.storage.index_sets_ref(),
-                            self.storage.shape(),
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
                             left_indices,
                             left_values,
                             right_indices,
@@ -432,11 +573,11 @@ impl PyExprArray {
                 }
             }
             if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
-                if other_array.get_shape() == self.storage.shape() {
+                if other_array.get_shape() == self_ref.storage.shape() {
                     if let Some((right_indices, right_values)) = other_array.sparse_expr_entries() {
                         return Ok(combine_sparse_expr_same_shape(
-                            self.storage.index_sets_ref(),
-                            self.storage.shape(),
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
                             left_indices,
                             left_values,
                             right_indices,
@@ -447,32 +588,100 @@ impl PyExprArray {
                 }
             }
         }
-        let core = self.to_core();
+        if let Some((left_indices, left_values)) = self_ref.materialized_sparse_entries() {
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
+                if other_array.storage.shape() == self_ref.storage.shape() {
+                    if let Some((right_indices, right_values)) =
+                        other_array.materialized_sparse_entries()
+                    {
+                        return Ok(combine_sparse_expr_same_shape(
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
+                            &left_indices,
+                            &left_values,
+                            &right_indices,
+                            &right_values,
+                            1.0,
+                        ));
+                    }
+                }
+            }
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
+                if other_array.get_shape() == self_ref.storage.shape() {
+                    if let Some((right_indices, right_values)) = other_array.sparse_expr_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
+                            &left_indices,
+                            &left_values,
+                            right_indices,
+                            &right_values,
+                            1.0,
+                        ));
+                    }
+                }
+            }
+        }
+        let core = self_ref.to_core();
         super::array_add(&core, other)
     }
 
-    fn __radd__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-        self.__add__(other)
+    fn __radd__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
+        Self::__add__(slf, other)
     }
 
-    fn __sub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-        if let Some(self_compact) = self.as_compact() {
+    fn __sub__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
+        let self_ref = slf.borrow();
+        if let Some(left_node) = self_ref.storage.sparse_node() {
+            if let Ok(other_handle) = other.extract::<Py<PyExprArray>>() {
+                let other_ref = other_handle.bind(other.py()).borrow();
+                if other_ref.storage.shape() == self_ref.storage.shape() {
+                    if let Some(right_node) = other_ref.storage.sparse_node() {
+                        if let Some(node) = SparseExprNode::add(left_node.clone(), right_node, -1.0)
+                        {
+                            return Ok(Self::from_sparse_lazy(
+                                self_ref.storage.clone_index_sets(),
+                                self_ref.storage.shape().to_vec(),
+                                node,
+                            ));
+                        }
+                    }
+                }
+            }
+            if let Ok(other_handle) = other.extract::<Py<PyVariableArray>>() {
+                let other_ref = other_handle.bind(other.py()).borrow();
+                if other_ref.get_shape() == self_ref.storage.shape() {
+                    if let Some(right_node) =
+                        other_ref.sparse_expr_node(other_handle.clone_ref(other.py()))
+                    {
+                        if let Some(node) = SparseExprNode::add(left_node, right_node, -1.0) {
+                            return Ok(Self::from_sparse_lazy(
+                                self_ref.storage.clone_index_sets(),
+                                self_ref.storage.shape().to_vec(),
+                                node,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(self_compact) = self_ref.as_compact() {
             if let Some(other_compact) = try_extract_compact(other) {
                 if self_compact.count == other_compact.count {
-                    return Ok(self.wrap_compact(self_compact.sub_compact(&other_compact)));
+                    return Ok(self_ref.wrap_compact(self_compact.sub_compact(&other_compact)));
                 }
             }
             if let Ok(value) = other.extract::<f64>() {
-                return Ok(self.wrap_compact(self_compact.add_constant(-value)));
+                return Ok(self_ref.wrap_compact(self_compact.add_constant(-value)));
             }
         }
-        if let Some((left_indices, left_values)) = self.sparse_entries() {
+        if let Some((left_indices, left_values)) = self_ref.sparse_entries() {
             if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
-                if other_array.storage.shape() == self.storage.shape() {
+                if other_array.storage.shape() == self_ref.storage.shape() {
                     if let Some((right_indices, right_values)) = other_array.sparse_entries() {
                         return Ok(combine_sparse_expr_same_shape(
-                            self.storage.index_sets_ref(),
-                            self.storage.shape(),
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
                             left_indices,
                             left_values,
                             right_indices,
@@ -483,11 +692,11 @@ impl PyExprArray {
                 }
             }
             if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
-                if other_array.get_shape() == self.storage.shape() {
+                if other_array.get_shape() == self_ref.storage.shape() {
                     if let Some((right_indices, right_values)) = other_array.sparse_expr_entries() {
                         return Ok(combine_sparse_expr_same_shape(
-                            self.storage.index_sets_ref(),
-                            self.storage.shape(),
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
                             left_indices,
                             left_values,
                             right_indices,
@@ -498,28 +707,63 @@ impl PyExprArray {
                 }
             }
         }
-        let core = self.to_core();
-        super::array_sub(&core, other)
-    }
-
-    fn __rsub__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-        if let Some(self_compact) = self.as_compact() {
-            if let Ok(value) = other.extract::<f64>() {
-                return Ok(self.wrap_compact(self_compact.scale(-1.0).add_constant(value)));
+        if let Some((left_indices, left_values)) = self_ref.materialized_sparse_entries() {
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
+                if other_array.storage.shape() == self_ref.storage.shape() {
+                    if let Some((right_indices, right_values)) =
+                        other_array.materialized_sparse_entries()
+                    {
+                        return Ok(combine_sparse_expr_same_shape(
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
+                            &left_indices,
+                            &left_values,
+                            &right_indices,
+                            &right_values,
+                            -1.0,
+                        ));
+                    }
+                }
             }
-            if let Some(other_compact) = try_extract_compact(other) {
-                if other_compact.count == self_compact.count {
-                    return Ok(self.wrap_compact(other_compact.sub_compact(self_compact)));
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
+                if other_array.get_shape() == self_ref.storage.shape() {
+                    if let Some((right_indices, right_values)) = other_array.sparse_expr_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
+                            &left_indices,
+                            &left_values,
+                            right_indices,
+                            &right_values,
+                            -1.0,
+                        ));
+                    }
                 }
             }
         }
-        if let Some((right_indices, right_values)) = self.sparse_entries() {
+        let core = self_ref.to_core();
+        super::array_sub(&core, other)
+    }
+
+    fn __rsub__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
+        let self_ref = slf.borrow();
+        if let Some(self_compact) = self_ref.as_compact() {
+            if let Ok(value) = other.extract::<f64>() {
+                return Ok(self_ref.wrap_compact(self_compact.scale(-1.0).add_constant(value)));
+            }
+            if let Some(other_compact) = try_extract_compact(other) {
+                if other_compact.count == self_compact.count {
+                    return Ok(self_ref.wrap_compact(other_compact.sub_compact(self_compact)));
+                }
+            }
+        }
+        if let Some((right_indices, right_values)) = self_ref.sparse_entries() {
             if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
-                if other_array.storage.shape() == self.storage.shape() {
+                if other_array.storage.shape() == self_ref.storage.shape() {
                     if let Some((left_indices, left_values)) = other_array.sparse_entries() {
                         return Ok(combine_sparse_expr_same_shape(
-                            self.storage.index_sets_ref(),
-                            self.storage.shape(),
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
                             left_indices,
                             left_values,
                             right_indices,
@@ -530,11 +774,11 @@ impl PyExprArray {
                 }
             }
             if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
-                if other_array.get_shape() == self.storage.shape() {
+                if other_array.get_shape() == self_ref.storage.shape() {
                     if let Some((left_indices, left_values)) = other_array.sparse_expr_entries() {
                         return Ok(combine_sparse_expr_same_shape(
-                            self.storage.index_sets_ref(),
-                            self.storage.shape(),
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
                             left_indices,
                             &left_values,
                             right_indices,
@@ -545,21 +789,67 @@ impl PyExprArray {
                 }
             }
         }
-        let core = self.to_core();
+        if let Some((right_indices, right_values)) = self_ref.materialized_sparse_entries() {
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyExprArray>>() {
+                if other_array.storage.shape() == self_ref.storage.shape() {
+                    if let Some((left_indices, left_values)) =
+                        other_array.materialized_sparse_entries()
+                    {
+                        return Ok(combine_sparse_expr_same_shape(
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
+                            &left_indices,
+                            &left_values,
+                            &right_indices,
+                            &right_values,
+                            -1.0,
+                        ));
+                    }
+                }
+            }
+            if let Ok(other_array) = other.extract::<PyRef<'_, PyVariableArray>>() {
+                if other_array.get_shape() == self_ref.storage.shape() {
+                    if let Some((left_indices, left_values)) = other_array.sparse_expr_entries() {
+                        return Ok(combine_sparse_expr_same_shape(
+                            self_ref.storage.index_sets_ref(),
+                            self_ref.storage.shape(),
+                            left_indices,
+                            &left_values,
+                            &right_indices,
+                            &right_values,
+                            -1.0,
+                        ));
+                    }
+                }
+            }
+        }
+        let core = self_ref.to_core();
         super::array_rsub(&core, other)
     }
 
-    fn __mul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-        if let Some(self_compact) = self.as_compact() {
+    fn __mul__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
+        let self_ref = slf.borrow();
+        if let Some(node) = self_ref.storage.sparse_node() {
             if let Ok(scalar) = other.extract::<f64>() {
-                return Ok(self.wrap_compact(self_compact.scale(scalar)));
+                if let Some(node) = SparseExprNode::scale(node, scalar) {
+                    return Ok(Self::from_sparse_lazy(
+                        self_ref.storage.clone_index_sets(),
+                        self_ref.storage.shape().to_vec(),
+                        node,
+                    ));
+                }
+            }
+        }
+        if let Some(self_compact) = self_ref.as_compact() {
+            if let Ok(scalar) = other.extract::<f64>() {
+                return Ok(self_ref.wrap_compact(self_compact.scale(scalar)));
             }
         }
         if let ExprArrayStorage::Sparse {
             storage,
             index_sets,
             shape,
-        } = &self.storage
+        } = &self_ref.storage
         {
             if let Ok(scalar) = other.extract::<f64>() {
                 return Ok(multiply_sparse_expr_with_scalar(
@@ -572,12 +862,12 @@ impl PyExprArray {
                 return Ok(result);
             }
         }
-        let core = self.to_core();
+        let core = self_ref.to_core();
         super::array_mul(&core, other)
     }
 
-    fn __rmul__(&self, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
-        self.__mul__(other)
+    fn __rmul__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<PyExprArray> {
+        Self::__mul__(slf, other)
     }
 
     fn relabel_axis(
@@ -596,15 +886,55 @@ impl PyExprArray {
         if let Some(self_compact) = self.as_compact() {
             return Ok(self.wrap_compact(self_compact.scale(1.0 / other)));
         }
+        if let Some(storage) = self.storage.as_sparse() {
+            if let Some(node) = storage.node() {
+                if let Some(node) = SparseExprNode::scale(node, 1.0 / other) {
+                    return Ok(Self::from_sparse_lazy(
+                        self.storage.clone_index_sets(),
+                        self.storage.shape().to_vec(),
+                        node,
+                    ));
+                }
+            }
+            let (active_indices, values) = storage.materialized_entries();
+            return Ok(Self::from_sparse(
+                self.storage.clone_index_sets(),
+                self.storage.shape().to_vec(),
+                active_indices,
+                values
+                    .into_iter()
+                    .map(|value| value.scale(1.0 / other))
+                    .collect(),
+            ));
+        }
         let core = self.to_core();
         super::array_truediv(&core, other)
     }
 
-    fn __neg__(&self) -> PyExprArray {
-        if let Some(self_compact) = self.as_compact() {
-            return self.wrap_compact(self_compact.scale(-1.0));
+    fn __neg__(slf: &Bound<'_, Self>) -> PyExprArray {
+        let self_ref = slf.borrow();
+        if let Some(node) = self_ref.storage.sparse_node() {
+            if let Some(node) = SparseExprNode::scale(node, -1.0) {
+                return Self::from_sparse_lazy(
+                    self_ref.storage.clone_index_sets(),
+                    self_ref.storage.shape().to_vec(),
+                    node,
+                );
+            }
         }
-        let core = self.to_core();
+        if let Some(self_compact) = self_ref.as_compact() {
+            return self_ref.wrap_compact(self_compact.scale(-1.0));
+        }
+        if let Some(storage) = self_ref.storage.as_sparse() {
+            let (active_indices, values) = storage.materialized_entries();
+            return Self::from_sparse(
+                self_ref.storage.clone_index_sets(),
+                self_ref.storage.shape().to_vec(),
+                active_indices,
+                values.into_iter().map(|value| value.scale(-1.0)).collect(),
+            );
+        }
+        let core = self_ref.to_core();
         super::array_neg(&core)
     }
 
@@ -638,7 +968,15 @@ impl PyExprArray {
             shape,
         } = &self.storage
         {
-            return sum_sparse_expr(index_sets, shape, storage, py, over);
+            if storage.values().is_some() {
+                return sum_sparse_expr(index_sets, shape, storage, py, over);
+            }
+            let (active_indices, values) = storage.materialized_entries();
+            let eager = SparseExprStorage::Eager {
+                active_indices,
+                values,
+            };
+            return sum_sparse_expr(index_sets, shape, &eager, py, over);
         }
         let core = self.to_core();
         super::array_sum(&core, py, over)
@@ -650,17 +988,48 @@ impl PyExprArray {
     }
     #[pyo3(signature = (*, over))]
     fn diff(&self, py: Python<'_>, over: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        if let Some(node) = self.storage.sparse_node() {
+            let axes = super::parse_sparse_axes(self.storage.index_sets_ref(), py, over)?;
+            if axes.len() != 1 {
+                return Err(ArrayDimensionError::new_err(
+                    "np.diff requires exactly one IndexSet axis",
+                ));
+            }
+            if let Some(node) = SparseExprNode::diff(node, axes[0]) {
+                let axis = axes[0];
+                let axis_size = self.storage.shape()[axis];
+                let selected = (1..axis_size).collect::<Vec<_>>();
+                let mut out_shape = self.storage.shape().to_vec();
+                out_shape[axis] = axis_size.saturating_sub(1);
+                let mut out_index_sets = self.storage.clone_index_sets();
+                out_index_sets[axis] =
+                    super::slice_index_set(py, &self.storage.index_sets_ref()[axis], &selected)?;
+                let result = Self::from_sparse_lazy(out_index_sets, out_shape, node);
+                return Ok(result.into_pyobject(py)?.into_any().unbind());
+            }
+        }
         if let ExprArrayStorage::Sparse {
             storage,
             index_sets,
             shape,
         } = &self.storage
         {
+            if let Some(values) = storage.values() {
+                return diff_sparse_expr(
+                    index_sets,
+                    shape,
+                    storage.active_indices(),
+                    SparseDiffSource::Expressions(values),
+                    py,
+                    over,
+                );
+            }
+            let (active_indices, values) = storage.materialized_entries();
             return diff_sparse_expr(
                 index_sets,
                 shape,
-                &storage.active_indices,
-                SparseDiffSource::Expressions(&storage.values),
+                &active_indices,
+                SparseDiffSource::Expressions(&values),
                 py,
                 over,
             );
@@ -676,15 +1045,19 @@ impl PyExprArray {
             shape,
         } = &self.storage
         {
-            return roll_sparse_expr(
-                index_sets,
-                shape,
-                &storage.active_indices,
-                &storage.values,
-                py,
-                shift,
-                over,
-            );
+            if let Some(values) = storage.values() {
+                return roll_sparse_expr(
+                    index_sets,
+                    shape,
+                    storage.active_indices(),
+                    values,
+                    py,
+                    shift,
+                    over,
+                );
+            }
+            let (active_indices, values) = storage.materialized_entries();
+            return roll_sparse_expr(index_sets, shape, &active_indices, &values, py, shift, over);
         }
         let core = self.to_core();
         array_roll(&core, py, shift, over)
@@ -745,7 +1118,7 @@ impl PyExprArray {
         let term_counts = self.term_counts();
         let dense_slots = self.storage.count();
         let active_slots = match &self.storage {
-            ExprArrayStorage::Sparse { storage, .. } => storage.active_indices.len(),
+            ExprArrayStorage::Sparse { storage, .. } => storage.active_count(),
             ExprArrayStorage::Full(_) | ExprArrayStorage::Compact { .. } => dense_slots,
         };
         let inactive_slots = dense_slots.saturating_sub(active_slots);
@@ -826,11 +1199,47 @@ impl PyExprArray {
                 let axis = kwargs.cast::<PyDict>()?.get_item("axis")?.ok_or_else(|| {
                     ArrayDimensionError::new_err("np.diff requires axis=IndexSet")
                 })?;
+                if let Some(source_node) = storage.node() {
+                    let axes = super::parse_sparse_axes(index_sets, py, &axis)?;
+                    if axes.len() != 1 {
+                        return Err(ArrayDimensionError::new_err(
+                            "np.diff requires exactly one IndexSet axis",
+                        ));
+                    }
+                    if let Some(node) = SparseExprNode::diff(source_node, axes[0]) {
+                        let axis = axes[0];
+                        let axis_size = shape[axis];
+                        let selected = (1..axis_size).collect::<Vec<_>>();
+                        let mut out_shape = shape.clone();
+                        out_shape[axis] = axis_size.saturating_sub(1);
+                        let mut out_index_sets = Python::attach(|py| {
+                            index_sets
+                                .iter()
+                                .map(|index_set| index_set.clone_ref(py))
+                                .collect::<Vec<_>>()
+                        });
+                        out_index_sets[axis] =
+                            super::slice_index_set(py, &index_sets[axis], &selected)?;
+                        let result = Self::from_sparse_lazy(out_index_sets, out_shape, node);
+                        return Ok(result.into_pyobject(py)?.into_any().unbind());
+                    }
+                }
+                if let Some(values) = storage.values() {
+                    return diff_sparse_expr(
+                        index_sets,
+                        shape,
+                        storage.active_indices(),
+                        SparseDiffSource::Expressions(values),
+                        py,
+                        &axis,
+                    );
+                }
+                let (active_indices, values) = storage.materialized_entries();
                 return diff_sparse_expr(
                     index_sets,
                     shape,
-                    &storage.active_indices,
-                    SparseDiffSource::Expressions(&storage.values),
+                    &active_indices,
+                    SparseDiffSource::Expressions(&values),
                     py,
                     &axis,
                 );
@@ -843,6 +1252,29 @@ impl PyExprArray {
                 shape,
             } = &self.storage
             {
+                if let Some(values) = storage.values() {
+                    let shift = if args.len() > 1 {
+                        args.get_item(1)?.extract::<isize>()?
+                    } else {
+                        kwargs
+                            .cast::<PyDict>()?
+                            .get_item("shift")?
+                            .ok_or_else(|| ArrayDimensionError::new_err("np.roll requires shift"))?
+                            .extract::<isize>()?
+                    };
+                    let axis = kwargs.cast::<PyDict>()?.get_item("axis")?.ok_or_else(|| {
+                        ArrayDimensionError::new_err("np.roll requires axis=IndexSet")
+                    })?;
+                    return roll_sparse_expr(
+                        index_sets,
+                        shape,
+                        storage.active_indices(),
+                        values,
+                        py,
+                        shift,
+                        &axis,
+                    );
+                }
                 let shift = if args.len() > 1 {
                     args.get_item(1)?.extract::<isize>()?
                 } else {
@@ -855,11 +1287,12 @@ impl PyExprArray {
                 let axis = kwargs.cast::<PyDict>()?.get_item("axis")?.ok_or_else(|| {
                     ArrayDimensionError::new_err("np.roll requires axis=IndexSet")
                 })?;
+                let (active_indices, values) = storage.materialized_entries();
                 return roll_sparse_expr(
                     index_sets,
                     shape,
-                    &storage.active_indices,
-                    &storage.values,
+                    &active_indices,
+                    &values,
                     py,
                     shift,
                     &axis,

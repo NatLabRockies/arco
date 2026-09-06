@@ -1,6 +1,7 @@
 //! Python wrappers for variable, expression, and constraint arrays.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use arco_arrays::{AxisSpec, BroadcastPlan, LabeledShape};
 use arco_model::VariableId;
@@ -30,12 +31,312 @@ pub use constraint_array::PyConstraintArray;
 pub use expr_array::PyExprArray;
 pub use variable_array::PyVariableArray;
 
+/// A sparse expression computation retained until a consumer asks for a row.
+///
+/// The node owns only the sparse index stream and its source handles.  This
+/// keeps arithmetic on sparse arrays from allocating one `PyExpr` per active
+/// row before a model insertion (or another operation that needs materialized
+/// expressions).
+pub struct SparseExprNode {
+    shape: Arc<[usize]>,
+    active_indices: Arc<[usize]>,
+    depth: u8,
+    kind: SparseExprNodeKind,
+}
+
+const MAX_SPARSE_EXPR_DEPTH: u8 = 32;
+
+enum SparseExprNodeKind {
+    Variable(Py<PyVariableArray>),
+    Values {
+        active_indices: Arc<[usize]>,
+        values: Arc<[PyExpr]>,
+    },
+    Roll {
+        source: Arc<SparseExprNode>,
+        axis: usize,
+        shift: isize,
+        strides: Arc<[usize]>,
+    },
+    Diff {
+        source: Arc<SparseExprNode>,
+        source_stride: usize,
+        source_block: usize,
+        output_block: usize,
+    },
+    Scale {
+        source: Arc<SparseExprNode>,
+        factor: f64,
+    },
+    Add {
+        left: Arc<SparseExprNode>,
+        right: Arc<SparseExprNode>,
+        right_scale: f64,
+    },
+}
+
+impl SparseExprNode {
+    pub(crate) fn variable(
+        handle: Py<PyVariableArray>,
+        shape: Vec<usize>,
+        active_indices: Vec<usize>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            shape: shape.into(),
+            active_indices: active_indices.into(),
+            depth: 1,
+            kind: SparseExprNodeKind::Variable(handle),
+        })
+    }
+
+    pub(crate) fn values(
+        shape: Vec<usize>,
+        active_indices: Vec<usize>,
+        values: Vec<PyExpr>,
+    ) -> Option<Arc<Self>> {
+        if active_indices.len() != values.len()
+            || active_indices
+                .windows(2)
+                .any(|window| window[0] >= window[1])
+        {
+            return None;
+        }
+        let active_indices: Arc<[usize]> = active_indices.into();
+        let values: Arc<[PyExpr]> = values.into();
+        Some(Arc::new(Self {
+            shape: shape.into(),
+            active_indices: active_indices.clone(),
+            depth: 1,
+            kind: SparseExprNodeKind::Values {
+                active_indices,
+                values,
+            },
+        }))
+    }
+
+    pub(crate) fn roll(source: Arc<Self>, axis: usize, shift: isize) -> Option<Arc<Self>> {
+        if source.depth >= MAX_SPARSE_EXPR_DEPTH {
+            return None;
+        }
+        let shape = source.shape.clone();
+        let strides = arco_arrays::row_major_strides(&shape);
+        let axis_size = shape[axis];
+        let shift = if axis_size == 0 {
+            0
+        } else {
+            shift.rem_euclid(axis_size as isize)
+        };
+        let mut active_indices = source
+            .active_indices
+            .iter()
+            .copied()
+            .map(|index| sparse_rolled_flat_index(index, &shape, &strides, axis, shift))
+            .collect::<Vec<_>>();
+        active_indices.sort_unstable();
+        Some(Arc::new(Self {
+            shape,
+            active_indices: active_indices.into(),
+            depth: source.depth + 1,
+            kind: SparseExprNodeKind::Roll {
+                source,
+                axis,
+                shift,
+                strides: strides.into(),
+            },
+        }))
+    }
+
+    pub(crate) fn scale(source: Arc<Self>, factor: f64) -> Option<Arc<Self>> {
+        if source.depth >= MAX_SPARSE_EXPR_DEPTH {
+            return None;
+        }
+        let shape = source.shape.clone();
+        let active_indices = source.active_indices.clone();
+        Some(Arc::new(Self {
+            shape,
+            active_indices,
+            depth: source.depth + 1,
+            kind: SparseExprNodeKind::Scale { source, factor },
+        }))
+    }
+
+    pub(crate) fn diff(source: Arc<Self>, axis: usize) -> Option<Arc<Self>> {
+        if source.depth >= MAX_SPARSE_EXPR_DEPTH {
+            return None;
+        }
+        let source_shape = &source.shape;
+        let axis_size = source_shape[axis];
+        let source_stride = arco_arrays::row_major_strides(source_shape)[axis];
+        let source_block = source_stride.checked_mul(axis_size)?;
+        let output_block = source_stride.checked_mul(axis_size.saturating_sub(1))?;
+        let mut shape = source_shape.to_vec();
+        shape[axis] = axis_size.saturating_sub(1);
+        let mut active_indices = Vec::new();
+        for &index in source.active_indices() {
+            let outer = index / source_block;
+            let output_base = outer * output_block;
+            let coordinate = (index / source_stride) % axis_size;
+            if coordinate < axis_size.saturating_sub(1) {
+                active_indices.push(output_base + index % source_block);
+            }
+            if coordinate > 0 {
+                active_indices.push(output_base + index % source_block - source_stride);
+            }
+        }
+        active_indices.sort_unstable();
+        active_indices.dedup();
+        Some(Arc::new(Self {
+            shape: shape.into(),
+            active_indices: active_indices.into(),
+            depth: source.depth + 1,
+            kind: SparseExprNodeKind::Diff {
+                source,
+                source_stride,
+                source_block,
+                output_block,
+            },
+        }))
+    }
+
+    pub(crate) fn add(left: Arc<Self>, right: Arc<Self>, right_scale: f64) -> Option<Arc<Self>> {
+        let depth = left.depth.max(right.depth);
+        if depth >= MAX_SPARSE_EXPR_DEPTH {
+            return None;
+        }
+        let shape = left.shape.clone();
+        let active_indices = merge_sorted_indices(&left.active_indices, &right.active_indices);
+        Some(Arc::new(Self {
+            shape,
+            active_indices: active_indices.into(),
+            depth: depth + 1,
+            kind: SparseExprNodeKind::Add {
+                left,
+                right,
+                right_scale,
+            },
+        }))
+    }
+
+    pub fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    pub fn active_indices(&self) -> &[usize] {
+        &self.active_indices
+    }
+
+    pub fn value_at(&self, py: Python<'_>, index: usize) -> Option<PyExpr> {
+        match &self.kind {
+            SparseExprNodeKind::Variable(handle) => handle
+                .bind(py)
+                .borrow()
+                .variable_id_at_flat(index)
+                .map(|var_id| PyExpr::from_term(var_id, 1.0)),
+            SparseExprNodeKind::Values {
+                active_indices,
+                values,
+            } => active_indices
+                .binary_search(&index)
+                .ok()
+                .map(|position| values[position].clone()),
+            SparseExprNodeKind::Roll {
+                source,
+                axis,
+                shift,
+                strides,
+            } => {
+                let source_index =
+                    sparse_rolled_flat_index(index, &self.shape, strides, *axis, -*shift);
+                source.value_at(py, source_index)
+            }
+            SparseExprNodeKind::Scale { source, factor } => {
+                source.value_at(py, index).map(|expr| expr.scale(*factor))
+            }
+            SparseExprNodeKind::Diff {
+                source,
+                source_stride,
+                source_block,
+                output_block,
+            } => {
+                if *output_block == 0 {
+                    return None;
+                }
+                let outer = index / output_block;
+                let source_index = outer * source_block + index % output_block;
+                let negative = source.value_at(py, source_index);
+                let positive = source.value_at(py, source_index + source_stride);
+                if negative.is_none() && positive.is_none() {
+                    return None;
+                }
+                let mut value = PyExpr::default();
+                if let Some(positive) = positive {
+                    value.add_assign(&positive);
+                }
+                if let Some(negative) = negative {
+                    value.add_assign_owned(negative.scale(-1.0));
+                }
+                (value.inner().num_terms() != 0 || value.constant() != 0.0).then_some(value)
+            }
+            SparseExprNodeKind::Add {
+                left,
+                right,
+                right_scale,
+            } => {
+                let left_value = left.value_at(py, index);
+                let right_value = right.value_at(py, index);
+                if left_value.is_none() && right_value.is_none() {
+                    return None;
+                }
+                let mut value = PyExpr::default();
+                if let Some(left_value) = left_value {
+                    value.add_assign(&left_value);
+                }
+                if let Some(right_value) = right_value {
+                    value.add_assign_owned(right_value.scale(*right_scale));
+                }
+                (value.inner().num_terms() != 0 || value.constant() != 0.0).then_some(value)
+            }
+        }
+    }
+}
+
+pub fn merge_sorted_indices(left: &[usize], right: &[usize]) -> Vec<usize> {
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let (mut left_pos, mut right_pos) = (0, 0);
+    while left_pos < left.len() || right_pos < right.len() {
+        match (left.get(left_pos), right.get(right_pos)) {
+            (Some(&left_index), Some(&right_index)) => {
+                if left_index <= right_index {
+                    merged.push(left_index);
+                    left_pos += 1;
+                    if left_index == right_index {
+                        right_pos += 1;
+                    }
+                } else {
+                    merged.push(right_index);
+                    right_pos += 1;
+                }
+            }
+            (Some(&left_index), None) => {
+                merged.push(left_index);
+                left_pos += 1;
+            }
+            (None, Some(&right_index)) => {
+                merged.push(right_index);
+                right_pos += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    merged
+}
+
 // Re-export compact types for use in lib.rs
-pub use constraint_array::{CompactConstraintStorage, CompactRhs};
 pub use constraint_array::{
     BroadcastCompareOperand, BroadcastCompareValue, SparseCompareMerge, SparseCompareOperand,
     SparseCompareValue,
 };
+pub use constraint_array::{CompactConstraintStorage, CompactRhs};
 
 type LabeledOperand = (Vec<Py<PyIndexSet>>, Vec<f64>);
 
@@ -362,15 +663,15 @@ pub(super) fn multiply_sparse_expr_with_scalar(
     sparse: &SparseExprStorage,
     factor: f64,
 ) -> PyExprArray {
-    let values = sparse
-        .values
-        .iter()
+    let (active_indices, source_values) = sparse.materialized_entries();
+    let values = source_values
+        .into_iter()
         .map(|expr| expr.scale(factor))
         .collect();
     PyExprArray::from_sparse(
         Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
         shape.to_vec(),
-        sparse.active_indices.clone(),
+        active_indices,
         values,
     )
 }
@@ -381,6 +682,14 @@ pub(super) fn multiply_sparse_expr_with_labeled_operand(
     py: Python<'_>,
     other: &Bound<'_, PyAny>,
 ) -> PyResult<Option<PyExprArray>> {
+    let Some(sparse_values) = sparse.values() else {
+        let (active_indices, values) = sparse.materialized_entries();
+        let eager = SparseExprStorage::Eager {
+            active_indices,
+            values,
+        };
+        return multiply_sparse_expr_with_labeled_operand(index_sets, &eager, py, other);
+    };
     let Some((source_index_sets, source_values)) = extract_labeled_operand(py, other)? else {
         return Ok(None);
     };
@@ -410,7 +719,7 @@ pub(super) fn multiply_sparse_expr_with_labeled_operand(
 
     let expr_total = expr_shape.total_len();
     let mut active_lookup = vec![None; expr_total];
-    for (active_pos, active_idx) in sparse.active_indices.iter().copied().enumerate() {
+    for (active_pos, active_idx) in sparse.active_indices().iter().copied().enumerate() {
         if active_idx >= expr_total {
             return Err(ArrayIndexError::new_err(format!(
                 "active index {active_idx} out of range for sparse expression array of size {expr_total}"
@@ -432,7 +741,7 @@ pub(super) fn multiply_sparse_expr_with_labeled_operand(
             continue;
         }
         out_indices.push(target_flat);
-        out_values.push(sparse.values[active_pos].scale(weight));
+        out_values.push(sparse_values[active_pos].scale(weight));
     }
 
     Ok(Some(PyExprArray::from_sparse(
@@ -529,9 +838,13 @@ pub(super) fn sum_sparse_expr(
     py: Python<'_>,
     over: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
+    let Some(sparse_values) = sparse.values() else {
+        let core = sparse.to_core(index_sets, shape);
+        return array_sum(&core, py, over);
+    };
     let Some(over) = over else {
         let mut acc = PyExpr::default();
-        for expr in &sparse.values {
+        for expr in sparse_values {
             acc.add_assign(expr);
         }
         return Ok(acc.into_pyobject(py)?.into_any().unbind());
@@ -557,7 +870,7 @@ pub(super) fn sum_sparse_expr(
     let out_len = out_shape.iter().product::<usize>().max(1);
     let mut values = vec![PyExpr::default(); out_len];
 
-    for (active_idx, expr) in sparse.active_indices.iter().zip(sparse.values.iter()) {
+    for (active_idx, expr) in sparse.active_indices().iter().zip(sparse_values.iter()) {
         let reduced_idx = reduced_sparse_flat_index(
             *active_idx,
             shape,
@@ -1001,7 +1314,11 @@ pub struct LinearArrayCore {
 }
 
 impl LinearArrayCore {
-    pub(crate) fn new(index_sets: Vec<Py<PyIndexSet>>, shape: Vec<usize>, values: Vec<PyExpr>) -> Self {
+    pub(crate) fn new(
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+        values: Vec<PyExpr>,
+    ) -> Self {
         Self {
             index_sets,
             shape,
@@ -1351,24 +1668,132 @@ pub struct CompactExprStorage {
 }
 
 /// Sparse expression storage: inactive dense slots are implicit zeros.
-#[derive(Clone, Debug)]
-pub(crate) struct SparseExprStorage {
-    pub(crate) active_indices: Vec<usize>,
-    pub(crate) values: Vec<PyExpr>,
+#[derive(Clone)]
+pub(crate) enum SparseExprStorage {
+    Eager {
+        active_indices: Vec<usize>,
+        values: Vec<PyExpr>,
+    },
+    Lazy(Arc<SparseExprNode>),
 }
 
 impl SparseExprStorage {
-    pub(crate) fn term_counts(&self) -> ExpressionTermCounts {
-        expression_term_counts(&self.values)
+    pub(crate) fn lazy(node: Arc<SparseExprNode>) -> Self {
+        Self::Lazy(node)
     }
 
-    pub(crate) fn to_core(&self, index_sets: &[Py<PyIndexSet>], shape: &[usize]) -> LinearArrayCore {
+    pub(crate) fn active_indices(&self) -> &[usize] {
+        match self {
+            Self::Eager { active_indices, .. } => active_indices,
+            Self::Lazy(node) => node.active_indices(),
+        }
+    }
+
+    pub(crate) fn values(&self) -> Option<&[PyExpr]> {
+        match self {
+            Self::Eager { values, .. } => Some(values),
+            Self::Lazy(_) => None,
+        }
+    }
+
+    pub(crate) fn materialized_entries(&self) -> (Vec<usize>, Vec<PyExpr>) {
+        match self {
+            Self::Eager {
+                active_indices,
+                values,
+            } => (active_indices.clone(), values.clone()),
+            Self::Lazy(node) => Python::attach(|py| {
+                let mut active_indices = Vec::with_capacity(node.active_indices().len());
+                let mut values = Vec::with_capacity(node.active_indices().len());
+                for &index in node.active_indices() {
+                    if let Some(value) = node.value_at(py, index) {
+                        active_indices.push(index);
+                        values.push(value);
+                    }
+                }
+                (active_indices, values)
+            }),
+        }
+    }
+
+    pub(crate) fn is_lazy(&self) -> bool {
+        matches!(self, Self::Lazy(_))
+    }
+
+    pub(crate) fn node(&self) -> Option<Arc<SparseExprNode>> {
+        match self {
+            Self::Eager { .. } => None,
+            Self::Lazy(node) => Some(node.clone()),
+        }
+    }
+
+    pub(crate) fn active_count(&self) -> usize {
+        match self {
+            Self::Eager { active_indices, .. } => active_indices.len(),
+            Self::Lazy(node) => Python::attach(|py| {
+                node.active_indices()
+                    .iter()
+                    .filter(|&&index| node.value_at(py, index).is_some())
+                    .count()
+            }),
+        }
+    }
+
+    pub(crate) fn value_at_flat(&self, py: Python<'_>, index: usize) -> Option<PyExpr> {
+        match self {
+            Self::Lazy(node) => node.value_at(py, index),
+            Self::Eager {
+                active_indices,
+                values,
+            } => active_indices
+                .binary_search(&index)
+                .ok()
+                .map(|position| values[position].clone()),
+        }
+    }
+
+    pub(crate) fn term_counts(&self) -> ExpressionTermCounts {
+        match self {
+            Self::Lazy(node) => Python::attach(|py| {
+                node.active_indices().iter().fold(
+                    ExpressionTermCounts::default(),
+                    |mut counts, index| {
+                        if let Some(expr) = node.value_at(py, *index) {
+                            counts.linear += expr.inner().linear_terms().len();
+                            counts.quadratic += expr.inner().quadratic_terms().len();
+                            counts.cubic += expr.inner().cubic_terms().len();
+                        }
+                        counts
+                    },
+                )
+            }),
+            Self::Eager { values, .. } => expression_term_counts(values),
+        }
+    }
+
+    pub(crate) fn to_core(
+        &self,
+        index_sets: &[Py<PyIndexSet>],
+        shape: &[usize],
+    ) -> LinearArrayCore {
         let total = shape.iter().product();
         let mut values = vec![PyExpr::default(); total];
-        for (active_idx, expr) in self.active_indices.iter().zip(self.values.iter()) {
-            values[*active_idx] = expr.clone();
-        }
         Python::attach(|py| {
+            if let Self::Lazy(node) = self {
+                for active_idx in node.active_indices() {
+                    if let Some(expr) = node.value_at(py, *active_idx) {
+                        values[*active_idx] = expr;
+                    }
+                }
+            } else if let Self::Eager {
+                active_indices,
+                values: eager_values,
+            } = self
+            {
+                for (active_idx, expr) in active_indices.iter().zip(eager_values.iter()) {
+                    values[*active_idx] = expr.clone();
+                }
+            }
             LinearArrayCore::new(
                 index_sets.iter().map(|set| set.clone_ref(py)).collect(),
                 shape.to_vec(),
@@ -1444,7 +1869,11 @@ impl CompactExprStorage {
     }
 
     /// Materialize to LinearArrayCore (fallback).
-    pub(crate) fn to_core(&self, index_sets: &[Py<PyIndexSet>], shape: &[usize]) -> LinearArrayCore {
+    pub(crate) fn to_core(
+        &self,
+        index_sets: &[Py<PyIndexSet>],
+        shape: &[usize],
+    ) -> LinearArrayCore {
         let values = (0..self.count)
             .map(|i| {
                 let terms: Vec<(VariableId, f64)> = self
@@ -1576,6 +2005,10 @@ impl ExprArrayStorage {
             ExprArrayStorage::Full(_) | ExprArrayStorage::Compact { .. } => None,
         }
     }
+
+    pub(crate) fn sparse_node(&self) -> Option<Arc<SparseExprNode>> {
+        self.as_sparse().and_then(SparseExprStorage::node)
+    }
 }
 
 /// Try to extract a CompactExprStorage from a PyAny operand.
@@ -1691,29 +2124,24 @@ pub(crate) fn try_broadcast_compare(
 
     let left_labeled = labeled_shape_from_index_sets(left_index_sets)?;
     let right_labeled = labeled_shape_from_index_sets(right_index_sets)?;
-    let (target_shape, target_index_sets, left_plan, right_plan) =
-        if let Ok(right_plan) = BroadcastPlan::new(right_labeled.clone(), left_labeled.clone()) {
-            let left_plan = BroadcastPlan::new(left_labeled.clone(), left_labeled)
-                .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
-            (
-                left_shape.to_vec(),
-                left_index_sets,
-                left_plan,
-                right_plan,
-            )
-        } else if let Ok(left_plan) = BroadcastPlan::new(left_labeled.clone(), right_labeled.clone())
-        {
-            let right_plan = BroadcastPlan::new(right_labeled.clone(), right_labeled)
-                .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
-            (
-                right_shape.to_vec(),
-                right_index_sets,
-                left_plan,
-                right_plan,
-            )
-        } else {
-            return Ok(None);
-        };
+    let (target_shape, target_index_sets, left_plan, right_plan) = if let Ok(right_plan) =
+        BroadcastPlan::new(right_labeled.clone(), left_labeled.clone())
+    {
+        let left_plan = BroadcastPlan::new(left_labeled.clone(), left_labeled)
+            .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
+        (left_shape.to_vec(), left_index_sets, left_plan, right_plan)
+    } else if let Ok(left_plan) = BroadcastPlan::new(left_labeled.clone(), right_labeled.clone()) {
+        let right_plan = BroadcastPlan::new(right_labeled.clone(), right_labeled)
+            .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
+        (
+            right_shape.to_vec(),
+            right_index_sets,
+            left_plan,
+            right_plan,
+        )
+    } else {
+        return Ok(None);
+    };
 
     let sparse = Python::attach(|py| left.is_sparse(py) || right.is_sparse(py));
     if !sparse {
@@ -2929,7 +3357,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExprArrayStorage, SparseDiffSource, diff_sparse_expr};
+    use super::{ExprArrayStorage, SparseDiffSource, SparseExprStorage, diff_sparse_expr};
     use crate::py_modules::index_set::{IndexMember, PyIndexSet};
     use pyo3::prelude::*;
 
@@ -2965,11 +3393,18 @@ mod tests {
             let ExprArrayStorage::Sparse { storage, .. } = &result.storage else {
                 panic!("sparse diff should return sparse expression storage");
             };
+            let SparseExprStorage::Eager {
+                active_indices,
+                values,
+            } = storage
+            else {
+                panic!("sparse diff should return eager expression storage");
+            };
 
-            assert_eq!(storage.active_indices.len(), 3);
-            assert_eq!(storage.values.len(), 3);
-            assert_eq!(storage.active_indices.capacity(), 3);
-            assert_eq!(storage.values.capacity(), 3);
+            assert_eq!(active_indices.len(), 3);
+            assert_eq!(values.len(), 3);
+            assert_eq!(active_indices.capacity(), 3);
+            assert_eq!(values.capacity(), 3);
             Ok(())
         })
     }
