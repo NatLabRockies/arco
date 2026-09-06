@@ -163,140 +163,79 @@ impl PyExprArray {
         rhs: &Bound<'_, PyAny>,
         sense: ComparisonSense,
     ) -> PyResult<PyConstraintArray> {
-        if let Some(left_node) = self
-            .storage
-            .as_sparse()
-            .and_then(|storage| storage.weighted())
-            .and_then(|_| self.sparse_compare_node())
-        {
-            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
-                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
-                if rhs_ref.storage.shape() == self.storage.shape() {
-                    let right_node = rhs_ref
-                        .storage
-                        .sparse_node()
-                        .or_else(|| rhs_ref.sparse_compare_node());
-                    if let Some(right_node) = right_node {
-                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
-                            left_node,
-                            right_node,
-                            sense,
-                            self.storage.shape().to_vec(),
-                            self.storage.clone_index_sets(),
-                        ));
-                    }
-                }
-            }
-            if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
-                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
-                if rhs_ref.get_shape() == self.storage.shape() {
-                    if let Some(right_node) =
-                        rhs_ref.sparse_expr_node(rhs_array.clone_ref(rhs.py()))
-                    {
-                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
-                            left_node,
-                            right_node,
-                            sense,
-                            self.storage.shape().to_vec(),
-                            self.storage.clone_index_sets(),
-                        ));
-                    }
-                }
-            }
-        }
-        if let Some(left_node) = self.storage.sparse_node() {
-            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
-                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
-                if rhs_ref.storage.shape() == self.storage.shape() {
-                    if let Some(right_node) = rhs_ref
-                        .storage
-                        .sparse_node()
-                        .or_else(|| rhs_ref.sparse_compare_node())
-                    {
-                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
-                            left_node.clone(),
-                            right_node,
-                            sense,
-                            self.storage.shape().to_vec(),
-                            self.storage.clone_index_sets(),
-                        ));
-                    }
-                    if let Some((right_indices, right_values)) = rhs_ref.sparse_entries() {
-                        if let Some(right_node) = SparseExprNode::values(
-                            rhs_ref.storage.shape().to_vec(),
-                            right_indices.to_vec(),
-                            right_values.to_vec(),
-                        ) {
-                            return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
-                                left_node,
-                                right_node,
-                                sense,
-                                self.storage.shape().to_vec(),
-                                self.storage.clone_index_sets(),
-                            ));
-                        }
-                    }
-                }
-            }
-            if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
-                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
-                if rhs_ref.get_shape() == self.storage.shape() {
-                    if let Some(right_node) =
-                        rhs_ref.sparse_expr_node(rhs_array.clone_ref(rhs.py()))
-                    {
-                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
-                            left_node,
-                            right_node,
-                            sense,
-                            self.storage.shape().to_vec(),
-                            self.storage.clone_index_sets(),
-                        ));
-                    }
-                }
-            }
-        }
-        if let Some((left_indices, left_values)) = self.sparse_entries() {
-            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
-                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
-                if rhs_ref.storage.shape() == self.storage.shape() {
-                    if let Some(right_node) = rhs_ref.storage.sparse_node() {
-                        if let Some(left_node) = SparseExprNode::values(
-                            self.storage.shape().to_vec(),
-                            left_indices.to_vec(),
-                            left_values.to_vec(),
-                        ) {
-                            return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
-                                left_node,
-                                right_node,
-                                sense,
-                                self.storage.shape().to_vec(),
-                                self.storage.clone_index_sets(),
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-        if self.sparse_entries().is_some() {
-            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
-                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
-                if rhs_ref.storage.shape() == self.storage.shape()
-                    && rhs_ref.sparse_entries().is_some()
-                {
+        if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
+            let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+            if rhs_ref.storage.shape() == self.storage.shape() {
+                if self.sparse_entries().is_some() && rhs_ref.sparse_entries().is_some() {
                     return Ok(PyConstraintArray::from_sparse_lazy_compare(
-                        SparseCompareOperand::Expr(left_handle),
-                        SparseCompareOperand::Expr(rhs_array),
+                        SparseCompareOperand::Expr(left_handle.clone_ref(rhs.py())),
+                        SparseCompareOperand::Expr(rhs_array.clone_ref(rhs.py())),
                         sense,
                         self.storage.shape().to_vec(),
                         self.storage.clone_index_sets(),
                     ));
                 }
+
+                if rhs_ref.is_sparse() {
+                    let left_node = self.storage.sparse_node().or_else(|| {
+                        self.storage
+                            .as_sparse()
+                            .and_then(|storage| storage.weighted())
+                            .and_then(|_| self.sparse_compare_node())
+                    });
+                    if let Some(left_node) = left_node {
+                        if let Some(right_node) = rhs_ref.sparse_compare_node() {
+                            return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                                left_node,
+                                right_node,
+                                sense,
+                                self.storage.shape().to_vec(),
+                                self.storage.clone_index_sets(),
+                            ));
+                        }
+                    } else if let Some((left_indices, left_values)) = self.sparse_entries() {
+                        if let Some(right_node) = rhs_ref.storage.sparse_node() {
+                            if let Some(left_node) = SparseExprNode::values(
+                                self.storage.shape().to_vec(),
+                                left_indices.to_vec(),
+                                left_values.to_vec(),
+                            ) {
+                                return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                                    left_node,
+                                    right_node,
+                                    sense,
+                                    self.storage.shape().to_vec(),
+                                    self.storage.clone_index_sets(),
+                                ));
+                            }
+                        }
+                    }
+                }
             }
-            if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
-                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
-                if rhs_ref.get_shape() == self.storage.shape()
-                    && rhs_ref.sparse_var_entries().is_some()
-                {
+        }
+        if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
+            let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+            if rhs_ref.get_shape() == self.storage.shape() && rhs_ref.sparse_var_entries().is_some()
+            {
+                let left_node = self.storage.sparse_node().or_else(|| {
+                    self.storage
+                        .as_sparse()
+                        .and_then(|storage| storage.weighted())
+                        .and_then(|_| self.sparse_compare_node())
+                });
+                if let Some(left_node) = left_node {
+                    if let Some(right_node) =
+                        rhs_ref.sparse_expr_node(rhs_array.clone_ref(rhs.py()))
+                    {
+                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                            left_node,
+                            right_node,
+                            sense,
+                            self.storage.shape().to_vec(),
+                            self.storage.clone_index_sets(),
+                        ));
+                    }
+                } else if self.sparse_entries().is_some() {
                     return Ok(PyConstraintArray::from_sparse_lazy_compare(
                         SparseCompareOperand::Expr(left_handle),
                         SparseCompareOperand::Variable(rhs_array),
