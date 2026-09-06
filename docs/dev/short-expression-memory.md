@@ -22,3 +22,13 @@ The counter follows the standard library's
 [allocator safety requirements](https://doc.rust-lang.org/std/alloc/trait.GlobalAlloc.html#safety),
 including the prohibition on unwinding and the possibility of optimized-away
 allocations.
+
+The Python batch-edit path has a separate private fast path for expressions
+whose owned linear terms are already normalized. It reuses the source `Vec`
+when all coefficients are finite and nonzero and IDs are sorted and unique.
+It also reuses that buffer for short (at most eight term) rows when IDs are
+unique but arrive unordered; the bounded duplicate check avoids a hash table.
+Rows with duplicates, zero or nonfinite coefficients, and longer unordered
+rows continue through `Expr::normalized_terms()` so their existing merge and
+filter behavior is unchanged. This is an allocation and speed optimization for
+the Python batch path, not an independent process-memory or solve-time claim.

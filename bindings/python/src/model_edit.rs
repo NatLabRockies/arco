@@ -11,14 +11,24 @@ use arco_model::{ConstraintId, Objective, Sense, Variable, VariableId};
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
 
+const SHORT_UNORDERED_TERM_LIMIT: usize = 8;
+
 fn normalized_terms_for_batch(expr: Expr) -> Vec<(VariableId, f64)> {
     let linear_terms = expr.linear_terms();
-    let can_reuse = linear_terms
+    let all_terms_are_finite_and_nonzero = linear_terms
         .iter()
-        .all(|(_, coefficient)| coefficient.is_finite() && *coefficient != 0.0)
-        && linear_terms
-            .windows(2)
-            .all(|window| window[0].0 < window[1].0);
+        .all(|(_, coefficient)| coefficient.is_finite() && *coefficient != 0.0);
+    let sorted_unique = linear_terms
+        .windows(2)
+        .all(|window| window[0].0 < window[1].0);
+    let short_unordered_unique = !sorted_unique
+        && linear_terms.len() <= SHORT_UNORDERED_TERM_LIMIT
+        && linear_terms.iter().enumerate().all(|(index, (variable, _))| {
+            linear_terms[..index]
+                .iter()
+                .all(|(existing, _)| existing != variable)
+        });
+    let can_reuse = all_terms_are_finite_and_nonzero && (sorted_unique || short_unordered_unique);
 
     if can_reuse {
         expr.into_linear_terms()
@@ -1269,7 +1279,9 @@ impl PyModel {
 
 #[cfg(test)]
 mod tests {
-    use crate::py_modules::model_edit::normalized_terms_for_batch;
+    use crate::py_modules::model_edit::{
+        normalized_terms_for_batch, SHORT_UNORDERED_TERM_LIMIT,
+    };
     use crate::{PyExpr, PyModel};
     use arco_model::VariableId;
     use arco_model::expr::{ComparisonSense, Expr};
@@ -1329,6 +1341,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn owned_short_unordered_unique_terms_reuse_the_linear_buffer() {
+        let mut terms = Vec::with_capacity(4);
+        terms.extend([
+            (VariableId::new(3), 1.5),
+            (VariableId::new(1), -2.25),
+            (VariableId::new(4), 3.0),
+            (VariableId::new(2), -4.5),
+        ]);
+        let expected = terms.clone();
+        let pointer = terms.as_ptr();
+        let capacity = terms.capacity();
+
+        let normalized = normalized_terms_for_batch(Expr::from_linear(terms));
+
+        assert_eq!(normalized.as_ptr(), pointer);
+        assert_eq!(normalized.capacity(), capacity);
+        assert_eq!(normalized.len(), expected.len());
+        for ((actual_variable, actual_coefficient), (expected_variable, expected_coefficient)) in
+            normalized.into_iter().zip(expected)
+        {
+            assert_eq!(actual_variable, expected_variable);
+            assert_eq!(actual_coefficient.to_bits(), expected_coefficient.to_bits());
+        }
+    }
+
+    #[test]
+    fn owned_long_unordered_unique_terms_keep_the_normalizer_fallback() {
+        let mut terms = Vec::with_capacity(SHORT_UNORDERED_TERM_LIMIT + 1);
+        terms.extend((0..=SHORT_UNORDERED_TERM_LIMIT).map(|offset| {
+            (
+                VariableId::new((SHORT_UNORDERED_TERM_LIMIT - offset) as u32),
+                offset as f64 + 1.0,
+            )
+        }));
+        let expected = terms.clone();
+        let pointer = terms.as_ptr();
+
+        let normalized = normalized_terms_for_batch(Expr::from_linear(terms));
+
+        assert_ne!(normalized.as_ptr(), pointer);
+        assert_eq!(normalized.len(), SHORT_UNORDERED_TERM_LIMIT + 1);
+        assert_same_terms_by_bits(normalized, expected);
+    }
+
     fn sorted_terms(mut terms: Vec<(VariableId, f64)>) -> Vec<(VariableId, f64)> {
         terms.sort_by_key(|(variable, _)| *variable);
         terms
@@ -1364,11 +1421,6 @@ mod tests {
                 (VariableId::new(3), 1.0e16),
                 (VariableId::new(3), 1.0),
                 (VariableId::new(3), -1.0e16),
-            ]),
-            Expr::from_linear(vec![
-                (VariableId::new(3), 1.0),
-                (VariableId::new(1), 2.0),
-                (VariableId::new(2), 3.0),
             ]),
             Expr::from_linear(vec![
                 (VariableId::new(1), f64::NAN),
