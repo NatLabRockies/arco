@@ -33,7 +33,8 @@ pub use variable_array::PyVariableArray;
 // Re-export compact types for use in lib.rs
 pub use constraint_array::{CompactConstraintStorage, CompactRhs};
 pub use constraint_array::{
-    SparseCompareMerge, SparseCompareOperand, SparseCompareValue,
+    BroadcastCompareOperand, BroadcastCompareValue, SparseCompareMerge, SparseCompareOperand,
+    SparseCompareValue,
 };
 
 type LabeledOperand = (Vec<Py<PyIndexSet>>, Vec<f64>);
@@ -1668,6 +1669,71 @@ pub(crate) fn compare_with_compact_fallback(
         }
     }
     compare_array_rhs(&core_fn(), rhs, sense)
+}
+
+/// Retain sparse operands for a broadcast comparison and evaluate rows only at
+/// constraint insertion.  Shape-equal comparisons stay on their existing
+/// sparse path; this handles the lower-rank broadcast case where materializing
+/// either operand would allocate one expression per target row.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn try_broadcast_compare(
+    left: constraint_array::BroadcastCompareOperand,
+    left_shape: &[usize],
+    left_index_sets: &[Py<PyIndexSet>],
+    right: constraint_array::BroadcastCompareOperand,
+    right_shape: &[usize],
+    right_index_sets: &[Py<PyIndexSet>],
+    sense: ComparisonSense,
+) -> PyResult<Option<PyConstraintArray>> {
+    if left_shape == right_shape {
+        return Ok(None);
+    }
+
+    let left_labeled = labeled_shape_from_index_sets(left_index_sets)?;
+    let right_labeled = labeled_shape_from_index_sets(right_index_sets)?;
+    let (target_shape, target_index_sets, left_plan, right_plan) =
+        if let Ok(right_plan) = BroadcastPlan::new(right_labeled.clone(), left_labeled.clone()) {
+            let left_plan = BroadcastPlan::new(left_labeled.clone(), left_labeled)
+                .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
+            (
+                left_shape.to_vec(),
+                left_index_sets,
+                left_plan,
+                right_plan,
+            )
+        } else if let Ok(left_plan) = BroadcastPlan::new(left_labeled.clone(), right_labeled.clone())
+        {
+            let right_plan = BroadcastPlan::new(right_labeled.clone(), right_labeled)
+                .map_err(|err| ArrayDimensionError::new_err(err.to_string()))?;
+            (
+                right_shape.to_vec(),
+                right_index_sets,
+                left_plan,
+                right_plan,
+            )
+        } else {
+            return Ok(None);
+        };
+
+    let sparse = Python::attach(|py| left.is_sparse(py) || right.is_sparse(py));
+    if !sparse {
+        return Ok(None);
+    }
+
+    Ok(Some(PyConstraintArray::from_broadcast_lazy_compare(
+        left,
+        right,
+        sense,
+        target_shape,
+        Python::attach(|py| {
+            target_index_sets
+                .iter()
+                .map(|index_set| index_set.clone_ref(py))
+                .collect()
+        }),
+        left_plan,
+        right_plan,
+    )))
 }
 
 /// Extract a LinearArrayCore from a PyAny that is either a VariableArray or ExprArray.

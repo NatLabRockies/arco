@@ -86,6 +86,15 @@ fn sparse_compare_row_is_selected(
     active_indices.get(*active_pos) == Some(&row_idx)
 }
 
+fn broadcast_compare_diff(
+    left: Option<arrays::BroadcastCompareValue>,
+    right: Option<arrays::BroadcastCompareValue>,
+) -> PyExpr {
+    let left = left.map_or_else(PyExpr::default, arrays::BroadcastCompareValue::into_expr);
+    let right = right.map_or_else(PyExpr::default, arrays::BroadcastCompareValue::into_expr);
+    PyExpr::from_expr(left.inner().add(&right.inner().scale(-1.0)))
+}
+
 impl PyModel {
     fn resolve_labeled_f64_values(
         obj: &Bound<'_, PyAny>,
@@ -694,6 +703,72 @@ impl PyModel {
                 self.inner.add_constraints_batch_streaming(row_count, rows)
             })?
             .map_err(errors::model_error_to_py)?;
+
+        self.name_constraint_block(first_constraint_id, row_count, name.as_deref());
+
+        Ok(PyConstraintArray::from_batch_shaped(
+            first_constraint_id.inner(),
+            shape.to_vec(),
+            Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+            sense,
+            &filtered_rhs,
+            name,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn add_constraints_broadcast_lazy_compare_shaped_internal(
+        &mut self,
+        py: Python<'_>,
+        left: &arrays::BroadcastCompareOperand,
+        right: &arrays::BroadcastCompareOperand,
+        left_plan: &arco_arrays::BroadcastPlan,
+        right_plan: &arco_arrays::BroadcastPlan,
+        sense: ComparisonSense,
+        active: Option<&Bound<'_, PyAny>>,
+        name: Option<String>,
+        shape: &[usize],
+        index_sets: &[Py<PyIndexSet>],
+    ) -> PyResult<PyConstraintArray> {
+        let total = shape.iter().product();
+        let active_indices = Self::resolve_active_indices(
+            active,
+            (!index_sets.is_empty()).then_some(index_sets),
+            shape,
+            total,
+        )?;
+        let row_count = active_indices.len();
+        if row_count == 0 {
+            return Ok(PyConstraintArray::from_batch_shaped(
+                0,
+                shape.to_vec(),
+                Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+                sense,
+                &[],
+                name,
+            ));
+        }
+
+        let mut filtered_rhs = Vec::with_capacity(row_count);
+        let first_constraint_id = left.with_views(
+            right,
+            py,
+            left_plan,
+            right_plan,
+            |left, right| {
+                let rows = active_indices.into_iter().map(|index| {
+                    let diff = broadcast_compare_diff(left.value_at(index), right.value_at(index));
+                    let rhs_value = -diff.constant();
+                    filtered_rhs.push(rhs_value);
+                    (
+                        normalized_terms_for_batch(diff.into_inner()),
+                        bounds_from_sense(sense, rhs_value),
+                    )
+                });
+                self.inner.add_constraints_batch_streaming(row_count, rows)
+            },
+        )
+        .map_err(errors::model_error_to_py)?;
 
         self.name_constraint_block(first_constraint_id, row_count, name.as_deref());
 

@@ -219,6 +219,23 @@ path. It does not remove the expression storage held by a source array or
 establish a lower whole-process RSS. Reusing a source `ConstraintArray` remains
 supported, including repeated insertion with different active masks.
 
+## Broadcast comparisons from sparse arrays
+
+Comparing a sparse array with a lower-rank sparse or expression array can
+produce a much larger target shape. The comparison now retains the source
+arrays and a labeled `BroadcastPlan` until insertion, then evaluates only the
+selected target rows. It still represents every target row, including rows
+whose operands are both implicit zero, so `len`, `rhs`, row order, masks, and
+repeated insertion keep the materialized comparison behavior.
+
+This avoids constructing a dense `Vec<PyExpr>` for the broadcasted target.
+Insertion still creates and normalizes one owned expression per inserted row;
+the optimization removes the pre-insertion dense copy and keeps source arrays
+alive until the model owns their rows. It applies to sparse variable and sparse
+expression operands when their labeled shapes require broadcasting. Shape or
+axis errors are resolved before model mutation, and unsupported comparisons
+continue through the existing materialized path.
+
 ## Solver loading
 
 The primitive model retains its coefficient columns while adapters construct
