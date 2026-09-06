@@ -2,7 +2,7 @@ name: kdl-overlay
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, edited]
+    types: [opened, reopened, synchronize]
     paths:
       - "**/*.kdl"
       - ".pre-commit-config.yaml"
@@ -21,7 +21,6 @@ permissions:
 jobs:
   kdl-overlay-check:
     name: kdl overlay parse check
-    if: github.event.action != 'edited'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
