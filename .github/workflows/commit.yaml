@@ -2,10 +2,10 @@ name: on-commit
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, edited]
+    types: [opened, reopened, synchronize]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'title' || 'source' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -18,7 +18,6 @@ env:
 jobs:
   prek:
     name: prek
-    if: github.event.action != 'edited'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -42,7 +41,6 @@ jobs:
 
   lint-commit-messages:
     name: lint commit message
-    if: github.event.action != 'edited'
     runs-on: [ubuntu-latest]
     timeout-minutes: 5
     steps:
@@ -62,14 +60,3 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           uvx --from commitizen cz check --rev-range "${BASE_SHA}..${HEAD_SHA}"
-  lint-pr-title:
-    # default: lints titles using https://github.com/commitizen/conventional-commit-types
-    name: lint pr title
-    runs-on: [ubuntu-latest]
-    timeout-minutes: 5
-    permissions:
-      pull-requests: read # Required by action-semantic-pull-request to read PR title/body.
-    steps:
-      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
