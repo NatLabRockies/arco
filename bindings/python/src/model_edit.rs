@@ -23,11 +23,14 @@ fn normalized_terms_for_batch(expr: Expr) -> Vec<(VariableId, f64)> {
         .all(|window| window[0].0 < window[1].0);
     let short_unordered_unique = !sorted_unique
         && linear_terms.len() <= SHORT_UNORDERED_TERM_LIMIT
-        && linear_terms.iter().enumerate().all(|(index, (variable, _))| {
-            linear_terms[..index]
-                .iter()
-                .all(|(existing, _)| existing != variable)
-        });
+        && linear_terms
+            .iter()
+            .enumerate()
+            .all(|(index, (variable, _))| {
+                linear_terms[..index]
+                    .iter()
+                    .all(|(existing, _)| existing != variable)
+            });
     let can_reuse = all_terms_are_finite_and_nonzero && (sorted_unique || short_unordered_unique);
 
     if can_reuse {
@@ -1116,6 +1119,12 @@ impl PyModel {
                 arco_model::ModelError::NoObjective,
             ));
         }
+        if let Ok(expr) = expr.extract::<PyRef<'_, PyExpr>>() {
+            return self
+                .inner
+                .add_objective_terms_from_slice(expr.inner().linear_terms())
+                .map_err(errors::model_error_to_py);
+        }
         let terms = extract_objective_terms(expr)?;
         self.inner
             .add_objective_terms(terms)
@@ -1360,9 +1369,7 @@ impl PyModel {
 
 #[cfg(test)]
 mod tests {
-    use crate::py_modules::model_edit::{
-        normalized_terms_for_batch, SHORT_UNORDERED_TERM_LIMIT,
-    };
+    use crate::py_modules::model_edit::{SHORT_UNORDERED_TERM_LIMIT, normalized_terms_for_batch};
     use crate::{PyExpr, PyModel};
     use arco_model::VariableId;
     use arco_model::expr::{ComparisonSense, Expr};
