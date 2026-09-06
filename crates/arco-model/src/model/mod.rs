@@ -14,6 +14,7 @@
 //! - [`csc_import`]: CSC format import
 //! - [`sparse`]: Sparse matrix exports (CSC/CRS/COO)
 
+mod bounds;
 mod builder;
 mod csc_import;
 mod error;
@@ -28,6 +29,7 @@ mod view;
 use crate::ids::{ConstraintId, VariableId};
 use crate::slack::SlackHandle;
 use crate::types::{Bounds, Constraint, Objective, SimplifyLevel, Variable};
+use bounds::BoundBlocks;
 use smallvec::SmallVec;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
@@ -55,10 +57,10 @@ pub use view::{ModelFingerprint, ModelPatch, ModelView, PatchedModelView, Struct
 /// The internal representation uses column-first sparse storage (CSC format).
 #[derive(Debug, Clone)]
 pub struct Model {
-    variables: Vec<Bounds>,
+    variables: BoundBlocks<Bounds>,
     variable_is_integer_bits: Vec<u64>,
     variable_is_inactive_bits: Vec<u64>,
-    constraints: Vec<Constraint>,
+    constraints: BoundBlocks<Constraint>,
     objective: Objective,
     objective_name: Option<String>,
     simplify_level: SimplifyLevel,
@@ -120,10 +122,10 @@ impl Model {
     /// Create a new empty model.
     pub fn new() -> Self {
         Self {
-            variables: Vec::new(),
+            variables: BoundBlocks::new(),
             variable_is_integer_bits: Vec::new(),
             variable_is_inactive_bits: Vec::new(),
-            constraints: Vec::new(),
+            constraints: BoundBlocks::new(),
             objective: Objective::new(),
             objective_name: None,
             simplify_level: SimplifyLevel::default(),
@@ -144,10 +146,10 @@ impl Model {
     /// Create a new model with pre-allocated storage capacities.
     pub fn with_capacities(variable_capacity: usize, constraint_capacity: usize) -> Self {
         Self {
-            variables: Vec::with_capacity(variable_capacity),
+            variables: BoundBlocks::with_capacity(variable_capacity),
             variable_is_integer_bits: Vec::with_capacity(variable_capacity.div_ceil(BITS_PER_WORD)),
             variable_is_inactive_bits: Vec::new(),
-            constraints: Vec::with_capacity(constraint_capacity),
+            constraints: BoundBlocks::with_capacity(constraint_capacity),
             objective: Objective::new(),
             objective_name: None,
             simplify_level: SimplifyLevel::default(),
