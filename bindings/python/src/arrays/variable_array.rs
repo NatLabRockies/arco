@@ -18,14 +18,15 @@ use super::indexing::{
 };
 
 use super::{
-    CompactExprStorage, ComparisonSense, ExpressionTermCounts, PyConstraintArray, PyExprArray,
-    SparseCompareOperand,
+    BroadcastCompareOperand, CompactExprStorage, ComparisonSense, ExpressionTermCounts,
+    PyConstraintArray, PyExprArray, SparseCompareOperand,
     array_add, array_cumsum, array_diff, array_function, array_mul, array_neg, array_reduce,
     array_roll, array_rsub, array_sub, array_sum, array_truediv, array_ufunc,
     combine_sparse_expr_same_shape, compare_with_compact_fallback, diff_sparse_expr,
     expression_term_counts, multiply_sparse_variables_with_labeled_operand,
     multiply_sparse_variables_with_scalar, parse_sparse_axes, reduced_sparse_flat_index,
-    roll_sparse_expr, set_solver_matrix_memory_estimate, try_extract_compact,
+    roll_sparse_expr, set_solver_matrix_memory_estimate, try_broadcast_compare,
+    try_extract_compact,
     SparseDiffSource,
 };
 
@@ -505,6 +506,31 @@ impl PyVariableArray {
         }
     }
 
+    pub(crate) fn is_sparse(&self) -> bool {
+        matches!(&self.storage, VariableStorage::Sparse(_))
+    }
+
+    pub(crate) fn variable_id_at_flat(&self, index: usize) -> Option<u32> {
+        match &self.storage {
+            VariableStorage::Compact(compact) => {
+                (index < compact.count).then(|| compact.var_id_at(index))
+            }
+            VariableStorage::Sparse(sparse) => sparse
+                .active_indices
+                .binary_search(&index)
+                .ok()
+                .map(|position| sparse.var_ids[position]),
+            VariableStorage::Full(full) => full
+                .variables
+                .get(index)
+                .and_then(|variable| variable.as_ref().map(|variable| variable.var_id)),
+        }
+    }
+
+    pub(crate) fn index_sets_ref(&self) -> &[Py<PyIndexSet>] {
+        &self.index_sets
+    }
+
     /// Fast-path sum for compact storage: build all linear terms directly
     /// without materializing PyExpr objects.
     fn sum_all_compact(start: u32, count: usize) -> PyExpr {
@@ -615,6 +641,41 @@ impl PyVariableArray {
                         self.clone_index_sets(),
                     ));
                 }
+            }
+        }
+
+        if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
+            let optimized = {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                try_broadcast_compare(
+                    BroadcastCompareOperand::Variable(left_handle.clone_ref(rhs.py())),
+                    &self.shape,
+                    &self.index_sets,
+                    BroadcastCompareOperand::Expr(rhs_array.clone_ref(rhs.py())),
+                    rhs_ref.storage.shape(),
+                    rhs_ref.storage.index_sets_ref(),
+                    sense,
+                )?
+            };
+            if let Some(array) = optimized {
+                return Ok(array);
+            }
+        }
+        if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
+            let optimized = {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                try_broadcast_compare(
+                    BroadcastCompareOperand::Variable(left_handle.clone_ref(rhs.py())),
+                    &self.shape,
+                    &self.index_sets,
+                    BroadcastCompareOperand::Variable(rhs_array.clone_ref(rhs.py())),
+                    rhs_ref.get_shape(),
+                    rhs_ref.index_sets_ref(),
+                    sense,
+                )?
+            };
+            if let Some(array) = optimized {
+                return Ok(array);
             }
         }
 

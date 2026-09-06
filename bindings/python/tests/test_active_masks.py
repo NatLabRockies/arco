@@ -218,6 +218,155 @@ def test_sparse_variable_to_expression_comparison_preserves_selected_rows() -> N
     ] == [(0, 1.0), (2, -3.0)]
 
 
+def test_sparse_broadcast_comparison_preserves_full_rows_and_reuse() -> None:
+    model = arco.Model()
+    technology = arco.IndexSet(name="technology", members=range(2))
+    region = arco.IndexSet(name="region", members=range(2))
+    hour = arco.IndexSet(name="hour", members=range(3))
+    year = arco.IndexSet(name="year", members=range(2))
+    active = np.zeros((2, 2, 3, 2), dtype=bool)
+    active[0, 0, 0, 0] = True
+    active[1, 1, 2, 1] = True
+
+    variables = model.add_variables(
+        axes=(technology, region, hour, year),
+        bounds=arco.NonNegativeFloat,
+        active=active,
+    )
+    rhs = arco.param(
+        np.arange(8, dtype=float).reshape(2, 2, 2),
+        axes=(technology, region, year),
+    )
+    comparison = variables >= rhs
+
+    assert comparison.shape == (2, 2, 3, 2)
+    assert len(comparison) == 24
+    expected_rhs = [
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        2.0,
+        3.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        4.0,
+        5.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        6.0,
+        7.0,
+        6.0,
+        7.0,
+    ]
+    assert comparison.rhs == expected_rhs
+    del variables, rhs
+    model.add_constraints(comparison)
+    model.add_constraints(comparison)
+
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.coefficients is not None
+    assert model.num_constraints == 48
+    assert [
+        constraint.bounds.lower for constraint in snapshot.constraints[:24]
+    ] == expected_rhs
+    assert sorted(
+        (coefficient.constraint_id, coefficient.variable_id, coefficient.value)
+        for coefficient in snapshot.coefficients
+    ) == [(0, 0, 1.0), (23, 1, 1.0), (24, 0, 1.0), (47, 1, 1.0)]
+
+
+def test_sparse_broadcast_comparison_preserves_direct_and_scaled_rhs() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=[0])
+    hour = arco.IndexSet(name="hour", members=[0, 1])
+    cap = model.add_variables(
+        axes=(i,), bounds=arco.NonNegativeFloat, active=[True], name="cap"
+    )
+    generation = model.add_variables(
+        axes=(i, hour),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False],
+        name="generation",
+    )
+
+    direct = generation >= cap
+    scaled = generation >= cap * 2.0
+    assert direct.rhs == [0.0, 0.0]
+    assert scaled.rhs == [0.0, 0.0]
+    del cap, generation
+
+    model.add_constraints(direct)
+    model.add_constraints(scaled)
+
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.coefficients is not None
+    assert [constraint.bounds.lower for constraint in snapshot.constraints] == [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+    ]
+    assert sorted(
+        (coefficient.constraint_id, coefficient.variable_id, coefficient.value)
+        for coefficient in snapshot.coefficients
+    ) == [
+        (0, 0, -1.0),
+        (0, 1, 1.0),
+        (1, 0, -1.0),
+        (2, 0, -2.0),
+        (2, 1, 1.0),
+        (3, 0, -2.0),
+    ]
+
+
+def test_sparse_broadcast_variable_rhs_preserves_all_rows_and_reuse() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=[0])
+    hour = arco.IndexSet(name="hour", members=[0, 1])
+    lower = model.add_variables(
+        axes=(i,), bounds=arco.NonNegativeFloat, active=[True], name="lower"
+    )
+    target = model.add_variables(
+        axes=(i, hour),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False],
+        name="target",
+    )
+
+    comparison = target >= lower
+    assert len(comparison) == 2
+    del lower, target
+    with pytest.raises(ValueError, match="broadcast"):
+        model.add_constraints(comparison, active=[True, False, False])
+    assert model.num_constraints == 0
+    model.add_constraints(comparison)
+    model.add_constraints(comparison)
+
+    assert model.num_constraints == 4
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.coefficients is not None
+    assert sorted(
+        (coefficient.constraint_id, coefficient.variable_id, coefficient.value)
+        for coefficient in snapshot.coefficients
+    ) == [
+        (0, 0, -1.0),
+        (0, 1, 1.0),
+        (1, 0, -1.0),
+        (2, 0, -1.0),
+        (2, 1, 1.0),
+        (3, 0, -1.0),
+    ]
+
+
 def test_add_variables_active_mask_broadcasts_with_numpy_rules() -> None:
     model = arco.Model()
     i = arco.IndexSet(name="i", members=[0, 1])

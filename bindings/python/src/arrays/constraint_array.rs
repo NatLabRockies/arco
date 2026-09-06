@@ -1,3 +1,4 @@
+use arco_arrays::BroadcastPlan;
 use arco_model::Bounds;
 use arco_model::expr::ComparisonSense;
 use pyo3::prelude::*;
@@ -15,6 +16,11 @@ use super::{LinearArrayCore, PyExprArray, PyVariableArray};
 pub(crate) type SparseConstraintRows<'a> = (&'a [PyExpr], &'a [f64], &'a [usize], ComparisonSense);
 
 pub enum SparseCompareOperand {
+    Expr(Py<PyExprArray>),
+    Variable(Py<PyVariableArray>),
+}
+
+pub enum BroadcastCompareOperand {
     Expr(Py<PyExprArray>),
     Variable(Py<PyVariableArray>),
 }
@@ -180,6 +186,95 @@ impl SparseCompareOperand {
     }
 }
 
+pub enum BroadcastCompareValue {
+    Expr(PyExpr),
+    Variable(u32),
+}
+
+pub enum BroadcastCompareView<'a> {
+    Expr {
+        array: &'a PyExprArray,
+        plan: &'a BroadcastPlan,
+    },
+    Variable {
+        array: &'a PyVariableArray,
+        plan: &'a BroadcastPlan,
+    },
+}
+
+impl BroadcastCompareView<'_> {
+    pub fn value_at(&self, target_index: usize) -> Option<BroadcastCompareValue> {
+        match self {
+            Self::Expr { array, plan } => array
+                .value_at_flat(plan.source_offset_for_target_flat(target_index))
+                .map(BroadcastCompareValue::Expr),
+            Self::Variable { array, plan } => array
+                .variable_id_at_flat(plan.source_offset_for_target_flat(target_index))
+                .map(BroadcastCompareValue::Variable),
+        }
+    }
+
+    fn constant_at(&self, target_index: usize) -> f64 {
+        match self {
+            Self::Expr { array, plan } =>
+                array.constant_at_flat(plan.source_offset_for_target_flat(target_index)),
+            Self::Variable { .. } => 0.0,
+        }
+    }
+}
+
+impl BroadcastCompareOperand {
+    pub fn is_sparse(&self, py: Python<'_>) -> bool {
+        match self {
+            Self::Expr(array) => array.bind(py).borrow().is_sparse(),
+            Self::Variable(array) => array.bind(py).borrow().is_sparse(),
+        }
+    }
+
+    fn with_view<R>(
+        &self,
+        py: Python<'_>,
+        plan: &BroadcastPlan,
+        visit: impl FnOnce(BroadcastCompareView<'_>) -> R,
+    ) -> R {
+        match self {
+            Self::Expr(array) => {
+                let array = array.bind(py).borrow();
+                visit(BroadcastCompareView::Expr { array: &array, plan })
+            }
+            Self::Variable(array) => {
+                let array = array.bind(py).borrow();
+                visit(BroadcastCompareView::Variable {
+                    array: &array,
+                    plan,
+                })
+            }
+        }
+    }
+
+    pub fn with_views<R>(
+        &self,
+        other: &Self,
+        py: Python<'_>,
+        left_plan: &BroadcastPlan,
+        right_plan: &BroadcastPlan,
+        visit: impl FnOnce(BroadcastCompareView<'_>, BroadcastCompareView<'_>) -> R,
+    ) -> R {
+        self.with_view(py, left_plan, |left| {
+            other.with_view(py, right_plan, |right| visit(left, right))
+        })
+    }
+}
+
+impl BroadcastCompareValue {
+    pub fn into_expr(self) -> PyExpr {
+        match self {
+            Self::Expr(expr) => expr,
+            Self::Variable(var_id) => PyExpr::from_term(var_id, 1.0),
+        }
+    }
+}
+
 /// Right-hand side for compact constraints.
 #[derive(Clone, Debug)]
 pub enum CompactRhs {
@@ -242,6 +337,14 @@ pub(crate) enum ConstraintArrayStorage {
     SparseLazyCompare {
         left: SparseCompareOperand,
         right: SparseCompareOperand,
+        sense: ComparisonSense,
+    },
+    /// Lazy lower-rank comparison retaining source arrays and broadcast plans.
+    BroadcastLazyCompare {
+        left: BroadcastCompareOperand,
+        right: BroadcastCompareOperand,
+        left_plan: BroadcastPlan,
+        right_plan: BroadcastPlan,
         sense: ComparisonSense,
     },
     /// Compact: constraints from compact expression patterns (not yet inserted).
@@ -356,12 +459,37 @@ impl PyConstraintArray {
         }
     }
 
+    pub(crate) fn from_broadcast_lazy_compare(
+        left: BroadcastCompareOperand,
+        right: BroadcastCompareOperand,
+        sense: ComparisonSense,
+        shape: Vec<usize>,
+        index_sets: Vec<Py<PyIndexSet>>,
+        left_plan: BroadcastPlan,
+        right_plan: BroadcastPlan,
+    ) -> Self {
+        Self {
+            storage: ConstraintArrayStorage::BroadcastLazyCompare {
+                left,
+                right,
+                left_plan,
+                right_plan,
+                sense,
+            },
+            shape,
+            index_sets,
+            first_constraint_id: None,
+            name: None,
+        }
+    }
+
     pub fn exprs(&self) -> &[PyExpr] {
         match &self.storage {
             ConstraintArrayStorage::Full { exprs, .. }
             | ConstraintArrayStorage::SparseRows { exprs, .. } => exprs,
             ConstraintArrayStorage::LazyCompare { .. } => &[],
             ConstraintArrayStorage::SparseLazyCompare { .. } => &[],
+            ConstraintArrayStorage::BroadcastLazyCompare { .. } => &[],
             ConstraintArrayStorage::Compact(_) => &[], // Should not be called on compact
         }
     }
@@ -372,6 +500,7 @@ impl PyConstraintArray {
             | ConstraintArrayStorage::SparseRows { sense, .. } => *sense,
             ConstraintArrayStorage::LazyCompare { sense, .. } => *sense,
             ConstraintArrayStorage::SparseLazyCompare { sense, .. } => *sense,
+            ConstraintArrayStorage::BroadcastLazyCompare { sense, .. } => *sense,
             ConstraintArrayStorage::Compact(c) => c.sense,
         }
     }
@@ -397,6 +526,24 @@ impl PyConstraintArray {
         })
     }
 
+    fn broadcast_compare_rhs(
+        left: &BroadcastCompareOperand,
+        right: &BroadcastCompareOperand,
+        left_plan: &BroadcastPlan,
+        right_plan: &BroadcastPlan,
+        total: usize,
+    ) -> Vec<f64> {
+        Python::attach(|py| {
+            left.with_views(right, py, left_plan, right_plan, |left, right| {
+                (0..total)
+                    .map(|index| {
+                        -(left.constant_at(index) - right.constant_at(index))
+                    })
+                    .collect()
+            })
+        })
+    }
+
     pub fn get_rhs(&self) -> PyResult<Vec<f64>> {
         match &self.storage {
             ConstraintArrayStorage::Full { rhs, .. }
@@ -413,6 +560,19 @@ impl PyConstraintArray {
             ConstraintArrayStorage::SparseLazyCompare { left, right, .. } => {
                 Self::sparse_compare_rhs(left, right)
             }
+            ConstraintArrayStorage::BroadcastLazyCompare {
+                left,
+                right,
+                left_plan,
+                right_plan,
+                ..
+            } => Ok(Self::broadcast_compare_rhs(
+                left,
+                right,
+                left_plan,
+                right_plan,
+                self.len()?,
+            )),
             ConstraintArrayStorage::Compact(c) => Ok(c.rhs_vec()),
         }
     }
@@ -436,7 +596,8 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Compact(c) => Some(c),
             ConstraintArrayStorage::Full { .. } | ConstraintArrayStorage::SparseRows { .. } => None,
             ConstraintArrayStorage::LazyCompare { .. }
-            | ConstraintArrayStorage::SparseLazyCompare { .. } => None,
+            | ConstraintArrayStorage::SparseLazyCompare { .. }
+            | ConstraintArrayStorage::BroadcastLazyCompare { .. } => None,
         }
     }
 
@@ -448,6 +609,7 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { .. }
             | ConstraintArrayStorage::SparseRows { .. }
             | ConstraintArrayStorage::SparseLazyCompare { .. }
+            | ConstraintArrayStorage::BroadcastLazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
     }
@@ -463,6 +625,7 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { .. }
             | ConstraintArrayStorage::LazyCompare { .. }
             | ConstraintArrayStorage::SparseLazyCompare { .. }
+            | ConstraintArrayStorage::BroadcastLazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
     }
@@ -477,6 +640,32 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { .. }
             | ConstraintArrayStorage::SparseRows { .. }
             | ConstraintArrayStorage::LazyCompare { .. }
+            | ConstraintArrayStorage::BroadcastLazyCompare { .. }
+            | ConstraintArrayStorage::Compact(_) => None,
+        }
+    }
+
+    pub fn as_broadcast_lazy_compare(
+        &self,
+    ) -> Option<(
+        &BroadcastCompareOperand,
+        &BroadcastCompareOperand,
+        &BroadcastPlan,
+        &BroadcastPlan,
+        ComparisonSense,
+    )> {
+        match &self.storage {
+            ConstraintArrayStorage::BroadcastLazyCompare {
+                left,
+                right,
+                left_plan,
+                right_plan,
+                sense,
+            } => Some((left, right, left_plan, right_plan, *sense)),
+            ConstraintArrayStorage::Full { .. }
+            | ConstraintArrayStorage::SparseRows { .. }
+            | ConstraintArrayStorage::LazyCompare { .. }
+            | ConstraintArrayStorage::SparseLazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
     }
@@ -544,6 +733,7 @@ impl PyConstraintArray {
                     })
                 })
             }
+            ConstraintArrayStorage::BroadcastLazyCompare { .. } => Ok(self.shape.iter().product()),
             ConstraintArrayStorage::Compact(c) => Ok(c.count),
         }
     }
@@ -588,6 +778,24 @@ impl PyConstraintArray {
                         )))
                     })
                 })?
+            }
+            ConstraintArrayStorage::BroadcastLazyCompare {
+                left,
+                right,
+                left_plan,
+                right_plan,
+                ..
+            } => {
+                if index >= self.shape.iter().product() {
+                    return Err(ArrayIndexError::new_err(format!(
+                        "constraint index {index} out of range"
+                    )));
+                }
+                Ok(Python::attach(|py| {
+                    left.with_views(right, py, left_plan, right_plan, |left, right| {
+                        -(left.constant_at(index) - right.constant_at(index))
+                    })
+                }))
             }
             ConstraintArrayStorage::Compact(c) => match &c.rhs {
                 CompactRhs::Scalar(v) => Ok(*v),

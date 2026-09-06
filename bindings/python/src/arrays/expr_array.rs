@@ -5,6 +5,8 @@ use crate::PyObject;
 use crate::py_modules::errors::{ArrayDimensionError, ArrayIndexError, ExprDivisionByZeroError};
 use crate::py_modules::expr::PyExpr;
 use crate::py_modules::index_set::PyIndexSet;
+use arco_model::VariableId;
+use arco_model::expr::Expr;
 
 use super::indexing::{
     AxisIndex, maybe_boolean_mask_indices, resolve_axis_index, selected_flat_indices,
@@ -12,13 +14,14 @@ use super::indexing::{
 };
 use crate::py_modules::arrays::{
     CompactExprStorage, ComparisonSense, ExprArrayStorage, ExpressionTermCounts, LinearArrayCore,
-    PyConstraintArray, PyVariableArray, SparseCompareOperand, SparseExprStorage, array_cumsum,
+    BroadcastCompareOperand, PyConstraintArray, PyVariableArray, SparseCompareOperand,
+    SparseExprStorage, array_cumsum,
     array_diff, array_roll,
     combine_sparse_expr_same_shape, compare_with_compact_fallback,
     diff_sparse_expr, expression_term_counts, multiply_sparse_expr_with_labeled_operand,
     SparseDiffSource,
     multiply_sparse_expr_with_scalar, roll_sparse_expr, set_solver_matrix_memory_estimate,
-    sum_sparse_expr, try_extract_compact,
+    sum_sparse_expr, try_broadcast_compare, try_extract_compact,
 };
 
 /// A multi-dimensional array of linear expressions.
@@ -126,6 +129,40 @@ impl PyExprArray {
                         self.storage.clone_index_sets(),
                     ));
                 }
+            }
+        }
+        if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
+            let optimized = {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                try_broadcast_compare(
+                    BroadcastCompareOperand::Expr(left_handle.clone_ref(rhs.py())),
+                    self.storage.shape(),
+                    self.storage.index_sets_ref(),
+                    BroadcastCompareOperand::Expr(rhs_array.clone_ref(rhs.py())),
+                    rhs_ref.storage.shape(),
+                    rhs_ref.storage.index_sets_ref(),
+                    sense,
+                )?
+            };
+            if let Some(array) = optimized {
+                return Ok(array);
+            }
+        }
+        if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
+            let optimized = {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                try_broadcast_compare(
+                    BroadcastCompareOperand::Expr(left_handle.clone_ref(rhs.py())),
+                    self.storage.shape(),
+                    self.storage.index_sets_ref(),
+                    BroadcastCompareOperand::Variable(rhs_array.clone_ref(rhs.py())),
+                    rhs_ref.get_shape(),
+                    rhs_ref.index_sets_ref(),
+                    sense,
+                )?
+            };
+            if let Some(array) = optimized {
+                return Ok(array);
             }
         }
         compare_with_compact_fallback(
@@ -255,6 +292,53 @@ impl PyExprArray {
         self.storage
             .as_sparse()
             .map(|storage| (storage.active_indices.as_slice(), storage.values.as_slice()))
+    }
+
+    pub(crate) fn is_sparse(&self) -> bool {
+        self.storage.as_sparse().is_some()
+    }
+
+    pub(crate) fn value_at_flat(&self, index: usize) -> Option<PyExpr> {
+        match &self.storage {
+            ExprArrayStorage::Full(core) => core.values.get(index).cloned(),
+            ExprArrayStorage::Compact { storage, .. } => {
+                if index >= storage.count {
+                    return None;
+                }
+                let terms = storage
+                    .terms
+                    .iter()
+                    .map(|term| (VariableId::new(term.start_var_id + index as u32), term.coefficient))
+                    .collect();
+                Some(PyExpr::from_expr(Expr::new(terms, storage.constant)))
+            }
+            ExprArrayStorage::Sparse { storage, .. } => storage
+                .active_indices
+                .binary_search(&index)
+                .ok()
+                .map(|position| storage.values[position].clone()),
+        }
+    }
+
+    pub(crate) fn constant_at_flat(&self, index: usize) -> f64 {
+        match &self.storage {
+            ExprArrayStorage::Full(core) => core
+                .values
+                .get(index)
+                .map_or(0.0, PyExpr::constant),
+            ExprArrayStorage::Compact { storage, .. } => {
+                if index < storage.count {
+                    storage.constant
+                } else {
+                    0.0
+                }
+            }
+            ExprArrayStorage::Sparse { storage, .. } => storage
+                .active_indices
+                .binary_search(&index)
+                .ok()
+                .map_or(0.0, |position| storage.values[position].constant()),
+        }
     }
 
     fn relabeled_axis(
