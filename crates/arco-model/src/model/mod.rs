@@ -331,14 +331,11 @@ impl Model {
         terms
     }
 
-    pub fn add_objective_terms(&mut self, terms: Vec<(VariableId, f64)>) -> Result<(), ModelError> {
+    fn validate_objective_terms(&self, terms: &[(VariableId, f64)]) -> Result<(), ModelError> {
         if self.objective.sense.is_none() {
             return Err(ModelError::NoObjective);
         }
-        if terms.is_empty() {
-            return Ok(());
-        }
-        for (var_id, coeff) in &terms {
+        for (var_id, coeff) in terms {
             self.ensure_variable_exists(*var_id)?;
             if !coefficient_is_valid(*coeff) {
                 return Err(ModelError::InvalidCoefficient {
@@ -346,8 +343,35 @@ impl Model {
                 });
             }
         }
+        Ok(())
+    }
+
+    pub fn add_objective_terms(&mut self, terms: Vec<(VariableId, f64)>) -> Result<(), ModelError> {
+        self.validate_objective_terms(&terms)?;
+        if terms.is_empty() {
+            return Ok(());
+        }
         let mut merged = std::mem::take(&mut self.objective.terms);
         merged.extend(terms);
+        self.objective.terms = self.normalize_terms(merged);
+        Ok(())
+    }
+
+    /// Append linear objective terms from a borrowed slice.
+    ///
+    /// The terms are copied into model-owned storage after validation. The
+    /// caller can therefore reuse the source expression, while avoiding an
+    /// intermediate owned term vector in bindings and other adapters.
+    pub fn add_objective_terms_from_slice(
+        &mut self,
+        terms: &[(VariableId, f64)],
+    ) -> Result<(), ModelError> {
+        self.validate_objective_terms(terms)?;
+        if terms.is_empty() {
+            return Ok(());
+        }
+        let mut merged = std::mem::take(&mut self.objective.terms);
+        merged.extend_from_slice(terms);
         self.objective.terms = self.normalize_terms(merged);
         Ok(())
     }
@@ -643,6 +667,111 @@ mod tests {
         model.add_objective_terms(Vec::new()).unwrap();
 
         assert_eq!(model.objective().terms, vec![(x, 1.0)]);
+    }
+
+    #[test]
+    fn test_add_objective_terms_from_slice_preserves_input_and_normalization() {
+        let mut model = Model::new();
+        let x = model
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: true,
+            })
+            .unwrap();
+        let y = model
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: true,
+            })
+            .unwrap();
+
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(x, 1.0)],
+            })
+            .unwrap();
+
+        let terms = [(x, 2.0), (y, 3.0), (x, -1.0)];
+        model.add_objective_terms_from_slice(&terms).unwrap();
+
+        assert_eq!(terms, [(x, 2.0), (y, 3.0), (x, -1.0)]);
+        assert_eq!(model.objective().terms, vec![(x, 2.0), (y, 3.0)]);
+    }
+
+    #[test]
+    fn test_add_objective_terms_from_slice_validates_before_mutation() {
+        let mut model = Model::new();
+        let x = model
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: true,
+            })
+            .unwrap();
+        let invalid = VariableId::new(99);
+
+        model
+            .set_objective(Objective {
+                sense: Some(Sense::Minimize),
+                terms: vec![(x, 1.0)],
+            })
+            .unwrap();
+
+        let result = model.add_objective_terms_from_slice(&[(invalid, 2.0), (x, f64::NAN)]);
+
+        assert_eq!(result, Err(ModelError::InvalidVariableId(invalid)));
+        assert_eq!(model.objective().terms, vec![(x, 1.0)]);
+    }
+
+    #[test]
+    fn test_add_objective_terms_from_slice_empty_requires_objective() {
+        let mut model = Model::new();
+
+        assert_eq!(
+            model.add_objective_terms_from_slice(&[]),
+            Err(ModelError::NoObjective)
+        );
+    }
+
+    #[test]
+    fn test_add_objective_terms_from_slice_matches_owned_float_order() {
+        let mut borrowed = Model::new();
+        let mut owned = Model::new();
+        let borrowed_x = borrowed
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: true,
+            })
+            .unwrap();
+        let owned_x = owned
+            .add_variable(Variable {
+                bounds: Bounds::new(0.0, 10.0),
+                is_integer: false,
+                is_active: true,
+            })
+            .unwrap();
+        let objective = |variable| Objective {
+            sense: Some(Sense::Minimize),
+            terms: vec![(variable, 1.0)],
+        };
+        borrowed.set_objective(objective(borrowed_x)).unwrap();
+        owned.set_objective(objective(owned_x)).unwrap();
+
+        let terms = [
+            (borrowed_x, 1.0e16),
+            (borrowed_x, 1.0),
+            (borrowed_x, -1.0e16),
+        ];
+        borrowed.add_objective_terms_from_slice(&terms).unwrap();
+        owned
+            .add_objective_terms(vec![(owned_x, 1.0e16), (owned_x, 1.0), (owned_x, -1.0e16)])
+            .unwrap();
+
+        assert_eq!(borrowed.objective().terms, owned.objective().terms);
     }
 
     #[test]

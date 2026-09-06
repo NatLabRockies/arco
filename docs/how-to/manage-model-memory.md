@@ -41,4 +41,9 @@ after a backend exception. Models using other solver families retain their
 existing consumption timing; models without the parameter keep their normal
 reusable behavior.
 
+Incremental objective terms are copied into the model after validation, so the
+source expression remains reusable for another `add_objective_terms` call. A
+large expression can therefore be kept as a single Python object while it is
+added; invalid terms leave the existing objective unchanged.
+
 [How-to Guides](./) | [Docs home](../)
