@@ -1,0 +1,370 @@
+name: Build release candidate
+run-name: Build candidate for release PR #${{ inputs.release_pr }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_pr:
+        description: Open Release Please pull request number
+        required: true
+        type: string
+
+concurrency:
+  group: candidate-build-${{ inputs.release_pr }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_DIST_VERSION: "0.31.0"
+
+jobs:
+  plan:
+    name: Resolve candidate and plan native artifacts
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # Resolve and validate the requested Release Please PR.
+    outputs:
+      base_branch: ${{ steps.candidate.outputs.base_branch }}
+      base_sha: ${{ steps.candidate.outputs.base_sha }}
+      commit: ${{ steps.candidate.outputs.commit }}
+      pr: ${{ steps.candidate.outputs.pr }}
+      tag: ${{ steps.dist.outputs.tag }}
+      tree: ${{ steps.candidate.outputs.tree }}
+    steps:
+      - id: candidate
+        name: Resolve trusted release candidate
+        env:
+          BASE_BRANCH: ${{ github.ref_name }}
+          DISPATCH_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.release_pr }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || {
+            echo "release_pr must be a pull request number." >&2
+            exit 1
+          }
+
+          pr="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" \
+            --json author,baseRefName,baseRefOid,headRefName,headRefOid,isCrossRepository,state)"
+          jq --exit-status --arg base "$BASE_BRANCH" '
+            .state == "OPEN" and
+            .isCrossRepository == false and
+            .author.login == "app/github-actions" and
+            .baseRefName == $base and
+            (.headRefName | startswith("release-please--branches--"))
+          ' <<<"$pr" >/dev/null || {
+            echo "The requested PR is not an open, same-repository Release Please PR for $BASE_BRANCH." >&2
+            exit 1
+          }
+
+          base_sha="$(gh api "repos/$REPOSITORY/commits/$BASE_BRANCH" --jq .sha)"
+          test "$base_sha" = "$DISPATCH_SHA" || {
+            echo "The base branch changed after dispatch; start a new candidate run." >&2
+            exit 1
+          }
+          test "$(jq --raw-output '.baseRefOid' <<<"$pr")" = "$base_sha" || {
+            echo "The release PR base is stale; update it before building a candidate." >&2
+            exit 1
+          }
+          commit="$(jq --raw-output '.headRefOid' <<<"$pr")"
+          test "$(gh api "repos/$REPOSITORY/compare/$base_sha...$commit" --jq .status)" = ahead || {
+            echo "The release PR must be ahead of the current $BASE_BRANCH head." >&2
+            exit 1
+          }
+          tree="$(gh api "repos/$REPOSITORY/git/commits/$commit" --jq .tree.sha)"
+          {
+            printf 'base_branch=%s\n' "$BASE_BRANCH"
+            printf 'base_sha=%s\n' "$base_sha"
+            printf 'commit=%s\n' "$commit"
+            printf 'pr=%s\n' "$PR_NUMBER"
+            printf 'tree=%s\n' "$tree"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ steps.candidate.outputs.commit }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install cargo-dist 0.31.0
+        shell: bash
+        run: bash scripts/ci_install_dist_unix.sh
+
+      - id: dist
+        name: Create cargo-dist build plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(cargo metadata --no-deps --format-version=1 | jq --raw-output '.packages[] | select(.name == "arco-cli") | .version')"
+          tag="v$version"
+          dist plan --tag="$tag" --output-format=json > plan-dist-manifest.json
+          jq --exit-status --arg tag "$tag" '
+            .announcement_tag == $tag and
+            ([.artifacts[] | select(.kind == "executable-zip") | .target_triples[]] | unique | sort) ==
+              (["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin",
+                "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] | sort)
+          ' plan-dist-manifest.json >/dev/null
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+
+  native:
+    name: Native CLI (${{ join(matrix.targets, ', ') }})
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            host: aarch64-apple-darwin
+            targets: [aarch64-apple-darwin]
+          - runner: ubuntu-22.04-arm
+            host: aarch64-unknown-linux-gnu
+            targets: [aarch64-unknown-linux-gnu]
+          - runner: macos-15-intel
+            host: x86_64-apple-darwin
+            targets: [x86_64-apple-darwin]
+          - runner: windows-2022
+            host: x86_64-pc-windows-msvc
+            targets: [x86_64-pc-windows-msvc]
+          - runner: ubuntu-22.04
+            host: x86_64-unknown-linux-gnu
+            targets: [x86_64-unknown-linux-gnu]
+            container: quay.io/pypa/manylinux_2_28_x86_64@sha256:65140ef21cef92d0c13d001708afd7d304d7a154f7120d039df99dac708f3ffb
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container || null }} # zizmor: ignore[unpinned-images]
+    timeout-minutes: 45
+    env:
+      BUILD_MANIFEST: target/distrib/${{ matrix.host }}-dist-manifest.json
+    steps:
+      - name: Enable Windows long paths
+        if: runner.os == 'Windows'
+        shell: bash
+        run: git config --global core.longpaths true
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Rust in build container
+        if: matrix.container
+        shell: bash
+        run: bash scripts/ci_install_rust_if_missing.sh
+
+      - name: Configure manylinux native dependencies
+        if: matrix.container && contains(join(matrix.targets, ','), 'x86_64-unknown-linux-gnu')
+        shell: bash
+        run: bash ./scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
+
+      - name: Run repository build setup
+        uses: $/.github/actions/setup-build-env
+        env:
+          ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
+          ARCO_HIGHS_TARGETS: ${{ join(matrix.targets, ',') }}
+          ARCO_SCIP_TARGETS: ${{ join(matrix.targets, ',') }}
+        with:
+          python-version: "3.12"
+          uv-version: "0.9.4"
+          just-version: "1.43.0"
+          rust-toolchain-version: "1.85"
+          rust-components: none
+          rust-cache-shared-key: candidate-cargo-dist-${{ matrix.host }}
+          sync-python-licenses: false
+          save-uv-cache: false
+          save-rust-cache: false
+          save-solver-cache: false
+
+      - name: Set up Xpress runtime
+        shell: bash
+        env:
+          XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+          XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
+          XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+        run: bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
+
+      - name: Validate Xpress runtime
+        shell: bash
+        run: bash ./scripts/ci_validate_xpress_runtime_env.sh
+
+      - name: Install cargo-dist on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/ci_install_dist_unix.sh
+
+      - name: Install cargo-dist on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: irm "https://github.com/axodotdev/cargo-dist/releases/download/v$env:CARGO_DIST_VERSION/cargo-dist-installer.ps1" | iex
+
+      - id: build
+        name: Build native artifacts
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          TARGET: ${{ matrix.host }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist build --tag="$TAG" --print=linkage --output-format=json \
+            --artifacts=local --target="$TARGET" > dist-manifest.json
+          {
+            echo 'paths<<EOF'
+            dist print-upload-files-from-manifest --manifest dist-manifest.json
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+          cp dist-manifest.json "$BUILD_MANIFEST"
+
+      - name: Upload native artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifacts-native-${{ matrix.host }}
+          path: |
+            ${{ steps.build.outputs.paths }}
+            ${{ env.BUILD_MANIFEST }}
+          if-no-files-found: error
+          retention-days: 1
+
+  packages:
+    name: Python and VS Code packages
+    needs: plan
+    uses: $/.github/workflows/build-packages.yml
+    with:
+      commit: ${{ needs.plan.outputs.commit }}
+
+  global:
+    name: Native installers and manifest
+    needs: [plan, native]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install cargo-dist 0.31.0
+        shell: bash
+        run: bash scripts/ci_install_dist_unix.sh
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: artifacts-native-*
+          path: target/distrib
+          merge-multiple: true
+          digest-mismatch: error
+
+      - id: build
+        name: Build global native artifacts
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist build --tag="$TAG" --artifacts=global \
+            --output-format=json > dist-manifest.json
+          {
+            echo 'paths<<EOF'
+            dist print-upload-files-from-manifest --manifest dist-manifest.json
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+          cp dist-manifest.json target/distrib/dist-manifest.json
+
+      - name: Upload complete native artifact set
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifacts-native-complete
+          path: |
+            ${{ steps.build.outputs.paths }}
+            target/distrib/dist-manifest.json
+          if-no-files-found: error
+          retention-days: 1
+
+  assemble:
+    name: Verify and save immutable candidate
+    needs: [plan, native, packages, global]
+    if: ${{ always() && needs.plan.result == 'success' && needs.native.result == 'success' && needs.packages.result == 'success' && needs.global.result == 'success' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Download candidate inputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: artifacts-*
+          path: candidate-input
+          merge-multiple: true
+          digest-mismatch: error
+
+      - name: Verify inventory and assemble flat candidate
+        env:
+          BASE_BRANCH: ${{ needs.plan.outputs.base_branch }}
+          BASE_SHA: ${{ needs.plan.outputs.base_sha }}
+          CANDIDATE_SHA: ${{ needs.plan.outputs.commit }}
+          CANDIDATE_TREE: ${{ needs.plan.outputs.tree }}
+          PR_NUMBER: ${{ needs.plan.outputs.pr }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=candidate-input/dist-manifest.json
+          test -f "$manifest"
+          jq --exit-status --arg tag "$TAG" '
+            .announcement_tag == $tag and
+            ([.artifacts[] | select(.kind == "executable-zip") | .target_triples[]] | unique | sort) ==
+              (["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin",
+                "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] | sort) and
+            ([.artifacts[] | select(.kind == "installer")] | length) == 2
+          ' "$manifest" >/dev/null
+
+          shopt -s nullglob
+          version="${TAG#v}"
+          wheels=(candidate-input/arco-"$version"-*.whl)
+          cp310_wheels=(candidate-input/arco-"$version"-cp310-*.whl)
+          abi3_wheels=(candidate-input/arco-"$version"-cp311-abi3-*.whl)
+          sdist="candidate-input/arco-$version.tar.gz"
+          vsix=(candidate-input/*.vsix)
+          [[ ${#wheels[@]} -eq 6 ]] || { echo "expected 6 wheels, found ${#wheels[@]}" >&2; exit 1; }
+          [[ ${#cp310_wheels[@]} -eq 3 ]] || { echo "expected 3 CPython 3.10 wheels, found ${#cp310_wheels[@]}" >&2; exit 1; }
+          [[ ${#abi3_wheels[@]} -eq 3 ]] || { echo "expected 3 CPython 3.11 ABI3 wheels, found ${#abi3_wheels[@]}" >&2; exit 1; }
+          test -f "$sdist" || { echo "missing Python sdist: $sdist" >&2; exit 1; }
+          [[ ${#vsix[@]} -eq 1 ]] || { echo "expected 1 VSIX, found ${#vsix[@]}" >&2; exit 1; }
+
+          mkdir candidate
+          while IFS= read -r asset; do
+            test "$asset" = "$(basename "$asset")" || { echo "invalid native asset name: $asset" >&2; exit 1; }
+            file="candidate-input/$asset"
+            test -f "$file" || { echo "missing native asset: $asset" >&2; exit 1; }
+            cp "$file" candidate/
+          done < <(jq --raw-output '.artifacts | keys[]' "$manifest")
+          cp "$manifest" candidate/dist-manifest.json
+          cp "${wheels[@]}" candidate/
+          cp "$sdist" candidate/
+          cp "${vsix[@]}" candidate/
+          jq --null-input \
+            --argjson pr "$PR_NUMBER" \
+            --arg commit "$CANDIDATE_SHA" \
+            --arg tree "$CANDIDATE_TREE" \
+            --arg base "$BASE_SHA" \
+            --arg branch "$BASE_BRANCH" \
+            --arg tag "$TAG" \
+            '{pr: $pr, commit: $commit, tree: $tree, base: $base, branch: $branch, tag: $tag}' \
+            > candidate/candidate.json
+
+      - name: Upload immutable candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-assets
+          path: candidate/
+          if-no-files-found: error
+          retention-days: 30

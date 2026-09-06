@@ -9,54 +9,19 @@ cargo-dist-version = "0.31.0"
 unix-archive = ".tar.gz"
 # Explicitly release only the CLI package from this workspace.
 packages = ["arco-cli"]
-# CI backends to support
-ci = "github"
+# The repository owns its build-only candidate workflow.
+ci = []
 # Keep GitHub as the artifact host for generated installer URLs.
 hosting = "github"
 # The installers to generate for each app
 installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
-# Which actions to run on pull requests
-pr-run-mode = "skip"
 # A prefix git tags must include for dist to care about them
 tag-namespace = "v"
-# Extend Cargo-dist's generated release lifecycle with repository-owned jobs.
-local-artifacts-jobs = ["./build-packages"]
-publish-jobs = ["./check-release"]
-post-announce-jobs = ["./dispatch-pypi"]
-# The release policy gate must run for every tag Cargo-dist accepts.
-publish-prereleases = true
-# Release Please creates the draft; Cargo-dist uploads and publishes it only
-# after every build and release policy check succeeds.
-create-release = false
-github-release = "announce"
-github-attestations = true
-github-attestations-phase = "announce"
-# Extra setup shared by Cargo-dist's generated local build matrix.
-github-build-setup = "../build-setup.yml"
 # Path that installers should place binaries in
 install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
 # Build only the required packages, and individually
 precise-builds = true
 # Whether to install an updater program
 install-updater = false
-
-# Custom jobs receive only the permissions required by their responsibility.
-[dist.github-custom-job-permissions.check-release]
-contents = "read"
-
-[dist.github-custom-job-permissions.dispatch-pypi]
-actions = "write"
-contents = "read"
-
-# Build x86_64 Linux on a glibc 2.28 baseline for EL8/HPC compatibility.
-[dist.github-custom-runners.x86_64-unknown-linux-gnu]
-runner = "ubuntu-22.04"
-container = { image = "quay.io/pypa/manylinux_2_28_x86_64@sha256:65140ef21cef92d0c13d001708afd7d304d7a154f7120d039df99dac708f3ffb", host = "x86_64-unknown-linux-gnu" }
-
-[dist.github-action-commits]
-"actions/checkout" = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
-"actions/upload-artifact" = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-"actions/download-artifact" = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
-"actions/attest-build-provenance" = "a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32"

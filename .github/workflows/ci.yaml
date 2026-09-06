@@ -90,7 +90,6 @@ jobs:
               - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/with_solver_build_env.sh'
               - 'dist-workspace.toml'
-              - '.github/build-setup.yml'
               - '.github/actions/**'
             python:
               - 'bindings/python/**'

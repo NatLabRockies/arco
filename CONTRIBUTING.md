@@ -70,13 +70,15 @@ The repository ships GitHub Actions for package validation and release:
 
 - `CI` runs source, solver, package, and docs checks. Packaging changes also run
   Python 3.10–3.14 wheel smoke checks.
-- `release-please.yaml` manages the release PR, tag, and draft release.
-- Cargo-dist generates `v-release.yml` from `dist-workspace.toml`. Its custom
-  build hook produces Python and VS Code packages before it publishes the draft.
+- `release-please.yaml` accumulates changes in the release PR without tagging.
+- `build-candidate.yml` builds CLI, Python, and VS Code candidate files when a
+  maintainer requests a release cutoff.
+- `promote-release.yml` validates an approved candidate run, merges the release
+  PR, lets Release Please create the tag, and publishes the original files.
 - `publish-pypi.yml` downloads and verifies immutable release assets for trusted
-  PyPI publication. It is dispatched after Cargo-dist announces the release.
-- Run `dist generate` after changing Cargo-dist configuration, and
-  `just release-check` to verify the generated workflow and plan.
+  PyPI publication. Check its result separately from release promotion.
+- Run `just release-check` after changing Cargo-dist configuration, and
+  `just workflow-quality` after changing workflow definitions.
 - Releases follow one platform version stream (`arco`) that updates workspace
   and Python package versions together.
 - `arco` publishes artifacts and releases; Rust crates are internal and

@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   release-please:
-    name: Update release PR and draft
+    name: Update release PR
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -28,4 +28,4 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/release-please-manifest.json
           target-branch: ${{ github.ref_name }}
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          skip-github-release: true

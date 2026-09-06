@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      attestations: read # Verify the immutable GitHub Release and its assets.
       contents: read
       id-token: write # PyPI trusted publishing uses GitHub OIDC.
     environment:
@@ -38,6 +39,10 @@ jobs:
             echo "PyPI publication requires a stable vX.Y.Z tag" >&2
             exit 1
           }
+          test "$GITHUB_REF" = "refs/tags/$TAG" || {
+            echo "Run this workflow from the published version tag." >&2
+            exit 1
+          }
           version="${TAG#v}"
           gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
           gh release download "$TAG" \
@@ -49,8 +54,8 @@ jobs:
           shopt -s nullglob
           wheels=(dist/*.whl)
           sdists=(dist/arco-"${version}".tar.gz)
-          macos_cp310=(dist/arco-"${version}"-cp310-cp310-macosx-*_arm64.whl)
-          macos_abi3=(dist/arco-"${version}"-cp311-abi3-macosx-*_arm64.whl)
+          macos_cp310=(dist/arco-"${version}"-cp310-cp310-macosx_*_arm64.whl)
+          macos_abi3=(dist/arco-"${version}"-cp311-abi3-macosx_*_arm64.whl)
           [[ "${#wheels[@]}" -eq 6 ]]
           [[ "${#sdists[@]}" -eq 1 ]]
           [[ -f "dist/arco-${version}-cp310-cp310-manylinux_2_28_x86_64.whl" ]]

@@ -91,11 +91,10 @@ vscode-extension-check:
 
 [group: 'hygiene']
 workflow-quality:
-    uvx zizmor --pedantic --config .github/zizmor.yml .github/
+    uvx zizmor --pedantic --no-config .github/
 
 [group: 'hygiene']
 release-check dist_bin="dist":
-    "{{ dist_bin }}" generate --check
     "{{ dist_bin }}" plan --output-format=json > /dev/null
 
 [group: 'rust']

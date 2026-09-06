@@ -43,10 +43,8 @@ jobs:
           CARGO_DIST_VERSION: "0.31.0"
         run: bash scripts/ci_install_dist_unix.sh
 
-      - name: Check generated workflow and release plan
-        run: |
-          dist generate --check
-          dist plan --output-format=json > /dev/null
+      - name: Check release plan
+        run: dist plan --output-format=json > /dev/null
 
   zizmor:
     name: zizmor
@@ -65,7 +63,6 @@ jobs:
         with:
           persona: pedantic
           min-severity: low
-          config: .github/zizmor.yml
 
   actionlint:
     name: actionlint
