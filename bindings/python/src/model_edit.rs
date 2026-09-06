@@ -431,17 +431,6 @@ impl PyModel {
             });
     }
 
-    /// Insert constraints via compact term patterns (zero per-element allocation).
-    #[allow(clippy::too_many_arguments)]
-    fn add_constraints_compact_internal(
-        &mut self,
-        compact: &arrays::CompactConstraintStorage,
-        active: Option<&Bound<'_, PyAny>>,
-        name: Option<String>,
-    ) -> PyResult<PyConstraintArray> {
-        self.add_constraints_compact_shaped_internal(compact, active, name, &[compact.count], &[])
-    }
-
     pub(crate) fn add_constraints_compact_shaped_internal(
         &mut self,
         compact: &arrays::CompactConstraintStorage,
@@ -618,7 +607,13 @@ impl PyModel {
         if let Some(ref compact) = compact_expr {
             if let Some(compact_con) = arrays::try_make_compact_constraint(compact, rhs_obj, sense)
             {
-                return self.add_constraints_compact_internal(&compact_con, active, name);
+                return self.add_constraints_compact_shaped_internal(
+                    &compact_con,
+                    active,
+                    name,
+                    &[compact_con.count],
+                    &[],
+                );
             }
         }
 
@@ -1088,41 +1083,16 @@ mod tests {
     use arco_model::expr::{ComparisonSense, Expr};
     use pyo3::types::PyList;
     use std::cell::Cell;
-    use std::rc::Rc;
-
-    struct CountingIterator<I> {
-        inner: I,
-        consumed: Rc<Cell<usize>>,
-    }
-
-    impl<I: Iterator> Iterator for CountingIterator<I> {
-        type Item = I::Item;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            let item = self.inner.next();
-            if item.is_some() {
-                self.consumed.set(self.consumed.get() + 1);
-            }
-            item
-        }
-
-        fn size_hint(&self) -> (usize, Option<usize>) {
-            self.inner.size_hint()
-        }
-    }
-
-    impl<I: ExactSizeIterator> ExactSizeIterator for CountingIterator<I> {}
 
     #[test]
     fn shaped_rows_are_deferred_until_active_mask_validation() {
         pyo3::Python::initialize();
         pyo3::Python::attach(|py| {
             let mut model = PyModel::new(None, None).unwrap();
-            let consumed = Rc::new(Cell::new(0));
-            let rows = CountingIterator {
-                inner: vec![PyExpr::from_term(0, 1.0)].into_iter(),
-                consumed: Rc::clone(&consumed),
-            };
+            let consumed = Cell::new(0);
+            let rows = vec![PyExpr::from_term(0, 1.0)]
+                .into_iter()
+                .inspect(|_| consumed.set(consumed.get() + 1));
             let active = PyList::new(py, [true, false]).unwrap();
 
             let result = model.add_constraints_shaped_internal(
