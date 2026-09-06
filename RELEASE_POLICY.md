@@ -45,12 +45,12 @@ sequenceDiagram
         GH->>RP: Base branch updated
         RP->>GH: Accumulate changes in the release PR
     end
-    Note over M,GH: Normal CI validates source; no release candidates or version tag yet
+    Note over M,GH: Normal CI validates source. No release candidates or version tag yet
 
-    M->>GH: Review scope and CI; update release PR branch
+    M->>GH: Review scope and CI, then update release PR branch
     M->>B: Choose cutoff and request build for the release PR
     B->>GH: Read the exact PR commit and base
-    B->>B: Build CLI, Python, and VSIX files; run package checks
+    B->>B: Build CLI, Python, and VSIX files and run package checks
     B-->>M: Successful candidate run and files, retained for 30 days
     Note over M,P: Review window: any source change invalidates the candidate
     Note over RP,B: The version tag still does not exist
