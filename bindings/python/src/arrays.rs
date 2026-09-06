@@ -1,6 +1,7 @@
 //! Python wrappers for variable, expression, and constraint arrays.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use arco_arrays::{AxisSpec, BroadcastPlan, LabeledShape};
@@ -630,16 +631,23 @@ pub(super) fn multiply_sparse_variables_with_labeled_operand(
                 "active index {active_idx} out of range for sparse array of size {variable_total}"
             )));
         }
-        active_lookup[active_idx] = Some(active_pos);
+        let encoded_position = active_pos
+            .checked_add(1)
+            .and_then(NonZeroUsize::new)
+            .ok_or_else(|| {
+                ArrayIndexError::new_err("sparse active position exceeds lookup capacity")
+            })?;
+        active_lookup[active_idx] = Some(encoded_position);
     }
 
     let mut out_indices = Vec::new();
     let mut out_var_ids = Vec::new();
     for target_flat in 0..target_shape.total_len() {
         let variable_flat = variable_plan.source_offset_for_target_flat(target_flat);
-        let Some(active_pos) = active_lookup[variable_flat] else {
+        let Some(encoded_position) = active_lookup[variable_flat] else {
             continue;
         };
+        let active_pos = encoded_position.get() - 1;
         let source_flat = source_plan.source_offset_for_target_flat(target_flat);
         let weight = source_values[source_flat];
         if weight == 0.0 {
@@ -727,16 +735,23 @@ pub(super) fn multiply_sparse_expr_with_labeled_operand(
                 "active index {active_idx} out of range for sparse expression array of size {expr_total}"
             )));
         }
-        active_lookup[active_idx] = Some(active_pos);
+        let encoded_position = active_pos
+            .checked_add(1)
+            .and_then(NonZeroUsize::new)
+            .ok_or_else(|| {
+                ArrayIndexError::new_err("sparse active position exceeds lookup capacity")
+            })?;
+        active_lookup[active_idx] = Some(encoded_position);
     }
 
     let mut out_indices = Vec::new();
     let mut out_values = Vec::new();
     for target_flat in 0..target_shape.total_len() {
         let expr_flat = expr_plan.source_offset_for_target_flat(target_flat);
-        let Some(active_pos) = active_lookup[expr_flat] else {
+        let Some(encoded_position) = active_lookup[expr_flat] else {
             continue;
         };
+        let active_pos = encoded_position.get() - 1;
         let source_flat = source_plan.source_offset_for_target_flat(target_flat);
         let weight = source_values[source_flat];
         if weight == 0.0 {

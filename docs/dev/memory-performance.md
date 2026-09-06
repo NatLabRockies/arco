@@ -113,6 +113,22 @@ bindings/python/.venv/bin/pytest \
   bindings/python/tests/test_param_api.py -q
 ```
 
+## Labeled sparse lookup tables
+
+Labeled sparse variable and expression multiplication uses a dense lookup from
+source flat index to active-entry position. The lookup stores that position plus
+one in `Option<NonZeroUsize>`, so the empty value remains representable without
+making each slot two machine words. Encoding is checked before insertion and
+decoding preserves active-entry order, broadcast mapping, zero-weight skips,
+and non-finite coefficient behavior.
+
+The focused regression is in
+`bindings/python/tests/test_compact_labeled_lookup.py`. It covers edge active
+rows, inactive holes, and reordered broadcast axes. Any memory claim for this
+temporary table should use fresh release processes and report both process peak
+RSS and current RSS after multiplication; allocator retention can make those
+measurements differ.
+
 ## Canonical coefficient count
 
 `Model::num_coefficients()` is an O(1) read backed by one cached `usize` per
