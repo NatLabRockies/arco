@@ -19,6 +19,7 @@ use super::indexing::{
 
 use super::{
     CompactExprStorage, ComparisonSense, ExpressionTermCounts, PyConstraintArray, PyExprArray,
+    SparseCompareOperand,
     array_add, array_cumsum, array_diff, array_function, array_mul, array_neg, array_reduce,
     array_roll, array_rsub, array_sub, array_sum, array_truediv, array_ufunc,
     combine_sparse_expr_same_shape, compare_with_compact_fallback, diff_sparse_expr,
@@ -495,6 +496,15 @@ impl PyVariableArray {
         }
     }
 
+    pub(crate) fn sparse_var_entries(&self) -> Option<(&[usize], &[u32])> {
+        match &self.storage {
+            VariableStorage::Sparse(sparse) => {
+                Some((sparse.active_indices.as_slice(), sparse.var_ids.as_slice()))
+            }
+            VariableStorage::Compact(_) | VariableStorage::Full(_) => None,
+        }
+    }
+
     /// Fast-path sum for compact storage: build all linear terms directly
     /// without materializing PyExpr objects.
     fn sum_all_compact(start: u32, count: usize) -> PyExpr {
@@ -589,13 +599,21 @@ impl PyVariableArray {
     /// Shared comparison logic for __ge__, __le__, __eq__.
     fn compare(
         &self,
+        left_handle: Py<PyVariableArray>,
         rhs: &Bound<'_, PyAny>,
         sense: ComparisonSense,
     ) -> PyResult<PyConstraintArray> {
-        if let VariableStorage::Sparse(sparse) = &self.storage {
-            if let Ok(rhs_array) = rhs.extract::<PyRef<'_, PyExprArray>>() {
-                if let Some(constraints) = self.compare_sparse_expr_rhs(sparse, &rhs_array, sense) {
-                    return Ok(constraints);
+        if let VariableStorage::Sparse(_) = &self.storage {
+            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                if rhs_ref.storage.shape() == self.shape && rhs_ref.sparse_entries().is_some() {
+                    return Ok(PyConstraintArray::from_sparse_lazy_compare(
+                        SparseCompareOperand::Variable(left_handle),
+                        SparseCompareOperand::Expr(rhs_array),
+                        sense,
+                        self.shape.clone(),
+                        self.clone_index_sets(),
+                    ));
                 }
             }
         }
@@ -609,80 +627,6 @@ impl PyVariableArray {
             rhs,
             sense,
         )
-    }
-
-    fn compare_sparse_expr_rhs(
-        &self,
-        sparse: &SparseStorage,
-        rhs_array: &PyExprArray,
-        sense: ComparisonSense,
-    ) -> Option<PyConstraintArray> {
-        debug_assert_eq!(
-            sparse.active_indices.len(),
-            sparse.var_ids.len(),
-            "SparseStorage invariant: active_indices and var_ids must have the same length"
-        );
-        if let SparseBounds::PerSlot(bounds) = &sparse.bounds {
-            debug_assert_eq!(
-                sparse.active_indices.len(),
-                bounds.len(),
-                "SparseStorage invariant: active_indices and per-slot bounds must have the same length"
-            );
-        }
-        if rhs_array.storage.shape() != self.shape {
-            return None;
-        }
-        let (rhs_indices, rhs_values) = rhs_array.sparse_entries()?;
-
-        let mut left_pos = 0usize;
-        let mut right_pos = 0usize;
-        let mut exprs = Vec::with_capacity(sparse.active_indices.len().max(rhs_indices.len()));
-        let mut rhs = Vec::with_capacity(exprs.capacity());
-        let mut active_indices = Vec::with_capacity(exprs.capacity());
-
-        while left_pos < sparse.active_indices.len() || right_pos < rhs_indices.len() {
-            let left_idx = sparse.active_indices.get(left_pos).copied();
-            let right_idx = rhs_indices.get(right_pos).copied();
-            let current_idx = match (left_idx, right_idx) {
-                (Some(left), Some(right)) => left.min(right),
-                (Some(left), None) => left,
-                (None, Some(right)) => right,
-                (None, None) => break,
-            };
-
-            let left_expr = if left_idx == Some(current_idx) {
-                let expr = PyExpr::from_term(sparse.var_ids[left_pos], 1.0);
-                left_pos += 1;
-                expr
-            } else {
-                PyExpr::default()
-            };
-            let right_expr = if right_idx == Some(current_idx) {
-                let expr = rhs_values[right_pos].clone();
-                right_pos += 1;
-                expr
-            } else {
-                PyExpr::default()
-            };
-
-            let diff = left_expr.inner().add(&right_expr.inner().scale(-1.0));
-            let diff_expr = PyExpr::from_expr(diff);
-            if diff_expr.inner().num_terms() == 0 && diff_expr.constant() == 0.0 {
-                continue;
-            }
-            active_indices.push(current_idx);
-            rhs.push(-diff_expr.constant());
-            exprs.push(diff_expr.without_constant());
-        }
-
-        Some(PyConstraintArray::from_sparse_rows(
-            exprs,
-            sense,
-            rhs,
-            active_indices,
-            self.shape.clone(),
-            self.clone_index_sets(),
-        ))
     }
 
     fn getitem_tuple(&self, py: Python<'_>, tuple: &Bound<'_, PyTuple>) -> PyResult<PyObject> {
@@ -989,14 +933,17 @@ impl PyVariableArray {
         let core = self.to_core();
         array_neg(&core)
     }
-    fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        self.compare(rhs, ComparisonSense::GreaterEqual)
+    fn __ge__(slf: &Bound<'_, Self>, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        slf.borrow()
+            .compare(slf.clone().unbind(), rhs, ComparisonSense::GreaterEqual)
     }
-    fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        self.compare(rhs, ComparisonSense::LessEqual)
+    fn __le__(slf: &Bound<'_, Self>, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        slf.borrow()
+            .compare(slf.clone().unbind(), rhs, ComparisonSense::LessEqual)
     }
-    fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        self.compare(rhs, ComparisonSense::Equal)
+    fn __eq__(slf: &Bound<'_, Self>, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        slf.borrow()
+            .compare(slf.clone().unbind(), rhs, ComparisonSense::Equal)
     }
     #[pyo3(signature = (*, over=None))]
     fn sum(&self, py: Python<'_>, over: Option<&Bound<'_, PyAny>>) -> PyResult<PyObject> {
@@ -1288,5 +1235,61 @@ impl PyVariableArray {
 
     fn __repr__(&self) -> String {
         format!("VariableArray(shape={:?})", self.shape)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::py_modules::arrays::{PyConstraintArray, PyExprArray, PyVariableArray};
+    use crate::py_modules::bounds::BoundsSpec;
+    use crate::py_modules::expr::PyExpr;
+    use crate::py_modules::index_set::{IndexMember, PyIndexSet};
+    use arco_model::Bounds;
+    use pyo3::prelude::*;
+
+    #[test]
+    fn sparse_python_comparison_keeps_constraint_terms_lazy() -> PyResult<()> {
+        Python::initialize();
+        Python::attach(|py| {
+            let axis = Py::new(
+                py,
+                PyIndexSet {
+                    name: "axis".to_string(),
+                    members: (0..4).map(IndexMember::Int).collect(),
+                },
+            )?;
+            let bounds = BoundsSpec {
+                bounds: Bounds::new(0.0, f64::INFINITY),
+                is_integer: false,
+                is_binary: false,
+            };
+            let left = Py::new(
+                py,
+                PyVariableArray::new_active_sparse(
+                    vec![axis.clone_ref(py)],
+                    vec![4],
+                    vec![0, 2],
+                    vec![0, 1],
+                    bounds,
+                    None,
+                ),
+            )?;
+            let right = Py::new(
+                py,
+                PyExprArray::from_sparse(
+                    vec![axis.clone_ref(py)],
+                    vec![4],
+                    vec![0, 2],
+                    vec![PyExpr::from_term(10, 1.0), PyExpr::from_term(11, 1.0)],
+                ),
+            )?;
+
+            let comparison = left
+                .bind(py)
+                .call_method1("__ge__", (right.bind(py),))?
+                .extract::<PyRef<'_, PyConstraintArray>>()?;
+            assert!(comparison.exprs().is_empty());
+            Ok(())
+        })
     }
 }

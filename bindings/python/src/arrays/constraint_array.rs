@@ -10,9 +10,175 @@ use crate::py_modules::expr::PyExpr;
 use crate::py_modules::index_set::PyIndexSet;
 
 use super::CompactTerm;
-use super::LinearArrayCore;
+use super::{LinearArrayCore, PyExprArray, PyVariableArray};
 
 pub(crate) type SparseConstraintRows<'a> = (&'a [PyExpr], &'a [f64], &'a [usize], ComparisonSense);
+
+pub enum SparseCompareOperand {
+    Expr(Py<PyExprArray>),
+    Variable(Py<PyVariableArray>),
+}
+
+#[derive(Clone, Copy)]
+pub enum SparseCompareValue<'a> {
+    Expr(&'a PyExpr),
+    Variable(u32),
+}
+
+#[derive(Clone, Copy)]
+pub enum SparseCompareView<'a> {
+    Expr {
+        indices: &'a [usize],
+        values: &'a [PyExpr],
+    },
+    Variable {
+        indices: &'a [usize],
+        var_ids: &'a [u32],
+    },
+}
+
+impl<'a> SparseCompareView<'a> {
+    fn indices(self) -> &'a [usize] {
+        match self {
+            Self::Expr { indices, .. } | Self::Variable { indices, .. } => indices,
+        }
+    }
+
+    fn value_at(self, position: usize) -> SparseCompareValue<'a> {
+        match self {
+            Self::Expr { values, .. } => SparseCompareValue::Expr(&values[position]),
+            Self::Variable { var_ids, .. } => SparseCompareValue::Variable(var_ids[position]),
+        }
+    }
+}
+
+pub struct SparseCompareMerge<'a> {
+    left: SparseCompareView<'a>,
+    right: SparseCompareView<'a>,
+    left_pos: usize,
+    right_pos: usize,
+}
+
+impl<'a> SparseCompareMerge<'a> {
+    pub fn new(left: SparseCompareView<'a>, right: SparseCompareView<'a>) -> Self {
+        Self {
+            left,
+            right,
+            left_pos: 0,
+            right_pos: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for SparseCompareMerge<'a> {
+    type Item = (
+        usize,
+        Option<SparseCompareValue<'a>>,
+        Option<SparseCompareValue<'a>>,
+    );
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let left_indices = self.left.indices();
+        let right_indices = self.right.indices();
+        if self.left_pos == left_indices.len() && self.right_pos == right_indices.len() {
+            return None;
+        }
+
+        let left_idx = left_indices.get(self.left_pos).copied();
+        let right_idx = right_indices.get(self.right_pos).copied();
+        let current_idx = match (left_idx, right_idx) {
+            (Some(left), Some(right)) => left.min(right),
+            (Some(left), None) => left,
+            (None, Some(right)) => right,
+            (None, None) => return None,
+        };
+
+        let left_value = (left_idx == Some(current_idx)).then(|| {
+            let value = self.left.value_at(self.left_pos);
+            self.left_pos += 1;
+            value
+        });
+        let right_value = (right_idx == Some(current_idx)).then(|| {
+            let value = self.right.value_at(self.right_pos);
+            self.right_pos += 1;
+            value
+        });
+        Some((current_idx, left_value, right_value))
+    }
+}
+
+impl SparseCompareValue<'_> {
+    pub fn constant(self) -> f64 {
+        match self {
+            Self::Expr(expr) => expr.constant(),
+            Self::Variable(_) => 0.0,
+        }
+    }
+
+    pub fn num_terms(self) -> usize {
+        match self {
+            Self::Expr(expr) => expr.inner().num_terms(),
+            Self::Variable(_) => 1,
+        }
+    }
+
+    pub fn to_expr(self) -> PyExpr {
+        match self {
+            Self::Expr(expr) => expr.clone(),
+            Self::Variable(var_id) => PyExpr::from_term(var_id, 1.0),
+        }
+    }
+}
+
+impl SparseCompareOperand {
+    fn with_view<R>(
+        &self,
+        py: Python<'_>,
+        visit: impl FnOnce(SparseCompareView<'_>) -> R,
+    ) -> PyResult<R> {
+        fn validate_indices(indices: &[usize], value_count: usize) -> PyResult<()> {
+            if indices.len() != value_count {
+                return Err(ArrayTypeError::new_err(
+                    "sparse comparison source has mismatched indices and values",
+                ));
+            }
+            if indices.windows(2).any(|pair| pair[0] >= pair[1]) {
+                return Err(ArrayTypeError::new_err(
+                    "sparse comparison source indices must be strictly increasing",
+                ));
+            }
+            Ok(())
+        }
+
+        match self {
+            Self::Expr(array) => {
+                let array = array.bind(py).borrow();
+                let (indices, values) = array.sparse_entries().ok_or_else(|| {
+                    ArrayTypeError::new_err("sparse comparison source is no longer sparse")
+                })?;
+                validate_indices(indices, values.len())?;
+                Ok(visit(SparseCompareView::Expr { indices, values }))
+            }
+            Self::Variable(array) => {
+                let array = array.bind(py).borrow();
+                let (indices, var_ids) = array.sparse_var_entries().ok_or_else(|| {
+                    ArrayTypeError::new_err("sparse comparison source is no longer sparse")
+                })?;
+                validate_indices(indices, var_ids.len())?;
+                Ok(visit(SparseCompareView::Variable { indices, var_ids }))
+            }
+        }
+    }
+
+    pub fn with_views<R>(
+        &self,
+        other: &Self,
+        py: Python<'_>,
+        visit: impl FnOnce(SparseCompareView<'_>, SparseCompareView<'_>) -> R,
+    ) -> PyResult<R> {
+        self.with_view(py, |left| other.with_view(py, |right| visit(left, right)))?
+    }
+}
 
 /// Right-hand side for compact constraints.
 #[derive(Clone, Debug)]
@@ -70,6 +236,12 @@ pub(crate) enum ConstraintArrayStorage {
     LazyCompare {
         left: LinearArrayCore,
         right: LinearArrayCore,
+        sense: ComparisonSense,
+    },
+    /// Lazy sparse comparison retaining immutable source arrays until insertion.
+    SparseLazyCompare {
+        left: SparseCompareOperand,
+        right: SparseCompareOperand,
         sense: ComparisonSense,
     },
     /// Compact: constraints from compact expression patterns (not yet inserted).
@@ -168,11 +340,28 @@ impl PyConstraintArray {
         }
     }
 
+    pub(crate) fn from_sparse_lazy_compare(
+        left: SparseCompareOperand,
+        right: SparseCompareOperand,
+        sense: ComparisonSense,
+        shape: Vec<usize>,
+        index_sets: Vec<Py<PyIndexSet>>,
+    ) -> Self {
+        Self {
+            storage: ConstraintArrayStorage::SparseLazyCompare { left, right, sense },
+            shape,
+            index_sets,
+            first_constraint_id: None,
+            name: None,
+        }
+    }
+
     pub fn exprs(&self) -> &[PyExpr] {
         match &self.storage {
             ConstraintArrayStorage::Full { exprs, .. }
             | ConstraintArrayStorage::SparseRows { exprs, .. } => exprs,
             ConstraintArrayStorage::LazyCompare { .. } => &[],
+            ConstraintArrayStorage::SparseLazyCompare { .. } => &[],
             ConstraintArrayStorage::Compact(_) => &[], // Should not be called on compact
         }
     }
@@ -182,15 +371,37 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { sense, .. }
             | ConstraintArrayStorage::SparseRows { sense, .. } => *sense,
             ConstraintArrayStorage::LazyCompare { sense, .. } => *sense,
+            ConstraintArrayStorage::SparseLazyCompare { sense, .. } => *sense,
             ConstraintArrayStorage::Compact(c) => c.sense,
         }
     }
 
-    pub fn get_rhs(&self) -> Vec<f64> {
+    fn sparse_compare_rhs(
+        left: &SparseCompareOperand,
+        right: &SparseCompareOperand,
+    ) -> PyResult<Vec<f64>> {
+        Python::attach(|py| {
+            left.with_views(right, py, |left, right| {
+                let mut rhs = Vec::new();
+                for (_, left, right) in SparseCompareMerge::new(left, right) {
+                    let constant = left.map_or(0.0, SparseCompareValue::constant)
+                        - right.map_or(0.0, SparseCompareValue::constant);
+                    let num_terms = left.map_or(0, SparseCompareValue::num_terms)
+                        + right.map_or(0, SparseCompareValue::num_terms);
+                    if num_terms != 0 || constant != 0.0 {
+                        rhs.push(-constant);
+                    }
+                }
+                rhs
+            })
+        })
+    }
+
+    pub fn get_rhs(&self) -> PyResult<Vec<f64>> {
         match &self.storage {
             ConstraintArrayStorage::Full { rhs, .. }
-            | ConstraintArrayStorage::SparseRows { rhs, .. } => rhs.clone(),
-            ConstraintArrayStorage::LazyCompare { left, right, .. } => left
+            | ConstraintArrayStorage::SparseRows { rhs, .. } => Ok(rhs.clone()),
+            ConstraintArrayStorage::LazyCompare { left, right, .. } => Ok(left
                 .values
                 .iter()
                 .zip(right.values.iter())
@@ -198,8 +409,11 @@ impl PyConstraintArray {
                     let diff = left_expr.inner().add(&right_expr.inner().scale(-1.0));
                     -PyExpr::from_expr(diff).constant()
                 })
-                .collect(),
-            ConstraintArrayStorage::Compact(c) => c.rhs_vec(),
+                .collect()),
+            ConstraintArrayStorage::SparseLazyCompare { left, right, .. } => {
+                Self::sparse_compare_rhs(left, right)
+            }
+            ConstraintArrayStorage::Compact(c) => Ok(c.rhs_vec()),
         }
     }
 
@@ -221,7 +435,8 @@ impl PyConstraintArray {
         match &self.storage {
             ConstraintArrayStorage::Compact(c) => Some(c),
             ConstraintArrayStorage::Full { .. } | ConstraintArrayStorage::SparseRows { .. } => None,
-            ConstraintArrayStorage::LazyCompare { .. } => None,
+            ConstraintArrayStorage::LazyCompare { .. }
+            | ConstraintArrayStorage::SparseLazyCompare { .. } => None,
         }
     }
 
@@ -232,6 +447,7 @@ impl PyConstraintArray {
             }
             ConstraintArrayStorage::Full { .. }
             | ConstraintArrayStorage::SparseRows { .. }
+            | ConstraintArrayStorage::SparseLazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
     }
@@ -245,6 +461,21 @@ impl PyConstraintArray {
                 active_indices,
             } => Some((exprs, rhs, active_indices, *sense)),
             ConstraintArrayStorage::Full { .. }
+            | ConstraintArrayStorage::LazyCompare { .. }
+            | ConstraintArrayStorage::SparseLazyCompare { .. }
+            | ConstraintArrayStorage::Compact(_) => None,
+        }
+    }
+
+    pub fn as_sparse_lazy_compare(
+        &self,
+    ) -> Option<(&SparseCompareOperand, &SparseCompareOperand, ComparisonSense)> {
+        match &self.storage {
+            ConstraintArrayStorage::SparseLazyCompare { left, right, sense } => {
+                Some((left, right, *sense))
+            }
+            ConstraintArrayStorage::Full { .. }
+            | ConstraintArrayStorage::SparseRows { .. }
             | ConstraintArrayStorage::LazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
@@ -293,29 +524,76 @@ impl PyConstraintArray {
         }
     }
 
-    fn len(&self) -> usize {
+    fn len(&self) -> PyResult<usize> {
         match &self.storage {
             ConstraintArrayStorage::Full { rhs, .. }
-            | ConstraintArrayStorage::SparseRows { rhs, .. } => rhs.len(),
-            ConstraintArrayStorage::LazyCompare { left, .. } => left.values.len(),
-            ConstraintArrayStorage::Compact(c) => c.count,
+            | ConstraintArrayStorage::SparseRows { rhs, .. } => Ok(rhs.len()),
+            ConstraintArrayStorage::LazyCompare { left, .. } => Ok(left.values.len()),
+            ConstraintArrayStorage::SparseLazyCompare { left, right, .. } => {
+                Python::attach(|py| {
+                    left.with_views(right, py, |left, right| {
+                        SparseCompareMerge::new(left, right)
+                            .filter(|(_, left, right)| {
+                                let num_terms = left.map_or(0, SparseCompareValue::num_terms)
+                                    + right.map_or(0, SparseCompareValue::num_terms);
+                                let constant = left.map_or(0.0, SparseCompareValue::constant)
+                                    - right.map_or(0.0, SparseCompareValue::constant);
+                                num_terms != 0 || constant != 0.0
+                            })
+                            .count()
+                    })
+                })
+            }
+            ConstraintArrayStorage::Compact(c) => Ok(c.count),
         }
     }
 
     /// Get the rhs value at a specific index without allocating.
-    fn rhs_at(&self, index: usize) -> f64 {
+    fn rhs_at(&self, index: usize) -> PyResult<f64> {
         match &self.storage {
             ConstraintArrayStorage::Full { rhs, .. }
-            | ConstraintArrayStorage::SparseRows { rhs, .. } => rhs[index],
+            | ConstraintArrayStorage::SparseRows { rhs, .. } => rhs.get(index).copied().ok_or_else(|| {
+                ArrayIndexError::new_err(format!("constraint index {index} out of range"))
+            }),
             ConstraintArrayStorage::LazyCompare { left, right, .. } => {
-                let diff = left.values[index]
+                let left_expr = left.values.get(index).ok_or_else(|| {
+                    ArrayIndexError::new_err(format!("constraint index {index} out of range"))
+                })?;
+                let right_expr = right.values.get(index).ok_or_else(|| {
+                    ArrayIndexError::new_err(format!("constraint index {index} out of range"))
+                })?;
+                let diff = left_expr
                     .inner()
-                    .add(&right.values[index].inner().scale(-1.0));
-                -PyExpr::from_expr(diff).constant()
+                    .add(&right_expr.inner().scale(-1.0));
+                Ok(-PyExpr::from_expr(diff).constant())
+            }
+            ConstraintArrayStorage::SparseLazyCompare { left, right, .. } => {
+                Python::attach(|py| {
+                    left.with_views(right, py, |left, right| {
+                        let mut nonzero_index = 0usize;
+                        for (_, left, right) in SparseCompareMerge::new(left, right) {
+                            let num_terms = left.map_or(0, SparseCompareValue::num_terms)
+                                + right.map_or(0, SparseCompareValue::num_terms);
+                            let constant = left.map_or(0.0, SparseCompareValue::constant)
+                                - right.map_or(0.0, SparseCompareValue::constant);
+                            if num_terms != 0 || constant != 0.0 {
+                                if nonzero_index == index {
+                                    return Ok(-constant);
+                                }
+                                nonzero_index += 1;
+                            }
+                        }
+                        Err(ArrayIndexError::new_err(format!(
+                            "constraint index {index} out of range"
+                        )))
+                    })
+                })?
             }
             ConstraintArrayStorage::Compact(c) => match &c.rhs {
-                CompactRhs::Scalar(v) => *v,
-                CompactRhs::Vec(v) => v[index],
+                CompactRhs::Scalar(v) => Ok(*v),
+                CompactRhs::Vec(v) => v.get(index).copied().ok_or_else(|| {
+                    ArrayIndexError::new_err(format!("constraint index {index} out of range"))
+                }),
             },
         }
     }
@@ -326,14 +604,15 @@ impl PyConstraintArray {
                 "this ConstraintArray has not been added to a model yet and is not subscriptable",
             )
         })?;
-        let rhs_val = self.rhs_at(index);
+        let rhs_val = self.rhs_at(index)?;
+        let length = self.len()?;
         let bounds = match self.get_sense() {
             ComparisonSense::LessEqual => Bounds::new(f64::NEG_INFINITY, rhs_val),
             ComparisonSense::GreaterEqual => Bounds::new(rhs_val, f64::INFINITY),
             ComparisonSense::Equal => Bounds::new(rhs_val, rhs_val),
         };
         let name = self.name.as_ref().map(|base| {
-            if self.len() == 1 {
+            if length == 1 {
                 base.clone()
             } else {
                 format!("{base}[{index}]")
@@ -351,7 +630,7 @@ impl PyConstraintArray {
     }
 
     #[getter]
-    fn rhs(&self) -> Vec<f64> {
+    fn rhs(&self) -> PyResult<Vec<f64>> {
         self.get_rhs()
     }
 
@@ -370,12 +649,12 @@ impl PyConstraintArray {
         Ok(PyTuple::new(py, sets)?.into())
     }
 
-    fn __len__(&self) -> usize {
+    fn __len__(&self) -> PyResult<usize> {
         self.len()
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let constraints = (0..self.len())
+        let constraints = (0..self.len()?)
             .map(|index| self.constraint_at(index))
             .collect::<PyResult<Vec<_>>>()?;
         Ok(PyList::new(py, constraints)?
@@ -384,11 +663,12 @@ impl PyConstraintArray {
     }
 
     fn __getitem__(&self, index: usize) -> PyResult<PyConstraint> {
-        if index >= self.len() {
+        let length = self.len()?;
+        if index >= length {
             return Err(ArrayIndexError::new_err(format!(
                 "index {} out of range for ConstraintArray of size {}",
                 index,
-                self.len()
+                length
             )));
         }
         self.constraint_at(index)

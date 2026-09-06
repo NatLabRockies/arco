@@ -705,6 +705,7 @@ impl PyModel {
     #[allow(clippy::too_many_arguments)]
     fn add_constraints(
         &mut self,
+        py: Python<'_>,
         expr: &Bound<'_, PyAny>,
         sense: PyComparisonSense,
         rhs: Option<&Bound<'_, PyAny>>,
@@ -723,6 +724,18 @@ impl PyModel {
             if let Some(compact) = array.as_compact() {
                 return self.add_constraints_compact_shaped_internal(
                     compact,
+                    active,
+                    name,
+                    array.shape_ref(),
+                    &array.clone_index_sets(),
+                );
+            }
+            if let Some((left, right, lazy_sense)) = array.as_sparse_lazy_compare() {
+                return self.add_constraints_sparse_lazy_compare_shaped_internal(
+                    py,
+                    left,
+                    right,
+                    lazy_sense,
                     active,
                     name,
                     array.shape_ref(),
@@ -757,7 +770,7 @@ impl PyModel {
             return self.add_constraints_shaped_internal(
                 array.exprs().iter().cloned(),
                 array.get_sense(),
-                array.get_rhs(),
+                array.get_rhs()?,
                 active,
                 name,
                 array.shape_ref(),

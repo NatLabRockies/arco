@@ -49,6 +49,43 @@ fn intersect_sorted_row_positions(row_indices: &[usize], active_indices: &[usize
     positions
 }
 
+fn sparse_compare_diff(
+    left: Option<arrays::SparseCompareValue<'_>>,
+    right: Option<arrays::SparseCompareValue<'_>>,
+) -> PyExpr {
+    let left = left.map_or_else(PyExpr::default, arrays::SparseCompareValue::to_expr);
+    let right = right.map_or_else(PyExpr::default, arrays::SparseCompareValue::to_expr);
+    PyExpr::from_expr(left.inner().add(&right.inner().scale(-1.0)))
+}
+
+fn sparse_compare_row_is_nonzero(
+    left: Option<arrays::SparseCompareValue<'_>>,
+    right: Option<arrays::SparseCompareValue<'_>>,
+) -> bool {
+    let num_terms = left.map_or(0, arrays::SparseCompareValue::num_terms)
+        + right.map_or(0, arrays::SparseCompareValue::num_terms);
+    let constant = left.map_or(0.0, arrays::SparseCompareValue::constant)
+        - right.map_or(0.0, arrays::SparseCompareValue::constant);
+    num_terms != 0 || constant != 0.0
+}
+
+fn sparse_compare_row_is_selected(
+    active_indices: Option<&[usize]>,
+    active_pos: &mut usize,
+    row_idx: usize,
+) -> bool {
+    let Some(active_indices) = active_indices else {
+        return true;
+    };
+    while active_indices
+        .get(*active_pos)
+        .is_some_and(|active_idx| *active_idx < row_idx)
+    {
+        *active_pos += 1;
+    }
+    active_indices.get(*active_pos) == Some(&row_idx)
+}
+
 impl PyModel {
     fn resolve_labeled_f64_values(
         obj: &Bound<'_, PyAny>,
@@ -590,6 +627,86 @@ impl PyModel {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn add_constraints_sparse_lazy_compare_shaped_internal(
+        &mut self,
+        py: Python<'_>,
+        left: &arrays::SparseCompareOperand,
+        right: &arrays::SparseCompareOperand,
+        sense: ComparisonSense,
+        active: Option<&Bound<'_, PyAny>>,
+        name: Option<String>,
+        shape: &[usize],
+        index_sets: &[Py<PyIndexSet>],
+    ) -> PyResult<PyConstraintArray> {
+        let total = shape.iter().product();
+        let active_indices = active
+            .map(|active| Self::resolve_active_indices(Some(active), Some(index_sets), shape, total))
+            .transpose()?;
+        let selected = active_indices.as_deref();
+
+        let row_count = left.with_views(right, py, |left, right| {
+                let mut active_pos = 0usize;
+                arrays::SparseCompareMerge::new(left, right)
+                    .filter(|(row_idx, _, _)| {
+                        sparse_compare_row_is_selected(selected, &mut active_pos, *row_idx)
+                    })
+                    .filter(|(_, left, right)| sparse_compare_row_is_nonzero(*left, *right))
+                    .count()
+            })?;
+
+        if row_count == 0 {
+            return Ok(PyConstraintArray::from_batch_shaped(
+                0,
+                shape.to_vec(),
+                Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+                sense,
+                &[],
+                name,
+            ));
+        }
+
+        let mut filtered_rhs = Vec::with_capacity(row_count);
+        let mut active_pos = 0usize;
+        let first_constraint_id = left.with_views(right, py, |left, right| {
+                let rows =
+                    arrays::SparseCompareMerge::new(left, right).filter_map(
+                        |(row_idx, left, right)| {
+                            if !sparse_compare_row_is_selected(
+                                selected,
+                                &mut active_pos,
+                                row_idx,
+                            ) {
+                                return None;
+                            }
+                            let diff = sparse_compare_diff(left, right);
+                            if diff.inner().num_terms() == 0 && diff.constant() == 0.0 {
+                                return None;
+                            }
+                            let rhs_value = -diff.constant();
+                            filtered_rhs.push(rhs_value);
+                            Some((
+                                normalized_terms_for_batch(diff.into_inner()),
+                                bounds_from_sense(sense, rhs_value),
+                            ))
+                        },
+                    );
+                self.inner.add_constraints_batch_streaming(row_count, rows)
+            })?
+            .map_err(errors::model_error_to_py)?;
+
+        self.name_constraint_block(first_constraint_id, row_count, name.as_deref());
+
+        Ok(PyConstraintArray::from_batch_shaped(
+            first_constraint_id.inner(),
+            shape.to_vec(),
+            Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+            sense,
+            &filtered_rhs,
+            name,
+        ))
+    }
+
     /// Add constraints from an array expression (VariableArray or ExprArray) with a separate rhs.
     ///
     /// Tries the compact fast path first, then falls back to materialized comparison.
@@ -628,7 +745,7 @@ impl PyModel {
         self.add_constraints_shaped_internal(
             constraints.exprs().iter().cloned(),
             constraints.get_sense(),
-            constraints.get_rhs(),
+            constraints.get_rhs()?,
             active,
             name,
             &core.shape,

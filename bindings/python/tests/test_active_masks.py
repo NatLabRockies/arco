@@ -41,6 +41,183 @@ def test_add_constraints_active_mask_skips_inactive_rows() -> None:
     assert model.num_constraints == 2
 
 
+def test_sparse_comparison_applies_active_mask_before_insertion() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(8))
+    left = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False, True, False, True, False, True, False],
+        name="left",
+    )
+    right = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, True, False, False, True, True, False, False],
+        name="right",
+    )
+
+    comparison = (left * 2.0) >= (right * 3.0)
+    model.add_constraints(
+        comparison, active=[True, False, False, False, False, False, False, False]
+    )
+
+    assert model.num_constraints == 1
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.coefficients is not None
+    assert [
+        (coefficient.variable_id, coefficient.value)
+        for coefficient in snapshot.coefficients
+    ] == [(0, 2.0), (4, -3.0)]
+
+
+def test_sparse_comparison_can_be_reused_after_masked_insertion() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(4))
+    left = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False, True, False],
+    )
+    right = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, True, False, False],
+    )
+
+    comparison = (left * 2.0) >= (right * 3.0)
+    model.add_constraints(comparison, active=[True, False, False, False])
+    model.add_constraints(comparison, active=[True, False, False, False])
+
+    assert model.num_constraints == 2
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.coefficients is not None
+    assert [
+        (coefficient.constraint_id, coefficient.variable_id, coefficient.value)
+        for coefficient in snapshot.coefficients
+    ] == [
+        (0, 0, 2.0),
+        (1, 0, 2.0),
+        (0, 2, -3.0),
+        (1, 2, -3.0),
+    ]
+
+
+def test_sparse_comparison_accessors_preserve_filtered_rows() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(4))
+    left = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False, True, False],
+    )
+    right = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, True, False, False],
+    )
+
+    comparison = (left * 2.0) >= (right * 3.0)
+
+    assert len(comparison) == 3
+    assert comparison.rhs == [0.0, 0.0, 0.0]
+    with pytest.raises(arco.ArrayTypeError, match="has not been added"):
+        _ = comparison[0]
+
+    inserted = model.add_constraints(comparison, name="limit")
+    assert len(inserted) == 3
+    assert inserted.rhs == [0.0, 0.0, 0.0]
+    assert [int(inserted[index]) for index in range(len(inserted))] == [0, 1, 2]
+    assert [inserted[index].bounds.lower for index in range(len(inserted))] == [
+        0.0,
+        0.0,
+        0.0,
+    ]
+
+
+def test_sparse_comparison_temporary_can_be_deleted_after_insertion() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(4))
+    left = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False, True, False],
+    )
+    right = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, True, False, False],
+    )
+
+    model.add_constraints((left * 2.0) >= (right * 3.0))
+    model.add_constraints((left * 2.0) >= (right * 3.0))
+
+    assert model.num_constraints == 6
+
+
+def test_sparse_comparison_invalid_mask_does_not_mutate_model() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(4))
+    left = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False, True, False],
+    )
+    right = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, True, False, False],
+    )
+
+    with pytest.raises(ValueError, match="broadcast"):
+        model.add_constraints((left * 2.0) >= (right * 3.0), active=[True, False])
+
+    assert model.num_constraints == 0
+
+
+def test_sparse_comparison_cancellation_retains_zero_rows() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(3))
+    variables = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False, True],
+    )
+
+    cancellation = variables == 1.0 * variables
+
+    assert len(cancellation) == 2
+    assert cancellation.rhs == [0.0, 0.0]
+    inserted = model.add_constraints(cancellation)
+    assert len(inserted) == 2
+    assert model.num_constraints == 2
+
+
+def test_sparse_variable_to_expression_comparison_preserves_selected_rows() -> None:
+    model = arco.Model()
+    i = arco.IndexSet(name="i", members=range(4))
+    left = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, False, True, False],
+    )
+    right = model.add_variables(
+        axes=(i,),
+        bounds=arco.NonNegativeFloat,
+        active=[True, True, False, False],
+    )
+
+    model.add_constraints(left >= right * 3.0, active=[True, False, False, False])
+
+    assert model.num_constraints == 1
+    snapshot = model.inspect(include_coeffs=True)
+    assert snapshot.coefficients is not None
+    assert [
+        (coefficient.variable_id, coefficient.value)
+        for coefficient in snapshot.coefficients
+    ] == [(0, 1.0), (2, -3.0)]
+
+
 def test_add_variables_active_mask_broadcasts_with_numpy_rules() -> None:
     model = arco.Model()
     i = arco.IndexSet(name="i", members=[0, 1])
