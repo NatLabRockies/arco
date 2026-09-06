@@ -33,28 +33,43 @@ fixes as a new version; never replace its files or move its tag.
 ## Ownership and flow
 
 ```mermaid
-flowchart TD
-    Changes[Developers merge feature and fix PRs]
-    PR[Release Please accumulates changes in the release PR]
-    CI[Normal CI validates the proposed source]
-    Cutoff{Maintainers ready to choose the cutoff?}
-    Build[Maintainer updates the release branch and requests a candidate build]
-    Candidate[Cargo-dist and package jobs build and test candidate files]
-    Review[Maintainers review the files within 30 days]
-    Approve[Maintainer approves a specific candidate run for promotion]
-    Guard[Verify successful build, complete files, and unchanged source]
-    Merge[Merge through GitHub and verify the source tree]
-    Tag[Release Please creates the version tag and draft]
-    Publish[Upload the original candidate files and publish the draft]
-    Lock[GitHub locks the release assets and tag]
-    Verify[Verify the immutable release and dispatch Python publication]
-    PyPI[PyPI publishes the same Python wheels and sdist]
-    Announce[Maintainers verify both publications and announce the version]
-    Changes --> PR --> CI --> Cutoff
-    Cutoff -->|More changes needed| Changes
-    Cutoff -->|Scope ready and CI passes| Build
-    Build --> Candidate --> Review --> Approve --> Guard
-    Guard --> Merge --> Tag --> Publish --> Lock --> Verify --> PyPI --> Announce
+sequenceDiagram
+    actor M as Maintainer
+    participant RP as Release Please
+    participant B as Candidate workflow
+    participant P as Promotion workflow
+    participant GH as GitHub
+    participant PY as PyPI workflow
+
+    loop Development: multiple feature and fix PRs merge
+        GH->>RP: Base branch updated
+        RP->>GH: Accumulate changes in the release PR
+    end
+    Note over M,GH: Normal CI validates source; no release candidates or version tag yet
+
+    M->>GH: Review scope and CI; update release PR branch
+    M->>B: Choose cutoff and request build for the release PR
+    B->>GH: Read the exact PR commit and base
+    B->>B: Build CLI, Python, and VSIX files; run package checks
+    B-->>M: Successful candidate run and files, retained for 30 days
+    Note over M,P: Review window: any source change invalidates the candidate
+    Note over RP,B: The version tag still does not exist
+
+    M->>P: Approve a specific candidate run ID
+    P->>GH: Validate candidate, current source, and release policy
+    P->>GH: Merge the approved PR through branch protection
+    P->>P: Verify merged source tree matches the candidate
+    P->>RP: Create the approved version tag and draft
+    RP->>GH: Create tag and draft release
+    P->>GH: Upload original candidate files and publish
+    Note over GH: GitHub locks the tag and release assets
+    P->>GH: Verify release and every original candidate file
+
+    P->>PY: Dispatch publication at the immutable tag
+    PY->>GH: Download and verify the six wheels and sdist
+    PY->>PY: Publish the same Python files
+    PY-->>M: Publication result
+    Note over M,PY: Maintainer checks both publications before announcing the version
 ```
 
 Release Please manages release metadata. Its normal workflow only opens or updates
