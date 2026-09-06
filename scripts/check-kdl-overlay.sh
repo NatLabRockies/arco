@@ -9,16 +9,14 @@ if ! command -v tree-sitter >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -f "$grammar_path/grammar.js" ]; then
+if [[ ! -f "$grammar_path/grammar.js" ]]; then
   echo "Missing overlay grammar at $grammar_path" >&2
   exit 1
 fi
 
-failures=()
 file_count=0
 skipped_count=0
-while IFS= read -r file; do
-  rel="${file#"$repo_root/"}"
+while IFS= read -r -d '' rel; do
   case "$rel" in
     .worktrees/*|*is_rejected*|crates/arco-kdl/tests/fixtures/rejects_*)
       skipped_count=$((skipped_count + 1))
@@ -27,22 +25,16 @@ while IFS= read -r file; do
   esac
 
   file_count=$((file_count + 1))
-  parsed="$(tree-sitter parse -p "$grammar_path" "$file" 2>/dev/null || true)"
-  if printf '%s' "$parsed" | rg -q '\(ERROR|\(MISSING'; then
-    failures+=("$rel")
+  file="$repo_root/$rel"
+  if ! (cd "$grammar_path" && tree-sitter parse --quiet "$file"); then
+    printf 'tree-sitter failed for %s\n' "$rel" >&2
+    exit 1
   fi
-done < <(find "$repo_root" -type f -name '*.kdl' -not -path '*/target/*' -not -path '*/.git/*' | sort)
+done < <(git -C "$repo_root" ls-files -z -- '*.kdl')
 
-if [ "$file_count" -eq 0 ]; then
+if [[ "$file_count" -eq 0 ]]; then
   echo "No .kdl files found."
   exit 0
-fi
-
-if [ "${#failures[@]}" -gt 0 ]; then
-  echo "KDL overlay parse failed." >&2
-  echo "checked=${file_count} skipped=${skipped_count} failures=${#failures[@]}" >&2
-  printf '  - %s\n' "${failures[@]}" >&2
-  exit 1
 fi
 
 echo "KDL overlay parse passed."

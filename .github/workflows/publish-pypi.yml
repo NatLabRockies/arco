@@ -1,0 +1,76 @@
+name: Publish Python distributions
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Immutable stable release tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-pypi-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish Python files to PyPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      attestations: read # Verify the immutable GitHub Release and its assets.
+      contents: read
+      id-token: write # PyPI trusted publishing uses GitHub OIDC.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/arco
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download verified immutable Python files
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "PyPI publication requires a stable vX.Y.Z tag" >&2
+            exit 1
+          }
+          test "$GITHUB_REF" = "refs/tags/$TAG" || {
+            echo "Run this workflow from the published version tag." >&2
+            exit 1
+          }
+          version="${TAG#v}"
+          gh release verify "$TAG" --repo "$GITHUB_REPOSITORY"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir dist \
+            --pattern 'arco-*.whl' \
+            --pattern "arco-${version}.tar.gz"
+
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          sdists=(dist/arco-"${version}".tar.gz)
+          macos_cp310=(dist/arco-"${version}"-cp310-cp310-macosx_*_arm64.whl)
+          macos_abi3=(dist/arco-"${version}"-cp311-abi3-macosx_*_arm64.whl)
+          [[ "${#wheels[@]}" -eq 6 ]]
+          [[ "${#sdists[@]}" -eq 1 ]]
+          [[ -f "dist/arco-${version}-cp310-cp310-manylinux_2_28_x86_64.whl" ]]
+          [[ -f "dist/arco-${version}-cp311-abi3-manylinux_2_28_x86_64.whl" ]]
+          [[ "${#macos_cp310[@]}" -eq 1 ]]
+          [[ "${#macos_abi3[@]}" -eq 1 ]]
+          [[ -f "dist/arco-${version}-cp310-cp310-win_amd64.whl" ]]
+          [[ -f "dist/arco-${version}-cp311-abi3-win_amd64.whl" ]]
+
+          for file in "${wheels[@]}" "${sdists[@]}"; do
+            gh release verify-asset "$TAG" "$file" --repo "$GITHUB_REPOSITORY"
+          done
+
+      - name: Publish exact files to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: dist/
+          skip-existing: true

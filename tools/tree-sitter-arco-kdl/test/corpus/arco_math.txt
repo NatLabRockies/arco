@@ -89,6 +89,43 @@ constraint cap {
               (arco_math_text))))))))
 
 ==================
+Quoted property child inside constraint
+==================
+
+constraint "cap" {
+  index "g" in="gen"
+  expression { dispatch[g] <= capacity[g] }
+}
+
+---
+
+(document
+  (node
+    (arco_constraint_node
+      (node_field
+        (value
+          (string
+            (string_fragment))))
+      (node_children
+        (node
+          (kdl_node
+            (identifier)
+            (node_field
+              (value
+                (string
+                  (string_fragment))))
+            (node_field
+              (prop
+                (identifier)
+                (value
+                  (string
+                    (string_fragment)))))))
+        (node
+          (arco_pure_math_node
+            (arco_pure_math_children
+              (arco_math_text))))))))
+
+==================
 Filter with compound predicate
 ==================
 

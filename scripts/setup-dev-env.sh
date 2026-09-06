@@ -29,4 +29,4 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-$repo_root/.uv-cache}"
 cd "$repo_root"
 
 just py-dev
-uvx --from "${PREK_SPEC:-prek==0.3.6}" prek install --overwrite --prepare-hooks --hook-type pre-commit --hook-type commit-msg --hook-type pre-push
+uvx --from "${PREK_SPEC:-prek==0.4.1}" prek install --overwrite --prepare-hooks --hook-type pre-commit --hook-type commit-msg --hook-type pre-push

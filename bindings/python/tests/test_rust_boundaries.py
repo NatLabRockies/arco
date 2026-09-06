@@ -68,12 +68,8 @@ def test_release_wheel_recipe_allows_the_abi3_matrix_features() -> None:
     )
 
     abi3_features = 'wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source"'
-    for workflow in (
-        ".github/workflows/ci.yaml",
-        ".github/workflows/pypi-manual-release.yaml",
-        ".github/workflows/release-please.yaml",
-    ):
-        assert abi3_features in (ROOT / workflow).read_text()
+    workflow = ROOT / ".github/workflows/build-packages.yml"
+    assert abi3_features in workflow.read_text()
 
 
 def test_cli_cargo_depends_on_arco_ops_only_among_arco_modeling_crates() -> None:

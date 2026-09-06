@@ -1,0 +1,347 @@
+name: Promote release candidate
+run-name: Promote candidate run ${{ inputs.candidate_run }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run:
+        description: Successful Build release candidate run ID to promote
+        required: true
+        type: string
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify-candidate:
+    name: Verify candidate and release policy
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      base: ${{ steps.candidate.outputs.base }}
+      base_branch: ${{ steps.candidate.outputs.base_branch }}
+      commit: ${{ steps.candidate.outputs.commit }}
+      pr: ${{ steps.candidate.outputs.pr }}
+      tag: ${{ steps.candidate.outputs.tag }}
+      tree: ${{ steps.candidate.outputs.tree }}
+    permissions:
+      actions: read # Inspect and download the explicitly selected candidate run.
+      contents: read
+      pull-requests: read # Verify the candidate still matches its release PR.
+    env:
+      CANDIDATE_RUN: ${{ inputs.candidate_run }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      WORKFLOW_BRANCH: ${{ github.ref_name }}
+    steps:
+      - name: Require a successful candidate run
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GH_REPO/actions/runs/$CANDIDATE_RUN" > run.json
+          jq -e --arg branch "$WORKFLOW_BRANCH" '
+            .conclusion == "success" and
+            .event == "workflow_dispatch" and
+            .head_branch == $branch
+          ' run.json >/dev/null
+          workflow_id="$(jq -r .workflow_id run.json)"
+          test "$(gh api "repos/$GH_REPO/actions/workflows/$workflow_id" --jq .path)" = ".github/workflows/build-candidate.yml"
+
+      - name: Download the candidate's original artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run }}
+          name: candidate-assets
+          path: candidate
+          digest-mismatch: error
+
+      - id: candidate
+        name: Require current source and complete artifact inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr="$(jq -r .pr candidate/candidate.json)"
+          commit="$(jq -r .commit candidate/candidate.json)"
+          tree="$(jq -r .tree candidate/candidate.json)"
+          base="$(jq -r .base candidate/candidate.json)"
+          base_branch="$(jq -r .branch candidate/candidate.json)"
+          tag="$(jq -r .tag candidate/candidate.json)"
+          [[ "$pr" =~ ^[1-9][0-9]*$ ]]
+          [[ "$commit" =~ ^[a-f0-9]{40}$ && "$tree" =~ ^[a-f0-9]{40}$ && "$base" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$base_branch" = "$WORKFLOW_BRANCH"
+          test "$(jq -r .head_sha run.json)" = "$base"
+
+          gh api "repos/$GH_REPO/pulls/$pr" > pr.json
+          jq -e --arg commit "$commit" --arg base "$base" --arg branch "$base_branch" --arg repo "$GH_REPO" '
+            .state == "open" and .draft == false and
+            .head.sha == $commit and .base.sha == $base and .base.ref == $branch and
+            .head.repo.full_name == $repo and .user.login == "github-actions[bot]" and
+            (.head.ref | startswith("release-please--branches--"))
+          ' pr.json >/dev/null
+          test "$(gh api "repos/$GH_REPO/git/commits/$commit" --jq .tree.sha)" = "$tree"
+          test "$(gh api "repos/$GH_REPO/commits/$base_branch" --jq .sha)" = "$base"
+
+          mapfile -t release_prs < <(gh api --paginate "repos/$GH_REPO/pulls?state=open&base=$base_branch&per_page=100" \
+            --jq '.[] | select(.head.ref | startswith("release-please--branches--")) | .number')
+          test "${#release_prs[@]}" -eq 1
+          test "${release_prs[0]}" = "$pr"
+
+          pending="$(gh api --paginate \
+            "repos/$GH_REPO/pulls?state=closed&base=$base_branch&per_page=100" \
+            --jq '.[] | select(
+              .merged_at != null and
+              .user.login == "github-actions[bot]" and
+              (.head.ref | startswith("release-please--branches--")) and
+              any(.labels[]; .name == "autorelease: pending")
+            ) | .number')"
+          test -z "$pending"
+
+          test "$(jq -r .announcement_tag candidate/dist-manifest.json)" = "$tag"
+          jq -e '.artifacts | length == 15' candidate/dist-manifest.json >/dev/null
+          mapfile -t payloads < <(jq -r '.artifacts | keys[]' candidate/dist-manifest.json)
+          test "${#payloads[@]}" -gt 0
+          declare -A native=()
+          for payload in "${payloads[@]}"; do
+            name="$payload"
+            test -n "$name"
+            test -z "${native[$name]:-}"
+            native["$name"]=1
+            test -f "candidate/$name"
+          done
+
+          version="${tag#v}"
+          shopt -s nullglob
+          wheels=(candidate/arco-"$version"-*.whl)
+          sdists=(candidate/arco-"$version".tar.gz)
+          macos_cp310=(candidate/arco-"$version"-cp310-cp310-macosx_*_arm64.whl)
+          macos_abi3=(candidate/arco-"$version"-cp311-abi3-macosx_*_arm64.whl)
+          vsix=(candidate/*.vsix)
+          test "${#wheels[@]}" -eq 6
+          test "${#sdists[@]}" -eq 1
+          test "${#vsix[@]}" -eq 1
+          test -f "candidate/arco-$version-cp310-cp310-manylinux_2_28_x86_64.whl"
+          test -f "candidate/arco-$version-cp311-abi3-manylinux_2_28_x86_64.whl"
+          test "${#macos_cp310[@]}" -eq 1
+          test "${#macos_abi3[@]}" -eq 1
+          test -f "candidate/arco-$version-cp310-cp310-win_amd64.whl"
+          test -f "candidate/arco-$version-cp311-abi3-win_amd64.whl"
+          while IFS= read -r file; do
+            name="$(basename "$file")"
+            [[ "$name" == candidate.json || "$name" == dist-manifest.json ||
+              -n "${native[$name]:-}" || "$name" == arco-"$version"-*.whl ||
+              "$name" == "arco-$version.tar.gz" || "$name" == *.vsix ]]
+          done < <(find candidate -mindepth 1 -maxdepth 1 -type f -print)
+          test -z "$(find candidate -mindepth 1 -type d -print -quit)"
+
+          {
+            printf 'base=%s\n' "$base"
+            printf 'base_branch=%s\n' "$base_branch"
+            printf 'commit=%s\n' "$commit"
+            printf 'pr=%s\n' "$pr"
+            printf 'tag=%s\n' "$tag"
+            printf 'tree=%s\n' "$tree"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Require immutable GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/immutable-releases" --jq .enabled)" = true
+
+  merge:
+    name: Merge through branch protection
+    needs: verify-candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.merge.outputs.commit }}
+    permissions:
+      contents: write # Merge through GitHub's protected-branch API.
+      pull-requests: write # Merge the selected release PR.
+    env:
+      APPROVED_BASE: ${{ needs.verify-candidate.outputs.base }}
+      BASE_BRANCH: ${{ needs.verify-candidate.outputs.base_branch }}
+      CANDIDATE_COMMIT: ${{ needs.verify-candidate.outputs.commit }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ needs.verify-candidate.outputs.pr }}
+    steps:
+      - id: merge
+        name: Merge candidate through GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/commits/$BASE_BRANCH" --jq .sha)" = "$APPROVED_BASE"
+          test "$(gh api "repos/$GH_REPO/pulls/$PR" --jq .base.sha)" = "$APPROVED_BASE"
+          gh api --method PUT "repos/$GH_REPO/pulls/$PR/merge" \
+            -f sha="$CANDIDATE_COMMIT" -f merge_method=merge > merge.json
+          jq -e '.merged == true' merge.json >/dev/null
+          merged="$(jq -r .sha merge.json)"
+          printf 'commit=%s\n' "$merged" >> "$GITHUB_OUTPUT"
+
+  tag-draft:
+    name: Create Release Please tag and draft
+    needs: [verify-candidate, merge]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      release_tag: ${{ steps.release.outputs.tag_name }}
+    permissions:
+      contents: write # Create the version tag and draft release.
+      pull-requests: write # Update the selected release PR lifecycle.
+    steps:
+      - name: Require the approved merged source and release
+        env:
+          CANDIDATE_TREE: ${{ needs.verify-candidate.outputs.tree }}
+          MERGED_COMMIT: ${{ needs.merge.outputs.commit }}
+          BASE_BRANCH: ${{ needs.verify-candidate.outputs.base_branch }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.verify-candidate.outputs.pr }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/git/commits/$MERGED_COMMIT" --jq .tree.sha)" = "$CANDIDATE_TREE"
+          test "$(gh api "repos/$GH_REPO/commits/$BASE_BRANCH" --jq .sha)" = "$MERGED_COMMIT"
+          pending="$(gh api --paginate \
+            "repos/$GH_REPO/pulls?state=closed&base=$BASE_BRANCH&per_page=100" \
+            --jq '.[] | select(
+              .merged_at != null and
+              .user.login == "github-actions[bot]" and
+              (.head.ref | startswith("release-please--branches--")) and
+              any(.labels[]; .name == "autorelease: pending")
+            ) | .number')"
+          test "$pending" = "$PR"
+
+      - name: Recheck immutable GitHub Releases
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/immutable-releases" --jq .enabled)" = true
+
+      - id: release
+        name: Create the selected release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .github/release-please-manifest.json
+          target-branch: ${{ needs.verify-candidate.outputs.base_branch }}
+          skip-github-pull-request: true
+
+  upload:
+    name: Upload original candidate files
+    needs: [verify-candidate, merge, tag-draft]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # Download the original candidate run artifact.
+      contents: write # Upload files to the draft release.
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.verify-candidate.outputs.tag }}
+    steps:
+      - name: Verify the exact tag and draft
+        env:
+          EXPECTED_COMMIT: ${{ needs.merge.outputs.commit }}
+          RELEASE_CREATED: ${{ needs.tag-draft.outputs.release_created }}
+          RELEASE_TAG: ${{ needs.tag-draft.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RELEASE_CREATED" = true
+          test "$RELEASE_TAG" = "$TAG"
+          test "$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)" = "$EXPECTED_COMMIT"
+          test "$(gh release view "$TAG" --repo "$GH_REPO" --json isDraft --jq .isDraft)" = true
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run }}
+          name: candidate-assets
+          path: candidate
+          digest-mismatch: error
+
+      - name: Upload every original candidate file
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" candidate/* --repo "$GH_REPO"
+
+  publish-release:
+    name: Publish immutable GitHub Release
+    needs: [verify-candidate, upload]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # Publish the completed draft release.
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.verify-candidate.outputs.tag }}
+    steps:
+      - name: Publish draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GH_REPO" --draft=false
+
+  verify:
+    name: Verify immutable published files
+    needs: [verify-candidate, publish-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # Download the original candidate for comparison.
+      attestations: read # Verify the immutable release and asset attestations.
+      contents: read
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.verify-candidate.outputs.tag }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.candidate_run }}
+          name: candidate-assets
+          path: candidate
+          digest-mismatch: error
+
+      - name: Verify release and every published payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release verify "$TAG" --repo "$GH_REPO"
+          for payload in candidate/*; do
+            gh release verify-asset "$TAG" "$payload" --repo "$GH_REPO"
+          done
+
+  dispatch-pypi:
+    name: Dispatch tag-pinned PyPI publication
+    needs: [verify-candidate, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write # Dispatch publication from the immutable version tag.
+      contents: read
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.verify-candidate.outputs.tag }}
+    steps:
+      - run: gh workflow run publish-pypi.yml --repo "$GH_REPO" --ref "$TAG" -f "tag=$TAG"

@@ -144,7 +144,7 @@ repos:
     rev: v1.29.0
     hooks:
       - id: zizmor
-        args: [--pedantic, --config, .github/zizmor.yml]
+        args: [--pedantic, --no-config]
 
   - repo: https://github.com/ComPWA/taplo-pre-commit
     rev: v0.9.3
@@ -158,11 +158,10 @@ repos:
     hooks:
       - id: actionlint
         name: actionlint
-        entry: bash -c 'uvx --from actionlint-py actionlint .github/workflows/*.yaml'
+        entry: uvx --from actionlint-py actionlint
         language: system
         types: [yaml]
-        files: ^\.github/workflows/.*\.yaml$
-        pass_filenames: false
+        files: ^\.github/workflows/.*\.ya?ml$
         stages: [manual]
 
       - id: ci-cargo-fmt

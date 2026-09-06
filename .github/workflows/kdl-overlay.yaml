@@ -2,7 +2,7 @@ name: kdl-overlay
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, edited]
+    types: [opened, reopened, synchronize]
     paths:
       - "**/*.kdl"
       - ".pre-commit-config.yaml"
@@ -21,7 +21,6 @@ permissions:
 jobs:
   kdl-overlay-check:
     name: kdl overlay parse check
-    if: github.event.action != 'edited'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,9 +38,13 @@ jobs:
           npm ci
           echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
 
-      - name: Regenerate generated parser artifacts from grammar source
+      - name: Verify generated parser and grammar tests
         working-directory: tools/tree-sitter-arco-kdl
-        run: tree-sitter generate
+        run: |
+          tree-sitter generate
+          tree-sitter test
+          # Tree-sitter omits the final newline added by repository hooks.
+          git diff --exit-code --ignore-space-at-eol -- src/
 
       - uses: j178/prek-action@e191cc396d739737d801ef04ab315c3e8d933c74
         with:

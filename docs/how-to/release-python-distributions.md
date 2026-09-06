@@ -1,43 +1,123 @@
-# Release Python Distributions
+# Release Python distributions
 
-Use this when a release is ready but a Python wheel build or PyPI upload fails.
+Choose the cutoff through the Release Please PR as described in
+[Release Policy](../../RELEASE_POLICY.md). Update the release branch if needed,
+then run the candidate workflow with the release PR number. It builds and tests
+six wheels and one sdist before a version tag exists.
 
-## Normal release
+Review the successful candidate and approve its run through the promotion workflow.
+Promotion merges the unchanged release PR, lets Release Please create the tag and
+draft, and publishes the original files to an immutable GitHub Release.
 
-1. Merge the release-please PR.
-2. Let `release-please` dispatch the cargo-dist release.
-3. Let the Python wheel matrix store its artifacts, then let the dedicated upload
-   job publish the complete set to the GitHub Release.
-4. Let PyPI publish after all Python artifacts build.
-5. Verify the release files on PyPI.
+After release verification, promotion dispatches `publish-pypi.yml` at the tag.
+That workflow downloads the six wheels and sdist, verifies their GitHub release
+attestations, and publishes through PyPI trusted publishing. Check its result
+separately from the promotion run. The workflow accepts stable `vX.Y.Z` tags.
 
-The wheel matrix is intentionally small: `cp310` and `abi3` across Linux, macOS arm64, and Windows. Linux x86_64 wheels build in the pinned `manylinux_2_28` container, supporting glibc 2.28 or newer. The `abi3` wheels target CPython 3.11 and support Python 3.12, 3.13, and 3.14. VS Code extension upload is separate and does not block PyPI publishing.
+## Retry publication
 
-## If a wheel job fails
+Use Re-run failed jobs for candidate or release verification failures. If the
+candidate source changes before approval, build and review a new candidate.
 
-Use the smallest recovery path first:
+For a PyPI failure, run `publish-pypi.yml` from the published tag with the same
+`tag` input. It verifies the original GitHub files and skips distributions already
+on PyPI. It never rebuilds packages. Ship code fixes as a new version.
 
-1. If the failure looks transient, use GitHub's **Re-run failed jobs** on the failed workflow run.
-2. If the workflow or packaging code needs a fix, merge the fix and rerun **Manual PyPI Release** from `main` with:
-   - `ref`: the release tag or branch to rebuild
-   - `skip_existing`: `true`
-   - `release_tag`: the GitHub Release tag, when GitHub Release assets should be updated
-   - `upload_to_release`: `true`, when GitHub Release assets should be updated
-3. Rebuild all Python artifacts rather than stitching together artifacts from multiple runs.
+## Distribution targets
 
-Rebuilding the full reduced matrix is simpler and less error-prone than maintaining a separate artifact staging system.
+| Platform                     | Wheels                      |
+| ---------------------------- | --------------------------- |
+| Linux x86_64, manylinux 2.28 | `cp310-cp310`, `cp311-abi3` |
+| macOS arm64                  | `cp310-cp310`, `cp311-abi3` |
+| Windows x86_64               | `cp310-cp310`, `cp311-abi3` |
 
-## If PyPI partially uploaded files
+The release also includes one source distribution. Python 3.10 uses its dedicated
+wheel; Python 3.11 and later use the stable-ABI wheel.
 
-PyPI files are immutable.
+## Add a wheel platform
 
-1. Keep already uploaded files unchanged.
-2. Fix the missing or invalid artifact.
-3. Rerun **Manual PyPI Release** with `skip_existing=true`.
-4. If a bad file was uploaded, publish a patch release instead of trying to replace it.
+The supported wheel platforms are an explicit release contract. Adding a row to
+the build matrix is only the first step: candidate assembly, promotion, and PyPI
+publication each reject an inventory that does not match their own platform and
+ABI checks. Update all pipeline stages and the release documentation in the same
+pull request.
 
-The release-please PyPI publish path also uses `skip-existing: true` so reruns do not fail only because a previous attempt uploaded some files.
+For example, to propose macOS Intel as a fourth platform, add this row to the
+`platform` matrix in
+`.github/workflows/build-packages.yml`:
 
----
+```yaml
+- label: macos-intel
+  os: macos-15-intel
+  manylinux: false
+  wheel_python: python3
+```
 
-[Back to how-to guides](./)
+GitHub documents `macos-15-intel` as an Intel hosted-runner label in
+[Choosing the runner for a job](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job).
+The existing Python matrix combines every platform with two configurations:
+`cp310`, built with the CPython 3.10 ABI, and `abi3`, built with
+`pyo3/abi3-py311`. The new platform therefore adds two wheels. PyO3 documents
+that an `abi3-py311` build supports Python 3.11 and later in its
+[building and distribution guide](https://pyo3.rs/main/building-and-distribution#minimum-python-version-for-abi3).
+The expected macOS Intel filenames end in `macosx_*_x86_64.whl`; the Python
+Packaging User Guide defines `x86_64` as the tag for a single-architecture Intel
+macOS wheel in its
+[platform compatibility tag specification](https://packaging.python.org/en/latest/specifications/platform-compatibility-tags/#macos).
+
+Keep the solver setup used by the other platform rows. The build environment
+sets up the statically linked HiGHS dependency, the wheel features include
+`xpress` and `scip-from-source`, and the `Set up Xpress runtime` step calls
+`scripts/setup_solver_runtime_env.sh`. Before enabling the Intel row, confirm
+that `XPRESS_SDK_MACOS_URL` provides an x86_64-compatible SDK. If that repository
+variable is unset, the script falls back to the `xpress` and `xpresslibs` Python
+packages, which must also provide an Intel runtime on the Intel runner.
+
+Update the inventory checks after adding the platform:
+
+| Release stage                                                 | Required macOS Intel update                                                                                                                                        |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Candidate assembly in `.github/workflows/build-candidate.yml` | Change the total from 6 to 8 wheels and each ABI count from 3 to 4. Add checks for one `cp310-cp310-macosx_*_x86_64.whl` and one `cp311-abi3-macosx_*_x86_64.whl`. |
+| Promotion in `.github/workflows/promote-release.yml`          | Change the total from 6 to 8 wheels and require the two x86_64 macOS filename patterns alongside the arm64 patterns.                                               |
+| PyPI publication in `.github/workflows/publish-pypi.yml`      | Change the downloaded inventory from 6 to 8 wheels and require the same two x86_64 macOS filename patterns before attestation verification and publication.        |
+| Release documentation                                         | Update the distribution target table above and the published-artifact table in `RELEASE_POLICY.md` after the platform is supported.                                |
+
+Do not change the source-distribution count or the cargo-dist native artifact
+count when adding a Python wheel platform. Those inventories describe different
+release products.
+
+A new Linux architecture also needs an architecture-specific manylinux container
+image and wheel filename check in `build-packages.yml`. The current
+`manylinux: true` branch always selects the x86_64 image and requires a
+`manylinux_2_28_x86_64` wheel. Confirm that HiGHS, bundled SCIP, and the Xpress SDK
+all support the new architecture before adding its matrix row.
+
+Run the same checks used by the matrix job on an Intel macOS host or runner:
+
+```bash
+# Export XPRESSDIR and, when required, XPAUTH_PATH for the Intel SDK first.
+rm -f dist/*.whl
+PYTHON_WHEEL_INTERPRETER=python3.10 \
+  PYTHON_WHEEL_FEATURES=pyo3/extension-module,xpress,scip-from-source \
+  just ci-python-release-wheel "dist/*.whl"
+
+rm -f dist/*.whl
+PYTHON_WHEEL_INTERPRETER=python3.11 \
+  PYTHON_WHEEL_FEATURES=pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source \
+  just ci-python-release-wheel "dist/*.whl"
+```
+
+Each command prepares the HiGHS and bundled SCIP build environment, builds one
+release wheel, installs it into an isolated environment, and imports `arco`.
+Run the helper-script tests and Python suite as separate regression checks:
+
+```bash
+just script-test
+just py-test
+```
+
+After merging all four configuration changes, request a new candidate and inspect
+its output before promotion. The expanded inventory must contain exactly eight
+wheels: the six current targets in the table above plus the two macOS Intel
+wheels, split into four `cp310-cp310` wheels and four `cp311-abi3` wheels. It
+must still contain one source distribution.

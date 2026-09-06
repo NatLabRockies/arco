@@ -123,6 +123,6 @@ module.exports = grammar(kdl, {
     // Constraint math must include an operator or bracket so bare KDL child
     // nodes like `if { ... }` still parse through node_children.
     arco_constraint_math_text: (_) =>
-      token(prec(10, /[^{}]*[<>=!+\-*\/\[\]][^{}]*/)),
+      token(prec(10, /[^{}"']*[<>=!+\-*\/\[\]][^{}"']*/)),
   },
 });
