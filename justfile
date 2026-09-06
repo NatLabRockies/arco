@@ -83,6 +83,7 @@ pre-commit-stage stage:
 
 [group: 'hygiene']
 kdl-overlay-check:
+    cd tools/tree-sitter-arco-kdl && tree-sitter test
     ./scripts/check-kdl-overlay.sh
 
 [group: 'hygiene']
@@ -92,6 +93,10 @@ vscode-extension-check:
 [group: 'hygiene']
 workflow-quality:
     uvx zizmor --pedantic --no-config .github/
+
+[group: 'hygiene']
+script-test:
+    uv run --no-project --with pytest pytest scripts/test_bench.py scripts/test_build_python_wheel.py scripts/test_python_package_smoke.py scripts/test_kdl_overlay.py -q
 
 [group: 'hygiene']
 release-check dist_bin="dist":
@@ -294,6 +299,7 @@ benchmark-guard:
 
 [group: 'ci']
 ci:
+    just script-test
     just ci-rust-fmt
     just ci-rust-clippy
     just ci-rust-test

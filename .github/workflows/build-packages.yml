@@ -78,10 +78,6 @@ jobs:
           save-rust-cache: false
           save-solver-cache: false
 
-      - name: Check wheel build configuration
-        if: matrix.platform.manylinux && matrix.python.label == 'abi3'
-        run: uv run --no-project --with pytest pytest scripts/test_build_python_wheel.py -q
-
       - name: Set up Xpress runtime
         shell: bash
         env:
@@ -130,8 +126,7 @@ jobs:
           name: artifacts-python-${{ matrix.platform.label }}-${{ matrix.python.label }}
           path: dist/
           if-no-files-found: error
-          retention-days: 90
-          overwrite: true
+          retention-days: 1
 
   vscode:
     name: VS Code release artifact
@@ -163,5 +158,4 @@ jobs:
           name: artifacts-vscode
           path: arco-kdl-vscode.vsix
           if-no-files-found: error
-          retention-days: 90
-          overwrite: true
+          retention-days: 1

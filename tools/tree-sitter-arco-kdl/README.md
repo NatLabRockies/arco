@@ -30,7 +30,7 @@ correct contexts, giving editors clean parses with no red squiggles.
   nested projection-reduce blocks (`reduce ... { ... }`).
 - **Mixed math nodes** (`constraint`) try KDL children first (generated form
   with `index`, `if`, `expression` children), falling back to algebra text
-  (simple form).
+  (simple form), including when child properties use quoted values.
 - Exposes algebra text as `arco_math_text` so editor injections can apply a math
   grammar for syntax highlighting.
 
@@ -58,7 +58,6 @@ Authored files:
 
 - `grammar.js`: overlay grammar source of truth
 - `src/scanner.c`: thin Arco wrapper for external tokens
-- `src/vendor/tree_sitter_kdl_external_scanner.inc`: vendored upstream KDL scanner
 - `queries/*.scm`: editor queries
 - `test/corpus/arco_math.txt`: parser regression corpus
 

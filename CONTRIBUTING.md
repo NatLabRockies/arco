@@ -70,6 +70,8 @@ The repository ships GitHub Actions for package validation and release:
 
 - `CI` runs source, solver, package, and docs checks. Packaging changes also run
   Python 3.10–3.14 wheel smoke checks.
+- KDL overlay validation runs the Tree-sitter grammar corpus and parses tracked
+  KDL files. Parser errors fail CI; generated parser files must match the grammar.
 - `release-please.yaml` accumulates changes in the release PR without tagging.
 - `build-candidate.yml` builds CLI, Python, and VS Code candidate files when a
   maintainer requests a release cutoff.
@@ -78,12 +80,16 @@ The repository ships GitHub Actions for package validation and release:
 - `publish-pypi.yml` downloads and verifies immutable release assets for trusted
   PyPI publication. Check its result separately from release promotion.
 - Run `just release-check` after changing Cargo-dist configuration, and
-  `just workflow-quality` after changing workflow definitions.
+  `just workflow-quality` after changing workflow definitions. Run
+  `just script-test` for the benchmark, Python packaging, and KDL helpers; these
+  tests also run in GitHub Actions Quality and `just ci`.
 - Releases follow one platform version stream (`arco`) that updates workspace
   and Python package versions together.
 - `arco` publishes artifacts and releases; Rust crates are internal and
   versioned as part of the same platform release.
 - Shared package smoke logic lives in `scripts/python_package_smoke.py`.
+  See [Release Python distributions](docs/how-to/release-python-distributions.md)
+  for the platform matrix and instructions for adding a wheel target.
 - For policy and operator guidance, use [`RELEASE_POLICY.md`](RELEASE_POLICY.md)
   as the source of truth.
 

@@ -152,18 +152,6 @@ jobs:
               - 'scripts/ci_vscode_extension_check.sh'
               - 'tools/vscode-arco-kdl/**'
 
-      - name: Print CI plan
-        env:
-          RUST: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.rust == 'true' }}
-          PYTHON: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.python == 'true' }}
-          PYTHON_COMPAT: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.python_compat == 'true' }}
-          DOCS: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.docs == 'true' }}
-          SOLVER: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.solver == 'true' }}
-          KDL: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.kdl == 'true' }}
-          BENCHMARKS: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.benchmarks == 'true' }}
-          VSCODE_EXTENSION: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.vscode_extension == 'true' }}
-        run: bash scripts/ci-plan.sh
-
   vscode-extension:
     name: VS Code extension
     needs: [ci-plan]
@@ -578,6 +566,7 @@ jobs:
           save-rust-cache: "true"
 
       - name: Run Python quality checks
+        if: matrix.python-version == '3.12'
         run: just ci-python-check
 
       - name: Run Python tests

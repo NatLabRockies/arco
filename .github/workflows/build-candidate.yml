@@ -95,7 +95,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Install cargo-dist 0.31.0
+      - name: Install cargo-dist
         shell: bash
         run: bash scripts/ci_install_dist_unix.sh
 
@@ -253,7 +253,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Install cargo-dist 0.31.0
+      - name: Install cargo-dist
         shell: bash
         run: bash scripts/ci_install_dist_unix.sh
 

@@ -5,8 +5,8 @@ on:
     paths:
       - ".github/**"
       - "dist-workspace.toml"
-      - "scripts/*release*"
-      - "scripts/ci_*"
+      - "scripts/**"
+      - ".pre-commit-config.yaml"
       - "bindings/python/tests/test_rust_boundaries.py"
       - "justfile"
   push:
@@ -16,8 +16,8 @@ on:
     paths:
       - ".github/**"
       - "dist-workspace.toml"
-      - "scripts/*release*"
-      - "scripts/ci_*"
+      - "scripts/**"
+      - ".pre-commit-config.yaml"
       - "bindings/python/tests/test_rust_boundaries.py"
       - "justfile"
 
@@ -29,6 +29,30 @@ permissions:
   contents: read
 
 jobs:
+  script-tests:
+    name: Automation script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up test tools
+        uses: $/.github/actions/setup-build-env
+        with:
+          python-version: "3.12"
+          uv-version: "0.9.4"
+          just-version: "1.43.0"
+          install-rust: "false"
+          cache-rust: "false"
+          cache-uv: "false"
+          configure-solvers: "false"
+          sync-python-licenses: "false"
+
+      - name: Test automation scripts
+        run: just script-test
+
   dist-config:
     name: Cargo-dist configuration
     runs-on: ubuntu-latest
