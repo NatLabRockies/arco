@@ -634,7 +634,7 @@ pub(super) fn multiply_sparse_variables_with_labeled_operand(
     }
 
     let mut out_indices = Vec::new();
-    let mut out_values = Vec::new();
+    let mut out_var_ids = Vec::new();
     for target_flat in 0..target_shape.total_len() {
         let variable_flat = variable_plan.source_offset_for_target_flat(target_flat);
         let Some(active_pos) = active_lookup[variable_flat] else {
@@ -646,14 +646,16 @@ pub(super) fn multiply_sparse_variables_with_labeled_operand(
             continue;
         }
         out_indices.push(target_flat);
-        out_values.push(PyExpr::from_term(var_ids[active_pos], 1.0).scale(weight));
+        out_var_ids.push(var_ids[active_pos]);
     }
 
-    Ok(Some(PyExprArray::from_sparse(
+    Ok(Some(PyExprArray::from_sparse_weighted(
         union_index_sets,
         target_shape.shape(),
         out_indices,
-        out_values,
+        out_var_ids,
+        source_values,
+        source_plan,
     )))
 }
 
@@ -838,9 +840,18 @@ pub(super) fn sum_sparse_expr(
     py: Python<'_>,
     over: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<PyObject> {
-    let Some(sparse_values) = sparse.values() else {
-        let core = sparse.to_core(index_sets, shape);
-        return array_sum(&core, py, over);
+    if let Some(weighted) = sparse.weighted() {
+        return sum_weighted_sparse_expr(index_sets, shape, weighted, py, over);
+    }
+    // Keep the established sparse fallback for lazy nodes.  Materializing only
+    // their active entries preserves sparse reduction memory behavior; the
+    // weighted representation above has its own streaming path.
+    let materialized;
+    let (active_indices, sparse_values) = if let Some(values) = sparse.values() {
+        (sparse.active_indices(), values)
+    } else {
+        materialized = sparse.materialized_entries();
+        (&materialized.0[..], &materialized.1[..])
     };
     let Some(over) = over else {
         let mut acc = PyExpr::default();
@@ -870,7 +881,7 @@ pub(super) fn sum_sparse_expr(
     let out_len = out_shape.iter().product::<usize>().max(1);
     let mut values = vec![PyExpr::default(); out_len];
 
-    for (active_idx, expr) in sparse.active_indices().iter().zip(sparse_values.iter()) {
+    for (active_idx, expr) in active_indices.iter().zip(sparse_values.iter()) {
         let reduced_idx = reduced_sparse_flat_index(
             *active_idx,
             shape,
@@ -879,6 +890,78 @@ pub(super) fn sum_sparse_expr(
             &summed_axes,
         );
         values[reduced_idx].add_assign(expr);
+    }
+
+    if out_shape.is_empty() {
+        let expr = values.pop().unwrap_or_default();
+        Ok(expr.into_pyobject(py)?.into_any().unbind())
+    } else {
+        let array = PyExprArray::new(out_index_sets, out_shape, values);
+        Ok(array.into_pyobject(py)?.into_any().unbind())
+    }
+}
+
+fn sum_weighted_sparse_expr(
+    index_sets: &[Py<PyIndexSet>],
+    shape: &[usize],
+    weighted: &WeightedSparseExprStorage,
+    py: Python<'_>,
+    over: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyObject> {
+    let Some(over) = over else {
+        let mut terms = Vec::with_capacity(weighted.active_indices().len());
+        let mut constant = 0.0;
+        for (&active_idx, &var_id) in weighted.active_indices().iter().zip(weighted.var_ids()) {
+            let weight = weighted.weight_at(active_idx);
+            if weight == 0.0 {
+                continue;
+            }
+            terms.push((VariableId::new(var_id), weight));
+            // Match `PyExpr::from_term(var_id, 1.0).scale(weight)`, including
+            // the 0.0 * non-finite weight constant behavior.
+            constant += 0.0 * weight;
+        }
+        let expr = PyExpr::from_expr(Expr::new(terms, constant));
+        return Ok(expr.into_pyobject(py)?.into_any().unbind());
+    };
+
+    let axes = parse_sparse_axes(index_sets, py, over)?;
+    let mut summed_axes = vec![false; shape.len()];
+    for axis in axes {
+        summed_axes[axis] = true;
+    }
+
+    let mut out_shape = Vec::new();
+    let mut out_index_sets = Vec::new();
+    for (axis, index_set) in index_sets.iter().enumerate() {
+        if !summed_axes[axis] {
+            out_shape.push(shape[axis]);
+            out_index_sets.push(index_set.clone_ref(py));
+        }
+    }
+
+    let source_strides = arco_arrays::row_major_strides(shape);
+    let reduced_strides = arco_arrays::row_major_strides(&out_shape);
+    let out_len = out_shape.iter().product::<usize>().max(1);
+    let mut values = vec![PyExpr::default(); out_len];
+
+    for (&active_idx, &var_id) in weighted.active_indices().iter().zip(weighted.var_ids()) {
+        let weight = weighted.weight_at(active_idx);
+        if weight == 0.0 {
+            continue;
+        }
+        let reduced_idx = reduced_sparse_flat_index(
+            active_idx,
+            shape,
+            &source_strides,
+            &reduced_strides,
+            &summed_axes,
+        );
+        let term = PyExpr::from_expr(Expr::new(
+            vec![(VariableId::new(var_id), weight)],
+            0.0 * weight,
+        ));
+        values[reduced_idx].add_assign_owned(term);
     }
 
     if out_shape.is_empty() {
@@ -1667,6 +1750,61 @@ pub struct CompactExprStorage {
     pub(crate) count: usize,
 }
 
+/// Sparse variable terms multiplied by a labeled numeric operand.
+///
+/// The target-flat indices and variable IDs are retained without creating one
+/// `PyExpr` per row. The source plan keeps the original labeled broadcast
+/// mapping so reductions can stream terms in target order.
+#[derive(Clone)]
+pub(crate) struct WeightedSparseExprStorage {
+    active_indices: Arc<[usize]>,
+    var_ids: Arc<[u32]>,
+    source_values: Arc<[f64]>,
+    source_plan: BroadcastPlan,
+}
+
+impl WeightedSparseExprStorage {
+    fn new(
+        active_indices: Vec<usize>,
+        var_ids: Vec<u32>,
+        source_values: Vec<f64>,
+        source_plan: BroadcastPlan,
+    ) -> Self {
+        debug_assert_eq!(active_indices.len(), var_ids.len());
+        Self {
+            active_indices: active_indices.into(),
+            var_ids: var_ids.into(),
+            source_values: source_values.into(),
+            source_plan,
+        }
+    }
+
+    pub(crate) fn active_indices(&self) -> &[usize] {
+        &self.active_indices
+    }
+
+    pub(crate) fn var_ids(&self) -> &[u32] {
+        &self.var_ids
+    }
+
+    fn weight_at(&self, target_flat: usize) -> f64 {
+        self.source_values[self.source_plan.source_offset_for_target_flat(target_flat)]
+    }
+
+    fn value_at(&self, target_flat: usize) -> Option<PyExpr> {
+        let position = self.active_indices.binary_search(&target_flat).ok()?;
+        let weight = self.weight_at(target_flat);
+        Some(PyExpr::from_term(self.var_ids[position], 1.0).scale(weight))
+    }
+
+    fn materialized_entries(&self) -> (Vec<usize>, Vec<PyExpr>) {
+        self.active_indices
+            .iter()
+            .filter_map(|&index| self.value_at(index).map(|value| (index, value)))
+            .unzip()
+    }
+}
+
 /// Sparse expression storage: inactive dense slots are implicit zeros.
 #[derive(Clone)]
 pub(crate) enum SparseExprStorage {
@@ -1675,6 +1813,7 @@ pub(crate) enum SparseExprStorage {
         values: Vec<PyExpr>,
     },
     Lazy(Arc<SparseExprNode>),
+    Weighted(WeightedSparseExprStorage),
 }
 
 impl SparseExprStorage {
@@ -1682,17 +1821,32 @@ impl SparseExprStorage {
         Self::Lazy(node)
     }
 
+    pub(crate) fn from_weighted(
+        active_indices: Vec<usize>,
+        var_ids: Vec<u32>,
+        source_values: Vec<f64>,
+        source_plan: BroadcastPlan,
+    ) -> Self {
+        Self::Weighted(WeightedSparseExprStorage::new(
+            active_indices,
+            var_ids,
+            source_values,
+            source_plan,
+        ))
+    }
+
     pub(crate) fn active_indices(&self) -> &[usize] {
         match self {
             Self::Eager { active_indices, .. } => active_indices,
             Self::Lazy(node) => node.active_indices(),
+            Self::Weighted(weighted) => weighted.active_indices(),
         }
     }
 
     pub(crate) fn values(&self) -> Option<&[PyExpr]> {
         match self {
             Self::Eager { values, .. } => Some(values),
-            Self::Lazy(_) => None,
+            Self::Lazy(_) | Self::Weighted(_) => None,
         }
     }
 
@@ -1713,6 +1867,11 @@ impl SparseExprStorage {
                 }
                 (active_indices, values)
             }),
+            Self::Weighted(weighted) => weighted
+                .active_indices()
+                .iter()
+                .filter_map(|&index| weighted.value_at(index).map(|value| (index, value)))
+                .unzip(),
         }
     }
 
@@ -1720,10 +1879,32 @@ impl SparseExprStorage {
         matches!(self, Self::Lazy(_))
     }
 
+    pub(crate) fn weighted(&self) -> Option<&WeightedSparseExprStorage> {
+        match self {
+            Self::Weighted(weighted) => Some(weighted),
+            Self::Eager { .. } | Self::Lazy(_) => None,
+        }
+    }
+
+    pub(crate) fn comparison_node(&self, shape: &[usize]) -> Option<Arc<SparseExprNode>> {
+        match self {
+            Self::Eager {
+                active_indices,
+                values,
+            } => SparseExprNode::values(shape.to_vec(), active_indices.clone(), values.clone()),
+            Self::Lazy(node) => Some(node.clone()),
+            Self::Weighted(weighted) => {
+                let (active_indices, values) = weighted.materialized_entries();
+                SparseExprNode::values(shape.to_vec(), active_indices, values)
+            }
+        }
+    }
+
     pub(crate) fn node(&self) -> Option<Arc<SparseExprNode>> {
         match self {
             Self::Eager { .. } => None,
             Self::Lazy(node) => Some(node.clone()),
+            Self::Weighted(_) => None,
         }
     }
 
@@ -1736,6 +1917,7 @@ impl SparseExprStorage {
                     .filter(|&&index| node.value_at(py, index).is_some())
                     .count()
             }),
+            Self::Weighted(weighted) => weighted.active_indices().len(),
         }
     }
 
@@ -1749,6 +1931,7 @@ impl SparseExprStorage {
                 .binary_search(&index)
                 .ok()
                 .map(|position| values[position].clone()),
+            Self::Weighted(weighted) => weighted.value_at(index),
         }
     }
 
@@ -1768,6 +1951,11 @@ impl SparseExprStorage {
                 )
             }),
             Self::Eager { values, .. } => expression_term_counts(values),
+            Self::Weighted(weighted) => ExpressionTermCounts {
+                linear: weighted.active_indices().len(),
+                quadratic: 0,
+                cubic: 0,
+            },
         }
     }
 
@@ -1792,6 +1980,12 @@ impl SparseExprStorage {
             {
                 for (active_idx, expr) in active_indices.iter().zip(eager_values.iter()) {
                     values[*active_idx] = expr.clone();
+                }
+            } else if let Self::Weighted(weighted) = self {
+                for &active_idx in weighted.active_indices() {
+                    if let Some(expr) = weighted.value_at(active_idx) {
+                        values[active_idx] = expr;
+                    }
                 }
             }
             LinearArrayCore::new(

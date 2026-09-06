@@ -91,6 +91,28 @@ impl PyExprArray {
         }
     }
 
+    pub(crate) fn from_sparse_weighted(
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+        active_indices: Vec<usize>,
+        var_ids: Vec<u32>,
+        source_values: Vec<f64>,
+        source_plan: arco_arrays::BroadcastPlan,
+    ) -> Self {
+        Self {
+            storage: ExprArrayStorage::Sparse {
+                storage: SparseExprStorage::from_weighted(
+                    active_indices,
+                    var_ids,
+                    source_values,
+                    source_plan,
+                ),
+                index_sets,
+                shape,
+            },
+        }
+    }
+
     /// Wrap a compact result using this array's index sets and shape.
     fn wrap_compact(&self, compact: CompactExprStorage) -> Self {
         Self::from_compact(
@@ -117,11 +139,56 @@ impl PyExprArray {
         rhs: &Bound<'_, PyAny>,
         sense: ComparisonSense,
     ) -> PyResult<PyConstraintArray> {
+        if let Some(left_node) = self
+            .storage
+            .as_sparse()
+            .and_then(|storage| storage.weighted())
+            .and_then(|_| self.sparse_compare_node())
+        {
+            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                if rhs_ref.storage.shape() == self.storage.shape() {
+                    let right_node = rhs_ref
+                        .storage
+                        .sparse_node()
+                        .or_else(|| rhs_ref.sparse_compare_node());
+                    if let Some(right_node) = right_node {
+                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                            left_node,
+                            right_node,
+                            sense,
+                            self.storage.shape().to_vec(),
+                            self.storage.clone_index_sets(),
+                        ));
+                    }
+                }
+            }
+            if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                if rhs_ref.get_shape() == self.storage.shape() {
+                    if let Some(right_node) =
+                        rhs_ref.sparse_expr_node(rhs_array.clone_ref(rhs.py()))
+                    {
+                        return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                            left_node,
+                            right_node,
+                            sense,
+                            self.storage.shape().to_vec(),
+                            self.storage.clone_index_sets(),
+                        ));
+                    }
+                }
+            }
+        }
         if let Some(left_node) = self.storage.sparse_node() {
             if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
                 let rhs_ref = rhs_array.bind(rhs.py()).borrow();
                 if rhs_ref.storage.shape() == self.storage.shape() {
-                    if let Some(right_node) = rhs_ref.storage.sparse_node() {
+                    if let Some(right_node) = rhs_ref
+                        .storage
+                        .sparse_node()
+                        .or_else(|| rhs_ref.sparse_compare_node())
+                    {
                         return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
                             left_node.clone(),
                             right_node,
@@ -360,6 +427,9 @@ impl PyExprArray {
     fn storage_kind(&self) -> &'static str {
         match &self.storage {
             ExprArrayStorage::Compact { .. } => "compact",
+            ExprArrayStorage::Sparse { storage, .. } if storage.weighted().is_some() => {
+                "sparse_weighted"
+            }
             ExprArrayStorage::Sparse { storage, .. } if storage.is_lazy() => "sparse_lazy",
             ExprArrayStorage::Sparse { .. } => "sparse",
             ExprArrayStorage::Full(_) => "full",
@@ -380,6 +450,12 @@ impl PyExprArray {
                 .values()
                 .map(|values| (storage.active_indices(), values))
         })
+    }
+
+    pub(crate) fn sparse_compare_node(&self) -> Option<std::sync::Arc<SparseExprNode>> {
+        self.storage
+            .as_sparse()
+            .and_then(|storage| storage.comparison_node(self.storage.shape()))
     }
 
     pub(crate) fn materialized_sparse_entries(&self) -> Option<(Vec<usize>, Vec<PyExpr>)> {
@@ -495,6 +571,14 @@ impl PyExprArray {
                         storage.active_indices().to_vec(),
                         values.to_vec(),
                     ))
+                } else if let Some(weighted) = storage.weighted() {
+                    Ok(Self {
+                        storage: ExprArrayStorage::Sparse {
+                            storage: SparseExprStorage::Weighted(weighted.clone()),
+                            index_sets: new_index_sets,
+                            shape: shape.clone(),
+                        },
+                    })
                 } else {
                     Ok(Self::from_sparse(
                         new_index_sets,
@@ -968,15 +1052,7 @@ impl PyExprArray {
             shape,
         } = &self.storage
         {
-            if storage.values().is_some() {
-                return sum_sparse_expr(index_sets, shape, storage, py, over);
-            }
-            let (active_indices, values) = storage.materialized_entries();
-            let eager = SparseExprStorage::Eager {
-                active_indices,
-                values,
-            };
-            return sum_sparse_expr(index_sets, shape, &eager, py, over);
+            return sum_sparse_expr(index_sets, shape, storage, py, over);
         }
         let core = self.to_core();
         super::array_sum(&core, py, over)

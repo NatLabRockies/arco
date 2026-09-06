@@ -378,3 +378,27 @@ An allocation improvement should ship with a focused correctness regression,
 a reproducible measurement, and an explicit statement of what remains
 unmeasured. Keep allocator-specific tuning and machine-specific settings out
 of the implementation.
+
+### Weighted sparse reductions
+
+Multiplying a sparse `VariableArray` by a labeled numeric parameter keeps the
+target-flat active indices, variable IDs, source values, and broadcast plan.
+It reports `sparse_weighted` in `memory_estimate()` and defers row expression
+allocation until an operation needs individual rows. Scalar reductions stream
+the weighted variable terms directly into one expression; reductions over
+axes stream into the reduced result shape. Target-flat order, duplicate terms
+created by broadcasting, exact-zero filtering, and nonfinite coefficient
+behavior remain the same as the eager path.
+
+The focused regression covers labeled axis order, duplicated broadcast terms,
+axis reductions, zero weights, and the native nonfinite-coefficient boundary:
+
+```bash
+uv run --no-project --with pytest python -m pytest -q \
+  bindings/python/tests/test_weighted_sparse_reduction.py
+```
+
+The optimized path covers labeled variable weighting and its immediate
+reductions. Operations that require individual expression rows still
+materialize them on demand; this section does not claim a whole-model peak RSS
+reduction without a paired construction measurement.
