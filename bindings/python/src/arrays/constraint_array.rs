@@ -3,6 +3,7 @@ use arco_model::Bounds;
 use arco_model::expr::ComparisonSense;
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
+use std::sync::Arc;
 
 use crate::PyObject;
 use crate::py_modules::constraint::PyConstraint;
@@ -11,7 +12,7 @@ use crate::py_modules::expr::PyExpr;
 use crate::py_modules::index_set::PyIndexSet;
 
 use super::CompactTerm;
-use super::{LinearArrayCore, PyExprArray, PyVariableArray};
+use super::{LinearArrayCore, PyExprArray, PyVariableArray, SparseExprNode};
 
 pub(crate) type SparseConstraintRows<'a> = (&'a [PyExpr], &'a [f64], &'a [usize], ComparisonSense);
 
@@ -136,6 +137,18 @@ impl SparseCompareValue<'_> {
     }
 }
 
+fn sparse_arithmetic_row_is_nonzero(
+    py: Python<'_>,
+    left: &SparseExprNode,
+    right: &SparseExprNode,
+    index: usize,
+) -> bool {
+    [left.value_at(py, index), right.value_at(py, index)]
+        .into_iter()
+        .flatten()
+        .any(|value| value.inner().num_terms() != 0 || value.constant() != 0.0)
+}
+
 impl SparseCompareOperand {
     fn with_view<R>(
         &self,
@@ -216,8 +229,9 @@ impl BroadcastCompareView<'_> {
 
     fn constant_at(&self, target_index: usize) -> f64 {
         match self {
-            Self::Expr { array, plan } =>
-                array.constant_at_flat(plan.source_offset_for_target_flat(target_index)),
+            Self::Expr { array, plan } => {
+                array.constant_at_flat(plan.source_offset_for_target_flat(target_index))
+            }
             Self::Variable { .. } => 0.0,
         }
     }
@@ -240,7 +254,10 @@ impl BroadcastCompareOperand {
         match self {
             Self::Expr(array) => {
                 let array = array.bind(py).borrow();
-                visit(BroadcastCompareView::Expr { array: &array, plan })
+                visit(BroadcastCompareView::Expr {
+                    array: &array,
+                    plan,
+                })
             }
             Self::Variable(array) => {
                 let array = array.bind(py).borrow();
@@ -337,6 +354,12 @@ pub(crate) enum ConstraintArrayStorage {
     SparseLazyCompare {
         left: SparseCompareOperand,
         right: SparseCompareOperand,
+        sense: ComparisonSense,
+    },
+    /// Lazy comparison of two sparse arithmetic expression plans.
+    SparseArithmeticLazyCompare {
+        left: Arc<SparseExprNode>,
+        right: Arc<SparseExprNode>,
         sense: ComparisonSense,
     },
     /// Lazy lower-rank comparison retaining source arrays and broadcast plans.
@@ -459,6 +482,22 @@ impl PyConstraintArray {
         }
     }
 
+    pub(crate) fn from_sparse_arithmetic_lazy_compare(
+        left: Arc<SparseExprNode>,
+        right: Arc<SparseExprNode>,
+        sense: ComparisonSense,
+        shape: Vec<usize>,
+        index_sets: Vec<Py<PyIndexSet>>,
+    ) -> Self {
+        Self {
+            storage: ConstraintArrayStorage::SparseArithmeticLazyCompare { left, right, sense },
+            shape,
+            index_sets,
+            first_constraint_id: None,
+            name: None,
+        }
+    }
+
     pub(crate) fn from_broadcast_lazy_compare(
         left: BroadcastCompareOperand,
         right: BroadcastCompareOperand,
@@ -489,6 +528,7 @@ impl PyConstraintArray {
             | ConstraintArrayStorage::SparseRows { exprs, .. } => exprs,
             ConstraintArrayStorage::LazyCompare { .. } => &[],
             ConstraintArrayStorage::SparseLazyCompare { .. } => &[],
+            ConstraintArrayStorage::SparseArithmeticLazyCompare { .. } => &[],
             ConstraintArrayStorage::BroadcastLazyCompare { .. } => &[],
             ConstraintArrayStorage::Compact(_) => &[], // Should not be called on compact
         }
@@ -500,6 +540,7 @@ impl PyConstraintArray {
             | ConstraintArrayStorage::SparseRows { sense, .. } => *sense,
             ConstraintArrayStorage::LazyCompare { sense, .. } => *sense,
             ConstraintArrayStorage::SparseLazyCompare { sense, .. } => *sense,
+            ConstraintArrayStorage::SparseArithmeticLazyCompare { sense, .. } => *sense,
             ConstraintArrayStorage::BroadcastLazyCompare { sense, .. } => *sense,
             ConstraintArrayStorage::Compact(c) => c.sense,
         }
@@ -536,9 +577,7 @@ impl PyConstraintArray {
         Python::attach(|py| {
             left.with_views(right, py, left_plan, right_plan, |left, right| {
                 (0..total)
-                    .map(|index| {
-                        -(left.constant_at(index) - right.constant_at(index))
-                    })
+                    .map(|index| -(left.constant_at(index) - right.constant_at(index)))
                     .collect()
             })
         })
@@ -559,6 +598,23 @@ impl PyConstraintArray {
                 .collect()),
             ConstraintArrayStorage::SparseLazyCompare { left, right, .. } => {
                 Self::sparse_compare_rhs(left, right)
+            }
+            ConstraintArrayStorage::SparseArithmeticLazyCompare { left, right, .. } => {
+                Ok(Python::attach(|py| {
+                    super::merge_sorted_indices(left.active_indices(), right.active_indices())
+                        .into_iter()
+                        .filter(|&index| sparse_arithmetic_row_is_nonzero(py, left, right, index))
+                        .map(|index| {
+                            let left_constant = left
+                                .value_at(py, index)
+                                .map_or(0.0, |value| value.constant());
+                            let right_constant = right
+                                .value_at(py, index)
+                                .map_or(0.0, |value| value.constant());
+                            -(left_constant - right_constant)
+                        })
+                        .collect()
+                }))
             }
             ConstraintArrayStorage::BroadcastLazyCompare {
                 left,
@@ -597,6 +653,7 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { .. } | ConstraintArrayStorage::SparseRows { .. } => None,
             ConstraintArrayStorage::LazyCompare { .. }
             | ConstraintArrayStorage::SparseLazyCompare { .. }
+            | ConstraintArrayStorage::SparseArithmeticLazyCompare { .. }
             | ConstraintArrayStorage::BroadcastLazyCompare { .. } => None,
         }
     }
@@ -609,6 +666,7 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { .. }
             | ConstraintArrayStorage::SparseRows { .. }
             | ConstraintArrayStorage::SparseLazyCompare { .. }
+            | ConstraintArrayStorage::SparseArithmeticLazyCompare { .. }
             | ConstraintArrayStorage::BroadcastLazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
@@ -625,6 +683,7 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { .. }
             | ConstraintArrayStorage::LazyCompare { .. }
             | ConstraintArrayStorage::SparseLazyCompare { .. }
+            | ConstraintArrayStorage::SparseArithmeticLazyCompare { .. }
             | ConstraintArrayStorage::BroadcastLazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
@@ -632,7 +691,11 @@ impl PyConstraintArray {
 
     pub fn as_sparse_lazy_compare(
         &self,
-    ) -> Option<(&SparseCompareOperand, &SparseCompareOperand, ComparisonSense)> {
+    ) -> Option<(
+        &SparseCompareOperand,
+        &SparseCompareOperand,
+        ComparisonSense,
+    )> {
         match &self.storage {
             ConstraintArrayStorage::SparseLazyCompare { left, right, sense } => {
                 Some((left, right, *sense))
@@ -640,6 +703,23 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { .. }
             | ConstraintArrayStorage::SparseRows { .. }
             | ConstraintArrayStorage::LazyCompare { .. }
+            | ConstraintArrayStorage::SparseArithmeticLazyCompare { .. }
+            | ConstraintArrayStorage::BroadcastLazyCompare { .. }
+            | ConstraintArrayStorage::Compact(_) => None,
+        }
+    }
+
+    pub fn as_sparse_arithmetic_lazy_compare(
+        &self,
+    ) -> Option<(&Arc<SparseExprNode>, &Arc<SparseExprNode>, ComparisonSense)> {
+        match &self.storage {
+            ConstraintArrayStorage::SparseArithmeticLazyCompare { left, right, sense } => {
+                Some((left, right, *sense))
+            }
+            ConstraintArrayStorage::Full { .. }
+            | ConstraintArrayStorage::SparseRows { .. }
+            | ConstraintArrayStorage::LazyCompare { .. }
+            | ConstraintArrayStorage::SparseLazyCompare { .. }
             | ConstraintArrayStorage::BroadcastLazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
@@ -666,6 +746,7 @@ impl PyConstraintArray {
             | ConstraintArrayStorage::SparseRows { .. }
             | ConstraintArrayStorage::LazyCompare { .. }
             | ConstraintArrayStorage::SparseLazyCompare { .. }
+            | ConstraintArrayStorage::SparseArithmeticLazyCompare { .. }
             | ConstraintArrayStorage::Compact(_) => None,
         }
     }
@@ -718,19 +799,31 @@ impl PyConstraintArray {
             ConstraintArrayStorage::Full { rhs, .. }
             | ConstraintArrayStorage::SparseRows { rhs, .. } => Ok(rhs.len()),
             ConstraintArrayStorage::LazyCompare { left, .. } => Ok(left.values.len()),
-            ConstraintArrayStorage::SparseLazyCompare { left, right, .. } => {
+            ConstraintArrayStorage::SparseLazyCompare { left, right, .. } => Python::attach(|py| {
+                left.with_views(right, py, |left, right| {
+                    SparseCompareMerge::new(left, right)
+                        .filter(|(_, left, right)| {
+                            let num_terms = left.map_or(0, SparseCompareValue::num_terms)
+                                + right.map_or(0, SparseCompareValue::num_terms);
+                            let constant = left.map_or(0.0, SparseCompareValue::constant)
+                                - right.map_or(0.0, SparseCompareValue::constant);
+                            num_terms != 0 || constant != 0.0
+                        })
+                        .count()
+                })
+            }),
+            ConstraintArrayStorage::SparseArithmeticLazyCompare { left, right, .. } => {
                 Python::attach(|py| {
-                    left.with_views(right, py, |left, right| {
-                        SparseCompareMerge::new(left, right)
-                            .filter(|(_, left, right)| {
-                                let num_terms = left.map_or(0, SparseCompareValue::num_terms)
-                                    + right.map_or(0, SparseCompareValue::num_terms);
-                                let constant = left.map_or(0.0, SparseCompareValue::constant)
-                                    - right.map_or(0.0, SparseCompareValue::constant);
-                                num_terms != 0 || constant != 0.0
-                            })
-                            .count()
-                    })
+                    let mut count = 0;
+                    for row_idx in
+                        super::merge_sorted_indices(left.active_indices(), right.active_indices())
+                    {
+                        if !sparse_arithmetic_row_is_nonzero(py, left, right, row_idx) {
+                            continue;
+                        }
+                        count += 1;
+                    }
+                    Ok(count)
                 })
             }
             ConstraintArrayStorage::BroadcastLazyCompare { .. } => Ok(self.shape.iter().product()),
@@ -742,9 +835,11 @@ impl PyConstraintArray {
     fn rhs_at(&self, index: usize) -> PyResult<f64> {
         match &self.storage {
             ConstraintArrayStorage::Full { rhs, .. }
-            | ConstraintArrayStorage::SparseRows { rhs, .. } => rhs.get(index).copied().ok_or_else(|| {
-                ArrayIndexError::new_err(format!("constraint index {index} out of range"))
-            }),
+            | ConstraintArrayStorage::SparseRows { rhs, .. } => {
+                rhs.get(index).copied().ok_or_else(|| {
+                    ArrayIndexError::new_err(format!("constraint index {index} out of range"))
+                })
+            }
             ConstraintArrayStorage::LazyCompare { left, right, .. } => {
                 let left_expr = left.values.get(index).ok_or_else(|| {
                     ArrayIndexError::new_err(format!("constraint index {index} out of range"))
@@ -752,9 +847,7 @@ impl PyConstraintArray {
                 let right_expr = right.values.get(index).ok_or_else(|| {
                     ArrayIndexError::new_err(format!("constraint index {index} out of range"))
                 })?;
-                let diff = left_expr
-                    .inner()
-                    .add(&right_expr.inner().scale(-1.0));
+                let diff = left_expr.inner().add(&right_expr.inner().scale(-1.0));
                 Ok(-PyExpr::from_expr(diff).constant())
             }
             ConstraintArrayStorage::SparseLazyCompare { left, right, .. } => {
@@ -778,6 +871,31 @@ impl PyConstraintArray {
                         )))
                     })
                 })?
+            }
+            ConstraintArrayStorage::SparseArithmeticLazyCompare { left, right, .. } => {
+                Python::attach(|py| {
+                    let mut nonzero_index = 0;
+                    for row_idx in
+                        super::merge_sorted_indices(left.active_indices(), right.active_indices())
+                    {
+                        if !sparse_arithmetic_row_is_nonzero(py, left, right, row_idx) {
+                            continue;
+                        }
+                        if nonzero_index == index {
+                            let left_constant = left
+                                .value_at(py, row_idx)
+                                .map_or(0.0, |value| value.constant());
+                            let right_constant = right
+                                .value_at(py, row_idx)
+                                .map_or(0.0, |value| value.constant());
+                            return Ok(-(left_constant - right_constant));
+                        }
+                        nonzero_index += 1;
+                    }
+                    Err(ArrayIndexError::new_err(format!(
+                        "constraint index {index} out of range"
+                    )))
+                })
             }
             ConstraintArrayStorage::BroadcastLazyCompare {
                 left,
@@ -875,8 +993,7 @@ impl PyConstraintArray {
         if index >= length {
             return Err(ArrayIndexError::new_err(format!(
                 "index {} out of range for ConstraintArray of size {}",
-                index,
-                length
+                index, length
             )));
         }
         self.constraint_at(index)

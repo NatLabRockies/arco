@@ -236,6 +236,24 @@ expression operands when their labeled shapes require broadcasting. Shape or
 axis errors are resolved before model mutation, and unsupported comparisons
 continue through the existing materialized path.
 
+## Lazy sparse arithmetic
+
+Element-wise arithmetic between matching sparse arrays, scalar scaling, sparse
+variable rolls, and sparse differences retain a bounded expression plan instead of
+allocating one `PyExpr` for every active row. `memory_estimate()` reports these
+results as `sparse_lazy`; the plan is evaluated one row at a time when a
+constraint is inspected or inserted. Candidate rows can include operations
+that evaluate to an empty expression, so accessors and insertion filter those
+rows using the same zero and cancellation rules as the eager sparse path.
+
+The plan has a fixed depth limit. Once a chain exceeds it, Arco materializes
+only the active rows into eager sparse storage, preserving sparse row
+membership and arithmetic order. Nonlinear, unsupported, mismatched-shape,
+and labeled-operand operations continue through their existing fallback paths.
+The optimization removes persistent per-row expression storage before a
+consumer asks for it; it does not by itself establish a lower whole-process
+RSS.
+
 ## Solver loading
 
 The primitive model retains its coefficient columns while adapters construct

@@ -415,8 +415,7 @@ use py_exports::{
     BoundsSpec, PyBlockHandle, PyBlockPorts, PyBlockResults, PyBounds, PyComparisonSense,
     PyConstraint, PyConstraintArray, PyConstraintExpr, PyElasticHandle, PyExpr, PyExprArray,
     PyIndexSet, PyLpAlgorithm, PyModelSnapshot, PySense, PySimplifyLevel, PySlackVariable,
-    PyVariable,
-    PyVariableArray, SolverSettings,
+    PyVariable, PyVariableArray, SolverSettings,
 };
 
 /// Python wrapper for the Arco optimization model
@@ -442,11 +441,7 @@ pub struct PyModel {
 }
 
 impl PyModel {
-    fn from_parts(
-        inner: Model,
-        solver_settings: SolverSettings,
-        default_backend: String,
-    ) -> Self {
+    fn from_parts(inner: Model, solver_settings: SolverSettings, default_backend: String) -> Self {
         Self {
             inner,
             solver_settings,
@@ -732,6 +727,18 @@ impl PyModel {
             }
             if let Some((left, right, lazy_sense)) = array.as_sparse_lazy_compare() {
                 return self.add_constraints_sparse_lazy_compare_shaped_internal(
+                    py,
+                    left,
+                    right,
+                    lazy_sense,
+                    active,
+                    name,
+                    array.shape_ref(),
+                    &array.clone_index_sets(),
+                );
+            }
+            if let Some((left, right, lazy_sense)) = array.as_sparse_arithmetic_lazy_compare() {
+                return self.add_constraints_sparse_arithmetic_lazy_compare_shaped_internal(
                     py,
                     left,
                     right,

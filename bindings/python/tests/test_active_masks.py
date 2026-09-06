@@ -752,7 +752,7 @@ def test_sparse_active_mask_diff_counts_ramping_terms_without_dense_storage() ->
     estimate = ramp_delta.memory_estimate()
 
     assert ramp_delta.shape == (4, 4, 4, 2)
-    assert estimate["storage"] == "sparse"
+    assert estimate["storage"] == "sparse_lazy"
     assert estimate["dense_slots"] == 128
     assert estimate["active_slots"] == 32
     assert estimate["linear_terms"] == 64
@@ -995,7 +995,7 @@ def test_sparse_active_mask_storage_balance_add_sub_stays_sparse() -> None:
     estimate = balance.memory_estimate()
 
     assert balance.shape == (4, 4, 5, 2)
-    assert estimate["storage"] == "sparse"
+    assert estimate["storage"] == "sparse_lazy"
     assert estimate["dense_slots"] == 160
     assert estimate["active_slots"] == 40
     assert estimate["linear_terms"] == 120
@@ -1034,7 +1034,7 @@ def test_sparse_active_mask_rolled_storage_balance_constraints_skip_inactive_row
     balance = soc + 0.92 * charge - gen
     rolled_estimate = next_soc.memory_estimate()
 
-    assert rolled_estimate["storage"] == "sparse"
+    assert rolled_estimate["storage"] == "sparse_lazy"
     assert rolled_estimate["dense_slots"] == 160
     assert rolled_estimate["active_slots"] == 40
 

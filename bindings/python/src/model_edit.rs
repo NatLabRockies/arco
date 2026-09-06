@@ -68,6 +68,29 @@ fn sparse_compare_diff(
     PyExpr::from_expr(left.inner().add(&right.inner().scale(-1.0)))
 }
 
+fn sparse_arithmetic_diff(
+    py: Python<'_>,
+    left: &std::sync::Arc<arrays::SparseExprNode>,
+    right: &std::sync::Arc<arrays::SparseExprNode>,
+    index: usize,
+) -> PyExpr {
+    let left = left.value_at(py, index).unwrap_or_default();
+    let right = right.value_at(py, index).unwrap_or_default();
+    PyExpr::from_expr(left.inner().add(&right.inner().scale(-1.0)))
+}
+
+fn sparse_arithmetic_row_is_nonzero(
+    py: Python<'_>,
+    left: &std::sync::Arc<arrays::SparseExprNode>,
+    right: &std::sync::Arc<arrays::SparseExprNode>,
+    index: usize,
+) -> bool {
+    [left.value_at(py, index), right.value_at(py, index)]
+        .into_iter()
+        .flatten()
+        .any(|value| value.inner().num_terms() != 0 || value.constant() != 0.0)
+}
+
 fn sparse_compare_row_is_nonzero(
     left: Option<arrays::SparseCompareValue<'_>>,
     right: Option<arrays::SparseCompareValue<'_>>,
@@ -469,12 +492,7 @@ impl PyModel {
     }
 
     /// Name a contiguous block of constraints starting at `first_id`.
-    fn name_constraint_block(
-        &mut self,
-        first_id: ConstraintId,
-        count: usize,
-        name: Option<&str>,
-    ) {
+    fn name_constraint_block(&mut self, first_id: ConstraintId, count: usize, name: Option<&str>) {
         let Some(base) = name else { return };
         if count == 0 {
             return;
@@ -660,19 +678,21 @@ impl PyModel {
     ) -> PyResult<PyConstraintArray> {
         let total = shape.iter().product();
         let active_indices = active
-            .map(|active| Self::resolve_active_indices(Some(active), Some(index_sets), shape, total))
+            .map(|active| {
+                Self::resolve_active_indices(Some(active), Some(index_sets), shape, total)
+            })
             .transpose()?;
         let selected = active_indices.as_deref();
 
         let row_count = left.with_views(right, py, |left, right| {
-                let mut active_pos = 0usize;
-                arrays::SparseCompareMerge::new(left, right)
-                    .filter(|(row_idx, _, _)| {
-                        sparse_compare_row_is_selected(selected, &mut active_pos, *row_idx)
-                    })
-                    .filter(|(_, left, right)| sparse_compare_row_is_nonzero(*left, *right))
-                    .count()
-            })?;
+            let mut active_pos = 0usize;
+            arrays::SparseCompareMerge::new(left, right)
+                .filter(|(row_idx, _, _)| {
+                    sparse_compare_row_is_selected(selected, &mut active_pos, *row_idx)
+                })
+                .filter(|(_, left, right)| sparse_compare_row_is_nonzero(*left, *right))
+                .count()
+        })?;
 
         if row_count == 0 {
             return Ok(PyConstraintArray::from_batch_shaped(
@@ -687,31 +707,97 @@ impl PyModel {
 
         let mut filtered_rhs = Vec::with_capacity(row_count);
         let mut active_pos = 0usize;
-        let first_constraint_id = left.with_views(right, py, |left, right| {
-                let rows =
-                    arrays::SparseCompareMerge::new(left, right).filter_map(
-                        |(row_idx, left, right)| {
-                            if !sparse_compare_row_is_selected(
-                                selected,
-                                &mut active_pos,
-                                row_idx,
-                            ) {
-                                return None;
-                            }
-                            let diff = sparse_compare_diff(left, right);
-                            if diff.inner().num_terms() == 0 && diff.constant() == 0.0 {
-                                return None;
-                            }
-                            let rhs_value = -diff.constant();
-                            filtered_rhs.push(rhs_value);
-                            Some((
-                                normalized_terms_for_batch(diff.into_inner()),
-                                bounds_from_sense(sense, rhs_value),
-                            ))
-                        },
-                    );
+        let first_constraint_id = left
+            .with_views(right, py, |left, right| {
+                let rows = arrays::SparseCompareMerge::new(left, right).filter_map(
+                    |(row_idx, left, right)| {
+                        if !sparse_compare_row_is_selected(selected, &mut active_pos, row_idx) {
+                            return None;
+                        }
+                        let diff = sparse_compare_diff(left, right);
+                        if diff.inner().num_terms() == 0 && diff.constant() == 0.0 {
+                            return None;
+                        }
+                        let rhs_value = -diff.constant();
+                        filtered_rhs.push(rhs_value);
+                        Some((
+                            normalized_terms_for_batch(diff.into_inner()),
+                            bounds_from_sense(sense, rhs_value),
+                        ))
+                    },
+                );
                 self.inner.add_constraints_batch_streaming(row_count, rows)
             })?
+            .map_err(errors::model_error_to_py)?;
+
+        self.name_constraint_block(first_constraint_id, row_count, name.as_deref());
+
+        Ok(PyConstraintArray::from_batch_shaped(
+            first_constraint_id.inner(),
+            shape.to_vec(),
+            Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+            sense,
+            &filtered_rhs,
+            name,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn add_constraints_sparse_arithmetic_lazy_compare_shaped_internal(
+        &mut self,
+        py: Python<'_>,
+        left: &std::sync::Arc<arrays::SparseExprNode>,
+        right: &std::sync::Arc<arrays::SparseExprNode>,
+        sense: ComparisonSense,
+        active: Option<&Bound<'_, PyAny>>,
+        name: Option<String>,
+        shape: &[usize],
+        index_sets: &[Py<PyIndexSet>],
+    ) -> PyResult<PyConstraintArray> {
+        let total = shape.iter().product();
+        let active_indices = active
+            .map(|active| {
+                Self::resolve_active_indices(Some(active), Some(index_sets), shape, total)
+            })
+            .transpose()?;
+        let selected = active_indices.as_deref();
+        let merged = arrays::merge_sorted_indices(left.active_indices(), right.active_indices());
+        let row_count = merged
+            .iter()
+            .filter(|index| selected.is_none_or(|indices| indices.binary_search(index).is_ok()))
+            .filter(|index| sparse_arithmetic_row_is_nonzero(py, left, right, **index))
+            .count();
+
+        if row_count == 0 {
+            return Ok(PyConstraintArray::from_batch_shaped(
+                0,
+                shape.to_vec(),
+                Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
+                sense,
+                &[],
+                name,
+            ));
+        }
+
+        let mut filtered_rhs = Vec::with_capacity(row_count);
+        let rows = merged.into_iter().filter_map(|index| {
+            if selected.is_some_and(|indices| indices.binary_search(&index).is_err()) {
+                return None;
+            }
+            if !sparse_arithmetic_row_is_nonzero(py, left, right, index) {
+                return None;
+            }
+            let diff = sparse_arithmetic_diff(py, left, right, index);
+            let rhs_value = -diff.constant();
+            filtered_rhs.push(rhs_value);
+            Some((
+                normalized_terms_for_batch(diff.into_inner()),
+                bounds_from_sense(sense, rhs_value),
+            ))
+        });
+        let first_constraint_id = self
+            .inner
+            .add_constraints_batch_streaming(row_count, rows)
             .map_err(errors::model_error_to_py)?;
 
         self.name_constraint_block(first_constraint_id, row_count, name.as_deref());
@@ -760,12 +846,8 @@ impl PyModel {
         }
 
         let mut filtered_rhs = Vec::with_capacity(row_count);
-        let first_constraint_id = left.with_views(
-            right,
-            py,
-            left_plan,
-            right_plan,
-            |left, right| {
+        let first_constraint_id = left
+            .with_views(right, py, left_plan, right_plan, |left, right| {
                 let rows = active_indices.into_iter().map(|index| {
                     let diff = broadcast_compare_diff(left.value_at(index), right.value_at(index));
                     let rhs_value = -diff.constant();
@@ -776,9 +858,8 @@ impl PyModel {
                     )
                 });
                 self.inner.add_constraints_batch_streaming(row_count, rows)
-            },
-        )
-        .map_err(errors::model_error_to_py)?;
+            })
+            .map_err(errors::model_error_to_py)?;
 
         self.name_constraint_block(first_constraint_id, row_count, name.as_deref());
 
@@ -1440,15 +1521,17 @@ mod tests {
     fn nonfinite_terms_still_reach_model_coefficient_validation() {
         for coefficient in [f64::NAN, f64::INFINITY, -f64::INFINITY] {
             let mut model = arco_model::Model::new();
-            assert!(model
-                .add_variable(arco_model::Variable::continuous(arco_model::Bounds::new(
-                    0.0,
-                    1.0,
-                )))
-                .is_ok());
-            let terms = normalized_terms_for_batch(Expr::from_linear(vec![
-                (VariableId::new(0), coefficient),
-            ]));
+            assert!(
+                model
+                    .add_variable(arco_model::Variable::continuous(arco_model::Bounds::new(
+                        0.0, 1.0,
+                    )))
+                    .is_ok()
+            );
+            let terms = normalized_terms_for_batch(Expr::from_linear(vec![(
+                VariableId::new(0),
+                coefficient,
+            )]));
             let result = model.add_constraints_batch_streaming(
                 1,
                 std::iter::once((terms, arco_model::Bounds::new(0.0, 1.0))),
@@ -1466,12 +1549,14 @@ mod tests {
         pyo3::Python::initialize();
         pyo3::Python::attach(|_| {
             let mut model = PyModel::new(None, None).unwrap();
-            assert!(model
-                .inner
-                .add_variable(arco_model::Variable::continuous(
-                    arco_model::Bounds::new(0.0, 1.0),
-                ))
-                .is_ok());
+            assert!(
+                model
+                    .inner
+                    .add_variable(arco_model::Variable::continuous(arco_model::Bounds::new(
+                        0.0, 1.0
+                    ),))
+                    .is_ok()
+            );
             let rows = vec![
                 PyExpr::from_expr(Expr::from_linear(vec![(VariableId::new(0), 1.0)])),
                 PyExpr::from_expr(Expr::from_linear(vec![(VariableId::new(0), f64::NAN)])),
