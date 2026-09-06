@@ -277,7 +277,7 @@ impl PyVariableArray {
         }
     }
 
-    fn term_counts(&self) -> ExpressionTermCounts {
+    pub(crate) fn term_counts(&self) -> ExpressionTermCounts {
         match &self.storage {
             VariableStorage::Compact(compact) => {
                 CompactExprStorage::from_variable_array(compact.start_var_id, compact.count)
@@ -562,15 +562,61 @@ impl PyVariableArray {
         PyExpr::from_expr(Expr::from_linear(linear))
     }
 
+    pub(crate) fn sparse_reduction_core_for_axis(
+        &self,
+        axis: usize,
+        output_index_sets: Vec<Py<PyIndexSet>>,
+        output_shape: Vec<usize>,
+    ) -> LinearArrayCore {
+        let source_strides = arco_arrays::row_major_strides(&self.shape);
+        let reduced_strides = arco_arrays::row_major_strides(&output_shape);
+        let summed_axes = (0..self.shape.len()).map(|current| current == axis);
+        let summed_axes = summed_axes.collect::<Vec<_>>();
+        let out_len = output_shape.iter().product::<usize>().max(1);
+        let mut values = vec![PyExpr::default(); out_len];
+
+        if let VariableStorage::Sparse(sparse) = &self.storage {
+            for (active_idx, var_id) in sparse.active_indices.iter().zip(sparse.var_ids.iter()) {
+                let reduced_idx = reduced_sparse_flat_index(
+                    *active_idx,
+                    &self.shape,
+                    &source_strides,
+                    &reduced_strides,
+                    &summed_axes,
+                );
+                values[reduced_idx].add_assign_owned(PyExpr::from_term(*var_id, 1.0));
+            }
+        } else {
+            // This is an internal representation transition: callers only
+            // create the deferred form from sparse storage.  Keep a safe
+            // fallback for malformed internal state rather than exposing an
+            // empty result or panicking.
+            let source = self.to_core();
+            for (source_idx, expr) in source.values.into_iter().enumerate() {
+                let reduced_idx = reduced_sparse_flat_index(
+                    source_idx,
+                    &self.shape,
+                    &source_strides,
+                    &reduced_strides,
+                    &summed_axes,
+                );
+                values[reduced_idx].add_assign_owned(expr);
+            }
+        }
+
+        LinearArrayCore::new(output_index_sets, output_shape, values)
+    }
+
     fn sum_sparse_over_axis(
         &self,
         py: Python<'_>,
         sparse: &SparseStorage,
         over: &Bound<'_, PyAny>,
+        source: Py<PyVariableArray>,
     ) -> PyResult<PyObject> {
         let axes = parse_sparse_axes(&self.index_sets, py, over)?;
         let mut summed_axes = vec![false; self.shape.len()];
-        for axis in axes {
+        for &axis in &axes {
             summed_axes[axis] = true;
         }
 
@@ -581,6 +627,16 @@ impl PyVariableArray {
                 out_shape.push(self.shape[axis]);
                 out_index_sets.push(index_set.clone_ref(py));
             }
+        }
+
+        if axes.len() == 1 && !out_shape.is_empty() {
+            let array = PyExprArray::from_deferred_variable_reduction(
+                source,
+                axes[0],
+                out_index_sets,
+                out_shape,
+            );
+            return Ok(array.into_pyobject(py)?.into_any().unbind());
         }
 
         let source_strides = arco_arrays::row_major_strides(&self.shape);
@@ -1132,22 +1188,27 @@ impl PyVariableArray {
             .compare(slf.clone().unbind(), rhs, ComparisonSense::Equal)
     }
     #[pyo3(signature = (*, over=None))]
-    fn sum(&self, py: Python<'_>, over: Option<&Bound<'_, PyAny>>) -> PyResult<PyObject> {
+    fn sum(
+        slf: &Bound<'_, Self>,
+        py: Python<'_>,
+        over: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<PyObject> {
+        let self_ref = slf.borrow();
         // Fast path: sum all elements of compact storage without materializing
         if over.is_none() {
-            if let VariableStorage::Compact(compact) = &self.storage {
+            if let VariableStorage::Compact(compact) = &self_ref.storage {
                 let result = Self::sum_all_compact(compact.start_var_id, compact.count);
                 return Ok(result.into_pyobject(py)?.into_any().unbind());
             }
-            if let VariableStorage::Sparse(sparse) = &self.storage {
+            if let VariableStorage::Sparse(sparse) = &self_ref.storage {
                 let result = Self::sum_all_sparse(sparse);
                 return Ok(result.into_pyobject(py)?.into_any().unbind());
             }
         }
-        if let (VariableStorage::Sparse(sparse), Some(over)) = (&self.storage, over) {
-            return self.sum_sparse_over_axis(py, sparse, over);
+        if let (VariableStorage::Sparse(sparse), Some(over)) = (&self_ref.storage, over) {
+            return self_ref.sum_sparse_over_axis(py, sparse, over, slf.clone().unbind());
         }
-        let core = self.to_core();
+        let core = self_ref.to_core();
         array_sum(&core, py, over)
     }
     #[pyo3(signature = (*, over))]
@@ -1213,18 +1274,28 @@ impl PyVariableArray {
         let core = self.to_core();
         array_roll(&core, py, shift, over)
     }
-    fn __rshift__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        if let VariableStorage::Sparse(sparse) = &self.storage {
-            return self.sum_sparse_over_axis(py, sparse, rhs);
+    fn __rshift__(
+        slf: &Bound<'_, Self>,
+        py: Python<'_>,
+        rhs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let self_ref = slf.borrow();
+        if let VariableStorage::Sparse(sparse) = &self_ref.storage {
+            return self_ref.sum_sparse_over_axis(py, sparse, rhs, slf.clone().unbind());
         }
-        let core = self.to_core();
+        let core = self_ref.to_core();
         array_reduce(&core, py, rhs)
     }
-    fn __matmul__(&self, py: Python<'_>, rhs: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-        if let VariableStorage::Sparse(sparse) = &self.storage {
-            return self.sum_sparse_over_axis(py, sparse, rhs);
+    fn __matmul__(
+        slf: &Bound<'_, Self>,
+        py: Python<'_>,
+        rhs: &Bound<'_, PyAny>,
+    ) -> PyResult<PyObject> {
+        let self_ref = slf.borrow();
+        if let VariableStorage::Sparse(sparse) = &self_ref.storage {
+            return self_ref.sum_sparse_over_axis(py, sparse, rhs, slf.clone().unbind());
         }
-        let core = self.to_core();
+        let core = self_ref.to_core();
         array_reduce(&core, py, rhs)
     }
     #[getter]

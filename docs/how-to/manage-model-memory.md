@@ -46,4 +46,11 @@ source expression remains reusable for another `add_objective_terms` call. A
 large expression can therefore be kept as a single Python object while it is
 added; invalid terms leave the existing objective unchanged.
 
+Sparse variable reductions over one axis retain the source variable array and
+the output labels until a consumer needs expression rows. They still represent
+every output slot, including groups containing only implicit zeroes, so
+comparisons and model insertion keep their dense row membership. Reading values,
+inspecting terms, or inserting the reduction materializes those rows and then
+uses the output labels, including any labels applied by `relabel_axis`.
+
 [How-to Guides](./) | [Docs home](../)
