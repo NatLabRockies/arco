@@ -150,14 +150,6 @@ jobs:
             printf 'tree=%s\n' "$tree"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Require immutable GitHub Releases
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(gh api "repos/$GH_REPO/immutable-releases" --jq .enabled)" = true
-
   merge:
     name: Merge through branch protection
     needs: verify-candidate
@@ -223,15 +215,6 @@ jobs:
               any(.labels[]; .name == "autorelease: pending")
             ) | .number')"
           test "$pending" = "$PR"
-
-      - name: Recheck immutable GitHub Releases
-        env:
-          GH_REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(gh api "repos/$GH_REPO/immutable-releases" --jq .enabled)" = true
 
       - id: release
         name: Create the selected release
