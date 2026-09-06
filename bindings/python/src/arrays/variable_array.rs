@@ -646,6 +646,19 @@ impl PyVariableArray {
             if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
                 let rhs_ref = rhs_array.bind(rhs.py()).borrow();
                 if rhs_ref.storage.shape() == self.shape {
+                    if let Some(right_node) = rhs_ref.sparse_compare_node() {
+                        if let Some(left_node) =
+                            self.sparse_expr_node(left_handle.clone_ref(rhs.py()))
+                        {
+                            return Ok(PyConstraintArray::from_sparse_arithmetic_lazy_compare(
+                                left_node,
+                                right_node,
+                                sense,
+                                self.shape.clone(),
+                                self.clone_index_sets(),
+                            ));
+                        }
+                    }
                     if let Some(right_node) = rhs_ref.storage.sparse_node() {
                         if let Some(left_node) =
                             self.sparse_expr_node(left_handle.clone_ref(rhs.py()))

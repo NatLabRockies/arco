@@ -689,7 +689,7 @@ def test_sparse_active_mask_labeled_multiply_compare_skips_inactive_rows() -> No
     scaled_estimate = scaled_cap.memory_estimate()
 
     assert scaled_cap.shape == (4, 4, 3)
-    assert scaled_estimate["storage"] == "sparse"
+    assert scaled_estimate["storage"] == "sparse_weighted"
     assert scaled_estimate["dense_slots"] == 48
     assert scaled_estimate["active_slots"] == 12
     assert scaled_estimate["linear_terms"] == 12
@@ -722,7 +722,7 @@ def test_sparse_active_mask_chained_labeled_products_sum_active_terms() -> None:
     estimate = operating_cost.memory_estimate()
     objective = operating_cost.sum()
 
-    assert estimate["storage"] == "sparse"
+    assert estimate["storage"] == "sparse_weighted"
     assert estimate["dense_slots"] == 96
     assert estimate["active_slots"] == 24
     assert estimate["linear_terms"] == 24
@@ -1129,7 +1129,7 @@ def test_sparse_expression_sum_builds_objective_without_dense_slots() -> None:
     model.minimize(weighted.sum())
 
     assert x.active_count == 6
-    assert weighted.memory_estimate()["storage"] == "sparse"
+    assert weighted.memory_estimate()["storage"] == "sparse_weighted"
     assert model.inspect().objective.terms == [
         (0, 1.0),
         (1, 1.0),
