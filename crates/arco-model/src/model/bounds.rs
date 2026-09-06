@@ -149,6 +149,10 @@ impl<'a, T> Iterator for BoundBlocksIter<'a, T> {
             }
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
 }
 
 impl<T> ExactSizeIterator for BoundBlocksIter<'_, T> {
@@ -255,6 +259,33 @@ mod tests {
         }
         assert_eq!(storage.len(), BOUNDS_BLOCK_SIZE + 1);
         assert_eq!(storage.iter().count(), storage.len());
+    }
+
+    #[test]
+    fn iterator_size_hint_tracks_partial_consumption() {
+        let mut storage = BoundBlocks::new();
+        for index in 0..(BOUNDS_BLOCK_SIZE + 3) {
+            storage.push(bounds(if index == BOUNDS_BLOCK_SIZE { 2.0 } else { 1.0 }));
+        }
+
+        let mut iter = storage.iter();
+        assert_eq!(
+            iter.size_hint(),
+            (BOUNDS_BLOCK_SIZE + 3, Some(BOUNDS_BLOCK_SIZE + 3))
+        );
+
+        for _ in 0..BOUNDS_BLOCK_SIZE {
+            assert!(iter.next().is_some());
+        }
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+
+        assert!(iter.next().is_some());
+        assert_eq!(iter.size_hint(), (2, Some(2)));
+        assert!(iter.next().is_some());
+        assert!(iter.next().is_some());
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+        assert!(iter.next().is_none());
+        assert_eq!(iter.size_hint(), (0, Some(0)));
     }
 
     #[test]
