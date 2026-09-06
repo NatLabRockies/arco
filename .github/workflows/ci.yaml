@@ -90,6 +90,7 @@ jobs:
               - 'scripts/setup_scip_binary_env.sh'
               - 'scripts/with_solver_build_env.sh'
               - 'dist-workspace.toml'
+              - '.github/build-setup.yml'
               - '.github/actions/**'
             python:
               - 'bindings/python/**'
@@ -115,7 +116,7 @@ jobs:
               - 'scripts/test_build_python_wheel.py'
               - 'scripts/setup_manylinux_native_deps.sh'
               - '.github/actions/**'
-              - '.github/workflows/cargo-dist-build.yaml'
+              - '.github/workflows/build-packages.yml'
               - '.github/workflows/release-please.yaml'
             docs:
               - 'docs/**'

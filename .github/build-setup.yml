@@ -1,0 +1,34 @@
+- name: Configure manylinux native dependencies
+  if: ${{ matrix.container && contains(join(matrix.targets, ','), 'x86_64-unknown-linux-gnu') }}
+  shell: bash
+  run: bash ./scripts/setup_manylinux_native_deps.sh "$GITHUB_ENV"
+
+- name: Set up build environment
+  uses: ./.github/actions/setup-build-env
+  env:
+    ARCO_HIGHS_ENABLE_APPLE_STATIC: "1"
+    ARCO_HIGHS_TARGETS: ${{ join(matrix.targets, ',') }}
+    ARCO_SCIP_TARGETS: ${{ join(matrix.targets, ',') }}
+  with:
+    python-version: "3.12"
+    uv-version: "0.9.4"
+    just-version: "1.43.0"
+    rust-toolchain-version: "1.85"
+    rust-components: none
+    rust-cache-shared-key: release-cargo-dist-${{ matrix.host }}
+    sync-python-licenses: false
+    save-uv-cache: false
+    save-rust-cache: false
+    save-solver-cache: false
+
+- name: Set up Xpress runtime
+  shell: bash
+  env:
+    XPRESS_SDK_LINUX_URL: ${{ vars.XPRESS_SDK_LINUX_URL }}
+    XPRESS_SDK_MACOS_URL: ${{ vars.XPRESS_SDK_MACOS_URL }}
+    XPRESS_SDK_WINDOWS_URL: ${{ vars.XPRESS_SDK_WINDOWS_URL }}
+  run: bash ./scripts/setup_solver_runtime_env.sh xpress "$GITHUB_ENV"
+
+- name: Validate Xpress runtime
+  shell: bash
+  run: bash ./scripts/ci_validate_xpress_runtime_env.sh

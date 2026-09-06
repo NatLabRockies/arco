@@ -91,12 +91,12 @@ vscode-extension-check:
 
 [group: 'hygiene']
 workflow-quality:
-    uvx zizmor --pedantic .github/
+    uvx zizmor --pedantic --config .github/zizmor.yml .github/
 
 [group: 'hygiene']
 release-check dist_bin="dist":
-    uv run --no-project --python 3.12 --with pytest pytest scripts/test_release_pipeline.py bindings/python/tests/test_rust_boundaries.py -q
-    bash scripts/ci_test_dist_pipeline.sh "{{ dist_bin }}"
+    "{{ dist_bin }}" generate --check
+    "{{ dist_bin }}" plan --output-format=json > /dev/null
 
 [group: 'rust']
 rust-check:

@@ -144,7 +144,7 @@ repos:
     rev: v1.29.0
     hooks:
       - id: zizmor
-        args: [--pedantic]
+        args: [--pedantic, --config, .github/zizmor.yml]
 
   - repo: https://github.com/ComPWA/taplo-pre-commit
     rev: v0.9.3

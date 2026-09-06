@@ -11,9 +11,6 @@ unix-archive = ".tar.gz"
 packages = ["arco-cli"]
 # CI backends to support
 ci = "github"
-# This repository hand-maintains its reusable build workflow. Keep GitHub CI
-# planning enabled without requiring Cargo-dist's generated release workflow.
-allow-dirty = ["ci"]
 # Keep GitHub as the artifact host for generated installer URLs.
 hosting = "github"
 # The installers to generate for each app
@@ -24,12 +21,34 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 pr-run-mode = "skip"
 # A prefix git tags must include for dist to care about them
 tag-namespace = "v"
+# Extend Cargo-dist's generated release lifecycle with repository-owned jobs.
+local-artifacts-jobs = ["./build-packages"]
+publish-jobs = ["./check-release"]
+post-announce-jobs = ["./dispatch-pypi"]
+# The release policy gate must run for every tag Cargo-dist accepts.
+publish-prereleases = true
+# Release Please creates the draft; Cargo-dist uploads and publishes it only
+# after every build and release policy check succeeds.
+create-release = false
+github-release = "announce"
+github-attestations = true
+github-attestations-phase = "announce"
+# Extra setup shared by Cargo-dist's generated local build matrix.
+github-build-setup = "../build-setup.yml"
 # Path that installers should place binaries in
 install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
 # Build only the required packages, and individually
 precise-builds = true
 # Whether to install an updater program
 install-updater = false
+
+# Custom jobs receive only the permissions required by their responsibility.
+[dist.github-custom-job-permissions.check-release]
+contents = "read"
+
+[dist.github-custom-job-permissions.dispatch-pypi]
+actions = "write"
+contents = "read"
 
 # Build x86_64 Linux on a glibc 2.28 baseline for EL8/HPC compatibility.
 [dist.github-custom-runners.x86_64-unknown-linux-gnu]

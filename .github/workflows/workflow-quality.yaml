@@ -7,7 +7,6 @@ on:
       - "dist-workspace.toml"
       - "scripts/*release*"
       - "scripts/ci_*"
-      - "scripts/fixtures/release_pipeline/**"
       - "bindings/python/tests/test_rust_boundaries.py"
       - "justfile"
   push:
@@ -19,7 +18,6 @@ on:
       - "dist-workspace.toml"
       - "scripts/*release*"
       - "scripts/ci_*"
-      - "scripts/fixtures/release_pipeline/**"
       - "bindings/python/tests/test_rust_boundaries.py"
       - "justfile"
 
@@ -31,8 +29,8 @@ permissions:
   contents: read
 
 jobs:
-  release-contract:
-    name: Release pipeline contracts
+  dist-config:
+    name: Cargo-dist configuration
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -40,23 +38,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
-        with:
-          version: "0.9.4"
-          python-version: "3.12"
-          enable-cache: false
-
-      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
-        with:
-          just-version: "1.43.0"
-
       - name: Install Cargo-dist
         env:
           CARGO_DIST_VERSION: "0.31.0"
         run: bash scripts/ci_install_dist_unix.sh
 
-      - name: Validate release planning and recovery
-        run: just release-check
+      - name: Check generated workflow and release plan
+        run: |
+          dist generate --check
+          dist plan --output-format=json > /dev/null
 
   zizmor:
     name: zizmor
@@ -75,6 +65,7 @@ jobs:
         with:
           persona: pedantic
           min-severity: low
+          config: .github/zizmor.yml
 
   actionlint:
     name: actionlint

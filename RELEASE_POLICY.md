@@ -1,122 +1,80 @@
 # Release Policy
 
-Arco ships one product snapshot with one shared semantic version across the
-workspace, Python package, `vX.Y.Z` tag, and GitHub Release. Release Please
-updates `Cargo.toml`, `bindings/python/pyproject.toml`, and
-`bindings/python/uv.lock` together.
+Arco uses one version across the Rust workspace, Python package, release tag, and
+GitHub Release. Release Please updates the versions and changelog together.
 
-This pipeline accepts stable `vX.Y.Z` versions. Prerelease distribution naming
-and promotion are outside its current release contract.
+## Ownership and flow
 
-## Ownership
+1. **Release Please** opens the release PR. After merge, it creates a draft
+   release and a real `vX.Y.Z` tag using `draft: true` and
+   `force-tag-creation: true`.
+2. **Cargo-dist** runs its generated `v-release.yml` on the tag push. It builds
+   CLI archives and installers. The `local-artifacts-jobs` hook builds and
+   smoke-tests six Python wheels, builds the sdist, and packages the VSIX.
+3. **The release check** runs through Cargo-dist's `publish-jobs` hook. It checks
+   repository immutability, the draft and tag, and the complete local inventory.
+4. **Cargo-dist publishes** using `create-release = false`: it uploads all
+   `artifacts-*` outputs to the existing draft and undrafts it after upload
+   succeeds. GitHub then locks the release assets and tag.
+5. **The post-announce hook** verifies the immutable release and dispatches
+   `publish-pypi.yml` at that tag. PyPI downloads the seven Python distributions,
+   verifies their GitHub release attestations with `gh release verify-asset`,
+   and publishes through trusted publishing.
 
-- Release Please owns the changelog, release PR, tag, and draft GitHub Release.
-- Cargo-dist owns CLI target planning, builds, installers, checksums, and the
-  canonical `dist-manifest.json`.
-- `release-please.yaml` owns candidate assembly and publication.
-- PyPI consumes the exact Python files from the published immutable release.
+Edit `dist-workspace.toml` and `.github/build-setup.yml`, then run `dist generate`.
+Do not edit the generated workflow. Cargo-dist owns its matrix, artifact handoff,
+manifest, upload, and publication ordering. GitHub Actions Quality runs
+`dist generate --check` and `dist plan` to catch drift.
 
-`cargo-dist-build.yaml` is a reusable build workflow, with no publication step.
-`dist-workspace.toml` uses Cargo-dist's supported `allow-dirty = ["ci"]` option
-for handwritten CI while retaining its GitHub matrix and hosting metadata. There
-is no generated release workflow or separate manual Python build/publisher.
+The separate PyPI workflow is required because PyPI trusted publishing does not
+support reusable workflows. The post-announce hook only dispatches it; a successful
+Cargo-dist run means publication was requested, not that PyPI has finished.
 
-## Release flow
+## Validation
 
-1. Release Please opens or updates a release PR. Normal CI, release-contract
-   checks, and packaging-sensitive Python 3.10–3.14 smoke checks must pass.
-2. A human merges the release PR. Release Please creates the tag immediately
-   and leaves the GitHub Release in draft mode.
-3. The workflow resolves the release from the workspace version and verifies
-   that its tag identifies the triggering commit. It does not parse merge titles.
-   Repository release immutability must be enabled before building proceeds.
-4. Every builder checks out that exact commit SHA. Cargo-dist builds five CLI
-   targets, archives, installers, checksums, and the final merged manifest. The
-   Python matrix builds and installs six wheels: `cp310-cp310` and `cp311-abi3`
-   on Linux x86_64, macOS arm64, and Windows. Linux ABI3 also builds the sdist.
-   The VS Code job checks and packages one VSIX.
-5. The assembly job verifies the exact inventory against the Cargo-dist manifest
-   and required Python/VS Code assets, then stores a single `release-candidate`
-   Actions artifact. This candidate is never overwritten.
-6. The publisher downloads that candidate, checks immutability settings and tag
-   identity again, and reconciles draft assets by SHA-256. Extra assets, absent
-   digests, missing candidate files, and different bytes fail closed. Only missing
-   assets are uploaded; the complete remote inventory and digests are verified
-   before the draft is published. The published release must report immutable.
-7. The PyPI job downloads the six wheels and sdist from the immutable GitHub
-   Release, verifies their digests, and publishes with trusted publishing.
+Normal CI checks the source and CLI solvers. Packaging changes also run Python
+3.10–3.14 wheel smoke checks. Release builds use the tag's commit, and each release
+wheel is installed and imported before upload. Python releases contain two ABIs
+(`cp310-cp310`, `cp311-abi3`) on Linux x86_64, macOS arm64, and Windows, plus one
+sdist. The Linux baseline is the pinned manylinux 2.28 image.
 
-The candidate is built and validated **after merge**. This provides immutable
-published releases; it is not promotion of binaries previously approved on a PR.
-GitHub's release immutability locks the published assets and associated tag.
+Run `just release-check` with Cargo-dist 0.31.0 installed to check generated CI
+and planning locally. The PyPI workflow currently accepts stable `vX.Y.Z` tags.
 
-## Artifacts and recovery
+## Recovery
 
-Actions artifacts are retained for 90 days; the GitHub Release is the permanent
-record. GitHub permits workflow reruns for a shorter period, currently 30 days.
-Use **Re-run failed jobs** for the smallest recovery path.
+Use GitHub's **Re-run failed jobs** on the original tag workflow. Successful build
+jobs and their Actions artifacts are retained, so a publication retry uses the
+original files. Do not use a full rerun to rebuild an already published version.
 
-- **Build failure:** rerun failed jobs on the original run. Before candidate
-  assembly, a full rerun may replace intermediate build artifacts. No GitHub
-  Release assets have been uploaded at this stage.
-- **Assembly failure:** fix the failing build or inventory problem before
-  publication. Do not manually add files to bypass the candidate checks.
-- **Partial GitHub upload or publication failure:** rerun the publication job or
-  failed jobs. A full rerun detects the existing `release-candidate`, skips all
-  builders and assembly, and publishes those same bytes. Matching remote assets
-  are retained; only missing assets are uploaded. A mismatch requires investigation,
-  not rebuilding or replacing the existing asset.
-- **Expired candidate:** recovery fails rather than silently rebuilding a frozen
-  candidate. Recover the original files through an operator-reviewed procedure
-  or issue a new release version.
-- **PyPI failure:** manually dispatch `release-please.yaml` with the published
-  `vX.Y.Z` tag. Only the PyPI path runs. It downloads verified release assets,
-  uses `skip-existing: true`, and performs no compilation or GitHub uploads.
+Cargo-dist's existing-draft uploader does not resume partial uploads. If the final
+upload fails after adding some assets, confirm the release is still a draft,
+remove those partial draft assets through GitHub's release editor, then rerun the
+failed announce job. Never remove the tag or assets of a published release.
+This is an operator recovery step, not an automatic reconciliation service.
 
-If a published package is incorrect, issue a new patch release. Do not replace
-published assets. A code or workflow fix that changes release bytes needs a new
-version rather than a rebuild under the old tag.
+If the post-announce dispatch or PyPI publication fails, run `publish-pypi.yml`
+with the published tag. It verifies and republishes the original GitHub assets
+with `skip-existing: true`; it never rebuilds packages. Check that workflow's
+result separately from the Cargo-dist run.
 
-## Repository rollout
+If source changes are needed, or the original build artifacts are no longer
+available, issue a new version. Published release files are never replaced.
 
-Before the first production release, an administrator must:
+## Repository setup
 
-1. Enable GitHub Immutable Releases. The pipeline checks this setting and refuses
-   to publish while it is disabled; this PR does not change repository settings.
-2. Add a `v*` tag ruleset blocking tag updates and deletion before publication.
-   Permit Release Please to create tags, without granting routine mutation rights.
-3. Configure `RELEASE_PLEASE_TOKEN` with repository contents and pull-request
-   write access, plus **Administration: read**. GitHub requires administration
-   read access for the [immutability-settings check](https://docs.github.com/en/rest/repos/repos#check-if-immutable-releases-are-enabled-for-a-repository);
-   the default Actions token cannot supply it. Administration write access is
-   not needed by the workflow.
-4. Require normal CI and release-contract checks on release PRs, and require the
-   branch to be up to date before merging.
-5. Configure the PyPI trusted publisher for `.github/workflows/release-please.yaml`
-   and the `pypi` environment.
-6. In a sandbox repository, prove the entire lifecycle: draft/tag creation,
-   platform builds and smoke checks, rejection with immutability disabled,
-   interrupted upload recovery from unchanged candidate bytes, published asset/tag
-   locking, and tag-only PyPI recovery.
+Before production release:
 
-Run `just release-check` with Cargo-dist 0.31.0 installed to validate real planning
-and the publication/recovery contracts locally. The tests use a GitHub process
-boundary double; they do not create releases or publish packages. Cross-platform
-builds and live GitHub locking still require the sandbox run above.
+- Enable GitHub Immutable Releases and protect `v*` tags against updates and
+  deletion. The release check refuses publication when immutability is disabled.
+- Configure `RELEASE_PLEASE_TOKEN` with contents and pull-request write access,
+  plus Administration read access for GitHub's immutability-settings API. The
+  PAT/App token is also needed so Release Please's tag push triggers Actions;
+  a tag created with the default `GITHUB_TOKEN` does not trigger this workflow.
+- Register `publish-pypi.yml` and environment `pypi` as the PyPI trusted publisher.
+- Require normal CI and Cargo-dist configuration checks before merging release
+  PRs. Validate draft publication, partial-upload recovery, immutable locking,
+  and PyPI retry in a sandbox before enabling production releases.
 
-## Branches and release notes
-
-Before `1.0`, releases come from `main`. Supported maintenance lines may later
-use `release/1.0` style branches; backport release workflow fixes to each line.
-A workflow and its local actions run from that branch's triggering commit.
-
-Release Please remains the source of truth for changelog content. For a one-off
-version override, use a `Release-As` footer, for example:
-
-```text
-chore(release): force 0.3.0
-
-Release-As: 0.3.0
-```
-
-The version consistency check must pass before a release PR is merged.
+Release Please runs on `main` and supported `release/*` branches. Backport changes
+to the release tooling when maintaining a release branch.
