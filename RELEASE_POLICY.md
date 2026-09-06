@@ -3,7 +3,45 @@
 Arco uses one version across the Rust workspace, Python package, release tag, and
 GitHub Release. Release Please updates the versions and changelog together.
 
+## Maintainer responsibilities
+
+Maintainers decide when a version is ready to ship. **Merging the Release Please
+PR authorizes automatic publication**: the draft is a staging step, with no
+separate manual approval before Cargo-dist publishes it.
+
+- **Before merging:** review the version, changelog, compatibility changes, and
+  release scope; confirm required CI and Cargo-dist configuration checks pass.
+  Confirm the [repository setup](#repository-setup) is complete, coordinating
+  with repository administrators for settings and credentials.
+- **During publication:** monitor the tag's Cargo-dist run and the separate
+  Publish Python distributions run. If the `pypi` environment has required
+  reviewers configured, approve that deployment after reviewing the release.
+- **Before announcing availability:** confirm the GitHub Release is published
+  and immutable, its expected assets are present, and the matching version is
+  available on PyPI. A successful dispatch alone does not mean PyPI succeeded.
+- **On failure:** inspect the failed job and follow [recovery](#recovery).
+  Preserve published tags and files; ship source fixes as a new version.
+- **For supported release branches:** backport necessary release-tooling fixes
+  and apply the same review, verification, and recovery responsibilities.
+
 ## Ownership and flow
+
+```mermaid
+flowchart TD
+    PR[Release Please opens or updates release PR]
+    Review[Maintainers review scope, version, changelog, and CI]
+    Merge[Maintainers merge release PR]
+    Draft[Release Please creates tag and draft]
+    Build[Cargo-dist builds CLI, Python, and VS Code artifacts]
+    Check[Release check validates policy, tag, and inventory]
+    Publish[Cargo-dist uploads assets and publishes draft]
+    Lock[GitHub locks release assets and tag]
+    Dispatch[Post-announce hook verifies release and dispatches PyPI]
+    PyPI[PyPI workflow verifies and publishes original Python files]
+    Verify[Maintainers verify both publications before announcing]
+    PR --> Review --> Merge --> Draft --> Build --> Check
+    Check --> Publish --> Lock --> Dispatch --> PyPI --> Verify
+```
 
 1. **Release Please** opens the release PR. After merge, it creates a draft
    release and a real `vX.Y.Z` tag using `draft: true` and
@@ -42,6 +80,24 @@ Run `just release-check` with Cargo-dist 0.31.0 installed to check generated CI
 and planning locally. The PyPI workflow currently accepts stable `vX.Y.Z` tags.
 
 ## Recovery
+
+Maintainers choose the recovery path from the failed job and the release's
+current state:
+
+```mermaid
+flowchart TD
+    Failure[Release failure] --> Fix{Source fix needed or original build artifacts unavailable?}
+    Fix -->|Yes| Version[Maintainers prepare a new version]
+    Fix -->|No| Stage{Where did the failure occur?}
+    Stage -->|Build or release check| Retry[Resolve the failure and rerun failed jobs]
+    Stage -->|Draft asset upload| Draft{Release still a draft?}
+    Draft -->|Yes| Clean[Remove partial draft assets and rerun failed announce job]
+    Draft -->|No| Preserve[Preserve published assets and tag; inspect remaining failed jobs]
+    Stage -->|PyPI dispatch or publication| PyPI[Run PyPI workflow for the published tag]
+    PyPI --> Verify[Verify both publications before announcing]
+    Retry --> Verify
+    Clean --> Verify
+```
 
 Use GitHub's **Re-run failed jobs** on the original tag workflow. Successful build
 jobs and their Actions artifacts are retained, so a publication retry uses the
