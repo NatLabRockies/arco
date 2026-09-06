@@ -12,8 +12,9 @@ use super::indexing::{
 };
 use crate::py_modules::arrays::{
     CompactExprStorage, ComparisonSense, ExprArrayStorage, ExpressionTermCounts, LinearArrayCore,
-    PyConstraintArray, PyVariableArray, SparseExprStorage, array_cumsum, array_diff, array_roll,
-    combine_sparse_expr_same_shape, compare_sparse_expr_same_shape, compare_with_compact_fallback,
+    PyConstraintArray, PyVariableArray, SparseCompareOperand, SparseExprStorage, array_cumsum,
+    array_diff, array_roll,
+    combine_sparse_expr_same_shape, compare_with_compact_fallback,
     diff_sparse_expr, expression_term_counts, multiply_sparse_expr_with_labeled_operand,
     SparseDiffSource,
     multiply_sparse_expr_with_scalar, roll_sparse_expr, set_solver_matrix_memory_estimate,
@@ -93,38 +94,37 @@ impl PyExprArray {
     /// Shared comparison logic for __ge__, __le__, __eq__.
     fn compare(
         &self,
+        left_handle: Py<PyExprArray>,
         rhs: &Bound<'_, PyAny>,
         sense: ComparisonSense,
     ) -> PyResult<PyConstraintArray> {
-        if let Some((left_indices, left_values)) = self.sparse_entries() {
-            if let Ok(rhs_array) = rhs.extract::<PyRef<'_, PyExprArray>>() {
-                if rhs_array.storage.shape() == self.storage.shape() {
-                    if let Some((right_indices, right_values)) = rhs_array.sparse_entries() {
-                        return Ok(compare_sparse_expr_same_shape(
-                            self.storage.index_sets_ref(),
-                            self.storage.shape(),
-                            left_indices,
-                            left_values,
-                            right_indices,
-                            right_values,
-                            sense,
-                        ));
-                    }
+        if self.sparse_entries().is_some() {
+            if let Ok(rhs_array) = rhs.extract::<Py<PyExprArray>>() {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                if rhs_ref.storage.shape() == self.storage.shape()
+                    && rhs_ref.sparse_entries().is_some()
+                {
+                    return Ok(PyConstraintArray::from_sparse_lazy_compare(
+                        SparseCompareOperand::Expr(left_handle),
+                        SparseCompareOperand::Expr(rhs_array),
+                        sense,
+                        self.storage.shape().to_vec(),
+                        self.storage.clone_index_sets(),
+                    ));
                 }
             }
-            if let Ok(rhs_array) = rhs.extract::<PyRef<'_, PyVariableArray>>() {
-                if rhs_array.get_shape() == self.storage.shape() {
-                    if let Some((right_indices, right_values)) = rhs_array.sparse_expr_entries() {
-                        return Ok(compare_sparse_expr_same_shape(
-                            self.storage.index_sets_ref(),
-                            self.storage.shape(),
-                            left_indices,
-                            left_values,
-                            right_indices,
-                            &right_values,
-                            sense,
-                        ));
-                    }
+            if let Ok(rhs_array) = rhs.extract::<Py<PyVariableArray>>() {
+                let rhs_ref = rhs_array.bind(rhs.py()).borrow();
+                if rhs_ref.get_shape() == self.storage.shape()
+                    && rhs_ref.sparse_var_entries().is_some()
+                {
+                    return Ok(PyConstraintArray::from_sparse_lazy_compare(
+                        SparseCompareOperand::Expr(left_handle),
+                        SparseCompareOperand::Variable(rhs_array),
+                        sense,
+                        self.storage.shape().to_vec(),
+                        self.storage.clone_index_sets(),
+                    ));
                 }
             }
         }
@@ -524,16 +524,19 @@ impl PyExprArray {
         super::array_neg(&core)
     }
 
-    fn __ge__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        self.compare(rhs, ComparisonSense::GreaterEqual)
+    fn __ge__(slf: &Bound<'_, Self>, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        slf.borrow()
+            .compare(slf.clone().unbind(), rhs, ComparisonSense::GreaterEqual)
     }
 
-    fn __le__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        self.compare(rhs, ComparisonSense::LessEqual)
+    fn __le__(slf: &Bound<'_, Self>, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        slf.borrow()
+            .compare(slf.clone().unbind(), rhs, ComparisonSense::LessEqual)
     }
 
-    fn __eq__(&self, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
-        self.compare(rhs, ComparisonSense::Equal)
+    fn __eq__(slf: &Bound<'_, Self>, rhs: &Bound<'_, PyAny>) -> PyResult<PyConstraintArray> {
+        slf.borrow()
+            .compare(slf.clone().unbind(), rhs, ComparisonSense::Equal)
     }
 
     #[pyo3(signature = (*, over=None))]

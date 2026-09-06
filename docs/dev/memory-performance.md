@@ -157,6 +157,23 @@ bindings/python/.venv/bin/pytest \
   -k sparse_constraint_array_reuse_normalizes_terms -q
 ```
 
+Sparse array-to-array comparisons defer row merging until insertion. The
+comparison retains references to the immutable sparse source arrays and applies
+the active mask while streaming the merged rows, so inactive union rows do not
+first become `PyExpr` and RHS buffers. This applies to sparse expression and
+sparse variable operands with matching shapes; axis broadcasting continues to
+use the materialized comparison path. Calling the public `rhs` or indexing
+accessors still computes the same visible values on demand, and the source
+arrays remain reusable for later comparisons and insertions.
+
+The focused checks are:
+
+```bash
+PYTHONPATH=bindings/python bindings/python/.venv/bin/pytest \
+  bindings/python/tests/test_active_masks.py \
+  -k 'sparse_comparison_applies_active_mask or sparse_comparison_can_be_reused' -q
+```
+
 ## Reusing owned materialized rows
 
 The materialized Python constraint paths receive expressions that they already

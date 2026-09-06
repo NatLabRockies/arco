@@ -32,6 +32,9 @@ pub use variable_array::PyVariableArray;
 
 // Re-export compact types for use in lib.rs
 pub use constraint_array::{CompactConstraintStorage, CompactRhs};
+pub use constraint_array::{
+    SparseCompareMerge, SparseCompareOperand, SparseCompareValue,
+};
 
 type LabeledOperand = (Vec<Py<PyIndexSet>>, Vec<f64>);
 
@@ -953,66 +956,6 @@ pub(super) fn combine_sparse_expr_same_shape(
         shape.to_vec(),
         out_indices,
         out_values,
-    )
-}
-
-pub(super) fn compare_sparse_expr_same_shape(
-    index_sets: &[Py<PyIndexSet>],
-    shape: &[usize],
-    left_indices: &[usize],
-    left_values: &[PyExpr],
-    right_indices: &[usize],
-    right_values: &[PyExpr],
-    sense: ComparisonSense,
-) -> PyConstraintArray {
-    let mut left_pos = 0usize;
-    let mut right_pos = 0usize;
-    let mut exprs = Vec::with_capacity(left_indices.len().max(right_indices.len()));
-    let mut rhs = Vec::with_capacity(exprs.capacity());
-    let mut active_indices = Vec::with_capacity(exprs.capacity());
-
-    while left_pos < left_indices.len() || right_pos < right_indices.len() {
-        let left_idx = left_indices.get(left_pos).copied();
-        let right_idx = right_indices.get(right_pos).copied();
-        let current_idx = match (left_idx, right_idx) {
-            (Some(left), Some(right)) => left.min(right),
-            (Some(left), None) => left,
-            (None, Some(right)) => right,
-            (None, None) => break,
-        };
-
-        let left_expr = if left_idx == Some(current_idx) {
-            let expr = left_values[left_pos].clone();
-            left_pos += 1;
-            expr
-        } else {
-            PyExpr::default()
-        };
-        let right_expr = if right_idx == Some(current_idx) {
-            let expr = right_values[right_pos].clone();
-            right_pos += 1;
-            expr
-        } else {
-            PyExpr::default()
-        };
-
-        let diff = left_expr.inner().add(&right_expr.inner().scale(-1.0));
-        let diff_expr = PyExpr::from_expr(diff);
-        if diff_expr.inner().num_terms() == 0 && diff_expr.constant() == 0.0 {
-            continue;
-        }
-        active_indices.push(current_idx);
-        rhs.push(-diff_expr.constant());
-        exprs.push(diff_expr.without_constant());
-    }
-
-    PyConstraintArray::from_sparse_rows(
-        exprs,
-        sense,
-        rhs,
-        active_indices,
-        shape.to_vec(),
-        Python::attach(|py| index_sets.iter().map(|set| set.clone_ref(py)).collect()),
     )
 }
 
