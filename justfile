@@ -93,6 +93,11 @@ vscode-extension-check:
 workflow-quality:
     uvx zizmor --pedantic .github/
 
+[group: 'hygiene']
+release-check dist_bin="dist":
+    uv run --no-project --python 3.12 --with pytest pytest scripts/test_release_pipeline.py bindings/python/tests/test_rust_boundaries.py -q
+    bash scripts/ci_test_dist_pipeline.sh "{{ dist_bin }}"
+
 [group: 'rust']
 rust-check:
     ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo check {{ rust-packages }} --tests --benches --examples

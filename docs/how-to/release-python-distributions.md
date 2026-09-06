@@ -1,43 +1,43 @@
 # Release Python Distributions
 
-Use this when a release is ready but a Python wheel build or PyPI upload fails.
+Arco builds Python distributions after a Release Please PR is merged, validates
+and freezes them in a release candidate, and publishes those exact files through
+an immutable GitHub Release.
 
 ## Normal release
 
-1. Merge the release-please PR.
-2. Let `release-please` dispatch the cargo-dist release.
-3. Let the Python wheel matrix store its artifacts, then let the dedicated upload
-   job publish the complete set to the GitHub Release.
-4. Let PyPI publish after all Python artifacts build.
-5. Verify the release files on PyPI.
+1. Merge the release PR after normal CI and release-contract checks pass.
+2. The workflow builds and installs six wheels: `cp310-cp310` and `cp311-abi3`
+   across Linux x86_64, macOS arm64, and Windows. It also builds the sdist.
+3. Candidate assembly requires those files, the CLI artifacts, and the VSIX.
+4. Publication checks repository immutability, tag identity, inventory, and asset
+   digests before publishing the GitHub draft.
+5. The PyPI job downloads and verifies the Python assets, then publishes them
+   with trusted publishing.
 
-The wheel matrix is intentionally small: `cp310` and `abi3` across Linux, macOS arm64, and Windows. Linux x86_64 wheels build in the pinned `manylinux_2_28` container, supporting glibc 2.28 or newer. The `abi3` wheels target CPython 3.11 and support Python 3.12, 3.13, and 3.14. VS Code extension upload is separate and does not block PyPI publishing.
+Linux wheels use the pinned `manylinux_2_28_x86_64` image. ABI3 wheels are built
+with CPython 3.11 and support later compatible CPython versions.
 
-## If a wheel job fails
+## Recover a failed build or upload
 
-Use the smallest recovery path first:
+Use **Re-run failed jobs** on the original workflow run. Before the candidate is
+assembled, failed builds can be retried. Once `release-candidate` exists, a full
+rerun skips compilation and reuses it. Publication retains matching draft assets,
+adds missing files, and rejects digest mismatches. Do not rebuild a frozen
+candidate or manually replace release files to bypass a mismatch.
 
-1. If the failure looks transient, use GitHub's **Re-run failed jobs** on the failed workflow run.
-2. If the workflow or packaging code needs a fix, merge the fix and rerun **Manual PyPI Release** from `main` with:
-   - `ref`: the release tag or branch to rebuild
-   - `skip_existing`: `true`
-   - `release_tag`: the GitHub Release tag, when GitHub Release assets should be updated
-   - `upload_to_release`: `true`, when GitHub Release assets should be updated
-3. Rebuild all Python artifacts rather than stitching together artifacts from multiple runs.
+If the candidate has expired or a fix changes package bytes, follow the recovery
+policy in [Release Policy](../../RELEASE_POLICY.md); normally a new version is
+required.
 
-Rebuilding the full reduced matrix is simpler and less error-prone than maintaining a separate artifact staging system.
+## Retry PyPI publication
 
-## If PyPI partially uploaded files
+Manually run `release-please.yaml` with the published `vX.Y.Z` tag. The workflow
+runs only the PyPI path, requires a published immutable release, downloads the
+six wheels and sdist, verifies their SHA-256 digests, and uses `skip-existing: true`.
+It does not accept a build ref or rebuild distributions.
 
-PyPI files are immutable.
-
-1. Keep already uploaded files unchanged.
-2. Fix the missing or invalid artifact.
-3. Rerun **Manual PyPI Release** with `skip_existing=true`.
-4. If a bad file was uploaded, publish a patch release instead of trying to replace it.
-
-The release-please PyPI publish path also uses `skip-existing: true` so reruns do not fail only because a previous attempt uploaded some files.
-
----
+If a bad file was already published, issue a new patch release. PyPI files are
+not replaced.
 
 [Back to how-to guides](./)

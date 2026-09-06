@@ -1,0 +1,100 @@
+{
+  "announcement_tag": "v1.2.3",
+  "announcement_version": "1.2.3",
+  "artifacts": {
+    "arco-cli-aarch64-apple-darwin.tar.gz": {
+      "name": "arco-cli-aarch64-apple-darwin.tar.gz",
+      "kind": "executable-zip",
+      "target_triples": [
+        "aarch64-apple-darwin"
+      ],
+      "checksum": "arco-cli-aarch64-apple-darwin.tar.gz.sha256"
+    },
+    "arco-cli-aarch64-apple-darwin.tar.gz.sha256": {
+      "name": "arco-cli-aarch64-apple-darwin.tar.gz.sha256",
+      "kind": "checksum"
+    },
+    "arco-cli-aarch64-unknown-linux-gnu.tar.gz": {
+      "name": "arco-cli-aarch64-unknown-linux-gnu.tar.gz",
+      "kind": "executable-zip",
+      "target_triples": [
+        "aarch64-unknown-linux-gnu"
+      ],
+      "checksum": "arco-cli-aarch64-unknown-linux-gnu.tar.gz.sha256"
+    },
+    "arco-cli-aarch64-unknown-linux-gnu.tar.gz.sha256": {
+      "name": "arco-cli-aarch64-unknown-linux-gnu.tar.gz.sha256",
+      "kind": "checksum"
+    },
+    "arco-cli-x86_64-apple-darwin.tar.gz": {
+      "name": "arco-cli-x86_64-apple-darwin.tar.gz",
+      "kind": "executable-zip",
+      "target_triples": [
+        "x86_64-apple-darwin"
+      ],
+      "checksum": "arco-cli-x86_64-apple-darwin.tar.gz.sha256"
+    },
+    "arco-cli-x86_64-apple-darwin.tar.gz.sha256": {
+      "name": "arco-cli-x86_64-apple-darwin.tar.gz.sha256",
+      "kind": "checksum"
+    },
+    "arco-cli-x86_64-unknown-linux-gnu.tar.gz": {
+      "name": "arco-cli-x86_64-unknown-linux-gnu.tar.gz",
+      "kind": "executable-zip",
+      "target_triples": [
+        "x86_64-unknown-linux-gnu"
+      ],
+      "checksum": "arco-cli-x86_64-unknown-linux-gnu.tar.gz.sha256"
+    },
+    "arco-cli-x86_64-unknown-linux-gnu.tar.gz.sha256": {
+      "name": "arco-cli-x86_64-unknown-linux-gnu.tar.gz.sha256",
+      "kind": "checksum"
+    },
+    "arco-cli-x86_64-pc-windows-msvc.zip": {
+      "name": "arco-cli-x86_64-pc-windows-msvc.zip",
+      "kind": "executable-zip",
+      "target_triples": [
+        "x86_64-pc-windows-msvc"
+      ],
+      "checksum": "arco-cli-x86_64-pc-windows-msvc.zip.sha256"
+    },
+    "arco-cli-x86_64-pc-windows-msvc.zip.sha256": {
+      "name": "arco-cli-x86_64-pc-windows-msvc.zip.sha256",
+      "kind": "checksum"
+    },
+    "arco-cli-installer.sh": {
+      "name": "arco-cli-installer.sh",
+      "kind": "installer",
+      "target_triples": [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc"
+      ]
+    },
+    "arco-cli-installer.ps1": {
+      "name": "arco-cli-installer.ps1",
+      "kind": "installer",
+      "target_triples": [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc"
+      ]
+    },
+    "sha256.sum": {
+      "name": "sha256.sum",
+      "kind": "unified-checksum"
+    },
+    "source.tar.gz": {
+      "name": "source.tar.gz",
+      "kind": "source-tarball"
+    },
+    "source.tar.gz.sha256": {
+      "name": "source.tar.gz.sha256",
+      "kind": "checksum"
+    }
+  }
+}

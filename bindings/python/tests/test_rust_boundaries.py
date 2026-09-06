@@ -68,12 +68,30 @@ def test_release_wheel_recipe_allows_the_abi3_matrix_features() -> None:
     )
 
     abi3_features = 'wheel_features: "pyo3/extension-module,pyo3/abi3-py311,xpress,scip-from-source"'
-    for workflow in (
-        ".github/workflows/ci.yaml",
-        ".github/workflows/pypi-manual-release.yaml",
-        ".github/workflows/release-please.yaml",
-    ):
+    for workflow in (".github/workflows/release-please.yaml",):
         assert abi3_features in (ROOT / workflow).read_text()
+
+
+def test_ci_validates_supported_python_versions_for_packaging_changes() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ci.yaml").read_text()
+
+    assert "python_compat:" in workflow
+    assert "bindings/python/pyproject.toml" in workflow
+    assert "scripts/build_python_wheel.sh" in workflow
+    assert (
+        "needs.ci-plan.outputs.python_compat == 'true' || "
+        "needs.ci-plan.outputs.docs == 'true'" in workflow
+    )
+    assert (
+        "needs.ci-plan.outputs.python_compat == 'true' && "
+        '\'["3.10", "3.11", "3.12", "3.13", "3.14"]\'' in workflow
+    )
+
+
+def test_zizmor_hook_does_not_require_a_deleted_config() -> None:
+    hook_config = (ROOT / ".pre-commit-config.yaml").read_text()
+
+    assert ".github/zizmor.yml" not in hook_config
 
 
 def test_cli_cargo_depends_on_arco_ops_only_among_arco_modeling_crates() -> None:

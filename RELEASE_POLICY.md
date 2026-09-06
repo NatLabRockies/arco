@@ -1,183 +1,117 @@
 # Release Policy
 
-Arco ships as one product snapshot with one shared semantic version.
+Arco ships one product snapshot with one shared semantic version across the
+workspace, Python package, `vX.Y.Z` tag, and GitHub Release. Release Please
+updates `Cargo.toml`, `bindings/python/pyproject.toml`, and
+`bindings/python/uv.lock` together.
 
-Every release version is shared across:
+This pipeline accepts stable `vX.Y.Z` versions. Prerelease distribution naming
+and promotion are outside its current release contract.
 
-- `Cargo.toml` workspace version
-- `bindings/python/pyproject.toml` project version
-- `bindings/python/uv.lock` package entry for `arco`
-- GitHub tag (`vX.Y.Z`)
-- GitHub Release
+## Ownership
 
-## Goals
+- Release Please owns the changelog, release PR, tag, and draft GitHub Release.
+- Cargo-dist owns CLI target planning, builds, installers, checksums, and the
+  canonical `dist-manifest.json`.
+- `release-please.yaml` owns candidate assembly and publication.
+- PyPI consumes the exact Python files from the published immutable release.
 
-- Keep release identity simple, one product version everywhere.
-- Build once, publish the exact built artifacts.
-- Keep release automation retryable and safe when failures happen.
-- Ship everything together or nothing: GitHub Release and PyPI publish atomically.
+`cargo-dist-build.yaml` is a reusable build workflow, with no publication step.
+`dist-workspace.toml` uses Cargo-dist's supported `allow-dirty = ["ci"]` option
+for handwritten CI while retaining its GitHub matrix and hosting metadata. There
+is no generated release workflow or separate manual Python build/publisher.
 
-## Release Ownership
+## Release flow
 
-- `release-please` owns changelog generation, version bump PRs (across
-  `Cargo.toml`, `pyproject.toml`, and `uv.lock`), and tag creation.
-- `cargo-dist` owns cross-platform CLI binaries, installers, checksums, dist
-  manifests, and publishing the GitHub Release.
-- `ci.yaml` owns pre-merge validation: version consistency checks, code
-  quality, tests, solver smoke checks, cross-OS release compilation, and
-  release-please preflight checks that build cargo-dist/Python artifacts without
-  publishing them.
+1. Release Please opens or updates a release PR. Normal CI, release-contract
+   checks, and packaging-sensitive Python 3.10–3.14 smoke checks must pass.
+2. A human merges the release PR. Release Please creates the tag immediately
+   and leaves the GitHub Release in draft mode.
+3. The workflow resolves the release from the workspace version and verifies
+   that its tag identifies the triggering commit. It does not parse merge titles.
+   Repository release immutability must be enabled before building proceeds.
+4. Every builder checks out that exact commit SHA. Cargo-dist builds five CLI
+   targets, archives, installers, checksums, and the final merged manifest. The
+   Python matrix builds and installs six wheels: `cp310-cp310` and `cp311-abi3`
+   on Linux x86_64, macOS arm64, and Windows. Linux ABI3 also builds the sdist.
+   The VS Code job checks and packages one VSIX.
+5. The assembly job verifies the exact inventory against the Cargo-dist manifest
+   and required Python/VS Code assets, then stores a single `release-candidate`
+   Actions artifact. This candidate is never overwritten.
+6. The publisher downloads that candidate, checks immutability settings and tag
+   identity again, and reconciles draft assets by SHA-256. Extra assets, absent
+   digests, missing candidate files, and different bytes fail closed. Only missing
+   assets are uploaded; the complete remote inventory and digests are verified
+   before the draft is published. The published release must report immutable.
+7. The PyPI job downloads the six wheels and sdist from the immutable GitHub
+   Release, verifies their digests, and publishes with trusted publishing.
 
-## Workflow Topology
+The candidate is built and validated **after merge**. This provides immutable
+published releases; it is not promotion of binaries previously approved on a PR.
+GitHub's release immutability locks the published assets and associated tag.
 
-| Workflow              | Trigger                                                           | Purpose                                                                                                                                                                       |
-| --------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `release-please.yaml` | `push` to `main` and supported `release/*` branches               | Maintains release PRs/tags, dispatches `v-release.yml`, waits for release publication, uploads the VS Code extension and Python distributions, then publishes Python packages |
-| `v-release.yml`       | `workflow_dispatch` from `release-please.yaml` with a release tag | Builds and publishes CLI artifacts via cargo-dist                                                                                                                             |
+## Artifacts and recovery
 
-### Workflow dispatch call
+Actions artifacts are retained for 90 days; the GitHub Release is the permanent
+record. GitHub permits workflow reruns for a shorter period, currently 30 days.
+Use **Re-run failed jobs** for the smallest recovery path.
 
-`release-please.yaml` dispatches `v-release.yml` with `gh workflow run` because
-release tags created with `GITHUB_TOKEN` do not trigger tag-based workflows.
-It then waits for the GitHub Release to appear before starting PyPI publish.
+- **Build failure:** rerun failed jobs on the original run. Before candidate
+  assembly, a full rerun may replace intermediate build artifacts. No GitHub
+  Release assets have been uploaded at this stage.
+- **Assembly failure:** fix the failing build or inventory problem before
+  publication. Do not manually add files to bypass the candidate checks.
+- **Partial GitHub upload or publication failure:** rerun the publication job or
+  failed jobs. A full rerun detects the existing `release-candidate`, skips all
+  builders and assembly, and publishes those same bytes. Matching remote assets
+  are retained; only missing assets are uploaded. A mismatch requires investigation,
+  not rebuilding or replacing the existing asset.
+- **Expired candidate:** recovery fails rather than silently rebuilding a frozen
+  candidate. Recover the original files through an operator-reviewed procedure
+  or issue a new release version.
+- **PyPI failure:** manually dispatch `release-please.yaml` with the published
+  `vX.Y.Z` tag. Only the PyPI path runs. It downloads verified release assets,
+  uses `skip-existing: true`, and performs no compilation or GitHub uploads.
 
-### v-release.yml job graph
+If a published package is incorrect, issue a new patch release. Do not replace
+published assets. A code or workflow fix that changes release bytes needs a new
+version rather than a rebuild under the old tag.
 
-`v-release.yml` is generated by cargo-dist from `dist-workspace.toml` and
-`.github/build-setup.yml`. When called with a tag (publishing mode), it runs
-these jobs in order:
+## Repository rollout
 
-```text
-plan
-  -> build-local-artifacts (matrix across target platforms)
-  -> build-global-artifacts (installers, checksums)
-  -> host (cargo-dist upload/release hosting step)
-  -> announce (attest artifacts and create the GitHub Release)
-```
+Before the first production release, an administrator must:
 
-`v-release.yml` runs from workflow dispatch with an explicit release tag and
-publishes artifacts for that tag.
+1. Enable GitHub Immutable Releases. The pipeline checks this setting and refuses
+   to publish while it is disabled; this PR does not change repository settings.
+2. Add a `v*` tag ruleset blocking tag updates and deletion before publication.
+   Permit Release Please to create tags, without granting routine mutation rights.
+3. Configure `RELEASE_PLEASE_TOKEN` with repository contents and pull-request
+   write access, plus **Administration: read**. GitHub requires administration
+   read access for the [immutability-settings check](https://docs.github.com/en/rest/repos/repos#check-if-immutable-releases-are-enabled-for-a-repository);
+   the default Actions token cannot supply it. Administration write access is
+   not needed by the workflow.
+4. Require normal CI and release-contract checks on release PRs, and require the
+   branch to be up to date before merging.
+5. Configure the PyPI trusted publisher for `.github/workflows/release-please.yaml`
+   and the `pypi` environment.
+6. In a sandbox repository, prove the entire lifecycle: draft/tag creation,
+   platform builds and smoke checks, rejection with immutability disabled,
+   interrupted upload recovery from unchanged candidate bytes, published asset/tag
+   locking, and tag-only PyPI recovery.
 
-### Pre-merge release preflight
+Run `just release-check` with Cargo-dist 0.31.0 installed to validate real planning
+and the publication/recovery contracts locally. The tests use a GitHub process
+boundary double; they do not create releases or publish packages. Cross-platform
+builds and live GitHub locking still require the sandbox run above.
 
-Release-please PRs update version metadata and `CHANGELOG.md`, which makes CI
-run the release preflight before the PR can merge. The preflight checks that
-release-please owns every versioned file, verifies all release version metadata
-matches, builds Python wheels across the release platform/Python matrix,
-validates the Python source distribution's Cargo workspace, and uses
-cargo-dist's planned target matrix to build local CLI artifacts without
-uploading or publishing them.
+## Branches and release notes
 
-CI caches native solver bundles and cargo-dist binaries by runner platform and
-tool version. These caches are runtime optimizations only; cache misses must
-still perform the same setup and validation work.
+Before `1.0`, releases come from `main`. Supported maintenance lines may later
+use `release/1.0` style branches; backport release workflow fixes to each line.
+A workflow and its local actions run from that branch's triggering commit.
 
-### Release atomicity
-
-The `py-build`, `upload-vscode-extension`, `upload-python-distributions`, and
-`publish-pypi` jobs in `release-please.yaml` depend on the
-`dispatch-dist-release` job. That job does not finish until the cargo-dist
-workflow has published the GitHub Release. PyPI publishing waits for the Python
-distribution asset upload. The VS Code extension upload runs separately and does
-not block PyPI publishing. If cargo-dist fails, times out, or the Python
-release-asset upload fails, PyPI publishing does not start.
-
-## Release Notes
-
-`release-please` is the source of truth for changelog content.
-Changelog sections are configured in `.github/release-please-config.json`.
-
-## Release Lanes
-
-### Pre-1.0 policy
-
-Until `1.0`, Arco releases from `main` only.
-
-- `main` is both the development branch and the release branch.
-- Pre-`1.0` patch releases (for example `0.7.1`) are cut from `main`, not from
-  long-lived maintenance branches.
-- We do not keep supported maintenance branches before `1.0`.
-- Workflow naming is already prepared for future `release/*` branches so the
-  post-`1.0` transition is mechanical when we choose to support one.
-
-### Post-1.0 maintenance policy
-
-Maintenance branches are created only for version lines we explicitly support.
-They are not created automatically for every minor release.
-
-Recommended naming:
-
-- `release/1.0` for the `1.0.x` line
-
-Default support model:
-
-- support at most one maintenance line at a time unless we explicitly decide
-  otherwise
-- prefer current development on `main` plus one supported release line
-
-Rules for any maintenance branch:
-
-- Carry product bug fixes only.
-- Keep CI, release workflows, and tooling sourced from `main`.
-- Use branch-local version metadata only when required for that supported line.
-
-This follows common trunk-based practice: trunk (`main`) remains the source of
-truth, and maintenance branches exist only when we are intentionally supporting
-an older released line.
-
-## Failure Handling
-
-On any failure in `v-release.yml`:
-
-- Workflow artifacts are preserved for inspection and retries.
-- `release-please.yaml` times out or fails while waiting for the GitHub Release.
-- Python package publishing does not start.
-
-Retries rerun `v-release.yml` with the same tag after cleaning up any partial
-GitHub Release state if cargo-dist reached the final publish step.
-
-## Maintenance Notes
-
-- Do not hand-edit cargo-dist build steps in `v-release.yml`. Put Arco-specific
-  runner setup in `.github/build-setup.yml`, then run:
-
-  ```bash
-  dist generate --mode=ci
-  mv .github/workflows/release.yml .github/workflows/v-release.yml
-  ```
-
-  CI runs the same generation and diffs the generated `release.yml` against
-  `v-release.yml` to catch drift.
-
-- Official CLI releases statically link SCIP (`scip-from-source`) so fresh
-  installs are self-contained. Development builds keep the bundled SCIP path by
-  default (`scip-bundled`).
-- Release jobs that build SCIP from source need the native source-build toolchain
-  required by `scip-sys` (for example `cmake` and `libclang`).
-
-- `main` is the source of truth for CI, release workflows, and tooling.
-  If we create a maintenance branch after `1.0`, sync workflow/tooling changes
-  from `main` unless a branch-specific exception is documented.
-
-## Future First-Party Bindings
-
-New first-party bindings should join the shared product version stream unless
-explicitly declared as a separate product line.
-
-If they join the stream, their build and publish steps should be added to the
-release workflow before the release is made public.
-
-## Commit Conventions
-
-- Use Conventional Commits (`feat:`, `fix:`, `perf:`, `refactor:`, `docs:`,
-  `build:`, `ci:`).
-- Non-conventional commits may be omitted or misclassified in release notes.
-
-## Forcing A Release Version
-
-Use `Release-As` only when an explicit one-off version override is necessary.
-It does not exclude already-merged features from the target branch's release
-contents:
+Release Please remains the source of truth for changelog content. For a one-off
+version override, use a `Release-As` footer, for example:
 
 ```text
 chore(release): force 0.3.0
@@ -185,5 +119,4 @@ chore(release): force 0.3.0
 Release-As: 0.3.0
 ```
 
-Close stale release PRs and remove stale partial releases for old forced tags
-before rerunning automation.
+The version consistency check must pass before a release PR is merged.
