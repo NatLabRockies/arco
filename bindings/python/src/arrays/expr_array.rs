@@ -113,6 +113,22 @@ impl PyExprArray {
         }
     }
 
+    pub(crate) fn from_deferred_variable_reduction(
+        source: Py<PyVariableArray>,
+        axis: usize,
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+    ) -> Self {
+        Self {
+            storage: ExprArrayStorage::DeferredVariableReduction {
+                source,
+                axis,
+                index_sets,
+                shape,
+            },
+        }
+    }
+
     /// Wrap a compact result using this array's index sets and shape.
     fn wrap_compact(&self, compact: CompactExprStorage) -> Self {
         Self::from_compact(
@@ -125,6 +141,14 @@ impl PyExprArray {
     /// Materialize the LinearArrayCore on demand.
     pub fn to_core(&self) -> LinearArrayCore {
         self.storage.to_core()
+    }
+
+    pub(crate) fn deferred_broadcast_core(&self) -> Option<LinearArrayCore> {
+        matches!(
+            &self.storage,
+            ExprArrayStorage::DeferredVariableReduction { .. }
+        )
+        .then(|| self.storage.to_core())
     }
 
     /// Get compact storage if available.
@@ -421,6 +445,7 @@ impl PyExprArray {
                 index_sets,
                 shape,
             } => storage.to_core(index_sets, shape).values,
+            ExprArrayStorage::DeferredVariableReduction { .. } => self.storage.to_core().values,
         }
     }
 
@@ -432,6 +457,7 @@ impl PyExprArray {
             }
             ExprArrayStorage::Sparse { storage, .. } if storage.is_lazy() => "sparse_lazy",
             ExprArrayStorage::Sparse { .. } => "sparse",
+            ExprArrayStorage::DeferredVariableReduction { .. } => "deferred_variable_reduction",
             ExprArrayStorage::Full(_) => "full",
         }
     }
@@ -440,6 +466,9 @@ impl PyExprArray {
         match &self.storage {
             ExprArrayStorage::Compact { storage, .. } => storage.term_counts(),
             ExprArrayStorage::Sparse { storage, .. } => storage.term_counts(),
+            ExprArrayStorage::DeferredVariableReduction { source, .. } => {
+                Python::attach(|py| source.bind(py).borrow().term_counts())
+            }
             ExprArrayStorage::Full(core) => expression_term_counts(&core.values),
         }
     }
@@ -490,6 +519,9 @@ impl PyExprArray {
             ExprArrayStorage::Sparse { storage, .. } => {
                 Python::attach(|py| storage.value_at_flat(py, index))
             }
+            ExprArrayStorage::DeferredVariableReduction { .. } => {
+                self.storage.to_core().values.get(index).cloned()
+            }
         }
     }
 
@@ -508,6 +540,7 @@ impl PyExprArray {
                     .value_at_flat(py, index)
                     .map_or(0.0, |value| value.constant())
             }),
+            ExprArrayStorage::DeferredVariableReduction { .. } => 0.0,
         }
     }
 
@@ -588,6 +621,17 @@ impl PyExprArray {
                     ))
                 }
             }
+            ExprArrayStorage::DeferredVariableReduction {
+                source,
+                axis,
+                shape,
+                ..
+            } => Ok(Self::from_deferred_variable_reduction(
+                source.clone_ref(py),
+                *axis,
+                new_index_sets,
+                shape.clone(),
+            )),
         }
     }
 }
@@ -1195,7 +1239,9 @@ impl PyExprArray {
         let dense_slots = self.storage.count();
         let active_slots = match &self.storage {
             ExprArrayStorage::Sparse { storage, .. } => storage.active_count(),
-            ExprArrayStorage::Full(_) | ExprArrayStorage::Compact { .. } => dense_slots,
+            ExprArrayStorage::Full(_)
+            | ExprArrayStorage::Compact { .. }
+            | ExprArrayStorage::DeferredVariableReduction { .. } => dense_slots,
         };
         let inactive_slots = dense_slots.saturating_sub(active_slots);
         let active_density = if dense_slots == 0 {

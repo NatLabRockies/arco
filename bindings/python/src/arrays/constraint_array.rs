@@ -209,6 +209,10 @@ pub enum BroadcastCompareView<'a> {
         array: &'a PyExprArray,
         plan: &'a BroadcastPlan,
     },
+    MaterializedExpr {
+        core: LinearArrayCore,
+        plan: &'a BroadcastPlan,
+    },
     Variable {
         array: &'a PyVariableArray,
         plan: &'a BroadcastPlan,
@@ -221,6 +225,11 @@ impl BroadcastCompareView<'_> {
             Self::Expr { array, plan } => array
                 .value_at_flat(plan.source_offset_for_target_flat(target_index))
                 .map(BroadcastCompareValue::Expr),
+            Self::MaterializedExpr { core, plan } => core
+                .values
+                .get(plan.source_offset_for_target_flat(target_index))
+                .cloned()
+                .map(BroadcastCompareValue::Expr),
             Self::Variable { array, plan } => array
                 .variable_id_at_flat(plan.source_offset_for_target_flat(target_index))
                 .map(BroadcastCompareValue::Variable),
@@ -232,6 +241,10 @@ impl BroadcastCompareView<'_> {
             Self::Expr { array, plan } => {
                 array.constant_at_flat(plan.source_offset_for_target_flat(target_index))
             }
+            Self::MaterializedExpr { core, plan } => core
+                .values
+                .get(plan.source_offset_for_target_flat(target_index))
+                .map_or(0.0, PyExpr::constant),
             Self::Variable { .. } => 0.0,
         }
     }
@@ -254,10 +267,14 @@ impl BroadcastCompareOperand {
         match self {
             Self::Expr(array) => {
                 let array = array.bind(py).borrow();
-                visit(BroadcastCompareView::Expr {
-                    array: &array,
-                    plan,
-                })
+                if let Some(core) = array.deferred_broadcast_core() {
+                    visit(BroadcastCompareView::MaterializedExpr { core, plan })
+                } else {
+                    visit(BroadcastCompareView::Expr {
+                        array: &array,
+                        plan,
+                    })
+                }
             }
             Self::Variable(array) => {
                 let array = array.bind(py).borrow();

@@ -2147,6 +2147,18 @@ pub(crate) enum ExprArrayStorage {
         index_sets: Vec<Py<PyIndexSet>>,
         shape: Vec<usize>,
     },
+    /// A dense result of a sparse variable reduction, materialized on demand.
+    ///
+    /// Sparse reductions retain every output slot, including slots whose
+    /// source variables are all implicit zeroes.  Keeping the source handle
+    /// here avoids allocating one expression per output slot until a consumer
+    /// needs the expressions.
+    DeferredVariableReduction {
+        source: Py<PyVariableArray>,
+        axis: usize,
+        index_sets: Vec<Py<PyIndexSet>>,
+        shape: Vec<usize>,
+    },
 }
 
 impl ExprArrayStorage {
@@ -2164,6 +2176,19 @@ impl ExprArrayStorage {
                 index_sets,
                 shape,
             } => storage.to_core(index_sets, shape),
+            ExprArrayStorage::DeferredVariableReduction {
+                source,
+                axis,
+                index_sets,
+                shape,
+            } => Python::attach(|py| {
+                let source_ref = source.bind(py).borrow();
+                let output_index_sets = index_sets
+                    .iter()
+                    .map(|index_set| index_set.clone_ref(py))
+                    .collect();
+                source_ref.sparse_reduction_core_for_axis(*axis, output_index_sets, shape.clone())
+            }),
         }
     }
 
@@ -2172,6 +2197,7 @@ impl ExprArrayStorage {
             ExprArrayStorage::Full(core) => core.values.len(),
             ExprArrayStorage::Compact { storage, .. } => storage.count,
             ExprArrayStorage::Sparse { shape, .. } => shape.iter().product(),
+            ExprArrayStorage::DeferredVariableReduction { shape, .. } => shape.iter().product(),
         }
     }
 
@@ -2180,6 +2206,7 @@ impl ExprArrayStorage {
             ExprArrayStorage::Full(core) => &core.shape,
             ExprArrayStorage::Compact { shape, .. } => shape,
             ExprArrayStorage::Sparse { shape, .. } => shape,
+            ExprArrayStorage::DeferredVariableReduction { shape, .. } => shape,
         }
     }
 
@@ -2188,6 +2215,7 @@ impl ExprArrayStorage {
             ExprArrayStorage::Full(core) => &core.index_sets,
             ExprArrayStorage::Compact { index_sets, .. } => index_sets,
             ExprArrayStorage::Sparse { index_sets, .. } => index_sets,
+            ExprArrayStorage::DeferredVariableReduction { index_sets, .. } => index_sets,
         }
     }
 
@@ -2204,14 +2232,18 @@ impl ExprArrayStorage {
     pub(crate) fn as_compact(&self) -> Option<&CompactExprStorage> {
         match self {
             ExprArrayStorage::Compact { storage, .. } => Some(storage),
-            ExprArrayStorage::Full(_) | ExprArrayStorage::Sparse { .. } => None,
+            ExprArrayStorage::Full(_)
+            | ExprArrayStorage::Sparse { .. }
+            | ExprArrayStorage::DeferredVariableReduction { .. } => None,
         }
     }
 
     pub(crate) fn as_sparse(&self) -> Option<&SparseExprStorage> {
         match self {
             ExprArrayStorage::Sparse { storage, .. } => Some(storage),
-            ExprArrayStorage::Full(_) | ExprArrayStorage::Compact { .. } => None,
+            ExprArrayStorage::Full(_)
+            | ExprArrayStorage::Compact { .. }
+            | ExprArrayStorage::DeferredVariableReduction { .. } => None,
         }
     }
 
