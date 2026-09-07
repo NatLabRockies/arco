@@ -76,15 +76,10 @@ For example, to propose macOS Intel as a fourth platform, add this row to the
   wheel_python: python3
 ```
 
-Also add the platform to the `python-compatibility` job in the same workflow:
-
-```yaml
-- platform: macos-intel
-  os: macos-15-intel
-```
-
-The label must match the build artifact prefix so this job downloads the two
-Intel wheels and tests them across Python 3.10–3.14 without rebuilding them.
+The platform list is shared with the compatibility job through a YAML anchor, so
+the new row automatically tests the two Intel wheels across Python 3.10–3.14
+without rebuilding them. The label becomes the build artifact prefix used by that
+job.
 
 GitHub documents `macos-15-intel` as an Intel hosted-runner label in
 [Choosing the runner for a job](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job).

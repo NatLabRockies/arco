@@ -60,7 +60,7 @@ sequenceDiagram
     B->>GH: Read the triggering PR head and base
     B->>B: Run the complete source suite at the candidate commit
     B->>B: Build CLI, Python, and VSIX files after source checks pass
-    B->>B: Import the original wheels on Python 3.10 to 3.14
+    B->>B: Smoke-test packaged executables and import wheels on Python 3.10 to 3.14
     B-->>M: Successful candidate run and files, retained for 30 days
     Note over M,P: Review window: any source change invalidates the candidate
     Note over RP,B: The version tag still does not exist
@@ -100,8 +100,11 @@ The candidate first calls the shared CI workflow with every source domain enable
 including architecture, grammar, workflow lint, and automation tests. Release
 builds wait for that suite to pass. Preliminary platform compilation and development
 wheel builds are omitted here because the next stage builds the release artifacts.
-The package stage imports those same wheels on Python 3.10–3.14 on each supported
-platform before the candidate can succeed. See
+Each native build extracts its release archive and runs the packaged executable
+with `--version` before uploading it. Assembly downloads the complete native bundle
+once, alongside the Python and VS Code artifacts. The package stage imports those
+same wheels on Python 3.10–3.14 on each supported platform before the candidate
+can succeed. See
 [Check selection](CONTRIBUTING.md#check-selection) for the ordinary PR checks.
 
 Passing the candidate workflow produces the complete files available for release
