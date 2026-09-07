@@ -29,69 +29,48 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: read # Resolve and validate the requested Release Please PR.
+      pull-requests: read # Check that the release PR still matches the approved revision.
     outputs:
-      base_branch: ${{ steps.candidate.outputs.base_branch }}
-      base_sha: ${{ steps.candidate.outputs.base_sha }}
-      commit: ${{ steps.candidate.outputs.commit }}
-      pr: ${{ steps.candidate.outputs.pr }}
+      base_branch: ${{ github.event.pull_request.base.ref }}
+      base_sha: ${{ github.event.pull_request.base.sha }}
+      commit: ${{ github.event.pull_request.head.sha }}
+      pr: ${{ github.event.pull_request.number }}
       tag: ${{ steps.dist.outputs.tag }}
-      tree: ${{ steps.candidate.outputs.tree }}
+      tree: ${{ steps.dist.outputs.tree }}
     steps:
-      - id: candidate
-        name: Resolve trusted release candidate
+      - name: Require the approved PR revision
         env:
           BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
-          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          GH_REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
-          [[ "$BASE_SHA" =~ ^[a-f0-9]{40}$ && "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
-
-          pr="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")"
-          jq --exit-status \
-            --arg repo "$REPOSITORY" \
-            --arg base_branch "$BASE_BRANCH" \
-            --arg base_sha "$BASE_SHA" \
-            --arg head_branch "$HEAD_BRANCH" \
-            --arg head_sha "$HEAD_SHA" '
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" | jq --exit-status \
+            --slurpfile event "$GITHUB_EVENT_PATH" '
             .state == "open" and
-            .head.repo.full_name == $repo and
-            .user.login == "github-actions[bot]" and
-            .base.ref == $base_branch and .base.sha == $base_sha and
-            .head.ref == $head_branch and .head.sha == $head_sha and
-            (.head.ref | startswith("release-please--branches--"))
-          ' <<<"$pr" >/dev/null || {
-            echo "The release PR changed after this workflow was triggered; approve its current run instead." >&2
+            .head.sha == $event[0].pull_request.head.sha and
+            .base.sha == $event[0].pull_request.base.sha and
+            .base.ref == $event[0].pull_request.base.ref
+          ' >/dev/null || {
+            echo "The release PR changed; approve its current run instead." >&2
             exit 1
           }
-
-          test "$(gh api "repos/$REPOSITORY/commits/$BASE_BRANCH" --jq .sha)" = "$BASE_SHA" || {
-            echo "The base branch changed after this workflow was triggered; approve its current run instead." >&2
+          test "$(gh api "repos/$GH_REPO/commits/$BASE_BRANCH" --jq .sha)" = "$BASE_SHA" || {
+            echo "The base branch changed; wait for Release Please to update the PR." >&2
             exit 1
           }
-          test "$(gh api "repos/$REPOSITORY/compare/$BASE_SHA...$HEAD_SHA" --jq .status)" = ahead || {
+          test "$(gh api "repos/$GH_REPO/compare/$BASE_SHA...$HEAD_SHA" --jq .status)" = ahead || {
             echo "The release PR must be ahead of the current $BASE_BRANCH head." >&2
             exit 1
           }
-          tree="$(gh api "repos/$REPOSITORY/git/commits/$HEAD_SHA" --jq .tree.sha)"
-          {
-            printf 'base_branch=%s\n' "$BASE_BRANCH"
-            printf 'base_sha=%s\n' "$BASE_SHA"
-            printf 'commit=%s\n' "$HEAD_SHA"
-            printf 'pr=%s\n' "$PR_NUMBER"
-            printf 'tree=%s\n' "$tree"
-          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ steps.candidate.outputs.commit }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
           persist-credentials: false
           submodules: recursive
@@ -114,7 +93,7 @@ jobs:
               (["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin",
                 "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] | sort)
           ' plan-dist-manifest.json >/dev/null
-          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\ntree=%s\n' "$tag" "$(git rev-parse HEAD^{tree})" >> "$GITHUB_OUTPUT"
 
   native:
     name: Native CLI (${{ join(matrix.targets, ', ') }})
