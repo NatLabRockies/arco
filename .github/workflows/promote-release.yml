@@ -278,6 +278,20 @@ jobs:
           path: candidate
           digest-mismatch: error
 
+      - name: Add installation commands and downloads to release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GH_REPO" --json body > release.json
+          jq --exit-status --raw-output --arg version "${TAG#v}" --slurpfile release release.json '
+            .announcement_github_body | select(type == "string" and length > 0) |
+            ("## Install Arco for Python " + $version + "\n\n```sh\npython -m pip install arco==" +
+              $version + "\n```\n\n" + .) as $install |
+            ($release[0].body // "") as $body |
+            if ($body | startswith($install)) then $body else $install + "\n\n" + $body end
+          ' candidate/dist-manifest.json > release-notes.md
+          gh release edit "$TAG" --repo "$GH_REPO" --notes-file release-notes.md
+
       - name: Upload every original candidate file
         shell: bash
         run: |

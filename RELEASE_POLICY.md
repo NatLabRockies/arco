@@ -129,6 +129,11 @@ Python publication runs separately because PyPI trusted publishing does not
 support reusable workflows. It downloads and verifies the Python files from the
 immutable GitHub Release. A successful dispatch does not mean PyPI has finished.
 
+Promotion adds installation instructions above the release changelog: a Python
+`pip` command pinned to the release version, plus Cargo-dist's shell and
+PowerShell commands and platform download/checksum table from the approved
+candidate manifest. Retrying the upload job does not duplicate these instructions.
+
 ## Published artifacts
 
 The candidate bundle contains the following files. GitHub Release hosts the
