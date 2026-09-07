@@ -1,0 +1,18 @@
+{
+  "state": "open",
+  "user": {
+    "login": "github-actions[bot]"
+  },
+  "base": {
+    "ref": "main",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "head": {
+    "ref": "release-please--branches--main",
+    "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "repo": {
+      "full_name": "example/arco"
+    }
+  },
+  "draft": false
+}

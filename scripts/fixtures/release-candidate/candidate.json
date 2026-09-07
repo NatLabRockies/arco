@@ -1,0 +1,8 @@
+{
+  "pr": 381,
+  "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "base": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tree": "cccccccccccccccccccccccccccccccccccccccc",
+  "branch": "main",
+  "tag": "v0.12.0"
+}

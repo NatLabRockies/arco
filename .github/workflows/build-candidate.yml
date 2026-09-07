@@ -1,16 +1,15 @@
 name: Build release candidate
-run-name: Build candidate for release PR #${{ inputs.release_pr }}
+run-name: Build candidate for release PR #${{ github.event.pull_request.number }}
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_pr:
-        description: Open Release Please pull request number
-        required: true
-        type: string
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - release/*
 
 concurrency:
-  group: candidate-build-${{ inputs.release_pr }}
+  group: candidate-build-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -22,7 +21,10 @@ env:
 jobs:
   plan:
     name: Resolve candidate and plan native artifacts
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'github-actions[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'release-please--branches--')
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
@@ -39,51 +41,50 @@ jobs:
       - id: candidate
         name: Resolve trusted release candidate
         env:
-          BASE_BRANCH: ${{ github.ref_name }}
-          DISPATCH_SHA: ${{ github.sha }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.release_pr }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || {
-            echo "release_pr must be a pull request number." >&2
-            exit 1
-          }
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$BASE_SHA" =~ ^[a-f0-9]{40}$ && "$HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
 
-          pr="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" \
-            --json author,baseRefName,baseRefOid,headRefName,headRefOid,isCrossRepository,state)"
-          jq --exit-status --arg base "$BASE_BRANCH" '
-            .state == "OPEN" and
-            .isCrossRepository == false and
-            .author.login == "app/github-actions" and
-            .baseRefName == $base and
-            (.headRefName | startswith("release-please--branches--"))
+          pr="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")"
+          jq --exit-status \
+            --arg repo "$REPOSITORY" \
+            --arg base_branch "$BASE_BRANCH" \
+            --arg base_sha "$BASE_SHA" \
+            --arg head_branch "$HEAD_BRANCH" \
+            --arg head_sha "$HEAD_SHA" '
+            .state == "open" and
+            .head.repo.full_name == $repo and
+            .user.login == "github-actions[bot]" and
+            .base.ref == $base_branch and .base.sha == $base_sha and
+            .head.ref == $head_branch and .head.sha == $head_sha and
+            (.head.ref | startswith("release-please--branches--"))
           ' <<<"$pr" >/dev/null || {
-            echo "The requested PR is not an open, same-repository Release Please PR for $BASE_BRANCH." >&2
+            echo "The release PR changed after this workflow was triggered; approve its current run instead." >&2
             exit 1
           }
 
-          base_sha="$(gh api "repos/$REPOSITORY/commits/$BASE_BRANCH" --jq .sha)"
-          test "$base_sha" = "$DISPATCH_SHA" || {
-            echo "The base branch changed after dispatch; start a new candidate run." >&2
+          test "$(gh api "repos/$REPOSITORY/commits/$BASE_BRANCH" --jq .sha)" = "$BASE_SHA" || {
+            echo "The base branch changed after this workflow was triggered; approve its current run instead." >&2
             exit 1
           }
-          test "$(jq --raw-output '.baseRefOid' <<<"$pr")" = "$base_sha" || {
-            echo "The release PR base is stale; update it before building a candidate." >&2
-            exit 1
-          }
-          commit="$(jq --raw-output '.headRefOid' <<<"$pr")"
-          test "$(gh api "repos/$REPOSITORY/compare/$base_sha...$commit" --jq .status)" = ahead || {
+          test "$(gh api "repos/$REPOSITORY/compare/$BASE_SHA...$HEAD_SHA" --jq .status)" = ahead || {
             echo "The release PR must be ahead of the current $BASE_BRANCH head." >&2
             exit 1
           }
-          tree="$(gh api "repos/$REPOSITORY/git/commits/$commit" --jq .tree.sha)"
+          tree="$(gh api "repos/$REPOSITORY/git/commits/$HEAD_SHA" --jq .tree.sha)"
           {
             printf 'base_branch=%s\n' "$BASE_BRANCH"
-            printf 'base_sha=%s\n' "$base_sha"
-            printf 'commit=%s\n' "$commit"
+            printf 'base_sha=%s\n' "$BASE_SHA"
+            printf 'commit=%s\n' "$HEAD_SHA"
             printf 'pr=%s\n' "$PR_NUMBER"
             printf 'tree=%s\n' "$tree"
           } >> "$GITHUB_OUTPUT"

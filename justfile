@@ -96,7 +96,7 @@ workflow-quality:
 
 [group: 'hygiene']
 script-test:
-    uv run --no-project --with pytest pytest scripts/test_bench.py scripts/test_build_python_wheel.py scripts/test_python_package_smoke.py scripts/test_kdl_overlay.py -q
+    uv run --no-project --with pytest --with pyyaml pytest scripts/test_bench.py scripts/test_build_python_wheel.py scripts/test_python_package_smoke.py scripts/test_kdl_overlay.py scripts/test_release_candidate.py -q
 
 [group: 'hygiene']
 release-check dist_bin="dist":

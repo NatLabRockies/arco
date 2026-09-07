@@ -72,11 +72,14 @@ The repository ships GitHub Actions for package validation and release:
   Python 3.10–3.14 wheel smoke checks.
 - KDL overlay validation runs the Tree-sitter grammar corpus and parses tracked
   KDL files. Parser errors fail CI; generated parser files must match the grammar.
-- `release-please.yaml` accumulates changes in the release PR without tagging.
-- `build-candidate.yml` builds CLI, Python, and VS Code candidate files when a
-  maintainer requests a release cutoff.
+- `release-please.yaml` uses `GITHUB_TOKEN` to open and update the release PR
+  without tagging. Human pushes do not receive the same candidate approval gate.
+- `build-candidate.yml` queues on those automated release PR updates. It produces
+  no artifacts until a maintainer selects Approve workflows to run for the exact
+  PR revision chosen as the cutoff.
 - `promote-release.yml` validates an approved candidate run, merges the release
-  PR, lets Release Please create the tag, and publishes the original files.
+  PR, lets Release Please create the tag, and publishes the original files. Run it
+  manually from the release PR's base branch with the candidate run ID.
 - `publish-pypi.yml` downloads and verifies immutable release assets for trusted
   PyPI publication. Check its result separately from release promotion.
 - Run `just release-check` after changing Cargo-dist configuration, and

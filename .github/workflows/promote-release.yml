@@ -45,10 +45,9 @@ jobs:
           set -euo pipefail
           [[ "$CANDIDATE_RUN" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/$GH_REPO/actions/runs/$CANDIDATE_RUN" > run.json
-          jq -e --arg branch "$WORKFLOW_BRANCH" '
+          jq -e '
             .conclusion == "success" and
-            .event == "workflow_dispatch" and
-            .head_branch == $branch
+            .event == "pull_request"
           ' run.json >/dev/null
           workflow_id="$(jq -r .workflow_id run.json)"
           test "$(gh api "repos/$GH_REPO/actions/workflows/$workflow_id" --jq .path)" = ".github/workflows/build-candidate.yml"
@@ -77,7 +76,10 @@ jobs:
           [[ "$commit" =~ ^[a-f0-9]{40}$ && "$tree" =~ ^[a-f0-9]{40}$ && "$base" =~ ^[a-f0-9]{40}$ ]]
           [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           test "$base_branch" = "$WORKFLOW_BRANCH"
-          test "$(jq -r .head_sha run.json)" = "$base"
+          test "$(jq -r .head_sha run.json)" = "$commit"
+          jq -e --argjson pr "$pr" '
+            (.pull_requests | length) == 1 and .pull_requests[0].number == $pr
+          ' run.json >/dev/null
 
           gh api "repos/$GH_REPO/pulls/$pr" > pr.json
           jq -e --arg commit "$commit" --arg base "$base" --arg branch "$base_branch" --arg repo "$GH_REPO" '
@@ -86,6 +88,7 @@ jobs:
             .head.repo.full_name == $repo and .user.login == "github-actions[bot]" and
             (.head.ref | startswith("release-please--branches--"))
           ' pr.json >/dev/null
+          test "$(jq -r .head_branch run.json)" = "$(jq -r .head.ref pr.json)"
           test "$(gh api "repos/$GH_REPO/git/commits/$commit" --jq .tree.sha)" = "$tree"
           test "$(gh api "repos/$GH_REPO/commits/$base_branch" --jq .sha)" = "$base"
 
