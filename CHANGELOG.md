@@ -6,6 +6,55 @@
 
 * **solver:** expose solver-independent `LpAlgorithm` selection with native HiGHS, Xpress, and SCIP mappings; restore Python Xpress feature detection after the binding-crate split
 
+## [0.12.0](https://github.com/NatLabRockies/arco/compare/v0.11.1...v0.12.0) (2026-09-07)
+
+
+### Features
+
+* **python:** add lazy sparse arithmetic ([#406](https://github.com/NatLabRockies/arco/issues/406)) ([9c72f2a](https://github.com/NatLabRockies/arco/commit/9c72f2a7a7d79d2f34b2c96b0b25422f7f48746a))
+* **release:** promote maintainer-approved immutable candidates ([#412](https://github.com/NatLabRockies/arco/issues/412)) ([ab429c2](https://github.com/NatLabRockies/arco/commit/ab429c26dfe542e7f06cd572b4f44a6ef6b6322b))
+* **release:** validate candidates after native PR approval ([#416](https://github.com/NatLabRockies/arco/issues/416)) ([94d8eab](https://github.com/NatLabRockies/arco/commit/94d8eab8d7ac0115052824dcf8b90280694466f5))
+* stream weighted sparse reductions ([#407](https://github.com/NatLabRockies/arco/issues/407)) ([441fe39](https://github.com/NatLabRockies/arco/commit/441fe397e277e620c6e31ec2a07421fbe017ecfe))
+* **xpress:** prepare owned native models before solving ([#385](https://github.com/NatLabRockies/arco/issues/385)) ([38317f8](https://github.com/NatLabRockies/arco/commit/38317f86533938072f8318f337f9dfd0b8e9e128))
+
+
+### Bug Fixes
+
+* **ci:** upload Python release assets outside manylinux ([#380](https://github.com/NatLabRockies/arco/issues/380)) ([7a140f0](https://github.com/NatLabRockies/arco/commit/7a140f0ef4d192862517839a70c06731cedb8964))
+* **release:** use GITHUB_TOKEN and squash merges for promotion ([#415](https://github.com/NatLabRockies/arco/issues/415)) ([3384dcc](https://github.com/NatLabRockies/arco/commit/3384dccac4db06851d8c437b28aebf8e7cbae1e0))
+
+
+### Performance
+
+* defer sparse comparison materialization ([#401](https://github.com/NatLabRockies/arco/issues/401)) ([47dc9ad](https://github.com/NatLabRockies/arco/commit/47dc9ad7a9d675c7c145cd54c3aa11077fa61a22))
+* **highs:** add owned prepared models ([#392](https://github.com/NatLabRockies/arco/issues/392)) ([599e818](https://github.com/NatLabRockies/arco/commit/599e8182aa905bb6c481ca10129978e29d7b97ec))
+* **highs:** reuse the dense objective allocation during loading ([#383](https://github.com/NatLabRockies/arco/issues/383)) ([1e85800](https://github.com/NatLabRockies/arco/commit/1e85800c885440c3bde88dfda2a8fd3f4afb00d5))
+* **model:** borrow objective expression terms ([#409](https://github.com/NatLabRockies/arco/issues/409)) ([48be215](https://github.com/NatLabRockies/arco/commit/48be2151ae3ac958466842bf8d2d59d977cbbf5a))
+* **model:** cache the stored coefficient count ([#394](https://github.com/NatLabRockies/arco/issues/394)) ([ad9a664](https://github.com/NatLabRockies/arco/commit/ad9a66494e9092e6d059c5ea17d92e492b24b5bd))
+* **model:** compress repeated bounds in fixed-size blocks ([#403](https://github.com/NatLabRockies/arco/issues/403)) ([2d5a6d3](https://github.com/NatLabRockies/arco/commit/2d5a6d30cfa7e9fd4042efd20d019c9fc447b547))
+* **model:** normalize short expressions without a hash table ([#391](https://github.com/NatLabRockies/arco/issues/391)) ([710f97e](https://github.com/NatLabRockies/arco/commit/710f97ef036131c78fd3c0a8430978fc725a0466))
+* **model:** shrink per-column storage headers ([#388](https://github.com/NatLabRockies/arco/issues/388)) ([aa5698f](https://github.com/NatLabRockies/arco/commit/aa5698f27afbf94054338055133a1c9322c85886))
+* **model:** stream compact constraint row indices ([#396](https://github.com/NatLabRockies/arco/issues/396)) ([b7771e9](https://github.com/NatLabRockies/arco/commit/b7771e986656bd1e81cfe51d85439ed18b9b79ae))
+* **python:** borrow expressions during sparse constraint insertion ([#390](https://github.com/NatLabRockies/arco/issues/390)) ([36e6106](https://github.com/NatLabRockies/arco/commit/36e610605914ff5f5318211234a943cfb0e6b643))
+* **python:** compact labeled sparse lookups ([#408](https://github.com/NatLabRockies/arco/issues/408)) ([f8d813d](https://github.com/NatLabRockies/arco/commit/f8d813d8e3b272419c74b4f1af7084bad93e0543))
+* **python:** compress sparse display index mappings ([#395](https://github.com/NatLabRockies/arco/issues/395)) ([98451ad](https://github.com/NatLabRockies/arco/commit/98451ad60fcf09370ae574c55c5822075a7fea73))
+* **python:** defer broadcast comparison materialization ([#402](https://github.com/NatLabRockies/arco/issues/402)) ([7051319](https://github.com/NatLabRockies/arco/commit/70513194f3c04c9ee932ea44b10c24833f579bf5))
+* **python:** defer sparse variable reductions ([#410](https://github.com/NatLabRockies/arco/issues/410)) ([2487c05](https://github.com/NatLabRockies/arco/commit/2487c058b4d4d9a836d3728a24784a480f373786))
+* **python:** merge sparse differences without contribution buffers ([#389](https://github.com/NatLabRockies/arco/issues/389)) ([93e48f8](https://github.com/NatLabRockies/arco/commit/93e48f8aeb07372459eb9da85b7496ea469696e1))
+* **python:** release consumed models before HiGHS optimization ([#393](https://github.com/NatLabRockies/arco/issues/393)) ([d321737](https://github.com/NatLabRockies/arco/commit/d321737e5b963e66d40082c08763662e44ae038c))
+* **python:** release consumed models before Xpress optimization ([#387](https://github.com/NatLabRockies/arco/issues/387)) ([af87dbe](https://github.com/NatLabRockies/arco/commit/af87dbe51ee134e7fabf5aa74321356f504a0faf))
+* **python:** reuse normalized owned expression buffers ([#397](https://github.com/NatLabRockies/arco/issues/397)) ([40ddd85](https://github.com/NatLabRockies/arco/commit/40ddd851a9e2fb0c46c16f28926b706cca5d36d2))
+* **python:** stream materialized constraint rows ([#398](https://github.com/NatLabRockies/arco/issues/398)) ([3fb58a3](https://github.com/NatLabRockies/arco/commit/3fb58a35bfe4995d5d4728b1e2103864086293a5))
+* reuse short unordered expression buffers ([#405](https://github.com/NatLabRockies/arco/issues/405)) ([7045ffe](https://github.com/NatLabRockies/arco/commit/7045ffeaa4f6ce68496075d4b38fe51923a9f994))
+* **solver:** skip unused model fingerprint validation ([#386](https://github.com/NatLabRockies/arco/issues/386)) ([0a5e827](https://github.com/NatLabRockies/arco/commit/0a5e8272b736d976bac36ed33bfedae572657ccc))
+* **xpress:** release compact load buffers before optimization ([#382](https://github.com/NatLabRockies/arco/issues/382)) ([df80847](https://github.com/NatLabRockies/arco/commit/df80847579416d8ff130539115d112acbacb86e7))
+
+
+### Refactoring
+
+* **python:** consolidate sparse comparison dispatch ([#411](https://github.com/NatLabRockies/arco/issues/411)) ([208db6d](https://github.com/NatLabRockies/arco/commit/208db6d520e7bceaca46b77df803d35a4618040f))
+* **python:** simplify constraint insertion helpers ([#399](https://github.com/NatLabRockies/arco/issues/399)) ([fd418d2](https://github.com/NatLabRockies/arco/commit/fd418d2977b606d90b188951338e9ab89fc94893))
+
 ## [0.11.1](https://github.com/NatLabRockies/arco/compare/v0.11.0...v0.11.1) (2026-09-02)
 
 
