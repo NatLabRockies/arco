@@ -289,7 +289,7 @@ jobs:
             --output-format=json > dist-manifest.json
           {
             echo 'paths<<EOF'
-            dist print-upload-files-from-manifest --manifest dist-manifest.json
+            jq --raw-output '.artifacts | keys[] | "target/distrib/" + .' dist-manifest.json
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
           cp dist-manifest.json target/distrib/dist-manifest.json
