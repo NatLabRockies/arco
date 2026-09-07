@@ -1,16 +1,15 @@
 name: Build release candidate
-run-name: Build candidate for release PR #${{ inputs.release_pr }}
+run-name: Build candidate for release PR #${{ github.event.pull_request.number }}
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_pr:
-        description: Open Release Please pull request number
-        required: true
-        type: string
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - release/*
 
 concurrency:
-  group: candidate-build-${{ inputs.release_pr }}
+  group: candidate-build-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -22,75 +21,56 @@ env:
 jobs:
   plan:
     name: Resolve candidate and plan native artifacts
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'github-actions[bot]' &&
+      startsWith(github.event.pull_request.head.ref, 'release-please--branches--')
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: read # Resolve and validate the requested Release Please PR.
+      pull-requests: read # Check that the release PR still matches the approved revision.
     outputs:
-      base_branch: ${{ steps.candidate.outputs.base_branch }}
-      base_sha: ${{ steps.candidate.outputs.base_sha }}
-      commit: ${{ steps.candidate.outputs.commit }}
-      pr: ${{ steps.candidate.outputs.pr }}
+      base_branch: ${{ github.event.pull_request.base.ref }}
+      base_sha: ${{ github.event.pull_request.base.sha }}
+      commit: ${{ github.event.pull_request.head.sha }}
+      pr: ${{ github.event.pull_request.number }}
       tag: ${{ steps.dist.outputs.tag }}
-      tree: ${{ steps.candidate.outputs.tree }}
+      tree: ${{ steps.dist.outputs.tree }}
     steps:
-      - id: candidate
-        name: Resolve trusted release candidate
+      - name: Require the approved PR revision
         env:
-          BASE_BRANCH: ${{ github.ref_name }}
-          DISPATCH_SHA: ${{ github.sha }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.release_pr }}
-          REPOSITORY: ${{ github.repository }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || {
-            echo "release_pr must be a pull request number." >&2
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" | jq --exit-status \
+            --slurpfile event "$GITHUB_EVENT_PATH" '
+            .state == "open" and
+            .head.sha == $event[0].pull_request.head.sha and
+            .base.sha == $event[0].pull_request.base.sha and
+            .base.ref == $event[0].pull_request.base.ref
+          ' >/dev/null || {
+            echo "The release PR changed; approve its current run instead." >&2
             exit 1
           }
-
-          pr="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" \
-            --json author,baseRefName,baseRefOid,headRefName,headRefOid,isCrossRepository,state)"
-          jq --exit-status --arg base "$BASE_BRANCH" '
-            .state == "OPEN" and
-            .isCrossRepository == false and
-            .author.login == "app/github-actions" and
-            .baseRefName == $base and
-            (.headRefName | startswith("release-please--branches--"))
-          ' <<<"$pr" >/dev/null || {
-            echo "The requested PR is not an open, same-repository Release Please PR for $BASE_BRANCH." >&2
+          test "$(gh api "repos/$GH_REPO/commits/$BASE_BRANCH" --jq .sha)" = "$BASE_SHA" || {
+            echo "The base branch changed; wait for Release Please to update the PR." >&2
             exit 1
           }
-
-          base_sha="$(gh api "repos/$REPOSITORY/commits/$BASE_BRANCH" --jq .sha)"
-          test "$base_sha" = "$DISPATCH_SHA" || {
-            echo "The base branch changed after dispatch; start a new candidate run." >&2
-            exit 1
-          }
-          test "$(jq --raw-output '.baseRefOid' <<<"$pr")" = "$base_sha" || {
-            echo "The release PR base is stale; update it before building a candidate." >&2
-            exit 1
-          }
-          commit="$(jq --raw-output '.headRefOid' <<<"$pr")"
-          test "$(gh api "repos/$REPOSITORY/compare/$base_sha...$commit" --jq .status)" = ahead || {
+          test "$(gh api "repos/$GH_REPO/compare/$BASE_SHA...$HEAD_SHA" --jq .status)" = ahead || {
             echo "The release PR must be ahead of the current $BASE_BRANCH head." >&2
             exit 1
           }
-          tree="$(gh api "repos/$REPOSITORY/git/commits/$commit" --jq .tree.sha)"
-          {
-            printf 'base_branch=%s\n' "$BASE_BRANCH"
-            printf 'base_sha=%s\n' "$base_sha"
-            printf 'commit=%s\n' "$commit"
-            printf 'pr=%s\n' "$PR_NUMBER"
-            printf 'tree=%s\n' "$tree"
-          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ steps.candidate.outputs.commit }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
           persist-credentials: false
           submodules: recursive
@@ -113,11 +93,22 @@ jobs:
               (["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin",
                 "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"] | sort)
           ' plan-dist-manifest.json >/dev/null
-          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\ntree=%s\n' "$tag" "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+
+  source-checks:
+    name: Candidate source checks
+    needs: plan
+    permissions:
+      contents: read
+      pull-requests: read # Reuse CI's read-only permission ceiling.
+    uses: $/.github/workflows/ci.yaml
+    with:
+      candidate: true
+      commit: ${{ needs.plan.outputs.commit }}
 
   native:
     name: Native CLI (${{ join(matrix.targets, ', ') }})
-    needs: plan
+    needs: [plan, source-checks]
     strategy:
       fail-fast: false
       matrix:
@@ -223,6 +214,28 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           cp dist-manifest.json "$BUILD_MANIFEST"
 
+      - name: Smoke-test the packaged executable
+        env:
+          TARGET: ${{ matrix.host }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(jq --exit-status --raw-output --arg target "$TARGET" '
+            [.artifacts | to_entries[] | select(
+              .value.kind == "executable-zip" and (.value.target_triples | index($target))
+            )] | if length == 1 then .[0].key else error("expected one native archive") end
+          ' dist-manifest.json)"
+          smoke_dir="$(mktemp -d native-smoke.XXXXXX)"
+          trap 'rm -rf "$smoke_dir"' EXIT
+          case "$archive" in
+            *.zip) uv run --no-project python -m zipfile -e "target/distrib/$archive" "$smoke_dir" ;;
+            *.tar.gz) tar -xzf "target/distrib/$archive" -C "$smoke_dir" ;;
+            *) echo "Unsupported native archive: $archive" >&2; exit 1 ;;
+          esac
+          executable="$(find "$smoke_dir" -type f \( -name arco -o -name arco.exe \))"
+          test -f "$executable"
+          "./$executable" --version
+
       - name: Upload native artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -235,7 +248,7 @@ jobs:
 
   packages:
     name: Python and VS Code packages
-    needs: plan
+    needs: [plan, source-checks]
     uses: $/.github/workflows/build-packages.yml
     with:
       commit: ${{ needs.plan.outputs.commit }}
@@ -301,7 +314,7 @@ jobs:
       - name: Download candidate inputs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: artifacts-*
+          pattern: artifacts-{native-complete,python-*,vscode}
           path: candidate-input
           merge-multiple: true
           digest-mismatch: error

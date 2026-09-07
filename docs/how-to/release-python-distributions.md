@@ -1,18 +1,22 @@
 # Release Python distributions
 
 Choose the cutoff through the Release Please PR as described in
-[Release Policy](../../RELEASE_POLICY.md). Update the release branch if needed,
-then run the candidate workflow with the release PR number. It builds and tests
-six wheels and one sdist before a version tag exists.
+[Release Policy](../../RELEASE_POLICY.md). Release Please automatically opens and
+updates the PR with `GITHUB_TOKEN`. Candidate runs remain pending and create no
+artifacts until a maintainer selects Approve workflows to run in the PR merge box.
+Approve the run for the exact PR revision chosen as the cutoff. It automatically
+uses the PR's base branch and builds six wheels and one sdist before a version tag
+exists.
 
 Before publishing the first release, have an organization or repository
 administrator enable GitHub Immutable Releases. The release workflows use the
 workflow-provided `GITHUB_TOKEN`; they do not require an additional personal
 access token.
 
-Review the successful candidate and approve its run through the promotion workflow.
-Promotion merges the unchanged release PR, lets Release Please create the tag and
-draft, and publishes the original files to a GitHub Release.
+Review the successful candidate, then manually run the promotion workflow from the
+same base branch with the candidate run ID. Promotion squash merges the unchanged
+release PR, lets Release Please create the tag and draft, and publishes the
+original files to a GitHub Release.
 
 Promotion verifies the release and every asset after GitHub publication. A failed
 verification prevents promotion from dispatching `publish-pypi.yml`, but it does
@@ -24,8 +28,10 @@ separately from the promotion run. The workflow accepts stable `vX.Y.Z` tags.
 
 ## Retry publication
 
-Use Re-run failed jobs for candidate failures. If the candidate source changes
-before approval, build and review a new candidate.
+Use Re-run failed jobs for candidate failures only while the triggering PR head and
+base remain unchanged. A Release Please update supersedes the earlier candidate.
+Wait for the new pending run, approve that revision, and review its artifacts.
+Promotion rejects stale candidate approvals through its source checks.
 
 For a verification failure, first confirm that the published release is immutable.
 If it is immutable, resolve the verification problem and rerun the failed read-only
@@ -47,7 +53,9 @@ on PyPI. It never rebuilds packages. Ship code fixes as a new version.
 | Windows x86_64               | `cp310-cp310`, `cp311-abi3` |
 
 The release also includes one source distribution. Python 3.10 uses its dedicated
-wheel; Python 3.11 and later use the stable-ABI wheel.
+wheel; Python 3.11 and later use the stable-ABI wheel. The compatibility job
+installs and imports the original wheels on Python 3.10–3.14 on each platform,
+after the complete source suite and package builds pass.
 
 ## Add a wheel platform
 
@@ -67,6 +75,11 @@ For example, to propose macOS Intel as a fourth platform, add this row to the
   manylinux: false
   wheel_python: python3
 ```
+
+The platform list is shared with the compatibility job through a YAML anchor, so
+the new row automatically tests the two Intel wheels across Python 3.10–3.14
+without rebuilding them. The label becomes the build artifact prefix used by that
+job.
 
 GitHub documents `macos-15-intel` as an Intel hosted-runner label in
 [Choosing the runner for a job](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job).
@@ -131,8 +144,8 @@ just script-test
 just py-test
 ```
 
-After merging all four configuration changes, request a new candidate and inspect
-its output before promotion. The expanded inventory must contain exactly eight
-wheels: the six current targets in the table above plus the two macOS Intel
-wheels, split into four `cp310-cp310` wheels and four `cp311-abi3` wheels. It
-must still contain one source distribution.
+After merging the matrix and inventory changes, approve the new pending candidate
+run on the updated release PR and inspect its output before promotion. The expanded
+inventory must contain exactly eight wheels: the six current targets in the table
+above plus the two macOS Intel wheels, split into four `cp310-cp310` wheels and
+four `cp311-abi3` wheels. It must still contain one source distribution.
