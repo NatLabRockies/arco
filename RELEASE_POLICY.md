@@ -60,7 +60,7 @@ sequenceDiagram
 
     M->>P: Approve a specific candidate run ID
     P->>GH: Validate candidate, current source, and release policy
-    P->>GH: Merge the approved PR through branch protection
+    P->>GH: Squash merge the approved PR through branch protection
     P->>P: Verify merged source tree matches the candidate
     P->>RP: Create the approved version tag and draft
     RP->>GH: Create tag and draft release
@@ -86,9 +86,10 @@ produces the complete files available for release approval. Neither creates the
 version tag. Promotion downloads the approved run's artifact bundle and checks
 that the release PR and its base are unchanged before merging.
 
-GitHub's normal merge can create a different commit SHA. Promotion checks that the
-merged commit has the same Git source tree as the candidate before calling Release
-Please. It then publishes the saved files without rebuilding. The read-only
+Promotion squash merges the release PR through GitHub. The squash commit has a
+different SHA from the candidate, so promotion checks that both commits have the
+same Git source tree before calling Release Please. It then publishes the saved
+files without rebuilding. The read-only
 verification job checks the release attestation and every original candidate file.
 These checks run after GitHub publication and gate the PyPI dispatch. They detect
 an immutable-release configuration failure but cannot make an existing mutable
@@ -165,6 +166,8 @@ Before production release:
 - Protect `v*` tags against updates and deletion. Release Please and promotion use
   the workflow-provided `GITHUB_TOKEN`; no additional personal access token is
   required for release operations.
+- Enable squash merging in Settings → General → Pull Requests. Promotion uses
+  this method to merge the approved release PR.
 - Allow GitHub Actions to create pull requests. Require normal CI and Cargo-dist
   configuration checks through branch protection. Use the promotion procedure
   for release PRs; a direct merge leaves an unapproved release that blocks tagging.

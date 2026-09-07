@@ -169,14 +169,14 @@ jobs:
       PR: ${{ needs.verify-candidate.outputs.pr }}
     steps:
       - id: merge
-        name: Merge candidate through GitHub
+        name: Squash merge candidate through GitHub
         shell: bash
         run: |
           set -euo pipefail
           test "$(gh api "repos/$GH_REPO/commits/$BASE_BRANCH" --jq .sha)" = "$APPROVED_BASE"
           test "$(gh api "repos/$GH_REPO/pulls/$PR" --jq .base.sha)" = "$APPROVED_BASE"
           gh api --method PUT "repos/$GH_REPO/pulls/$PR/merge" \
-            -f sha="$CANDIDATE_COMMIT" -f merge_method=merge > merge.json
+            -f sha="$CANDIDATE_COMMIT" -f merge_method=squash > merge.json
           jq -e '.merged == true' merge.json >/dev/null
           merged="$(jq -r .sha merge.json)"
           printf 'commit=%s\n' "$merged" >> "$GITHUB_OUTPUT"
