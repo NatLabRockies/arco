@@ -8,9 +8,21 @@ on:
       - main
       - release/*
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      candidate:
+        description: Run the complete source-validation tier for a release candidate
+        required: false
+        type: boolean
+        default: false
+      commit:
+        description: Exact source commit to validate
+        required: false
+        type: string
+        default: ""
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  group: ci-${{ inputs.candidate && 'candidate' || 'source' }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -27,26 +39,29 @@ env:
 
 jobs:
   version-consistency:
-    name: Version consistency
+    name: Source preflight
+    needs: [ci-plan]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
-      - name: Set up Python
+      - name: Set up preflight tools
         uses: $/.github/actions/setup-build-env
         with:
           python-version: ${{ env.PYTHON_LATEST }}
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
           rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          install-rust: "false"
+          install-rust: ${{ needs.ci-plan.outputs.rust == 'true' || needs.ci-plan.outputs.architecture == 'true' }}
+          rust-components: "rustfmt"
           cache-rust: "false"
           install-uv: "true"
           cache-uv: "false"
-          install-just: "false"
+          install-just: "true"
           configure-solvers: "false"
           sync-python-licenses: "false"
           save-uv-cache: "false"
@@ -56,80 +71,97 @@ jobs:
       - name: Validate release version metadata
         run: uv run --no-project --python "$PYTHON_LATEST" python scripts/check_release_version_metadata.py
 
+      - name: Check Rust formatting
+        if: needs.ci-plan.outputs.rust == 'true'
+        run: just ci-rust-fmt
+
+      - name: Check architecture layers
+        if: needs.ci-plan.outputs.architecture == 'true'
+        run: just ci-arch-check
+
+      - name: Check Python source quality
+        if: needs.ci-plan.outputs.python == 'true' || needs.ci-plan.outputs.python_compat == 'true' || needs.ci-plan.outputs.docs == 'true'
+        run: just ci-python-check
+
   ci-plan:
     name: Plan CI jobs
+    if: >-
+      inputs.candidate ||
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.user.login != 'github-actions[bot]' ||
+      !startsWith(github.event.pull_request.head.ref, 'release-please--branches--')
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
-      rust: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.rust == 'true' }}
-      python: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.python == 'true' }}
-      python_compat: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.python_compat == 'true' }}
-      docs: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.docs == 'true' }}
-      solver: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.solver == 'true' }}
-      kdl: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.kdl == 'true' }}
-      benchmarks: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.benchmarks == 'true' }}
-      vscode_extension: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.vscode_extension == 'true' }}
+      rust: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.rust == 'true' }}
+      python: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.python == 'true' }}
+      python_compat: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.python_compat == 'true' }}
+      docs: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.docs == 'true' }}
+      solver: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.solver == 'true' }}
+      kdl: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.kdl == 'true' || steps.filter.outputs.rust == 'true' }}
+      benchmarks: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.benchmarks == 'true' }}
+      architecture: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.architecture == 'true' }}
+      vscode_extension: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.vscode_extension == 'true' }}
+      automation: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.automation == 'true' }}
+      grammar: ${{ inputs.candidate || github.event_name == 'workflow_dispatch' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.grammar == 'true' }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - if: github.event_name == 'push'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 2
 
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         id: filter
+        if: ${{ !inputs.candidate && github.event_name != 'workflow_dispatch' }}
         with:
+          base: ${{ github.ref }}
           filters: |
+            shared:
+              - '.github/workflows/ci.yaml'
+              - '.github/actions/**'
+              - 'justfile'
+              - 'scripts/ci_setup_rust_toolchain.sh'
+              - 'scripts/setup_*'
+              - 'scripts/with_solver_build_env.sh'
+              - 'scripts/ci_install_apt_deps.sh'
+              - 'scripts/ci_install_macos_scip_runtime.sh'
+              - 'scripts/ci_install_rust_if_missing.sh'
+              - 'rust-toolchain.toml'
             rust:
+              - 'bindings/python/src/**/*.rs'
+              - 'bindings/python/Cargo.toml'
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'hawk.toml'
-              - 'justfile'
-              - 'scripts/ci_setup_rust_toolchain.sh'
-              - 'scripts/setup_highs_binary_env.sh'
-              - 'scripts/setup_scip_binary_env.sh'
-              - 'scripts/with_solver_build_env.sh'
+              - 'clippy.toml'
               - 'dist-workspace.toml'
-              - '.github/actions/**'
             python:
+              - 'scripts/python_package_smoke.py'
+              - 'scripts/validate_python_sdist.py'
+              - 'scripts/sync_python_licenses.py'
+              - 'licenses/**'
+              - 'crates/**'
               - 'bindings/python/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - 'justfile'
               - 'scripts/build_python_wheel.sh'
               - 'scripts/test_build_python_wheel.py'
-              - 'scripts/setup_manylinux_native_deps.sh'
-              - 'scripts/ci_setup_rust_toolchain.sh'
-              - 'scripts/setup_highs_binary_env.sh'
-              - 'scripts/setup_scip_binary_env.sh'
-              - 'scripts/with_solver_build_env.sh'
-              - '.github/actions/**'
             python_compat:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'bindings/python/Cargo.toml'
               - 'bindings/python/pyproject.toml'
               - 'bindings/python/uv.lock'
-              - 'justfile'
               - 'scripts/build_python_wheel.sh'
               - 'scripts/test_build_python_wheel.py'
-              - 'scripts/setup_manylinux_native_deps.sh'
-              - '.github/actions/**'
               - '.github/workflows/build-packages.yml'
-              - '.github/workflows/release-please.yaml'
             docs:
               - 'docs/**'
-              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/test_docs_doctest.py'
-              - 'justfile'
-              - 'scripts/with_solver_build_env.sh'
             solver:
-              - 'scripts/ci_install_apt_deps.sh'
-              - 'scripts/ci_setup_rust_toolchain.sh'
-              - 'scripts/setup_highs_binary_env.sh'
-              - 'scripts/setup_scip_binary_env.sh'
-              - 'scripts/with_solver_build_env.sh'
-              - 'scripts/setup_solver_runtime_env.sh'
               - 'scripts/smoke_solver.py'
               - 'crates/arco-highs/**'
               - 'crates/arco-scip/**'
@@ -137,30 +169,52 @@ jobs:
               - 'crates/arco-ipopt/**'
             kdl:
               - '**/*.kdl'
-              - 'crates/arco-kdl/**'
-              - 'crates/arco-cli/**'
-              - 'scripts/ci_setup_rust_toolchain.sh'
+              - 'examples/**'
+              - 'crates/**'
               - 'scripts/test_example_formulations.py'
             benchmarks:
               - 'scripts/ci_add_cargo_bin_to_path.sh'
               - 'scripts/ci_install_torc.sh'
-              - 'scripts/ci_setup_rust_toolchain.sh'
               - 'scripts/bench.py'
               - 'scripts/bench_guard.py'
               - 'benchmarks/**'
+            architecture:
+              - 'bindings/python/Cargo.toml'
+              - 'architecture-layers.toml'
+              - 'Cargo.toml'
+              - 'crates/**/Cargo.toml'
+              - 'scripts/check_architecture.py'
             vscode_extension:
               - 'scripts/ci_vscode_extension_check.sh'
               - 'tools/vscode-arco-kdl/**'
+            automation:
+              - '.github/**'
+              - 'scripts/**'
+              - 'dist-workspace.toml'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'bindings/python/Cargo.toml'
+              - 'bindings/python/pyproject.toml'
+              - '.pre-commit-config.yaml'
+              - 'bindings/python/tests/test_rust_boundaries.py'
+            grammar:
+              - '**/*.kdl'
+              - '.pre-commit-config.yaml'
+              - 'scripts/check-kdl-overlay.sh'
+              - 'tools/tree-sitter-arco-kdl/**'
+              - 'tools/vscode-arco-kdl/**'
+              - '.github/workflows/kdl-overlay.yaml'
 
   vscode-extension:
     name: VS Code extension
-    needs: [ci-plan]
-    if: needs.ci-plan.outputs.vscode_extension == 'true'
+    needs: [ci-plan, version-consistency]
+    if: ${{ !inputs.candidate && needs.ci-plan.outputs.vscode_extension == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
@@ -171,36 +225,6 @@ jobs:
       - name: Check and package VS Code extension
         run: bash scripts/ci_vscode_extension_check.sh
 
-  rust-fmt:
-    name: Rust format
-    needs: [ci-plan, version-consistency]
-    if: needs.ci-plan.outputs.rust == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Set up build environment
-        uses: $/.github/actions/setup-build-env
-        with:
-          python-version: ${{ env.PYTHON_LATEST }}
-          uv-version: ${{ env.UV_VERSION }}
-          just-version: ${{ env.JUST_VERSION }}
-          rust-toolchain-version: ${{ env.RUST_TOOLCHAIN_VERSION }}
-          rust-components: "rustfmt"
-          cache-rust: "false"
-          install-uv: "false"
-          configure-solvers: "false"
-          sync-python-licenses: "false"
-          rust-cache-shared-key: rust-fmt
-          save-rust-cache: "false"
-          save-uv-cache: "false"
-
-      - name: Check Rust formatting
-        run: just ci-rust-fmt
-
   rust-clippy:
     name: Rust clippy (all-features)
     needs: [ci-plan, version-consistency]
@@ -210,6 +234,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Set up build environment
@@ -237,6 +262,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Set up build environment
@@ -278,6 +304,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Set up build environment
@@ -299,7 +326,7 @@ jobs:
   rust-cross-check:
     name: Rust release compile (${{ matrix.os }})
     needs: [ci-plan, version-consistency]
-    if: needs.ci-plan.outputs.rust == 'true' || needs.ci-plan.outputs.solver == 'true'
+    if: ${{ !inputs.candidate && (needs.ci-plan.outputs.rust == 'true' || needs.ci-plan.outputs.solver == 'true') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
@@ -309,6 +336,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Set up build environment
@@ -337,6 +365,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Set up build environment
@@ -391,6 +420,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Install apt system dependencies
@@ -443,12 +473,10 @@ jobs:
     if: needs.ci-plan.outputs.benchmarks == 'true' || needs.ci-plan.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: read
-      pull-requests: write # Required to post benchmark summaries/comments back to the PR.
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Restore torc binaries
@@ -521,9 +549,8 @@ jobs:
           tool: customSmallerIsBetter
           output-file-path: artifacts/benchmark-results.json
           external-data-json-path: ./cache/benchmark-data.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           summary-always: true
-          comment-on-alert: ${{ github.event_name == 'pull_request' }}
+          comment-on-alert: false
           alert-threshold: "125%"
           fail-on-alert: false
 
@@ -546,10 +573,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ${{ fromJSON(needs.ci-plan.outputs.python_compat == 'true' && '["3.10", "3.11", "3.12", "3.13", "3.14"]' || '["3.12"]') }}
+        python-version: ${{ fromJSON(!inputs.candidate && needs.ci-plan.outputs.python_compat == 'true' && '["3.10", "3.11", "3.12", "3.13", "3.14"]' || '["3.12"]') }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Set up build environment
@@ -565,15 +593,12 @@ jobs:
           save-uv-cache: "false"
           save-rust-cache: "true"
 
-      - name: Run Python quality checks
-        if: matrix.python-version == '3.12'
-        run: just ci-python-check
-
       - name: Run Python tests
         if: matrix.python-version == '3.12'
         run: just ci-python-test
 
       - name: Build wheel and validate import
+        if: ${{ !inputs.candidate }}
         run: just ci-python-wheel "dist/*.whl"
 
       - name: Run docs doctests
@@ -589,6 +614,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
       - name: Set up build environment
@@ -620,3 +646,48 @@ jobs:
 
       - name: Run KDL acceptance examples
         run: just ci-kdl-examples
+
+  workflow-quality:
+    name: Workflow quality
+    needs: ci-plan
+    if: needs.ci-plan.outputs.automation == 'true'
+    uses: $/.github/workflows/workflow-quality.yaml
+    with:
+      commit: ${{ inputs.commit || github.sha }}
+    permissions:
+      contents: read
+
+  kdl-overlay:
+    name: KDL overlay
+    needs: ci-plan
+    if: needs.ci-plan.outputs.grammar == 'true'
+    uses: $/.github/workflows/kdl-overlay.yaml
+    with:
+      commit: ${{ inputs.commit || github.sha }}
+    permissions:
+      contents: read
+
+  ci-result:
+    name: CI result
+    if: ${{ always() }}
+    needs:
+      - ci-plan
+      - version-consistency
+      - vscode-extension
+      - rust-clippy
+      - hawk
+      - rust-test
+      - rust-cross-check
+      - arco-cli-build
+      - solver-smoke
+      - benchmark
+      - python-validation
+      - kdl-examples
+      - workflow-quality
+      - kdl-overlay
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every selected check to pass
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

@@ -23,6 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up build environment
@@ -31,13 +32,19 @@ jobs:
           python-version: "3.12"
           uv-version: ${{ env.UV_VERSION }}
           just-version: ${{ env.JUST_VERSION }}
+          configure-solvers: "false"
+          cache-rust: "false"
+          rust-components: "rustfmt"
           sync-python-licenses: "false"
           save-uv-cache: "false"
           save-rust-cache: "false"
 
       - uses: j178/prek-action@e191cc396d739737d801ef04ab315c3e8d933c74
         with:
-          extra-args: "--all-files --hook-stage pre-commit"
+          extra-args: >-
+            --from-ref ${{ github.event.pull_request.base.sha }}
+            --to-ref ${{ github.event.pull_request.head.sha }}
+            --hook-stage pre-commit
 
   lint-commit-messages:
     name: lint commit message

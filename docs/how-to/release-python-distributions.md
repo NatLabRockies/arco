@@ -53,7 +53,9 @@ on PyPI. It never rebuilds packages. Ship code fixes as a new version.
 | Windows x86_64               | `cp310-cp310`, `cp311-abi3` |
 
 The release also includes one source distribution. Python 3.10 uses its dedicated
-wheel; Python 3.11 and later use the stable-ABI wheel.
+wheel; Python 3.11 and later use the stable-ABI wheel. The compatibility job
+installs and imports the original wheels on Python 3.10–3.14 on each platform,
+after the complete source suite and package builds pass.
 
 ## Add a wheel platform
 
@@ -73,6 +75,16 @@ For example, to propose macOS Intel as a fourth platform, add this row to the
   manylinux: false
   wheel_python: python3
 ```
+
+Also add the platform to the `python-compatibility` job in the same workflow:
+
+```yaml
+- platform: macos-intel
+  os: macos-15-intel
+```
+
+The label must match the build artifact prefix so this job downloads the two
+Intel wheels and tests them across Python 3.10–3.14 without rebuilding them.
 
 GitHub documents `macos-15-intel` as an Intel hosted-runner label in
 [Choosing the runner for a job](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job).
@@ -137,7 +149,7 @@ just script-test
 just py-test
 ```
 
-After merging all four configuration changes, approve the new pending candidate
+After merging the matrix and inventory changes, approve the new pending candidate
 run on the updated release PR and inspect its output before promotion. The expanded
 inventory must contain exactly eight wheels: the six current targets in the table
 above plus the two macOS Intel wheels, split into four `cp310-cp310` wheels and
