@@ -5,6 +5,8 @@ from pathlib import Path
 import runpy
 import sys
 
+import pytest
+
 
 _smoke_module = runpy.run_path(str(Path(__file__).with_name("python_package_smoke.py")))
 _smoke_env = _smoke_module["_smoke_env"]
@@ -42,11 +44,18 @@ def test_smoke_env_leaves_non_windows_path_unchanged() -> None:
     assert _smoke_env(env=env, platform="linux", pathsep=":") == env
 
 
-def test_import_code_adds_windows_dll_directories(monkeypatch) -> None:
+def test_import_code_adds_existing_windows_dll_directories(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     added_paths: list[str] = []
     handles: list[object] = []
+    runtime_bin = tmp_path / "bin"
+    runtime_bin.mkdir()
+    runtime_lib = tmp_path / "lib"
 
     def add_dll_directory(path: str) -> object:
+        if not Path(path).is_dir():
+            raise FileNotFoundError(path)
         handle = object()
         added_paths.append(path)
         handles.append(handle)
@@ -55,9 +64,9 @@ def test_import_code_adds_windows_dll_directories(monkeypatch) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(os, "add_dll_directory", add_dll_directory, raising=False)
     monkeypatch.setattr(os, "pathsep", ";")
-    monkeypatch.setenv("ARCO_PYTHON_SMOKE_DLL_DIRS", "C:/solver/bin;C:/solver/lib")
+    monkeypatch.setenv("ARCO_PYTHON_SMOKE_DLL_DIRS", f"{runtime_bin};{runtime_lib}")
 
     exec(_build_import_code(import_name="json"), {})
 
-    assert added_paths == ["C:/solver/bin", "C:/solver/lib"]
-    assert len(handles) == 2
+    assert added_paths == [str(runtime_bin)]
+    assert len(handles) == 1
