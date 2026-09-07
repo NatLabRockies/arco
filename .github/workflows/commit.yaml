@@ -39,7 +39,7 @@ jobs:
           save-uv-cache: "false"
           save-rust-cache: "false"
 
-      - uses: j178/prek-action@e191cc396d739737d801ef04ab315c3e8d933c74
+      - uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
         with:
           extra-args: >-
             --from-ref ${{ github.event.pull_request.base.sha }}

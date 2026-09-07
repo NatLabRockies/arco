@@ -40,7 +40,10 @@ env:
 jobs:
   version-consistency:
     name: Source preflight
-    needs: [ci-plan]
+    needs: [ci-plan, workflow-quality]
+    if: >-
+      !cancelled() && needs.ci-plan.result == 'success' &&
+      (needs.workflow-quality.result == 'success' || needs.workflow-quality.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -116,7 +119,7 @@ jobs:
         id: filter
         if: ${{ !inputs.candidate && github.event_name != 'workflow_dispatch' }}
         with:
-          base: ${{ github.ref }}
+          base: ${{ github.event_name == 'push' && github.ref || '' }}
           filters: |
             shared:
               - '.github/workflows/ci.yaml'
@@ -217,7 +220,7 @@ jobs:
           ref: ${{ inputs.commit || github.sha }}
           persist-credentials: false
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22"
           package-manager-cache: false
@@ -388,7 +391,7 @@ jobs:
         run: just ci-package-cli-artifact
 
       - name: Upload CLI artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: arco-cli-linux
           path: artifacts/arco-cli-linux.tar.gz
@@ -447,7 +450,7 @@ jobs:
           save-rust-cache: "false"
 
       - name: Download CLI artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: arco-cli-linux
           path: artifacts
@@ -480,7 +483,7 @@ jobs:
           persist-credentials: false
 
       - name: Restore torc binaries
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         id: torc-cache
         with:
           path: |
@@ -510,7 +513,7 @@ jobs:
 
       - name: Save torc binaries
         if: github.ref == 'refs/heads/main' && steps.torc-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/torc
@@ -521,7 +524,7 @@ jobs:
         run: bash scripts/ci_add_cargo_bin_to_path.sh
 
       - name: Download CLI artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: arco-cli-linux
           path: artifacts
@@ -534,7 +537,7 @@ jobs:
         run: just ci-benchmarks
 
       - name: Restore previous benchmark data
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         id: benchmark-data-restore
         with:
           path: ./cache
@@ -559,7 +562,7 @@ jobs:
 
       - name: Save benchmark data
         if: github.ref == 'refs/heads/main' && steps.benchmark-data-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ./cache
           key: ${{ runner.os }}-benchmark-${{ github.ref_name }}-${{ github.run_id }}
@@ -636,7 +639,7 @@ jobs:
           save-rust-cache: "false"
 
       - name: Download CLI artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v5
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: arco-cli-linux
           path: artifacts

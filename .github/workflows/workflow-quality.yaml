@@ -25,7 +25,7 @@ jobs:
         uses: kjanat/actionlint@c9565647ad2ff016b50b148a595dfcce50975816 # v1.13.0
 
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99
+        uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
         with:
           advanced-security: false
           persona: pedantic
