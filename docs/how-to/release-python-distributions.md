@@ -57,6 +57,10 @@ wheel; Python 3.11 and later use the stable-ABI wheel. The compatibility job
 installs and imports the original wheels on Python 3.10–3.14 on each platform,
 after the complete source suite and package builds pass.
 
+On Windows, the smoke test registers only existing solver DLL directories.
+The Xpress Python runtime can provide `bin` without a `lib` directory. Missing
+optional directories are skipped; a failed `arco` import still fails the job.
+
 ## Add a wheel platform
 
 The supported wheel platforms are an explicit release contract. Adding a row to

@@ -108,7 +108,7 @@ def _build_import_code(*, import_name: str) -> str:
             add_dll_directory = getattr(os, "add_dll_directory", None)
             if add_dll_directory is not None:
                 for dll_dir in os.environ.get({_WINDOWS_DLL_DIRS_ENV!r}, "").split(os.pathsep):
-                    if dll_dir:
+                    if os.path.isdir(dll_dir):
                         dll_directory_handles.append(add_dll_directory(dll_dir))
         importlib.import_module({import_name!r})
         """
