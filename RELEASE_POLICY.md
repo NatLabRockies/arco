@@ -13,16 +13,18 @@ candidates or create a version tag.
 
 At cutoff, maintainers:
 
-1. Review the proposed version, changelog, compatibility changes, and required CI.
-2. Update the release PR branch from its base if it is behind. Release Please can
+1. Confirm that an organization or repository administrator has enabled GitHub
+   Immutable Releases. This one-time setting must be enabled before publication.
+2. Review the proposed version, changelog, compatibility changes, and required CI.
+3. Update the release PR branch from its base if it is behind. Release Please can
    leave the branch unchanged when new commits do not affect its release notes.
-3. Run Build release candidate on the base branch with the release PR number.
-4. Review the successful run and its candidate artifacts within their 30-day
+4. Run Build release candidate on the base branch with the release PR number.
+5. Review the successful run and its candidate artifacts within their 30-day
    retention window. Coordinate merges to keep the cutoff unchanged.
-5. Run Promote release candidate on the same base branch with that candidate run
+6. Run Promote release candidate on the same base branch with that candidate run
    ID. This is approval to merge the release PR, create its version tag, and publish
    those files. Do not merge the release PR directly.
-6. Verify GitHub publication and the separate Python publication run before
+7. Verify GitHub publication and the separate Python publication run before
    announcing the new version. Approve the `pypi` deployment if that environment
    has required reviewers configured.
 
@@ -41,6 +43,7 @@ sequenceDiagram
     participant GH as GitHub
     participant PY as PyPI workflow
 
+    M->>GH: Enable Immutable Releases once before publishing
     loop Development: multiple feature and fix PRs merge
         GH->>RP: Base branch updated
         RP->>GH: Accumulate changes in the release PR
@@ -57,13 +60,14 @@ sequenceDiagram
 
     M->>P: Approve a specific candidate run ID
     P->>GH: Validate candidate, current source, and release policy
-    P->>GH: Merge the approved PR through branch protection
+    P->>GH: Squash merge the approved PR through branch protection
     P->>P: Verify merged source tree matches the candidate
     P->>RP: Create the approved version tag and draft
     RP->>GH: Create tag and draft release
     P->>GH: Upload original candidate files and publish
-    Note over GH: GitHub locks the tag and release assets
+    Note over GH: When enabled before publication, GitHub locks the tag and release assets
     P->>GH: Verify release and every original candidate file
+    Note over P,PY: Verification failure stops the PyPI dispatch
 
     P->>PY: Dispatch publication at the immutable tag
     PY->>GH: Download and verify the six wheels and sdist
@@ -82,10 +86,14 @@ produces the complete files available for release approval. Neither creates the
 version tag. Promotion downloads the approved run's artifact bundle and checks
 that the release PR and its base are unchanged before merging.
 
-GitHub's normal merge can create a different commit SHA. Promotion checks that the
-merged commit has the same Git source tree as the candidate before calling Release
-Please. It then publishes the saved files without rebuilding. The read-only
+Promotion squash merges the release PR through GitHub. The squash commit has a
+different SHA from the candidate, so promotion checks that both commits have the
+same Git source tree before calling Release Please. It then publishes the saved
+files without rebuilding. The read-only
 verification job checks the release attestation and every original candidate file.
+These checks run after GitHub publication and gate the PyPI dispatch. They detect
+an immutable-release configuration failure but cannot make an existing mutable
+release immutable.
 
 Python publication runs separately because PyPI trusted publishing does not
 support reusable workflows. It downloads and verifies the Python files from the
@@ -118,7 +126,11 @@ flowchart TD
     Stage -->|Candidate expired or source changed| Fresh[Update the release PR and build a new candidate]
     Stage -->|Promotion or draft upload| Inspect[Inspect completed jobs and the existing tag or draft]
     Inspect --> Preserve[Preserve the approved files and rerun only the failed stage]
-    Stage -->|Release verification| Verify[Rerun the read-only verification job]
+    Stage -->|Release verification| Verify{Is the published release immutable?}
+    Verify -->|Yes| RetryVerify[Resolve the verification failure and rerun the read-only job]
+    Verify -->|No| Stop[Stop announcement and PyPI publication]
+    Stop --> Configure[Enable Immutable Releases for future releases]
+    Configure --> NewVersion[Publish the correction as a new version]
     Stage -->|PyPI publication| PyPI[Run the PyPI workflow with the published tag]
 ```
 
@@ -131,10 +143,15 @@ draft, remove the partial draft assets through GitHub's release editor, then rer
 the failed upload job using the original candidate. Inspect completed merge and
 Release Please jobs before retrying; do not repeat those mutations manually.
 
-Verification and PyPI failures do not require another merge, tag, or build.
-Rerun failed verification jobs, or run `publish-pypi.yml` at the published tag with
-that tag as its input. PyPI retries use `skip-existing: true` and the original
-GitHub files. Check the Python publication result separately.
+For an immutable published release, resolve transient verification failures and
+rerun the read-only verification job. PyPI failures can be retried by running
+`publish-pypi.yml` at the published tag with that tag as its input. PyPI retries
+use `skip-existing: true` and the original GitHub files.
+
+If verification finds that the published release is mutable, stop the announcement
+and do not dispatch PyPI publication. Enabling Immutable Releases protects only
+new releases; it does not change the existing release. Enable the setting, preserve
+the published tag and files, and issue a new version.
 
 If source changes are needed after tagging, issue a new version. Published tags
 and files are never replaced.
@@ -143,11 +160,14 @@ and files are never replaced.
 
 Before production release:
 
-- Enable GitHub Immutable Releases and protect `v*` tags against updates and
-  deletion. Promotion checks immutability before merging or creating a tag.
-- Configure `RELEASE_PLEASE_TOKEN` for the immutability-settings check with
-  repository Contents read and Administration read access. Release Please and
-  promotion use `GITHUB_TOKEN` for PR, merge, tag, and release operations.
+- Have an organization or repository administrator enable GitHub Immutable
+  Releases once before publishing. The setting applies to new releases, so it
+  cannot repair a release that was already published while the setting was off.
+- Protect `v*` tags against updates and deletion. Release Please and promotion use
+  the workflow-provided `GITHUB_TOKEN`; no additional personal access token is
+  required for release operations.
+- Enable squash merging in Settings → General → Pull Requests. Promotion uses
+  this method to merge the approved release PR.
 - Allow GitHub Actions to create pull requests. Require normal CI and Cargo-dist
   configuration checks through branch protection. Use the promotion procedure
   for release PRs; a direct merge leaves an unapproved release that blocks tagging.

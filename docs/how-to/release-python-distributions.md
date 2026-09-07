@@ -5,19 +5,34 @@ Choose the cutoff through the Release Please PR as described in
 then run the candidate workflow with the release PR number. It builds and tests
 six wheels and one sdist before a version tag exists.
 
+Before publishing the first release, have an organization or repository
+administrator enable GitHub Immutable Releases. The release workflows use the
+workflow-provided `GITHUB_TOKEN`; they do not require an additional personal
+access token.
+
 Review the successful candidate and approve its run through the promotion workflow.
 Promotion merges the unchanged release PR, lets Release Please create the tag and
-draft, and publishes the original files to an immutable GitHub Release.
+draft, and publishes the original files to a GitHub Release.
 
-After release verification, promotion dispatches `publish-pypi.yml` at the tag.
+Promotion verifies the release and every asset after GitHub publication. A failed
+verification prevents promotion from dispatching `publish-pypi.yml`, but it does
+not undo the published tag or release. After successful verification, promotion
+dispatches `publish-pypi.yml` at the tag.
 That workflow downloads the six wheels and sdist, verifies their GitHub release
 attestations, and publishes through PyPI trusted publishing. Check its result
 separately from the promotion run. The workflow accepts stable `vX.Y.Z` tags.
 
 ## Retry publication
 
-Use Re-run failed jobs for candidate or release verification failures. If the
-candidate source changes before approval, build and review a new candidate.
+Use Re-run failed jobs for candidate failures. If the candidate source changes
+before approval, build and review a new candidate.
+
+For a verification failure, first confirm that the published release is immutable.
+If it is immutable, resolve the verification problem and rerun the failed read-only
+job. If it is mutable, stop the announcement and PyPI publication. Enabling
+Immutable Releases now protects only future releases; it cannot change the
+existing release. Preserve its tag and files, correct the setting, and issue a new
+version.
 
 For a PyPI failure, run `publish-pypi.yml` from the published tag with the same
 `tag` input. It verifies the original GitHub files and skips distributions already
