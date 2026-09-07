@@ -77,25 +77,26 @@ jobs:
           [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           test "$base_branch" = "$WORKFLOW_BRANCH"
           test "$(jq -r .head_sha run.json)" = "$commit"
-          jq -e --argjson pr "$pr" '
-            (.pull_requests | length) == 1 and .pull_requests[0].number == $pr
-          ' run.json >/dev/null
-
           gh api "repos/$GH_REPO/pulls/$pr" > pr.json
           jq -e --arg commit "$commit" --arg base "$base" --arg branch "$base_branch" --arg repo "$GH_REPO" '
-            .state == "open" and .draft == false and
+            (.state == "open" or .merged == true) and .draft == false and
             .head.sha == $commit and .base.sha == $base and .base.ref == $branch and
             .head.repo.full_name == $repo and .user.login == "github-actions[bot]" and
             (.head.ref | startswith("release-please--branches--"))
           ' pr.json >/dev/null
+          jq -e --argjson pr "$pr" --argjson merged "$(jq .merged pr.json)" '
+            ((.pull_requests | length) == 1 and .pull_requests[0].number == $pr) or
+            ($merged and (.pull_requests | length) == 0)
+          ' run.json >/dev/null
           test "$(jq -r .head_branch run.json)" = "$(jq -r .head.ref pr.json)"
           test "$(gh api "repos/$GH_REPO/git/commits/$commit" --jq .tree.sha)" = "$tree"
-          test "$(gh api "repos/$GH_REPO/commits/$base_branch" --jq .sha)" = "$base"
-
-          mapfile -t release_prs < <(gh api --paginate "repos/$GH_REPO/pulls?state=open&base=$base_branch&per_page=100" \
-            --jq '.[] | select(.head.ref | startswith("release-please--branches--")) | .number')
-          test "${#release_prs[@]}" -eq 1
-          test "${release_prs[0]}" = "$pr"
+          if [[ "$(jq -r .merged pr.json)" == false ]]; then
+            test "$(gh api "repos/$GH_REPO/commits/$base_branch" --jq .sha)" = "$base"
+            mapfile -t release_prs < <(gh api --paginate "repos/$GH_REPO/pulls?state=open&base=$base_branch&per_page=100" \
+              --jq '.[] | select(.head.ref | startswith("release-please--branches--")) | .number')
+            test "${#release_prs[@]}" -eq 1
+            test "${release_prs[0]}" = "$pr"
+          fi
 
           pending="$(gh api --paginate \
             "repos/$GH_REPO/pulls?state=closed&base=$base_branch&per_page=100" \
@@ -105,7 +106,11 @@ jobs:
               (.head.ref | startswith("release-please--branches--")) and
               any(.labels[]; .name == "autorelease: pending")
             ) | .number')"
-          test -z "$pending"
+          if [[ "$(jq -r .merged pr.json)" == true ]]; then
+            test "$pending" = "$pr"
+          else
+            test -z "$pending"
+          fi
 
           test "$(jq -r .announcement_tag candidate/dist-manifest.json)" = "$tag"
           jq -e '.artifacts | length == 15' candidate/dist-manifest.json >/dev/null
@@ -154,7 +159,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   merge:
-    name: Merge through branch protection
+    name: Resolve release merge
     needs: verify-candidate
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -172,16 +177,21 @@ jobs:
       PR: ${{ needs.verify-candidate.outputs.pr }}
     steps:
       - id: merge
-        name: Squash merge candidate through GitHub
+        name: Reuse existing merge or squash merge through GitHub
         shell: bash
         run: |
           set -euo pipefail
-          test "$(gh api "repos/$GH_REPO/commits/$BASE_BRANCH" --jq .sha)" = "$APPROVED_BASE"
-          test "$(gh api "repos/$GH_REPO/pulls/$PR" --jq .base.sha)" = "$APPROVED_BASE"
-          gh api --method PUT "repos/$GH_REPO/pulls/$PR/merge" \
-            -f sha="$CANDIDATE_COMMIT" -f merge_method=squash > merge.json
-          jq -e '.merged == true' merge.json >/dev/null
-          merged="$(jq -r .sha merge.json)"
+          gh api "repos/$GH_REPO/pulls/$PR" > pr.json
+          if [[ "$(jq -r .merged pr.json)" == true ]]; then
+            merged="$(jq -r .merge_commit_sha pr.json)"
+          else
+            test "$(gh api "repos/$GH_REPO/commits/$BASE_BRANCH" --jq .sha)" = "$APPROVED_BASE"
+            test "$(jq -r .base.sha pr.json)" = "$APPROVED_BASE"
+            gh api --method PUT "repos/$GH_REPO/pulls/$PR/merge" \
+              -f sha="$CANDIDATE_COMMIT" -f merge_method=squash > merge.json
+            jq -e '.merged == true' merge.json >/dev/null
+            merged="$(jq -r .sha merge.json)"
+          fi
           printf 'commit=%s\n' "$merged" >> "$GITHUB_OUTPUT"
 
   tag-draft:
@@ -198,6 +208,7 @@ jobs:
     steps:
       - name: Require the approved merged source and release
         env:
+          CANDIDATE_BASE: ${{ needs.verify-candidate.outputs.base }}
           CANDIDATE_TREE: ${{ needs.verify-candidate.outputs.tree }}
           MERGED_COMMIT: ${{ needs.merge.outputs.commit }}
           BASE_BRANCH: ${{ needs.verify-candidate.outputs.base_branch }}
@@ -207,8 +218,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(gh api "repos/$GH_REPO/git/commits/$MERGED_COMMIT" --jq .tree.sha)" = "$CANDIDATE_TREE"
-          test "$(gh api "repos/$GH_REPO/commits/$BASE_BRANCH" --jq .sha)" = "$MERGED_COMMIT"
+          gh api "repos/$GH_REPO/git/commits/$MERGED_COMMIT" > merge.json
+          jq -e --arg tree "$CANDIDATE_TREE" --arg base "$CANDIDATE_BASE" '
+            .tree.sha == $tree and [.parents[].sha] == [$base]
+          ' merge.json >/dev/null
+          test "$(gh api "repos/$GH_REPO/pulls/$PR" --jq .merge_commit_sha)" = "$MERGED_COMMIT"
+          gh api "repos/$GH_REPO/compare/$MERGED_COMMIT...$BASE_BRANCH" \
+            --jq '.status == "ahead" or .status == "identical"' | grep -qx true
           pending="$(gh api --paginate \
             "repos/$GH_REPO/pulls?state=closed&base=$BASE_BRANCH&per_page=100" \
             --jq '.[] | select(

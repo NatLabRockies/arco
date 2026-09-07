@@ -117,7 +117,8 @@ before merging.
 
 Promotion squash merges the release PR through GitHub. The squash commit has a
 different SHA from the candidate, so promotion checks that both commits have the
-same Git source tree before calling Release Please. It then publishes the saved
+same Git source tree and that the squash commit's only parent is the candidate's
+base before calling Release Please. It then publishes the saved
 files without rebuilding. The read-only
 verification job checks the release attestation and every original candidate file.
 These checks run after GitHub publication and gate the PyPI dispatch. They detect
@@ -155,6 +156,9 @@ flowchart TD
     Stage -->|Source changed| Fresh[Approve the new run after Release Please updates the PR]
     Stage -->|Unpublished candidate expired, source unchanged| Rebuild[Rerun all candidate jobs and review the replacement files]
     Stage -->|Promotion or draft upload| Inspect[Inspect completed jobs and the existing tag or draft]
+    Stage -->|PR already squash merged, no release yet| Recover[Run promotion with the original successful candidate run ID]
+    Recover --> Match[Verify merge parent, source tree, and branch ancestry]
+    Match --> Publish[Tag the verified release commit and publish the original files]
     Inspect --> Preserve[Preserve the approved files and rerun only the failed stage]
     Stage -->|Release verification| Verify{Is the published release immutable?}
     Verify -->|Yes| RetryVerify[Resolve the verification failure and rerun the read-only job]
@@ -168,6 +172,14 @@ Use GitHub's Re-run failed jobs to retain successful jobs and their outputs whil
 the triggering source is unchanged. If the release PR head or base changes, wait
 for Release Please to update the PR and approve the new pending run. Approving an
 old run does not refresh its source.
+
+If the release PR was squash merged directly, run `promote-release.yml` from its
+base branch with the original successful candidate run ID. Promotion reuses the
+existing merge after checking its source tree and sole parent against the
+candidate. The merge must still be on the base branch, and the selected PR must
+be the only merged Release Please PR awaiting release. Later commits on the base
+branch are allowed; the version tag identifies the selected PR's merge commit,
+not the branch tip. The original candidate files are published without rebuilding.
 
 If an unpublished candidate's artifacts expire while its source is unchanged, a
 maintainer can use Re-run all jobs to build replacement files. Review that complete

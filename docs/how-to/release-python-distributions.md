@@ -33,6 +33,11 @@ base remain unchanged. A Release Please update supersedes the earlier candidate.
 Wait for the new pending run, approve that revision, and review its artifacts.
 Promotion rejects stale candidate approvals through its source checks.
 
+If the release PR was already squash merged, run `promote-release.yml` from its
+base branch with the original successful candidate run ID. Promotion validates
+the merge's parent and source tree, skips merging, and releases that commit's
+original artifacts. Later branch commits do not change the selected release.
+
 For a verification failure, first confirm that the published release is immutable.
 If it is immutable, resolve the verification problem and rerun the failed read-only
 job. If it is mutable, stop the announcement and PyPI publication. Enabling
