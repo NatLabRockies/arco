@@ -58,7 +58,9 @@ sequenceDiagram
     M->>GH: Approve workflows to run for the chosen PR revision
     GH->>B: Release the approved candidate run
     B->>GH: Read the triggering PR head and base
-    B->>B: Build CLI, Python, and VSIX files and run package checks
+    B->>B: Run the complete source suite at the candidate commit
+    B->>B: Build CLI, Python, and VSIX files after source checks pass
+    B->>B: Import the original wheels on Python 3.10 to 3.14
     B-->>M: Successful candidate run and files, retained for 30 days
     Note over M,P: Review window: any source change invalidates the candidate
     Note over RP,B: The version tag still does not exist
@@ -93,6 +95,14 @@ release artifacts. Once approved, it uses the triggering PR head and automatical
 selects that PR's `main` or `release/*` base. Cargo-dist plans and builds the CLI
 distributions; the shared package workflow builds Python distributions and the VS
 Code extension.
+
+The candidate first calls the shared CI workflow with every source domain enabled,
+including architecture, grammar, workflow lint, and automation tests. Release
+builds wait for that suite to pass. Preliminary platform compilation and development
+wheel builds are omitted here because the next stage builds the release artifacts.
+The package stage imports those same wheels on Python 3.10–3.14 on each supported
+platform before the candidate can succeed. See
+[Check selection](CONTRIBUTING.md#check-selection) for the ordinary PR checks.
 
 Passing the candidate workflow produces the complete files available for release
 approval but does not create the version tag. Promotion downloads the approved

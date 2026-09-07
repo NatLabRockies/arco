@@ -70,7 +70,7 @@ runs:
     - name: Restore uv cache
       if: ${{ inputs.install-uv == 'true' && inputs.cache-uv == 'true' }}
       id: uv-cache-restore
-      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: ${{ github.workspace }}/.uv-cache
         key: ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{
@@ -81,7 +81,7 @@ runs:
 
     - name: Install uv
       if: ${{ inputs.install-uv == 'true' }}
-      uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7
+      uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
       env:
         UV_CACHE_DIR: ${{ github.workspace }}/.uv-cache
       with:
@@ -100,7 +100,7 @@ runs:
     - name: Restore HiGHS native cache
       if: ${{ inputs.configure-solvers == 'true' }}
       id: highs-cache-restore
-      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: ~/.cache/arco-highs
         key: ${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}
@@ -114,7 +114,7 @@ runs:
 
     - name: Save HiGHS native cache
       if: ${{ inputs.configure-solvers == 'true' && inputs.save-solver-cache == 'true' && steps.highs-cache-restore.outputs.cache-hit != 'true' }}
-      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: ~/.cache/arco-highs
         key: ${{ runner.os }}-highs-${{ hashFiles('scripts/setup_highs_binary_env.sh') }}
@@ -122,7 +122,7 @@ runs:
     - name: Restore SCIP native cache
       if: ${{ inputs.configure-solvers == 'true' }}
       id: scip-cache-restore
-      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: ~/.cache/arco-scip
         key: ${{ runner.os }}-scip-${{ hashFiles('scripts/setup_scip_binary_env.sh') }}
@@ -141,14 +141,14 @@ runs:
 
     - name: Save SCIP native cache
       if: ${{ inputs.configure-solvers == 'true' && inputs.save-solver-cache == 'true' && steps.scip-cache-restore.outputs.cache-hit != 'true' }}
-      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: ~/.cache/arco-scip
         key: ${{ runner.os }}-scip-${{ hashFiles('scripts/setup_scip_binary_env.sh') }}
 
     - name: Cache Rust build artifacts
       if: ${{ inputs.cache-rust == 'true' }}
-      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+      uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       with:
         shared-key: ${{ inputs.rust-cache-shared-key }}
         cache-targets: true
@@ -157,7 +157,7 @@ runs:
 
     - name: Cache just toolcache
       if: ${{ inputs.install-just == 'true' }}
-      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: ${{ runner.tool_cache }}/just
         key: ${{ runner.os }}-just-${{ inputs.just-version }}
@@ -181,7 +181,7 @@ runs:
       if: ${{ inputs.install-uv == 'true' && inputs.save-uv-cache == 'true' &&
         inputs.cache-uv == 'true' && steps.uv-cache-restore.outputs.cache-hit !=
         'true' }}
-      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
       with:
         path: ${{ github.workspace }}/.uv-cache
         key: ${{ runner.os }}-uv-${{ inputs.uv-version }}-py${{

@@ -95,9 +95,20 @@ jobs:
           ' plan-dist-manifest.json >/dev/null
           printf 'tag=%s\ntree=%s\n' "$tag" "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
 
+  source-checks:
+    name: Candidate source checks
+    needs: plan
+    permissions:
+      contents: read
+      pull-requests: read # Reuse CI's read-only permission ceiling.
+    uses: $/.github/workflows/ci.yaml
+    with:
+      candidate: true
+      commit: ${{ needs.plan.outputs.commit }}
+
   native:
     name: Native CLI (${{ join(matrix.targets, ', ') }})
-    needs: plan
+    needs: [plan, source-checks]
     strategy:
       fail-fast: false
       matrix:
@@ -215,7 +226,7 @@ jobs:
 
   packages:
     name: Python and VS Code packages
-    needs: plan
+    needs: [plan, source-checks]
     uses: $/.github/workflows/build-packages.yml
     with:
       commit: ${{ needs.plan.outputs.commit }}

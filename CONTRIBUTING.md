@@ -68,10 +68,12 @@ If you touch Python bindings or Python test harnesses, keep execution under
 
 The repository ships GitHub Actions for package validation and release:
 
-- `CI` runs source, solver, package, and docs checks. Packaging changes also run
-  Python 3.10–3.14 wheel smoke checks.
-- KDL overlay validation runs the Tree-sitter grammar corpus and parses tracked
-  KDL files. Parser errors fail CI; generated parser files must match the grammar.
+- `CI` selects source, solver, package, documentation, grammar, and automation
+  checks from the changed files. Its CI result check fails if any selected job
+  fails or is cancelled. Packaging changes also check Python 3.10–3.14.
+- CI calls the shared KDL overlay and workflow-quality workflows when relevant.
+  The grammar corpus, tracked KDL files, workflow lint, security scan, and script
+  tests must pass. Generated parser files must match the grammar.
 - `release-please.yaml` uses `GITHUB_TOKEN` to open and update the release PR
   without tagging. Human pushes do not receive the same candidate approval gate.
 - `build-candidate.yml` queues on those automated release PR updates. It produces
@@ -135,3 +137,37 @@ Documentation ships with behavior changes.
 
 Include reproduction or validation steps in docs when they help others verify
 the change quickly.
+
+### Check selection
+
+| Change or event               | Checks                                                                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ordinary PR                   | Version metadata and changed-file hooks; CI selects affected domains. Rust changes also test the Python bindings and KDL examples.                |
+| Build tooling or CI routing   | All affected domains, including architecture and the platform compatibility checks.                                                               |
+| Documentation                 | Documentation tests for `docs/**`; prose elsewhere uses the changed-file hooks.                                                                   |
+| Push to `main` or `release/*` | Selected checks on the merged source; these runs also maintain shared caches and the benchmark baseline.                                          |
+| Approved release candidate    | The complete source suite at the exact candidate commit, then native and package builds, then imports of the original wheels on Python 3.10–3.14. |
+
+Source preflight checks version metadata, Rust formatting, and architecture before
+compilation. Workflow quality combines actionlint, a blocking zizmor scan, script
+tests, and the Cargo-dist plan in one job. Hooks run on the PR diff and do not set
+up solver libraries. Benchmarks retain their job summary and regression guard.
+
+Release Please PRs run their source suite inside the approved candidate workflow.
+The standalone CI run skips that duplicate work. Candidate source validation omits
+the three preliminary platform compilation jobs, development wheel builds, and
+VS Code packaging because the following release jobs build the actual artifacts.
+The candidate wheels are reused for compatibility checks; they are not rebuilt for
+each interpreter. Linux source tests still exercise the solver and KDL behavior.
+
+Use CI result as the aggregate source-check status when configuring branch rules;
+keep the separate `prek` and `lint pr title` checks as well. Successful source CI
+does not authorize a release: promotion requires a successful candidate run that
+includes artifact checks. A manual CI run selects every source domain and the
+ordinary compatibility matrix without publishing anything.
+
+The current `py-type` recipe points at the Rust `bindings/python/src/` directory
+and does not check the Python package. Python static typing remains a known gap;
+a successful CI run currently covers formatting, lint, tests, and package imports,
+not a working Python type check. Correcting the target exposes existing package
+and stub diagnostics that need a separate typing cleanup.
