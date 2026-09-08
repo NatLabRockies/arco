@@ -6,6 +6,28 @@
 
 * **solver:** expose solver-independent `LpAlgorithm` selection with native HiGHS, Xpress, and SCIP mappings; restore Python Xpress feature detection after the binding-crate split
 
+## [0.13.0](https://github.com/NatLabRockies/arco/compare/v0.12.0...v0.13.0) (2026-09-08)
+
+
+### Features
+
+* **release:** automate install commands and download table ([#421](https://github.com/NatLabRockies/arco/issues/421)) ([e2ad3b9](https://github.com/NatLabRockies/arco/commit/e2ad3b9f3beca17dda7271b40d11d18777c89685))
+
+
+### Bug Fixes
+
+* **release:** recover already merged release candidates ([#420](https://github.com/NatLabRockies/arco/issues/420)) ([4176a5a](https://github.com/NatLabRockies/arco/commit/4176a5a678d0d00e23307f8e9a6a0df3083b4329))
+
+
+### Build
+
+* **deps-dev:** bump maturin from 1.14.1 to 1.15.0 in /bindings/python ([#378](https://github.com/NatLabRockies/arco/issues/378)) ([f1a3342](https://github.com/NatLabRockies/arco/commit/f1a3342ac437250a8277d286b0dd135dcc3be5ce))
+* **deps:** bump actions/cache/restore from 5.0.5 to 6.1.0 ([#340](https://github.com/NatLabRockies/arco/issues/340)) ([68fbc32](https://github.com/NatLabRockies/arco/commit/68fbc32d9a3fa812610e369dc345e242aeb70c71))
+* **deps:** bump actions/labeler from 6.1.0 to 7.0.0 ([#369](https://github.com/NatLabRockies/arco/issues/369)) ([6c05293](https://github.com/NatLabRockies/arco/commit/6c05293d23f7e6d7c364b4ba12417fb0c956fc9f))
+* **deps:** bump actions/setup-node from 6.4.0 to 7.0.0 ([#365](https://github.com/NatLabRockies/arco/issues/365)) ([b07c64d](https://github.com/NatLabRockies/arco/commit/b07c64d5bada80fd54d6f11d38a8751f07d24272))
+* **deps:** bump astral-sh/setup-uv from 8.3.2 to 10.0.1 ([#413](https://github.com/NatLabRockies/arco/issues/413)) ([7ef6699](https://github.com/NatLabRockies/arco/commit/7ef66992bcdb4469bf056e6081c6886340741c95))
+* **deps:** bump dorny/paths-filter from 4.0.1 to 4.0.3 ([#414](https://github.com/NatLabRockies/arco/issues/414)) ([b22c60f](https://github.com/NatLabRockies/arco/commit/b22c60fb45ddd77fe1fb4b46ffcf43f5b1a60b8d))
+
 ## [0.12.0](https://github.com/NatLabRockies/arco/compare/v0.11.1...v0.12.0) (2026-09-07)
 
 
