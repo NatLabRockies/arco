@@ -11,7 +11,7 @@ _SCRIPT = Path(__file__).with_name("resolve_merged_release_candidate.sh")
 _WORKFLOW = (
     _SCRIPT.parent.parent / ".github" / "workflows" / "publish-merged-release.yml"
 )
-_FIXTURES = Path(__file__).parent / "fixtures" / "merged-release-candidate"
+_FIXTURE = Path(__file__).parent / "fixtures" / "merged-release-candidate.json"
 _MERGE_COMMIT = "0712d9dffa2647bf7a24dde88b7276b455c38520"
 _CANDIDATE_COMMIT = "8375324f1d12ec20306ea919f73b9a1e746894ea"
 
@@ -20,34 +20,44 @@ def _fake_gh(tmp_path: Path) -> Path:
     executable = tmp_path / "gh"
     executable.write_text(
         """#!/usr/bin/env python3
+import copy
+import json
 import os
 from pathlib import Path
 import sys
 
 endpoint = next(argument for argument in sys.argv[1:] if argument.startswith("repos/"))
 endpoint = endpoint.partition("?")[0]
-fixtures = Path(os.environ["GH_FIXTURES"])
+fixture = json.loads(Path(os.environ["GH_FIXTURE"]).read_text(encoding="utf-8"))
 mapping = {
-    "repos/NatLabRockies/arco/pulls/422": os.environ["PR_FIXTURE"],
-    f"repos/NatLabRockies/arco/commits/{os.environ['CANDIDATE_COMMIT']}/check-runs": os.environ["CHECKS_FIXTURE"],
-    "repos/NatLabRockies/arco/actions/jobs/102176607730": "successful-job.json",
-    "repos/NatLabRockies/arco/actions/runs/34258254258": "successful-run.json",
-    "repos/NatLabRockies/arco/actions/workflows/351832674": "candidate-workflow.json",
+    "repos/NatLabRockies/arco/pulls/422": "pull_request",
+    f"repos/NatLabRockies/arco/commits/{os.environ['CANDIDATE_COMMIT']}/check-runs": "check_runs",
+    "repos/NatLabRockies/arco/actions/jobs/102176607730": "job",
+    "repos/NatLabRockies/arco/actions/runs/34258254258": "run",
+    "repos/NatLabRockies/arco/actions/workflows/351832674": "workflow",
 }
-path = mapping.get(endpoint)
-if path is None:
+key = mapping.get(endpoint)
+if key is None:
     raise SystemExit(f"unexpected endpoint: {endpoint}")
-content = (fixtures / path).read_text(encoding="utf-8")
+payload = copy.deepcopy(fixture[key])
+if key == "pull_request" and os.environ["PR_MODE"] == "ordinary":
+    payload["user"]["login"] = "pesap"
+    payload["head"]["ref"] = "fix/ordinary-change"
+    payload["labels"] = []
+if key == "check_runs" and os.environ["CHECKS_MODE"] == "failed":
+    payload["check_runs"][0]["conclusion"] = "failure"
+if key == "check_runs" and os.environ["CHECKS_MODE"] == "duplicate":
+    duplicate = copy.deepcopy(payload["check_runs"][0])
+    duplicate["id"] += 1
+    payload["check_runs"].append(duplicate)
+    payload["total_count"] = 2
 if "--jq" in sys.argv:
     expression = sys.argv[sys.argv.index("--jq") + 1]
-    if expression == ".path":
-        import json
-
-        print(json.loads(content)["path"])
-    else:
+    if expression != ".path":
         raise SystemExit(f"unexpected jq expression: {expression}")
+    print(payload["path"])
 else:
-    print(content)
+    print(json.dumps(payload))
 """,
         encoding="utf-8",
     )
@@ -58,8 +68,8 @@ else:
 def _run_resolver(
     tmp_path: Path,
     *,
-    pr_fixture: str = "release-pr.json",
-    checks_fixture: str = "successful-check-runs.json",
+    pr_mode: str = "release",
+    checks_mode: str = "successful",
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
     _fake_gh(tmp_path)
     output = tmp_path / "github-output"
@@ -67,11 +77,10 @@ def _run_resolver(
     env.update(
         {
             "CANDIDATE_COMMIT": _CANDIDATE_COMMIT,
-            "CHECKS_FIXTURE": checks_fixture,
-            "GH_FIXTURES": str(_FIXTURES),
-            "MERGE_COMMIT": _MERGE_COMMIT,
+            "CHECKS_MODE": checks_mode,
+            "GH_FIXTURE": str(_FIXTURE),
             "PATH": f"{tmp_path}{os.pathsep}{env['PATH']}",
-            "PR_FIXTURE": pr_fixture,
+            "PR_MODE": pr_mode,
         }
     )
     result = subprocess.run(
@@ -127,7 +136,7 @@ def test_merged_release_pr_resolves_its_successful_candidate_run(
 
 
 def test_non_release_merge_is_ignored(tmp_path: Path) -> None:
-    result, values = _run_resolver(tmp_path, pr_fixture="ordinary-pr.json")
+    result, values = _run_resolver(tmp_path, pr_mode="ordinary")
 
     assert result.returncode == 0, result.stderr
     assert values == {"release": "false"}
@@ -136,7 +145,7 @@ def test_non_release_merge_is_ignored(tmp_path: Path) -> None:
 def test_merged_release_pr_requires_a_successful_candidate_check(
     tmp_path: Path,
 ) -> None:
-    result, _ = _run_resolver(tmp_path, checks_fixture="failed-check-runs.json")
+    result, _ = _run_resolver(tmp_path, checks_mode="failed")
 
     assert result.returncode != 0
     assert "successful candidate check" in result.stderr
@@ -145,7 +154,7 @@ def test_merged_release_pr_requires_a_successful_candidate_check(
 def test_merged_release_pr_requires_one_successful_candidate_check(
     tmp_path: Path,
 ) -> None:
-    result, _ = _run_resolver(tmp_path, checks_fixture="duplicate-check-runs.json")
+    result, _ = _run_resolver(tmp_path, checks_mode="duplicate")
 
     assert result.returncode != 0
     assert "successful candidate check" in result.stderr
