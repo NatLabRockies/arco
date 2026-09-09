@@ -1,0 +1,6 @@
+{
+  "id": 351832674,
+  "name": "Build release candidate",
+  "path": ".github/workflows/build-candidate.yml",
+  "state": "active"
+}

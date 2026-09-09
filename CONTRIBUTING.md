@@ -79,9 +79,9 @@ The repository ships GitHub Actions for package validation and release:
 - `build-candidate.yml` queues on those automated release PR updates. It produces
   no artifacts until a maintainer selects Approve workflows to run for the exact
   PR revision chosen as the cutoff.
-- `promote-release.yml` validates an approved candidate run, merges the release
-  PR, lets Release Please create the tag, and publishes the original files. Run it
-  manually from the release PR's base branch with the candidate run ID.
+- `publish-merged-release.yml` runs when a Release Please PR is merged, resolves the
+  successful candidate attached to that exact PR head, lets Release Please create
+  the tag, and publishes the original files.
 - `publish-pypi.yml` downloads and verifies immutable release assets for trusted
   PyPI publication. Check its result separately from release promotion.
 - Run `just release-check` after changing Cargo-dist configuration, and
@@ -162,9 +162,10 @@ each interpreter. Linux source tests still exercise the solver and KDL behavior.
 
 Use CI result as the aggregate source-check status when configuring branch rules;
 keep the separate `prek` and `lint pr title` checks as well. Successful source CI
-does not authorize a release: promotion requires a successful candidate run that
-includes artifact checks. A manual CI run selects every source domain and the
-ordinary compatibility matrix without publishing anything.
+does not authorize a release: the release PR must have a successful candidate run
+that includes artifact checks before its merge can publish. A manual CI run selects
+every source domain and the ordinary compatibility matrix without publishing
+anything.
 
 The current `py-type` recipe points at the Rust `bindings/python/src/` directory
 and does not check the Python package. Python static typing remains a known gap;

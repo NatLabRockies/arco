@@ -1,0 +1,10 @@
+{
+  "id": 34258254258,
+  "event": "pull_request",
+  "status": "completed",
+  "conclusion": "success",
+  "head_branch": "release-please--branches--main",
+  "head_sha": "8375324f1d12ec20306ea919f73b9a1e746894ea",
+  "path": ".github/workflows/build-candidate.yml",
+  "workflow_id": 351832674
+}

@@ -1,0 +1,21 @@
+{
+  "total_count": 2,
+  "check_runs": [
+    {
+      "id": 102176607730,
+      "name": "Verify and save immutable candidate",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "8375324f1d12ec20306ea919f73b9a1e746894ea",
+      "app": {"slug": "github-actions"}
+    },
+    {
+      "id": 102176607731,
+      "name": "Verify and save immutable candidate",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "8375324f1d12ec20306ea919f73b9a1e746894ea",
+      "app": {"slug": "github-actions"}
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "number": 422,
+  "state": "closed",
+  "draft": false,
+  "merged": true,
+  "merge_commit_sha": "0712d9dffa2647bf7a24dde88b7276b455c38520",
+  "user": {"login": "github-actions[bot]"},
+  "head": {
+    "ref": "release-please--branches--main",
+    "sha": "8375324f1d12ec20306ea919f73b9a1e746894ea",
+    "repo": {"full_name": "NatLabRockies/arco"}
+  },
+  "base": {
+    "ref": "main",
+    "sha": "6c05293d23f7e6d7c364b4ba12417fb0c956fc9f"
+  },
+  "labels": [{"name": "autorelease: pending"}]
+}

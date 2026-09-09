@@ -3,7 +3,7 @@
 Arco uses one version across the Rust workspace, Python package, release tag, and
 GitHub Release. Release Please updates the versions and changelog together.
 Maintainers choose the release cutoff by approving the candidate workflow for an
-exact release PR revision before Release Please creates the version tag.
+exact release PR revision. Merging that unchanged revision triggers publication.
 
 ## Maintainer responsibilities
 
@@ -23,16 +23,17 @@ At cutoff, maintainers:
    branch and builds the triggering head commit.
 5. Review the successful run and its candidate artifacts within their 30-day
    retention window. Coordinate merges to keep the cutoff unchanged.
-6. Manually run Promote release candidate on the same base branch with that
-   candidate run ID. This is approval to squash merge the release PR, create its
-   version tag, and publish those files. Do not merge the release PR directly.
+6. Squash merge the unchanged release PR. Its closed event resolves the successful
+   candidate attached to that exact PR head, creates the version tag, and publishes
+   those files. The merge is the publication trigger; there is no separate manual
+   promotion dispatch.
 7. Verify GitHub publication and the separate Python publication run before
    announcing the new version. Approve the `pypi` deployment if that environment
    has required reviewers configured.
 
 A release PR update supersedes any earlier candidate. Approve the new pending run
-for the updated head before promotion. Promotion's source checks reject a stale
-run ID. Once the version is published, ship source fixes as a new version; never
+for the updated head before merging. Promotion's source checks reject a stale
+candidate. Once the version is published, ship source fixes as a new version; never
 replace its files or move its tag.
 
 ## Ownership and flow
@@ -65,9 +66,9 @@ sequenceDiagram
     Note over M,P: Review window: any source change invalidates the candidate
     Note over RP,B: The version tag still does not exist
 
-    M->>P: Approve a specific candidate run ID
-    P->>GH: Validate candidate, current source, and release policy
-    P->>GH: Squash merge the approved PR through branch protection
+    M->>GH: Squash merge the unchanged release PR
+    GH->>P: Send the merged pull request event
+    P->>GH: Resolve the successful candidate attached to the PR head
     P->>P: Verify merged source tree matches the candidate
     P->>RP: Create the approved version tag and draft
     RP->>GH: Create tag and draft release
@@ -111,14 +112,14 @@ can succeed. See
 [Check selection](CONTRIBUTING.md#check-selection) for the ordinary PR checks.
 
 Passing the candidate workflow produces the complete files available for release
-approval but does not create the version tag. Promotion downloads the approved
-run's artifact bundle and checks that the release PR and its base are unchanged
-before merging.
+approval but does not create the version tag. When that exact release PR revision
+is squash merged, promotion resolves the successful candidate run from the check
+attached to the PR head and downloads its artifact bundle. A release PR without a
+successful candidate cannot publish.
 
-Promotion squash merges the release PR through GitHub. The squash commit has a
-different SHA from the candidate, so promotion checks that both commits have the
-same Git source tree and that the squash commit's only parent is the candidate's
-base before calling Release Please. It then publishes the saved
+The squash commit has a different SHA from the candidate, so promotion checks that
+both commits have the same Git source tree and that the squash commit's only parent
+is the candidate's base before calling Release Please. It then publishes the saved
 files without rebuilding. The read-only
 verification job checks the release attestation and every original candidate file.
 These checks run after GitHub publication and gate the PyPI dispatch. They detect
@@ -161,8 +162,8 @@ flowchart TD
     Stage -->|Source changed| Fresh[Approve the new run after Release Please updates the PR]
     Stage -->|Unpublished candidate expired, source unchanged| Rebuild[Rerun all candidate jobs and review the replacement files]
     Stage -->|Promotion or draft upload| Inspect[Inspect completed jobs and the existing tag or draft]
-    Stage -->|PR already squash merged, no release yet| Recover[Run promotion with the original successful candidate run ID]
-    Recover --> Match[Verify merge parent, source tree, and branch ancestry]
+    Stage -->|Merged PR publication did not start| Recover[Re-run the failed merged-PR workflow]
+    Recover --> Match[Resolve the candidate from the merged PR head]
     Match --> Publish[Tag the verified release commit and publish the original files]
     Inspect --> Preserve[Preserve the approved files and rerun only the failed stage]
     Stage -->|Release verification| Verify{Is the published release immutable?}
@@ -178,13 +179,14 @@ the triggering source is unchanged. If the release PR head or base changes, wait
 for Release Please to update the PR and approve the new pending run. Approving an
 old run does not refresh its source.
 
-If the release PR was squash merged directly, run `promote-release.yml` from its
-base branch with the original successful candidate run ID. Promotion reuses the
-existing merge after checking its source tree and sole parent against the
-candidate. The merge must still be on the base branch, and the selected PR must
-be the only merged Release Please PR awaiting release. Later commits on the base
-branch are allowed; the version tag identifies the selected PR's merge commit,
-not the branch tip. The original candidate files are published without rebuilding.
+If publication fails after the release PR merge, inspect the completed jobs and
+re-run only failed jobs in that merged-PR workflow. It reuses the candidate
+resolved from the successful check attached to the merged PR head. Promotion
+checks the merge's source tree and sole parent against the candidate. The merge
+must still be on the base branch, and the selected PR must be the only merged
+Release Please PR awaiting release. Later commits on the base branch are allowed;
+the version tag identifies the selected PR's merge commit, not the branch tip. The
+original candidate files are published without rebuilding.
 
 If an unpublished candidate's artifacts expire while its source is unchanged, a
 maintainer can use Re-run all jobs to build replacement files. Review that complete
@@ -218,11 +220,11 @@ Before production release:
 - Protect `v*` tags against updates and deletion. Release Please and promotion use
   the workflow-provided `GITHUB_TOKEN`; no additional personal access token is
   required for release operations.
-- Enable squash merging in Settings → General → Pull Requests. Promotion uses
+- Enable squash merging in Settings → General → Pull Requests. Maintainers use
   this method to merge the approved release PR.
-- Allow GitHub Actions to create pull requests. Require normal CI and Cargo-dist
-  configuration checks through branch protection. Use the promotion procedure
-  for release PRs; a direct merge leaves an unapproved release that blocks tagging.
+- Allow GitHub Actions to create pull requests. Require normal CI and the
+  successful candidate assembly check through branch protection. Merging an
+  unchanged Release Please PR is the publication trigger.
 - Register `publish-pypi.yml` and environment `pypi` as the PyPI trusted publisher.
 - Keep `attestations: read` on jobs that verify GitHub release attestations.
 - Run the full candidate matrix before the first production release. The
@@ -231,6 +233,6 @@ Before production release:
   Linux CLI; it does not replace Arco's solver and package validation.
 
 Release Please runs on `main` and supported `release/*` branches. Candidate runs
-select the release PR's base automatically. Run only promotion manually from that
-same base branch, using the approved candidate run ID. Backport release-tooling
-fixes when maintaining a release branch.
+select the release PR's base automatically. The merged pull request event runs
+promotion on that same base branch. Backport release-tooling fixes when maintaining
+a release branch.
