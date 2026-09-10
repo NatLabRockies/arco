@@ -13,10 +13,10 @@ administrator enable GitHub Immutable Releases. The release workflows use the
 workflow-provided `GITHUB_TOKEN`; they do not require an additional personal
 access token.
 
-Review the successful candidate, then manually run the promotion workflow from the
-same base branch with the candidate run ID. Promotion squash merges the unchanged
-release PR, lets Release Please create the tag and draft, and publishes the
-original files to a GitHub Release.
+Review the successful candidate, then squash merge that unchanged release PR.
+The merged pull request event resolves the successful candidate run attached to
+its exact head commit, lets Release Please create the tag and draft, and publishes
+the original files to a GitHub Release.
 
 Promotion verifies the release and every asset after GitHub publication. A failed
 verification prevents promotion from dispatching `publish-pypi.yml`, but it does
@@ -33,10 +33,11 @@ base remain unchanged. A Release Please update supersedes the earlier candidate.
 Wait for the new pending run, approve that revision, and review its artifacts.
 Promotion rejects stale candidate approvals through its source checks.
 
-If the release PR was already squash merged, run `promote-release.yml` from its
-base branch with the original successful candidate run ID. Promotion validates
-the merge's parent and source tree, skips merging, and releases that commit's
-original artifacts. Later branch commits do not change the selected release.
+If publication fails after the release PR is squash merged, inspect the merged-PR
+promotion run and re-run only its failed jobs. Promotion resolves the original
+candidate from the successful check attached to the PR head, validates the merge's
+parent and source tree, and releases that commit's original artifacts. Later branch
+commits do not change the selected release.
 
 For a verification failure, first confirm that the published release is immutable.
 If it is immutable, resolve the verification problem and rerun the failed read-only
@@ -115,7 +116,7 @@ Update the inventory checks after adding the platform:
 | Release stage                                                 | Required macOS Intel update                                                                                                                                        |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Candidate assembly in `.github/workflows/build-candidate.yml` | Change the total from 6 to 8 wheels and each ABI count from 3 to 4. Add checks for one `cp310-cp310-macosx_*_x86_64.whl` and one `cp311-abi3-macosx_*_x86_64.whl`. |
-| Promotion in `.github/workflows/promote-release.yml`          | Change the total from 6 to 8 wheels and require the two x86_64 macOS filename patterns alongside the arm64 patterns.                                               |
+| Promotion in `.github/workflows/publish-merged-release.yml`   | Change the total from 6 to 8 wheels and require the two x86_64 macOS filename patterns alongside the arm64 patterns.                                               |
 | PyPI publication in `.github/workflows/publish-pypi.yml`      | Change the downloaded inventory from 6 to 8 wheels and require the same two x86_64 macOS filename patterns before attestation verification and publication.        |
 | Release documentation                                         | Update the distribution target table above and the published-artifact table in `RELEASE_POLICY.md` after the platform is supported.                                |
 
