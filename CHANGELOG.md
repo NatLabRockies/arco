@@ -6,6 +6,13 @@
 
 * **solver:** expose solver-independent `LpAlgorithm` selection with native HiGHS, Xpress, and SCIP mappings; restore Python Xpress feature detection after the binding-crate split
 
+## [0.13.1](https://github.com/NatLabRockies/arco/compare/v0.13.0...v0.13.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **release:** publish approved candidate on merge ([#426](https://github.com/NatLabRockies/arco/issues/426)) ([0c353b7](https://github.com/NatLabRockies/arco/commit/0c353b78274438e34951fbb6b38920c5cd853890))
+
 ## [0.13.0](https://github.com/NatLabRockies/arco/compare/v0.12.0...v0.13.0) (2026-09-08)
 
 
