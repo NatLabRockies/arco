@@ -4,10 +4,25 @@ from dataclasses import dataclass
 from dataclasses import fields as dataclass_fields
 from dataclasses import is_dataclass
 import inspect
-from typing import Callable, TypeVar, overload
+from typing import TYPE_CHECKING, Callable, Sequence, TypeAlias, TypeVar, overload
 
 from .arco import *  # noqa: F403
 from . import arco as _arco
+
+if TYPE_CHECKING:
+    import numpy as _np
+
+    from .arco import IndexMember, IndexSet
+
+    # Operand accepted elementwise against a labeled parameter array. Model-term
+    # operands are deliberately excluded: `_binary_param` returns
+    # `NotImplemented` for them so Python defers to `VariableArray`/`ExprArray`,
+    # which produces an `ExprArray`.
+    ParamOperand: TypeAlias = (
+        "ParamArray | float | bool | Sequence[float] | _np.ndarray[object, object]"
+    )
+    # A reduction collapses one or more named axes.
+    AxisSelection: TypeAlias = "IndexSet | Sequence[IndexSet]"
 
 __doc__ = _arco.__doc__
 __all__ = list(getattr(_arco, "__all__", dir(_arco)))
@@ -204,13 +219,25 @@ def block(
 
 @dataclass(frozen=True)
 class ParamArray:
+    """Dense numeric data labeled by `IndexSet` axes.
+
+    Arithmetic aligns operands by axis label rather than axis position. A
+    `ParamArray` always carries at least one axis when built through
+    `arco.param` with axes, so elementwise operations preserve the labeled
+    array; only reductions can collapse to a scalar.
+
+    Operations against a `VariableArray` or `ExprArray` return `NotImplemented`
+    so Python defers to the reflected operator on the model-term operand, which
+    produces an `ExprArray`.
+    """
+
     _values: object
-    _axes: tuple[object, ...]
+    _axes: tuple[IndexSet, ...]
     _name: str | None = None
     __array_priority__ = 1000
 
     @property
-    def axes(self) -> tuple[object, ...]:
+    def axes(self) -> tuple[IndexSet, ...]:
         return self._axes
 
     @property
@@ -236,7 +263,7 @@ class ParamArray:
             return values.copy()
         return values
 
-    def __getitem__(self, index: object) -> object:
+    def __getitem__(self, index: object) -> ParamArray | float:
         import numpy as np
 
         values = np.asarray(self._values)[index]
@@ -247,7 +274,7 @@ class ParamArray:
 
     def _binary_param(
         self, other: object, op: Callable[[object, object], object]
-    ) -> object:
+    ) -> ParamArray | float:
         import numpy as np
 
         if isinstance(other, ParamArray):
@@ -267,40 +294,40 @@ class ParamArray:
             )
         return ParamArray(_values=result, _axes=self._axes, _name=self._name)
 
-    def __add__(self, other: object) -> object:
+    def __add__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left + right)
 
-    def __radd__(self, other: object) -> object:
+    def __radd__(self, other: ParamOperand) -> ParamArray | float:
         return self.__add__(other)
 
-    def __sub__(self, other: object) -> object:
+    def __sub__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left - right)
 
-    def __rsub__(self, other: object) -> object:
+    def __rsub__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: right - left)
 
-    def __mul__(self, other: object) -> object:
+    def __mul__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left * right)
 
-    def __rmul__(self, other: object) -> object:
+    def __rmul__(self, other: ParamOperand) -> ParamArray | float:
         return self.__mul__(other)
 
-    def __truediv__(self, other: object) -> object:
+    def __truediv__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left / right)
 
-    def __rtruediv__(self, other: object) -> object:
+    def __rtruediv__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: right / left)
 
-    def __and__(self, other: object) -> object:
+    def __and__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left & right)
 
-    def __rand__(self, other: object) -> object:
+    def __rand__(self, other: ParamOperand) -> ParamArray | float:
         return self.__and__(other)
 
-    def __or__(self, other: object) -> object:
+    def __or__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left | right)
 
-    def __ror__(self, other: object) -> object:
+    def __ror__(self, other: ParamOperand) -> ParamArray | float:
         return self.__or__(other)
 
     def __invert__(self) -> ParamArray:
@@ -317,28 +344,32 @@ class ParamArray:
             _values=-np.asarray(self._values), _axes=self._axes, _name=self._name
         )
 
-    def __ge__(self, other: object) -> object:
+    def __ge__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left >= right)
 
-    def __gt__(self, other: object) -> object:
+    def __gt__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left > right)
 
-    def __le__(self, other: object) -> object:
+    def __le__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left <= right)
 
-    def __lt__(self, other: object) -> object:
+    def __lt__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: left < right)
 
-    def __eq__(self, other: object) -> object:  # type: ignore[override]
+    def __eq__(self, other: object) -> ParamArray | float:  # type: ignore[override]
         return self._binary_param(other, lambda left, right: left == right)
 
-    def __matmul__(self, other: object) -> object:
+    def __matmul__(self, other: AxisSelection) -> ParamArray | float:
         return self.sum(over=other)
 
-    def __rshift__(self, other: object) -> object:
+    def __rshift__(self, other: AxisSelection) -> ParamArray | float:
         return self.sum(over=other)
 
-    def sum(self, *, over: object | None = None) -> object:
+    @overload
+    def sum(self, *, over: None = None) -> float: ...
+    @overload
+    def sum(self, *, over: AxisSelection) -> ParamArray | float: ...
+    def sum(self, *, over: AxisSelection | None = None) -> ParamArray | float:
         import numpy as np
 
         if over is None:
@@ -353,7 +384,7 @@ class ParamArray:
             return reduced.item()
         return ParamArray(_values=reduced, _axes=new_axes, _name=self._name)
 
-    def cumsum(self, *, over: object) -> ParamArray:
+    def cumsum(self, *, over: IndexSet) -> ParamArray:
         import numpy as np
 
         axis_index = _resolve_axis_selection(self._axes, over)
@@ -365,7 +396,7 @@ class ParamArray:
             _name=self._name,
         )
 
-    def diff(self, *, over: object) -> ParamArray:
+    def diff(self, *, over: IndexSet) -> ParamArray:
         import numpy as np
 
         axis_index = _resolve_axis_selection(self._axes, over)
@@ -378,7 +409,7 @@ class ParamArray:
         new_axes[idx] = _arco.IndexSet(name=new_axes[idx].name, members=members)
         return ParamArray(_values=new_values, _axes=tuple(new_axes), _name=self._name)
 
-    def roll(self, *, shift: int, over: object) -> ParamArray:
+    def roll(self, *, shift: int, over: IndexSet) -> ParamArray:
         import numpy as np
 
         axis_index = _resolve_axis_selection(self._axes, over)
@@ -446,20 +477,20 @@ def _axis_key(axis: object) -> tuple[str, int]:
     return (axis.name, axis.size)
 
 
-def _resolve_axis_index(axes: tuple[object, ...], axis: object) -> int:
+def _resolve_axis_index(axes: tuple[IndexSet, ...], axis: object) -> int:
     target = _axis_key(axis)
     for idx, candidate in enumerate(axes):
         if candidate is axis or _axis_key(candidate) == target:
             return idx
     for idx, candidate in enumerate(axes):
-        if isinstance(candidate, _arco.IndexSet) and candidate.name == axis.name:
+        if isinstance(candidate, _arco.IndexSet) and candidate.name == target[0]:
             return idx
     raise _arco.ArrayIndexError(
         f"IndexSet {target[0]!r} is not a dimension of this array"
     )
 
 
-def _resolve_axis_selection(axes: tuple[object, ...], selection: object) -> list[int]:
+def _resolve_axis_selection(axes: tuple[IndexSet, ...], selection: object) -> list[int]:
     if isinstance(selection, _arco.IndexSet):
         return [_resolve_axis_index(axes, selection)]
     if selection is None:
@@ -479,8 +510,8 @@ def _resolve_axis_selection(axes: tuple[object, ...], selection: object) -> list
 
 
 def _union_axes(
-    left: tuple[object, ...], right: tuple[object, ...]
-) -> tuple[object, ...]:
+    left: tuple[IndexSet, ...], right: tuple[IndexSet, ...]
+) -> tuple[IndexSet, ...]:
     axes = list(left)
     seen = {_axis_key(axis) for axis in left}
     for axis in right:
@@ -492,7 +523,9 @@ def _union_axes(
 
 
 def _align_values(
-    values: object, source_axes: tuple[object, ...], target_axes: tuple[object, ...]
+    values: object,
+    source_axes: tuple[IndexSet, ...],
+    target_axes: tuple[IndexSet, ...],
 ) -> object:
     import numpy as np
 
@@ -518,12 +551,12 @@ def _align_values(
     return np.broadcast_to(aligned, tuple(axis.size for axis in target_axes))
 
 
-def _slice_axes(axes: tuple[object, ...], index: object) -> tuple[object, ...]:
+def _slice_axes(axes: tuple[IndexSet, ...], index: object) -> tuple[IndexSet, ...]:
     if not isinstance(index, tuple):
         index = (index,)
 
     padded = list(index) + [slice(None)] * (len(axes) - len(index))
-    out: list[object] = []
+    out: list[IndexSet] = []
     for axis, part in zip(axes, padded, strict=True):
         if isinstance(part, int):
             continue
@@ -542,13 +575,13 @@ def _concatenate_params(arrays: tuple[object, ...], axis: object | None) -> Para
     first = params[0]
     axis_index = 0 if axis is None else _resolve_axis_index(first.axes, axis)
 
-    for param in params[1:]:
-        if len(param.axes) != len(first.axes):
+    for entry in params[1:]:
+        if len(entry.axes) != len(first.axes):
             raise _arco.ArrayDimensionError(
                 "all concatenated ParamArrays must have the same rank"
             )
         for idx, (left_axis, right_axis) in enumerate(
-            zip(first.axes, param.axes, strict=True)
+            zip(first.axes, entry.axes, strict=True)
         ):
             if idx == axis_index:
                 continue
@@ -558,12 +591,12 @@ def _concatenate_params(arrays: tuple[object, ...], axis: object | None) -> Para
                 )
 
     values = np.concatenate(
-        [np.asarray(param.values) for param in params], axis=axis_index
+        [np.asarray(entry.values) for entry in params], axis=axis_index
     )
     new_axes = list(first.axes)
-    concat_members: list[object] = []
-    for param in params:
-        concat_members.extend(param.axes[axis_index].members)
+    concat_members: list[IndexMember] = []
+    for entry in params:
+        concat_members.extend(entry.axes[axis_index].members)
     new_axes[axis_index] = _arco.IndexSet(
         name=first.axes[axis_index].name, members=concat_members
     )
@@ -624,8 +657,8 @@ _arco.Model.add_variables = _add_variables_compat
 
 def param(
     values: object,
-    *axis_args: object,
-    axes: tuple[object, ...] | None = None,
+    *axis_args: IndexSet | tuple[IndexSet, ...],
+    axes: tuple[IndexSet, ...] | None = None,
     name: str | None = None,
 ) -> ParamArray:
     try:
