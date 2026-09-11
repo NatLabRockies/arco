@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
     import numpy.typing as _npt
 
-    from .arco import IndexMember, IndexSet
+    from .arco import ExprArray, IndexMember, IndexSet, VariableArray
 
     # Operand accepted elementwise against a labeled parameter array. Model-term
     # operands are deliberately excluded: `_binary_param` returns
@@ -307,10 +307,22 @@ class ParamArray:
     def __rsub__(self, other: ParamOperand) -> ParamArray | float:
         return self._binary_param(other, lambda left, right: right - left)
 
-    def __mul__(self, other: ParamOperand) -> ParamArray | float:
+    @overload
+    def __mul__(self, other: VariableArray | ExprArray) -> ExprArray: ...
+
+    @overload
+    def __mul__(self, other: ParamOperand) -> ParamArray | float: ...
+
+    def __mul__(self, other: object) -> ExprArray | ParamArray | float:
         return self._binary_param(other, lambda left, right: left * right)
 
-    def __rmul__(self, other: ParamOperand) -> ParamArray | float:
+    @overload
+    def __rmul__(self, other: VariableArray | ExprArray) -> ExprArray: ...
+
+    @overload
+    def __rmul__(self, other: ParamOperand) -> ParamArray | float: ...
+
+    def __rmul__(self, other: object) -> ExprArray | ParamArray | float:
         return self.__mul__(other)
 
     def __truediv__(self, other: ParamOperand) -> ParamArray | float:

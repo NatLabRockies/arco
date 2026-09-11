@@ -2,6 +2,9 @@ from pathlib import Path
 import ast
 import re
 
+import arco
+from arco import arco as extension
+
 
 def _class_block(*, source: str, class_name: str) -> str:
     marker = f"class {class_name}:"
@@ -138,6 +141,17 @@ def test_index_set_stub_exposes_alias_signature() -> None:
 
 def _package_source() -> str:
     return (Path(__file__).resolve().parents[1] / "arco" / "__init__.py").read_text()
+
+
+def test_package_places_pure_python_param_api_at_package_level() -> None:
+    assert hasattr(arco, "ParamArray")
+    assert hasattr(arco, "param")
+    assert hasattr(arco, "error_code")
+    assert hasattr(arco, "diagnostic_codes")
+    assert not hasattr(extension, "ParamArray")
+    assert not hasattr(extension, "param")
+    assert not hasattr(extension, "error_code")
+    assert not hasattr(extension, "diagnostic_codes")
 
 
 def test_param_stub_exposes_function_signature() -> None:

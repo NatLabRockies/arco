@@ -181,7 +181,10 @@ py-lint-check:
 
 [group: 'python']
 py-type:
-    cd bindings/python && uv run --no-project --with ty ty check src/
+    uv run --no-project --with ty --with "numpy>=2.0.2" ty check \
+        --python-version 3.11 \
+        --extra-search-path bindings/python \
+        bindings/python/tests/typing
 
 [group: 'python']
 py-check:
