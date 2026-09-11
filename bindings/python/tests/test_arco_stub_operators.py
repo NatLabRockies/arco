@@ -1,4 +1,5 @@
 from pathlib import Path
+import ast
 import re
 
 
@@ -12,6 +13,21 @@ def _class_block(*, source: str, class_name: str) -> str:
     if next_class < 0:
         return source[start:]
     return source[start : start + len(marker) + next_class]
+
+
+def _class_body(*, source: str, class_name: str) -> str:
+    """Return exactly one class body from a Python module.
+
+    `_class_block` slices text between `class` markers, which runs to the end of
+    the file for the last class in a module and then captures unrelated
+    module-level code. Bound the body precisely so a signature that moves out of
+    the class cannot still satisfy an assertion.
+    """
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return ast.unparse(node)
+    raise AssertionError(f"missing class {class_name!r}")
 
 
 def _normalize_whitespace(text: str) -> str:
@@ -138,7 +154,7 @@ def test_param_stub_exposes_function_signature() -> None:
 
 
 def test_param_array_stub_exposes_labeled_operator_signatures() -> None:
-    param_block = _class_block(source=_package_source(), class_name="ParamArray")
+    param_block = _class_body(source=_package_source(), class_name="ParamArray")
     expected_signatures = [
         "def name(self) -> str | None:",
         "def __mul__(self, other: ParamOperand) -> ParamArray | float:",

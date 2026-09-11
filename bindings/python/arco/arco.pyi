@@ -18,7 +18,10 @@ if TYPE_CHECKING:
     # `ParamArray` is pure Python and lives in `arco/__init__.py`. Declaring it
     # here as well would make `arco.ParamArray` resolve to a union of two
     # unrelated classes and reject every operator declared on only one of them.
-    from arco import ParamArray as ParamArray
+    # Imported without a redundant alias so it stays private to this stub: the
+    # extension does not export `ParamArray`, so `from arco.arco import
+    # ParamArray` must not type check.
+    from arco import ParamArray
 
 BlockFnT = TypeVar("BlockFnT", bound=Callable[..., object])
 

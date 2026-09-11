@@ -316,7 +316,7 @@ diagonal or anti-diagonal constraints appear naturally.
 ## Static typing
 
 The distribution ships `py.typed`, so type checkers use arco's annotations
-directly. Two rules explain every inferred type.
+directly.
 
 Element-wise operations preserve rank. Multiplying a `ParamArray` by a
 `VariableArray` yields an `ExprArray` no matter which side comes first, and
@@ -337,6 +337,11 @@ comparing a `ParamArray` against a number yields a `ParamArray` mask.
 >>> type(weight > 0).__name__
 'ParamArray'
 ```
+
+A checker widens `ParamArray` results to `ParamArray | float`, because
+`arco.param(scalar)` with no axes builds a rank-0 array whose operations return
+plain floats. Any array built with axes stays a `ParamArray` at runtime, and the
+union still supports the operators above, so no suppression is needed.
 
 Reductions are rank-dependent, so `@`, `>>`, and `sum(over=...)` are annotated
 as `Expr | ExprArray`: collapsing every axis gives a scalar `Expr`, collapsing a

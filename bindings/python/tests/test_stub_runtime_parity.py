@@ -22,7 +22,6 @@ STUB_PATH = Path(arco.__file__).resolve().parent / "arco.pyi"
 CHECKER_ONLY_STUB_NAMES = frozenset(
     {
         "AxisSelection",
-        "BlockFnT",
         "BoundValue",
         "CooExport",
         "CrsExport",
@@ -67,12 +66,41 @@ def _pure_python_class_names() -> set[str]:
     }
 
 
+def _stub_reexported_names() -> set[str]:
+    """Names the stub marks as publicly importable from `arco.arco`.
+
+    In a stub, `from x import y as y` (a redundant alias) declares `y` as a
+    public re-export of the enclosing module. Using that form for a name the
+    extension does not export makes `from arco.arco import y` type check while
+    failing at runtime.
+    """
+    tree = ast.parse(STUB_PATH.read_text())
+    return {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.asname == alias.name
+    }
+
+
 def test_stub_declares_only_names_the_extension_exports() -> None:
     declared = _stub_top_level_names() - CHECKER_ONLY_STUB_NAMES
     missing = sorted(name for name in declared if not hasattr(extension, name))
     assert missing == [], (
         "arco.pyi documents the compiled extension `arco.arco`; these names are "
         f"declared there but only exist in arco/__init__.py: {missing}"
+    )
+
+
+def test_stub_does_not_reexport_names_the_extension_lacks() -> None:
+    leaked = sorted(
+        name for name in _stub_reexported_names() if not hasattr(extension, name)
+    )
+    assert leaked == [], (
+        "these names use the redundant-alias re-export form in arco.pyi, so "
+        "`from arco.arco import <name>` type checks but raises ImportError at "
+        f"runtime: {leaked}"
     )
 
 

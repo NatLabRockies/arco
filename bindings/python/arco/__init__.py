@@ -10,7 +10,9 @@ from .arco import *  # noqa: F403
 from . import arco as _arco
 
 if TYPE_CHECKING:
-    import numpy as _np
+    from typing import Any
+
+    import numpy.typing as _npt
 
     from .arco import IndexMember, IndexSet
 
@@ -19,7 +21,7 @@ if TYPE_CHECKING:
     # `NotImplemented` for them so Python defers to `VariableArray`/`ExprArray`,
     # which produces an `ExprArray`.
     ParamOperand: TypeAlias = (
-        "ParamArray | float | bool | Sequence[float] | _np.ndarray[object, object]"
+        "ParamArray | float | bool | Sequence[float] | _npt.NDArray[Any]"
     )
     # A reduction collapses one or more named axes.
     AxisSelection: TypeAlias = "IndexSet | Sequence[IndexSet]"
@@ -221,10 +223,9 @@ def block(
 class ParamArray:
     """Dense numeric data labeled by `IndexSet` axes.
 
-    Arithmetic aligns operands by axis label rather than axis position. A
-    `ParamArray` always carries at least one axis when built through
-    `arco.param` with axes, so elementwise operations preserve the labeled
-    array; only reductions can collapse to a scalar.
+    Arithmetic aligns operands by axis label rather than axis position, so
+    elementwise operations preserve the labeled array. Reductions and indexing
+    can collapse to a plain scalar when no axis remains.
 
     Operations against a `VariableArray` or `ExprArray` return `NotImplemented`
     so Python defers to the reflected operator on the model-term operand, which
