@@ -18,13 +18,17 @@ gen = model.add_variables(i, r, h, t, bounds=arco.NonNegativeFloat, name="GEN")
 flow = model.add_variables(
     r_from, r_to, h, t, bounds=arco.NonNegativeFloat, name="FLOW"
 )
-cf = arco.param([[[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]], i, r, h)
+cf = arco.param(
+    [[[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], [[1.0, 1.0, 1.0], [1.0, 1.0, 1.0]]], i, r, h
+)
 emit_rate = arco.param([1.0, 1.0], i)
 hours_weight = arco.param([1.0, 1.0, 1.0], h)
 emit_cap = arco.param([1.0, 1.0], t)
 peak_load = arco.param([[1.0, 1.0], [1.0, 1.0]], r, t)
 minloadfrac = arco.param([1.0, 1.0], i)
-valcap = arco.param([[[True, True], [True, True]], [[True, True], [True, True]]], i, r, t)
+valcap = arco.param(
+    [[[True, True], [True, True]], [[True, True], [True, True]]], i, r, t
+)
 
 assert_type(cf * gen, arco.ExprArray)
 assert_type(gen * cf, arco.ExprArray)
@@ -62,7 +66,9 @@ assert_type((emit_rate * cap).sum(), arco.Expr)
 model.add_variables(
     r_from,
     r_to,
-    bounds=arco.Bounds(lower=0.0, upper=arco.param([[1.0, 1.0], [1.0, 1.0]], r_from, r_to)),
+    bounds=arco.Bounds(
+        lower=0.0, upper=arco.param([[1.0, 1.0], [1.0, 1.0]], r_from, r_to)
+    ),
     active=arco.param([[True, True], [True, True]], r_from, r_to),
     name="FLOW_BOUNDED",
 )
