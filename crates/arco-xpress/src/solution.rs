@@ -18,6 +18,7 @@ pub struct Solution {
     pub(crate) core_status: CoreSolverStatus,
     pub(crate) is_mip: bool,
     pub(crate) solve_time_seconds: f64,
+    pub(crate) metadata: BTreeMap<String, f64>,
 }
 
 impl Solution {
@@ -54,6 +55,11 @@ impl Solution {
     /// Solve wall-clock time in seconds.
     pub fn solve_time_seconds(&self) -> f64 {
         self.solve_time_seconds
+    }
+
+    /// Backend-reported numeric metadata.
+    pub fn metadata(&self) -> &BTreeMap<String, f64> {
+        &self.metadata
     }
 
     /// Primal value of variable at `index`, or `None` if out of bounds.
@@ -106,7 +112,7 @@ impl Solution {
             objective_value: self.objective_value,
             status: self.core_status,
             solve_time_seconds: self.solve_time_seconds,
-            metadata: BTreeMap::new(),
+            metadata: self.metadata,
         }
     }
 }
@@ -165,6 +171,7 @@ mod tests {
             core_status: status,
             is_mip,
             solve_time_seconds: 1.5,
+            metadata: BTreeMap::new(),
         }
     }
 
@@ -358,6 +365,18 @@ mod tests {
     }
 
     #[test]
+    fn solution_metadata_is_exposed_and_converted() {
+        let mut sol = make_solution(CoreSolverStatus::Optimal, false);
+        sol.metadata.insert("xpress_baralg".to_string(), 4.0);
+
+        assert_eq!(sol.metadata().get("xpress_baralg"), Some(&4.0));
+        assert_eq!(
+            sol.into_core_solution().metadata.get("xpress_baralg"),
+            Some(&4.0)
+        );
+    }
+
+    #[test]
     fn into_core_solution_preserves_infeasible_status() {
         let sol = make_solution(CoreSolverStatus::Infeasible, true);
         let core = sol.into_core_solution();
@@ -418,6 +437,7 @@ mod tests {
             core_status: CoreSolverStatus::Unknown,
             is_mip: false,
             solve_time_seconds: 0.0,
+            metadata: BTreeMap::new(),
         };
 
         assert_eq!(sol.get_primal(0), None);

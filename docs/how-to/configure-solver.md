@@ -21,6 +21,26 @@ arco solver show
 `arco solver show` displays resolved family/profile/transport and best-effort
 availability.
 
+An embedded Xpress profile can include native solver parameters:
+
+```toml
+version = 1
+default_selection = "xpress-barrier"
+
+[profiles.xpress-barrier]
+name = "xpress-barrier"
+family = "xpress"
+transport = "embedded"
+
+[profiles.xpress-barrier.options]
+lp_algorithm = "barrier"
+
+[profiles.xpress-barrier.options.parameters]
+BARALG = "4"
+```
+
+The profile options are passed to the Xpress backend when the profile is used.
+
 > [!NOTE]
 > Legacy `solver.json` is not auto-migrated. Create `solver.toml` explicitly.
 
@@ -390,6 +410,30 @@ model.minimize(x)
 solution = model.solve(solver=solver)
 ```
 
+To select an Xpress barrier variant, set `BARALG` with the shared barrier
+algorithm preference:
+
+```python
+solver = arco.Xpress(
+    lp_algorithm=arco.LpAlgorithm.BARRIER,
+    parameters={"BARALG": "4"},
+    log_to_console=False,
+)
+solution = model.solve(solver=solver)
+assert solution.metadata["xpress_baralg"] == 4.0
+```
+
+Arco validates `BARALG` as an integer and accepts `-1` (automatic) and `1`
+through `4` (the documented barrier variants supported by the Arco Xpress
+runtime baseline). `0` is unused and other values are rejected. `BARALG` does
+not select the barrier algorithm by itself; use `lp_algorithm=BARRIER` as shown
+above. The `xpress_baralg` metadata value records the configured native control
+value. It does not identify the concrete algorithm selected by Xpress when the
+value is automatic.
+
+Rust callers use the same parameter key through
+`SolverConfig::with_parameter("BARALG", "4")`.
+
 You can also select the backend without building a dedicated solver object:
 
 ```python
@@ -401,16 +445,17 @@ solution = model.solve(solver=selection, log_to_console=False)
 
 ### Settings mapping
 
-| Setting          | Xpress control                     | Notes                                           |
-| ---------------- | ---------------------------------- | ----------------------------------------------- |
-| `time_limit`     | `XPRS_MAXTIME`                     |                                                 |
-| `mip_gap`        | `XPRS_MIPRELSTOP`                  |                                                 |
-| `tolerance`      | `XPRS_FEASTOL`                     |                                                 |
-| `presolve`       | `XPRS_PRESOLVE`                    | 1 = on, 0 = off                                 |
-| `threads`        | `XPRS_THREADS`                     |                                                 |
-| `log_to_console` | `XPRS_OUTPUTLOG`                   | 1 = on, 0 = off                                 |
-| `verbosity`      | --                                 | Unsupported; raises `SolverInvalidSettingError` |
-| `lp_algorithm`   | optimizer flags + `XPRS_CROSSOVER` | Uses the shared mapping documented above.       |
+| Setting                | Xpress control                     | Notes                                           |
+| ---------------------- | ---------------------------------- | ----------------------------------------------- |
+| `time_limit`           | `XPRS_MAXTIME`                     |                                                 |
+| `mip_gap`              | `XPRS_MIPRELSTOP`                  |                                                 |
+| `tolerance`            | `XPRS_FEASTOL`                     |                                                 |
+| `presolve`             | `XPRS_PRESOLVE`                    | 1 = on, 0 = off                                 |
+| `threads`              | `XPRS_THREADS`                     |                                                 |
+| `log_to_console`       | `XPRS_OUTPUTLOG`                   | 1 = on, 0 = off                                 |
+| `verbosity`            | --                                 | Unsupported; raises `SolverInvalidSettingError` |
+| `lp_algorithm`         | optimizer flags + `XPRS_CROSSOVER` | Uses the shared mapping documented above.       |
+| `parameters["BARALG"]` | `XPRS_BARALG`                      | Integer values `-1`, `1`, `2`, `3`, or `4`.     |
 
 ## SCIP (embedded native LP / MIP solver)
 

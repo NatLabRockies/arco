@@ -410,6 +410,57 @@ fn ensure_non_negative_finite_setting(name: &str, value: Option<f64>) -> Result<
     Ok(())
 }
 
+const BARALG_PARAMETER: &str = "BARALG";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum XpressBarAlgorithm {
+    Automatic,
+    InfeasibleStart,
+    HomogeneousSelfDual,
+    HomogeneousSelfDualWithFallback,
+    HybridGradient,
+}
+
+impl XpressBarAlgorithm {
+    fn parse(value: &str) -> Result<Self, SolverError> {
+        let parsed = value
+            .parse::<c_int>()
+            .map_err(|_| invalid_baralg_setting(value))?;
+        match parsed {
+            -1 => Ok(Self::Automatic),
+            1 => Ok(Self::InfeasibleStart),
+            2 => Ok(Self::HomogeneousSelfDual),
+            3 => Ok(Self::HomogeneousSelfDualWithFallback),
+            4 => Ok(Self::HybridGradient),
+            _ => Err(invalid_baralg_setting(value)),
+        }
+    }
+
+    const fn native_value(self) -> c_int {
+        match self {
+            Self::Automatic => -1,
+            Self::InfeasibleStart => 1,
+            Self::HomogeneousSelfDual => 2,
+            Self::HomogeneousSelfDualWithFallback => 3,
+            Self::HybridGradient => 4,
+        }
+    }
+}
+
+fn invalid_baralg_setting(value: &str) -> SolverError {
+    SolverError::InvalidSettings(format!(
+        "BARALG must be one of -1, 1, 2, 3, or 4; got '{value}'"
+    ))
+}
+
+fn xpress_baralg_setting(config: &SolverConfig) -> Result<Option<XpressBarAlgorithm>, SolverError> {
+    config
+        .parameters
+        .get(BARALG_PARAMETER)
+        .map(|value| XpressBarAlgorithm::parse(value))
+        .transpose()
+}
+
 fn lp_optimizer_flags(config: &SolverConfig) -> Result<Option<&'static CStr>, SolverError> {
     match config.lp_algorithm {
         None | Some(LpAlgorithm::Automatic) => Ok(None),
@@ -432,18 +483,28 @@ fn lp_crossover_setting(config: &SolverConfig) -> Option<c_int> {
     }
 }
 
-fn validate_solver_config(config: &SolverConfig) -> Result<(), SolverError> {
+#[derive(Debug, Clone, Copy)]
+struct ValidatedXpressConfig {
+    optimizer_flags: Option<&'static CStr>,
+    baralg: Option<XpressBarAlgorithm>,
+}
+
+fn validate_solver_config(config: &SolverConfig) -> Result<ValidatedXpressConfig, SolverError> {
     ensure_non_negative_finite_setting("time_limit", config.time_limit)?;
     ensure_non_negative_finite_setting("mip_gap", config.mip_gap)?;
     ensure_non_negative_finite_setting("tolerance", config.tolerance)?;
-    let _ = lp_optimizer_flags(config)?;
+    let optimizer_flags = lp_optimizer_flags(config)?;
 
     if let Some(0) = config.threads {
         return Err(SolverError::InvalidSettings(
             "threads must be >= 1".to_string(),
         ));
     }
-    Ok(())
+
+    Ok(ValidatedXpressConfig {
+        optimizer_flags,
+        baralg: xpress_baralg_setting(config)?,
+    })
 }
 
 #[allow(unsafe_code)]
@@ -485,6 +546,7 @@ fn apply_solver_config(
     api: &'static ffi::Api,
     prob: ffi::XPRSprob,
     config: &SolverConfig,
+    baralg: Option<XpressBarAlgorithm>,
 ) -> Result<(), SolverError> {
     let log_to_console = config.log_to_console.unwrap_or(false);
     if log_to_console {
@@ -507,6 +569,9 @@ fn apply_solver_config(
     if let Some(tolerance) = config.tolerance {
         set_dbl_control(api, prob, ffi::XPRS_FEASTOL, tolerance)?;
         set_dbl_control(api, prob, ffi::XPRS_OPTIMALITYTOL, tolerance)?;
+    }
+    if let Some(baralg) = baralg {
+        set_int_control(api, prob, ffi::XPRS_BARALG, baralg.native_value())?;
     }
     if let Some(crossover) = lp_crossover_setting(config) {
         set_int_control(api, prob, ffi::XPRS_CROSSOVER, crossover)?;
@@ -734,7 +799,6 @@ fn load_xpress_problem(
 
 struct SolveArtifacts {
     solution: Solution,
-    metadata: BTreeMap<String, f64>,
 }
 
 struct XpressResources {
@@ -749,6 +813,7 @@ pub struct PreparedXpressModel {
     env_guard: XpressGuard,
     session_guard: MutexGuard<'static, ()>,
     optimizer_flags: Option<&'static CStr>,
+    baralg: Option<XpressBarAlgorithm>,
     extract_solution: bool,
     fingerprint: ModelFingerprint,
     model_stats: SolverModelStats,
@@ -786,8 +851,9 @@ impl PreparedXpressModel {
         if model.objective().sense.is_none() && model.objective().terms.is_empty() {
             return Err(SolverError::NoObjective);
         }
-        validate_solver_config(config)?;
-        let optimizer_flags = lp_optimizer_flags(config)?;
+        let validated_config = validate_solver_config(config)?;
+        let optimizer_flags = validated_config.optimizer_flags;
+        let baralg = validated_config.baralg;
         let extract_solution = config
             .parameters
             .get("arco.extract_solution")
@@ -830,7 +896,7 @@ impl PreparedXpressModel {
         let prob_guard = xprs_create_prob(api)?;
         let prob = prob_guard.prob;
 
-        apply_solver_config(api, prob, config)?;
+        apply_solver_config(api, prob, config, baralg)?;
         load_xpress_problem(api, prob, &model_stats, load_data)?;
 
         ffi::check_xprs(unsafe {
@@ -849,6 +915,7 @@ impl PreparedXpressModel {
             env_guard,
             prob_guard,
             optimizer_flags,
+            baralg,
             extract_solution,
             fingerprint,
             model_stats,
@@ -874,7 +941,7 @@ impl PreparedXpressModel {
     pub fn solve_model_view(self) -> Result<ModelViewSolveResult, SolverError> {
         let model_stats = self.model_stats.clone();
         let fingerprint = self.fingerprint;
-        let SolveArtifacts { solution, metadata } = self.solve_artifacts()?;
+        let SolveArtifacts { solution } = self.solve_artifacts()?;
         let Solution {
             primal_values,
             variable_duals,
@@ -882,6 +949,7 @@ impl PreparedXpressModel {
             row_values,
             objective_value,
             core_status,
+            metadata,
             ..
         } = solution;
         let result = ModelViewSolveResult {
@@ -909,6 +977,7 @@ impl PreparedXpressModel {
             env_guard,
             session_guard,
             optimizer_flags,
+            baralg,
             extract_solution,
             fingerprint_seconds,
             fingerprint: _,
@@ -1026,6 +1095,9 @@ impl PreparedXpressModel {
             "num_coefficients".to_string(),
             model_stats.coefficients as f64,
         );
+        if let Some(baralg) = baralg {
+            metadata.insert("xpress_baralg".to_string(), baralg.native_value() as f64);
+        }
 
         Ok(SolveArtifacts {
             solution: Solution {
@@ -1037,8 +1109,8 @@ impl PreparedXpressModel {
                 core_status,
                 is_mip: has_integer,
                 solve_time_seconds,
+                metadata,
             },
-            metadata,
         })
     }
 }
@@ -1351,6 +1423,44 @@ mod tests {
             error,
             SolverError::InvalidSettings(message) if message == "threads must be >= 1"
         ));
+    }
+
+    #[test]
+    fn prepared_rejects_invalid_baralg_before_native_initialization() {
+        let model = build_simple_model();
+        let config = SolverConfig::new().with_parameter("BARALG", "0");
+        let error = match PreparedXpressModel::prepare(&model, &config) {
+            Err(error) => error,
+            Ok(_) => panic!("invalid BARALG must be rejected before preparation"),
+        };
+
+        assert!(matches!(
+            error,
+            SolverError::InvalidSettings(message)
+                if message.contains("BARALG") && message.contains('0')
+        ));
+    }
+
+    #[test]
+    fn accepts_supported_xpress_baralg_values() {
+        for value in ["-1", "1", "2", "3", "4"] {
+            validate_solver_config(&SolverConfig::new().with_parameter("BARALG", value))
+                .expect("documented BARALG value should be accepted");
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_xpress_baralg_values() {
+        for value in ["0", "5", "-2", "invalid", "1.0", ""] {
+            let error =
+                validate_solver_config(&SolverConfig::new().with_parameter("BARALG", value))
+                    .expect_err("unsupported BARALG value should be rejected");
+            assert!(matches!(
+                error,
+                SolverError::InvalidSettings(message)
+                    if message.contains("BARALG") && message.contains(value)
+            ));
+        }
     }
 
     #[test]

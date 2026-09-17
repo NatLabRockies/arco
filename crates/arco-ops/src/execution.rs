@@ -131,6 +131,7 @@ pub struct ScipArcoAdapter {
 #[derive(Debug, Default)]
 pub struct XpressArcoAdapter {
     pub(crate) log_to_console: bool,
+    pub(crate) solver_config: SolverConfig,
 }
 
 #[derive(Debug, Error)]
