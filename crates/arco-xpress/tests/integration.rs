@@ -186,6 +186,31 @@ fn solver_wrapper_smoke_solves_with_local_xpress_install() {
 
     let model = build_simple_model();
     let mut solver = Solver::new(&model).expect("solver wrapper");
+    solver.set_log_to_console(false);
+    let solution = match solver.solve() {
+        Ok(solution) => solution,
+        Err(SolverError::SolverSpecific(message))
+            if message.contains("Xpress license initialization failed") =>
+        {
+            return;
+        }
+        Err(error) => panic!("xpress wrapper solve succeeds: {error:?}"),
+    };
+
+    assert!(solution.is_feasible());
+    assert_close(solution.objective_value(), 2.0);
+    assert_eq!(solution.primal_values(), &[1.0]);
+}
+
+#[test]
+fn solver_wrapper_applies_baralg_hybrid_gradient() {
+    let Some(_xpress_dir) = local_xpress_dir() else {
+        return;
+    };
+    let _test_guard = lock_xpress_tests();
+
+    let model = build_simple_model();
+    let mut solver = Solver::new(&model).expect("solver wrapper");
     solver.set_config(
         SolverConfig::new()
             .with_log_to_console(false)
@@ -199,7 +224,7 @@ fn solver_wrapper_smoke_solves_with_local_xpress_install() {
         {
             return;
         }
-        Err(error) => panic!("xpress wrapper solve succeeds: {error:?}"),
+        Err(error) => panic!("xpress BARALG=4 wrapper solve succeeds: {error:?}"),
     };
 
     assert!(solution.is_feasible());
