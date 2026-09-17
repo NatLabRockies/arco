@@ -419,6 +419,7 @@ enum XpressBarAlgorithm {
     HomogeneousSelfDual,
     HomogeneousSelfDualWithFallback,
     HybridGradient,
+    AlternativeHybridGradient,
 }
 
 impl XpressBarAlgorithm {
@@ -432,6 +433,7 @@ impl XpressBarAlgorithm {
             2 => Ok(Self::HomogeneousSelfDual),
             3 => Ok(Self::HomogeneousSelfDualWithFallback),
             4 => Ok(Self::HybridGradient),
+            5 => Ok(Self::AlternativeHybridGradient),
             _ => Err(invalid_baralg_setting(value)),
         }
     }
@@ -443,13 +445,14 @@ impl XpressBarAlgorithm {
             Self::HomogeneousSelfDual => 2,
             Self::HomogeneousSelfDualWithFallback => 3,
             Self::HybridGradient => 4,
+            Self::AlternativeHybridGradient => 5,
         }
     }
 }
 
 fn invalid_baralg_setting(value: &str) -> SolverError {
     SolverError::InvalidSettings(format!(
-        "BARALG must be one of -1, 1, 2, 3, or 4; got '{value}'"
+        "BARALG must be one of -1, 1, 2, 3, 4, or 5; got '{value}'"
     ))
 }
 
@@ -1443,15 +1446,20 @@ mod tests {
 
     #[test]
     fn accepts_supported_xpress_baralg_values() {
-        for value in ["-1", "1", "2", "3", "4"] {
-            validate_solver_config(&SolverConfig::new().with_parameter("BARALG", value))
-                .expect("documented BARALG value should be accepted");
+        for (value, expected) in [("-1", -1), ("1", 1), ("2", 2), ("3", 3), ("4", 4), ("5", 5)] {
+            let validated =
+                validate_solver_config(&SolverConfig::new().with_parameter("BARALG", value))
+                    .expect("documented BARALG value should be accepted");
+            assert_eq!(
+                validated.baralg.map(XpressBarAlgorithm::native_value),
+                Some(expected)
+            );
         }
     }
 
     #[test]
     fn rejects_unsupported_xpress_baralg_values() {
-        for value in ["0", "5", "-2", "invalid", "1.0", ""] {
+        for value in ["0", "6", "-2", "invalid", "1.0", ""] {
             let error =
                 validate_solver_config(&SolverConfig::new().with_parameter("BARALG", value))
                     .expect_err("unsupported BARALG value should be rejected");

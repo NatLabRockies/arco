@@ -102,7 +102,7 @@ def test_xpress_baralg_hybrid_gradient_is_applied() -> None:
     reason="xpress backend not available in this build",
 )
 def test_xpress_rejects_unsupported_baralg_values_before_runtime_setup() -> None:
-    for value in ("0", "5", "invalid"):
+    for value in ("0", "6", "invalid"):
         with pytest.raises(
             arco.SolverInvalidSettingError,
             match=rf"BARALG.*{value}",
