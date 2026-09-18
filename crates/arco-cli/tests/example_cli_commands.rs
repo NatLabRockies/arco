@@ -1709,6 +1709,51 @@ fn run_fails_for_unsupported_embedded_family_selection() {
     let _ = fs::remove_dir_all(project_config_dir);
 }
 
+#[cfg(feature = "xpress")]
+#[test]
+fn run_xpress_profile_applies_baralg_validation() {
+    let model_path = example_path("examples/dense-lp/input.kdl");
+    let model = model_path
+        .to_str()
+        .expect("example path contains invalid unicode");
+
+    let user_config_dir = unique_temp_dir("solver-config-user-xpress-baralg");
+    let project_config_dir = unique_temp_dir("solver-config-project-xpress-baralg");
+    fs::create_dir_all(&user_config_dir).expect("create user config dir");
+    fs::create_dir_all(&project_config_dir).expect("create project config dir");
+
+    fs::write(
+        user_config_dir.join("solver.toml"),
+        "version = 1\ndefault_selection = \"xpress-baralg\"\n\n[profiles.xpress-baralg]\nname = \"xpress-baralg\"\nfamily = \"xpress\"\ntransport = \"embedded\"\n\n[profiles.xpress-baralg.options]\nlp_algorithm = \"barrier\"\n\n[profiles.xpress-baralg.options.parameters]\nBARALG = \"0\"\n",
+    )
+    .expect("write user solver config");
+
+    let user_config_dir_str = user_config_dir.to_string_lossy().into_owned();
+    let project_config_dir_str = project_config_dir.to_string_lossy().into_owned();
+    let output = run_cli_with_env(
+        &["run", model, "--compact"],
+        &[
+            ("ARCO_CONFIG_DIR", user_config_dir_str.as_str()),
+            ("ARCO_PROJECT_CONFIG_DIR", project_config_dir_str.as_str()),
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "invalid BARALG profile should fail\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("BARALG"),
+        "expected BARALG validation error, got:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(user_config_dir);
+    let _ = fs::remove_dir_all(project_config_dir);
+}
+
 #[test]
 fn run_external_scip_profile_reports_unsupported_transport() {
     let model_path = example_path("examples/dense-lp/input.kdl");

@@ -117,8 +117,9 @@ pub(crate) fn adapter_for_selection(
         SolverTransport::Embedded => match selection.family.as_str() {
             "highs" => Ok(Box::new(RustArcoAdapter::with_console_log(log_to_console))),
             #[cfg(feature = "xpress")]
-            "xpress" => Ok(Box::new(XpressArcoAdapter::with_console_log(
+            "xpress" => Ok(Box::new(XpressArcoAdapter::with_native_profile(
                 log_to_console,
+                _profile.map_or_else(SolverConfig::default, |value| value.options.clone()),
             ))),
             #[cfg(not(feature = "xpress"))]
             "xpress" => Err(
@@ -384,13 +385,21 @@ impl OptimizationAdapter for ScipArcoAdapter {
 #[cfg(all(feature = "compile", feature = "xpress"))]
 impl XpressArcoAdapter {
     pub fn new() -> Self {
-        Self {
-            log_to_console: false,
-        }
+        Self::default()
     }
 
     pub fn with_console_log(log_to_console: bool) -> Self {
-        Self { log_to_console }
+        Self {
+            log_to_console,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn with_native_profile(log_to_console: bool, solver_config: SolverConfig) -> Self {
+        Self {
+            log_to_console,
+            solver_config,
+        }
     }
 }
 
@@ -419,7 +428,8 @@ impl OptimizationAdapter for XpressArcoAdapter {
 
         info!("starting solver backend run: {}", backend);
         let solver_started = Instant::now();
-        let config = SolverConfig::default().with_log_to_console(self.log_to_console);
+        let mut config = self.solver_config.clone();
+        config.log_to_console = Some(self.log_to_console);
         let solution = solve_model_view_with_builtin_backend("xpress", &built.model, &config)
             .map_err(|source| ExecutionError::Solve {
                 backend: backend.clone(),

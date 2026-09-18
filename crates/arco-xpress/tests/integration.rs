@@ -3,7 +3,9 @@ use arco_solver::{
     LpAlgorithm, SolverConfig, SolverError, check_small_lp, check_small_milp, small_lp_model,
     small_milp_model,
 };
-use arco_xpress::{PreparedXpressModel, Solver, XpressModelViewBackend, detect_xpress_dir};
+use arco_xpress::{
+    PreparedXpressModel, Solver, XpressModelViewBackend, detect_xpress_dir, solve_model_view,
+};
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -150,6 +152,32 @@ fn model_view_solves_with_selected_lp_algorithms() {
 }
 
 #[test]
+fn model_view_applies_baralg_hybrid_gradient() {
+    let Some(_xpress_dir) = local_xpress_dir() else {
+        return;
+    };
+    let _test_guard = lock_xpress_tests();
+
+    let model = small_lp_model();
+    let config = SolverConfig::new()
+        .with_log_to_console(false)
+        .with_lp_algorithm(LpAlgorithm::Barrier)
+        .with_parameter("BARALG", "4");
+    let result = match solve_model_view(&model, &config) {
+        Ok(result) => result,
+        Err(SolverError::SolverSpecific(message))
+            if message.contains("Xpress license initialization failed") =>
+        {
+            return;
+        }
+        Err(error) => panic!("Xpress BARALG=4 solve succeeds: {error:?}"),
+    };
+
+    assert_close(result.objective_value, 2.0);
+    assert_eq!(result.metadata.get("xpress_baralg"), Some(&4.0));
+}
+
+#[test]
 fn solver_wrapper_smoke_solves_with_local_xpress_install() {
     let Some(_xpress_dir) = local_xpress_dir() else {
         return;
@@ -172,6 +200,37 @@ fn solver_wrapper_smoke_solves_with_local_xpress_install() {
     assert!(solution.is_feasible());
     assert_close(solution.objective_value(), 2.0);
     assert_eq!(solution.primal_values(), &[1.0]);
+}
+
+#[test]
+fn solver_wrapper_applies_baralg_hybrid_gradient() {
+    let Some(_xpress_dir) = local_xpress_dir() else {
+        return;
+    };
+    let _test_guard = lock_xpress_tests();
+
+    let model = build_simple_model();
+    let mut solver = Solver::new(&model).expect("solver wrapper");
+    solver.set_config(
+        SolverConfig::new()
+            .with_log_to_console(false)
+            .with_lp_algorithm(LpAlgorithm::Barrier)
+            .with_parameter("BARALG", "4"),
+    );
+    let solution = match solver.solve() {
+        Ok(solution) => solution,
+        Err(SolverError::SolverSpecific(message))
+            if message.contains("Xpress license initialization failed") =>
+        {
+            return;
+        }
+        Err(error) => panic!("xpress BARALG=4 wrapper solve succeeds: {error:?}"),
+    };
+
+    assert!(solution.is_feasible());
+    assert_close(solution.objective_value(), 2.0);
+    assert_eq!(solution.primal_values(), &[1.0]);
+    assert_eq!(solution.metadata().get("xpress_baralg"), Some(&4.0));
 }
 
 #[test]

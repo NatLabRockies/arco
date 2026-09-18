@@ -82,6 +82,43 @@ def test_xpress_solver_object_solves_model() -> None:
     (not HAS_XPRESS_RUNTIME) or (not HAS_XPRESS_BACKEND),
     reason="xpress runtime/backend not available in this build",
 )
+def test_xpress_baralg_hybrid_gradient_is_applied() -> None:
+    result = solve_xpress_or_skip(
+        build_model(),
+        arco.Xpress(
+            log_to_console=False,
+            lp_algorithm=arco.LpAlgorithm.BARRIER,
+            parameters={"BARALG": "4"},
+        ),
+    )
+
+    assert result.is_optimal()
+    assert result.objective_value == pytest.approx(2.0)
+    assert result.metadata["xpress_baralg"] == pytest.approx(4.0)
+
+
+@pytest.mark.skipif(
+    not HAS_XPRESS_BACKEND,
+    reason="xpress backend not available in this build",
+)
+def test_xpress_rejects_unsupported_baralg_values_before_runtime_setup() -> None:
+    for value in ("0", "6", "invalid"):
+        with pytest.raises(
+            arco.SolverInvalidSettingError,
+            match=rf"BARALG.*{value}",
+        ):
+            build_model().solve(
+                solver=arco.Xpress(
+                    log_to_console=False,
+                    parameters={"BARALG": value},
+                )
+            )
+
+
+@pytest.mark.skipif(
+    (not HAS_XPRESS_RUNTIME) or (not HAS_XPRESS_BACKEND),
+    reason="xpress runtime/backend not available in this build",
+)
 def test_xpress_solver_selection_family_solves_model() -> None:
     runtime_dir = XPRESS_RUNTIME_INFO.get("runtime_dir")
     if runtime_dir:

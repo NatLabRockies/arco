@@ -5,6 +5,7 @@
 ### Bug Fixes
 
 * **solver:** expose solver-independent `LpAlgorithm` selection with native HiGHS, Xpress, and SCIP mappings; restore Python Xpress feature detection after the binding-crate split
+* **xpress:** validate and apply `BARALG` barrier algorithm configuration ([#431](https://github.com/NatLabRockies/arco/issues/431))
 
 ## [0.13.1](https://github.com/NatLabRockies/arco/compare/v0.13.0...v0.13.1) (2026-09-10)
 
