@@ -292,9 +292,6 @@ jobs:
           curl --proto '=https' --tlsv1.2 -LsSf \
             "https://github.com/astral-sh/hawk/releases/download/${HAWK_VERSION}/cargo-hawk-installer.sh" | sh
 
-      - name: Generate lockfile
-        run: cargo +"${RUST_TOOLCHAIN_VERSION}" generate-lockfile
-
       - name: Run Hawk
         run: cargo +1.97.1 hawk check --target-dir target/hawk -D warnings
 
