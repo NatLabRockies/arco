@@ -7,6 +7,19 @@
 * **solver:** expose solver-independent `LpAlgorithm` selection with native HiGHS, Xpress, and SCIP mappings; restore Python Xpress feature detection after the binding-crate split
 * **xpress:** validate and apply `BARALG` barrier algorithm configuration ([#431](https://github.com/NatLabRockies/arco/issues/431))
 
+## [0.14.0](https://github.com/NatLabRockies/arco/compare/v0.13.1...v0.14.0) (2026-09-19)
+
+
+### Features
+
+* **xpress:** support BARALG solver configuration ([#432](https://github.com/NatLabRockies/arco/issues/432)) ([79d475a](https://github.com/NatLabRockies/arco/commit/79d475ac1f6148cdfc7072081ab3e09f1f6f21c0))
+
+
+### Bug Fixes
+
+* **ci:** sync workspace lock versions before Hawk ([#435](https://github.com/NatLabRockies/arco/issues/435)) ([a43feef](https://github.com/NatLabRockies/arco/commit/a43feefd9b1560a0476d287838e1f403decfcdde))
+* **release:** pin Rust 1.85 dependency resolution ([#434](https://github.com/NatLabRockies/arco/issues/434)) ([8aad7d1](https://github.com/NatLabRockies/arco/commit/8aad7d1e215f9e808f15b5df2363ffafca24508c))
+
 ## [0.13.1](https://github.com/NatLabRockies/arco/compare/v0.13.0...v0.13.1) (2026-09-10)
 
 
