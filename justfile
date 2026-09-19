@@ -119,6 +119,7 @@ rust-test:
 
 [group: 'rust']
 hawk:
+    cargo +${RUST_TOOLCHAIN_VERSION:-1.85.1} update -p arco-cli
     ARCO_HIGHS_ENABLE_APPLE_STATIC=1 "{{ solver-build-env }}" cargo +${HAWK_TOOLCHAIN_VERSION:-1.97.1} hawk check --target-dir target/hawk -D warnings
 
 [group: 'rust']
