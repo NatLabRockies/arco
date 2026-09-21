@@ -313,6 +313,93 @@ reverses the column order. Both return `ExprArray` objects.
 These operations are useful for assignment and scheduling problems where
 diagonal or anti-diagonal constraints appear naturally.
 
+## Static typing
+
+The distribution ships `py.typed`, so type checkers use arco's annotations
+directly.
+
+Element-wise operations preserve rank. Multiplying a `ParamArray` by a
+`VariableArray` yields an `ExprArray` no matter which side comes first, and
+comparing a `ParamArray` against a number yields a `ParamArray` mask.
+
+```python doctest
+>>> import arco
+>>> import numpy as np
+>>> model = arco.Model()
+>>> i = arco.IndexSet(name="i", members=["gas", "wind"])
+>>> h = arco.IndexSet(name="h", members=[0, 1, 2])
+>>> gen = model.add_variables(axes=(i, h), bounds=arco.NonNegativeFloat, name="GEN")
+>>> weight = arco.param(np.array([1.0, 2.0]), axes=(i,))
+>>> type(weight * gen).__name__
+'ExprArray'
+>>> type(gen * weight).__name__
+'ExprArray'
+>>> type(weight > 0).__name__
+'ParamArray'
+```
+
+A checker widens `ParamArray` results to `ParamArray | float`, because
+`arco.param(scalar)` with no axes builds a rank-0 array whose operations return
+plain floats. Any array built with axes stays a `ParamArray` at runtime, and the
+union still supports the operators above, so no suppression is needed.
+
+Reductions are rank-dependent, so `@`, `>>`, and `sum(over=...)` are annotated
+as `Expr | ExprArray`: collapsing every axis gives a scalar `Expr`, collapsing a
+subset keeps the rest in an `ExprArray`.
+
+```python doctest
+>>> import arco
+>>> model = arco.Model()
+>>> i = arco.IndexSet(name="i", members=["gas", "wind"])
+>>> h = arco.IndexSet(name="h", members=[0, 1, 2])
+>>> gen = model.add_variables(axes=(i, h), bounds=arco.NonNegativeFloat, name="GEN")
+>>> type(gen @ h).__name__
+'ExprArray'
+>>> type(gen @ (i, h)).__name__
+'Expr'
+>>> type(gen.sum()).__name__
+'Expr'
+```
+
+When you need a member that only exists on the array form, narrow the union with
+`isinstance`. A checker then accepts the array-only call with no suppression
+comment.
+
+```python doctest
+>>> import arco
+>>> model = arco.Model()
+>>> i = arco.IndexSet(name="i", members=["gas", "wind"])
+>>> h = arco.IndexSet(name="h", members=[0, 1, 2])
+>>> gen = model.add_variables(axes=(i, h), bounds=arco.NonNegativeFloat, name="GEN")
+>>> by_hour = gen @ i
+>>> isinstance(by_hour, arco.ExprArray)
+True
+>>> h_alias = h.alias("hour")
+>>> type(by_hour.relabel_axis(h, h_alias)).__name__
+'ExprArray'
+```
+
+Prefer arco's own `diff`, `cumsum`, and `roll` methods over the equivalent numpy
+free functions. The numpy versions work at runtime through
+`__array_function__`, but numpy's annotations cannot describe a labeled axis, so
+a checker rejects `axis=IndexSet`. The methods build the identical model.
+
+```python doctest
+>>> import arco
+>>> import numpy as np
+>>> model = arco.Model()
+>>> i = arco.IndexSet(name="i", members=["gas", "wind"])
+>>> h = arco.IndexSet(name="h", members=[0, 1, 2])
+>>> gen = model.add_variables(axes=(i, h), bounds=arco.NonNegativeFloat, name="GEN")
+>>> ramp = gen.diff(over=h)          # checks cleanly
+>>> ramp.shape == np.diff(gen, axis=h).shape
+True
+>>> type(gen.roll(shift=-1, over=h)).__name__
+'ExprArray'
+>>> type(gen.cumsum(over=h)).__name__
+'ExprArray'
+```
+
 ---
 
 [How-to Guides](./) | [Docs home](../)

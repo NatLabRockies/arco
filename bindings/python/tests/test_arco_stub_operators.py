@@ -1,5 +1,9 @@
 from pathlib import Path
+import ast
 import re
+
+import arco
+from arco import arco as extension
 
 
 def _class_block(*, source: str, class_name: str) -> str:
@@ -12,6 +16,21 @@ def _class_block(*, source: str, class_name: str) -> str:
     if next_class < 0:
         return source[start:]
     return source[start : start + len(marker) + next_class]
+
+
+def _class_body(*, source: str, class_name: str) -> str:
+    """Return exactly one class body from a Python module.
+
+    `_class_block` slices text between `class` markers, which runs to the end of
+    the file for the last class in a module and then captures unrelated
+    module-level code. Bound the body precisely so a signature that moves out of
+    the class cannot still satisfy an assertion.
+    """
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return ast.unparse(node)
+    raise AssertionError(f"missing class {class_name!r}")
 
 
 def _normalize_whitespace(text: str) -> str:
@@ -74,14 +93,16 @@ def test_variable_array_stub_exposes_operator_signatures() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
     variable_array_block = _class_block(source=source, class_name="VariableArray")
     expected_signatures = [
-        "def __sub__(self, other: VariableArray | ExprArray | ParamArray | float | Sequence[float]) -> ExprArray: ...",
+        "def __sub__(self, other: LinearOperand | NumericOperand) -> ExprArray: ...",
         "def __ge__(",
+        "def __matmul__(self, other: AxisSelection) -> Expr | ExprArray: ...",
+        "def __rshift__(self, other: AxisSelection) -> Expr | ExprArray: ...",
         "def __len__(self) -> int: ...",
         "def __iter__(self) -> Iterator[Variable | Expr]: ...",
         "def __getitem__(self, index: int | slice | tuple[object, ...] | object) -> Variable | Expr | VariableArray: ...",
         "def dense_count(self) -> int: ...",
         "def active_count(self) -> int: ...",
-        "def cumsum(self, *, over: IndexSet) -> Expr | ExprArray: ...",
+        "def cumsum(self, *, over: IndexSet) -> ExprArray: ...",
     ]
     _assert_signatures_present(
         block=variable_array_block, expected_signatures=expected_signatures
@@ -92,12 +113,14 @@ def test_expr_array_stub_exposes_operator_signatures() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
     expr_array_block = _class_block(source=source, class_name="ExprArray")
     expected_signatures = [
-        "def __add__(self, other: VariableArray | ExprArray | ParamArray | float | Sequence[float]) -> ExprArray: ...",
+        "def __add__(self, other: LinearOperand | NumericOperand) -> ExprArray: ...",
         "def __le__(",
+        "def __matmul__(self, other: AxisSelection) -> Expr | ExprArray: ...",
+        "def relabel_axis(self, old_axis: IndexSet, new_axis: IndexSet) -> ExprArray: ...",
         "def __len__(self) -> int: ...",
         "def __iter__(self) -> Iterator[Expr]: ...",
         "def __getitem__(self, index: int | slice | tuple[object, ...] | object) -> Expr | ExprArray: ...",
-        "def roll(self, *, shift: int, over: IndexSet) -> Expr | ExprArray: ...",
+        "def roll(self, *, shift: int, over: IndexSet) -> ExprArray: ...",
     ]
     _assert_signatures_present(
         block=expr_array_block, expected_signatures=expected_signatures
@@ -116,26 +139,41 @@ def test_index_set_stub_exposes_alias_signature() -> None:
     )
 
 
+def _package_source() -> str:
+    return (Path(__file__).resolve().parents[1] / "arco" / "__init__.py").read_text()
+
+
+def test_package_places_pure_python_param_api_at_package_level() -> None:
+    assert hasattr(arco, "ParamArray")
+    assert hasattr(arco, "param")
+    assert hasattr(arco, "error_code")
+    assert hasattr(arco, "diagnostic_codes")
+    assert not hasattr(extension, "ParamArray")
+    assert not hasattr(extension, "param")
+    assert not hasattr(extension, "error_code")
+    assert not hasattr(extension, "diagnostic_codes")
+
+
 def test_param_stub_exposes_function_signature() -> None:
-    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
-    normalized = _normalize_whitespace(source)
+    # `param` is pure Python, so its signature lives in the package module
+    # rather than in the extension stub.
+    normalized = _normalize_whitespace(_package_source())
     for fragment in [
         "def param(",
-        "axes: tuple[IndexSet, ...]",
+        "axes: tuple[IndexSet, ...] | None = None",
         "name: str | None = None",
-        ") -> ParamArray: ...",
+        ") -> ParamArray:",
     ]:
         assert _normalize_whitespace(fragment) in normalized
 
 
 def test_param_array_stub_exposes_labeled_operator_signatures() -> None:
-    source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
-    param_block = _class_block(source=source, class_name="ParamArray")
+    param_block = _class_body(source=_package_source(), class_name="ParamArray")
     expected_signatures = [
-        "def name(self) -> str | None: ...",
-        "def __mul__(self, other: ParamArray | float | object) -> object: ...",
-        "def __matmul__(self, other: IndexSet | Sequence[IndexSet]) -> object: ...",
-        "def cumsum(self, *, over: IndexSet) -> ParamArray: ...",
+        "def name(self) -> str | None:",
+        "def __mul__(self, other: ParamOperand) -> ParamArray | float:",
+        "def __matmul__(self, other: AxisSelection) -> ParamArray | float:",
+        "def cumsum(self, *, over: IndexSet) -> ParamArray:",
     ]
     _assert_signatures_present(
         block=param_block, expected_signatures=expected_signatures
@@ -212,13 +250,20 @@ def test_stub_exposes_public_api_diagnostic_helpers_and_errors() -> None:
     source = (Path(__file__).resolve().parents[1] / "arco" / "arco.pyi").read_text()
 
     expected_top_level = [
-        "def error_code(exc: BaseException) -> str | None: ...",
-        "def diagnostic_codes() -> dict[str, str]: ...",
         "class MetadataConversionError(ArcoError): ...",
         "class BlockArtifactError(ArcoError): ...",
         "class SolverNotAvailableError(ArcoError): ...",
     ]
     _assert_signatures_present(block=source, expected_signatures=expected_top_level)
+
+    # `error_code` and `diagnostic_codes` are pure Python.
+    _assert_signatures_present(
+        block=_package_source(),
+        expected_signatures=[
+            "def error_code(exc: BaseException) -> str | None:",
+            "def diagnostic_codes() -> dict[str, str]:",
+        ],
+    )
 
 
 def test_model_iterator_stubs_expose_stable_protocol() -> None:
