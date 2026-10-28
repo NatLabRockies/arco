@@ -80,18 +80,18 @@ dependencies = [
 
 [[package]]
 name = "arco-arrays"
-version = "0.13.1"
+version = "0.14.0"
 
 [[package]]
 name = "arco-blocks"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "toml",
 ]
 
 [[package]]
 name = "arco-builtin-solvers"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-highs",
  "arco-ops",
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "arco-cli"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-diagnostics",
  "arco-ops",
@@ -122,11 +122,11 @@ dependencies = [
 
 [[package]]
 name = "arco-diagnostics"
-version = "0.13.1"
+version = "0.14.0"
 
 [[package]]
 name = "arco-format"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "miette",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "arco-highs"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "arco-solver",
@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "arco-ipopt"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "arco-solver",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "arco-kdl"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-diagnostics",
  "arco-model",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "arco-model"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -180,7 +180,7 @@ dependencies = [
 
 [[package]]
 name = "arco-ops"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-diagnostics",
  "arco-format",
@@ -205,7 +205,7 @@ dependencies = [
 
 [[package]]
 name = "arco-python"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-python-core",
  "arco-python-types",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "arco-python-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-arrays",
  "arco-blocks",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "arco-python-types"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-arrays",
  "arco-diagnostics",
@@ -252,11 +252,11 @@ dependencies = [
 
 [[package]]
 name = "arco-runtime"
-version = "0.13.1"
+version = "0.14.0"
 
 [[package]]
 name = "arco-scip"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-format",
  "arco-model",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "arco-solver"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "serde",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "arco-tools"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "sysinfo",
  "tracing",
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "arco-validate"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-diagnostics",
  "arco-model",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "arco-xpress"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "arco-solver",
@@ -1211,26 +1211,26 @@ dependencies = [
 
 [[package]]
 name = "pyo3-macros"
-version = "0.29.2"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73225868fc1cd84eef2c3c230ddb91273bf1de46aeb8a4248da76d32a0924a1c"
+checksum = "c46d2e5862c7bb8207e3b639f713dda3c499933444784154c11d013c5a691b60"
 dependencies = [
  "proc-macro2",
  "pyo3-macros-backend",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.6",
 ]
 
 [[package]]
 name = "pyo3-macros-backend"
-version = "0.29.2"
+version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "571575aa3749fa6216757dd47d2a3e7ef360f329a40f0666a9fbd14889024952"
+checksum = "38b89f066f2ae72a2aef52d1537ca2fcd104440ebfadee06e97aa90738a25b9b"
 dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.6",
 ]
 
 [[package]]
