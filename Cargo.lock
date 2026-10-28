@@ -80,18 +80,18 @@ dependencies = [
 
 [[package]]
 name = "arco-arrays"
-version = "0.13.1"
+version = "0.14.0"
 
 [[package]]
 name = "arco-blocks"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "toml",
 ]
 
 [[package]]
 name = "arco-builtin-solvers"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-highs",
  "arco-ops",
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "arco-cli"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-diagnostics",
  "arco-ops",
@@ -122,11 +122,11 @@ dependencies = [
 
 [[package]]
 name = "arco-diagnostics"
-version = "0.13.1"
+version = "0.14.0"
 
 [[package]]
 name = "arco-format"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "miette",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "arco-highs"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "arco-solver",
@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "arco-ipopt"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "arco-solver",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "arco-kdl"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-diagnostics",
  "arco-model",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "arco-model"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -180,7 +180,7 @@ dependencies = [
 
 [[package]]
 name = "arco-ops"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-diagnostics",
  "arco-format",
@@ -205,7 +205,7 @@ dependencies = [
 
 [[package]]
 name = "arco-python"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-python-core",
  "arco-python-types",
@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "arco-python-core"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-arrays",
  "arco-blocks",
@@ -238,7 +238,7 @@ dependencies = [
 
 [[package]]
 name = "arco-python-types"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-arrays",
  "arco-diagnostics",
@@ -252,11 +252,11 @@ dependencies = [
 
 [[package]]
 name = "arco-runtime"
-version = "0.13.1"
+version = "0.14.0"
 
 [[package]]
 name = "arco-scip"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-format",
  "arco-model",
@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "arco-solver"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "serde",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "arco-tools"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "sysinfo",
  "tracing",
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "arco-validate"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-diagnostics",
  "arco-model",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "arco-xpress"
-version = "0.13.1"
+version = "0.14.0"
 dependencies = [
  "arco-model",
  "arco-solver",
@@ -1410,9 +1410,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.151"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
  "itoa",
  "memchr",
